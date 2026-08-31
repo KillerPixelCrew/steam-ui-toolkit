@@ -31,6 +31,12 @@ public sealed class SteamUiBridgeWireTests
         "contextGeneration":2,"documentGeneration":1,"payload":{"value":60}}
         """;
 
+    private static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> Vocabulary =
+        new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+        {
+            ["wsgm.native-qam.frame-limit"] = ["setFrameLimit"],
+        };
+
     [Fact]
     public void TheBootstrapsCamelCaseEnvelopeDecodesIntoEveryField()
     {
@@ -56,7 +62,7 @@ public sealed class SteamUiBridgeWireTests
         SteamUiBridgeRequest request = JsonSerializer.Deserialize(
             CapturedEnvelope,
             SteamUiBridgeJsonContext.Default.SteamUiBridgeRequest)!;
-        SteamUiBridgeAuthorizer authorizer = new(Generations());
+        SteamUiBridgeAuthorizer authorizer = new(Generations(), Vocabulary);
 
         SteamUiBridgeAuthorizationResult result = authorizer.Authorize(request);
 
@@ -64,22 +70,19 @@ public sealed class SteamUiBridgeWireTests
     }
 
     [Fact]
-    public void EveryNativeQamComponentsCommandIsAuthorized()
+    public void EveryConsumerDeclaredCommandIsAuthorized()
     {
-        // The bootstrap declares one command per component and gates subscriptions on the same
-        // allowlist. AutoTDP was missing from it, so its row threw on every render.
+        // The bootstrap gates subscriptions on the same vocabulary. A state-only identity must be
+        // present even though there is no request to authorize for it.
         (string PatchId, string Command)[] declared =
         [
-            ("wsgm.native-qam.tdp", "setPrimaryLimit"),
-            ("wsgm.native-qam.auto-tdp", "setAutoTdp"),
             ("wsgm.native-qam.frame-limit", "setFrameLimit"),
-            ("wsgm.native-qam.controller-target", "setControllerTarget"),
         ];
 
         long sequence = 0;
         foreach ((string patchId, string command) in declared)
         {
-            SteamUiBridgeAuthorizer authorizer = new(Generations());
+            SteamUiBridgeAuthorizer authorizer = new(Generations(), Vocabulary);
             SteamUiBridgeRequest request = new(
                 SteamUiBridgeHost.SchemaVersion,
                 "request",

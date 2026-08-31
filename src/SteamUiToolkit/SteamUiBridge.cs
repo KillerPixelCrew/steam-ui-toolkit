@@ -34,108 +34,26 @@ public sealed record SteamUiBridgeRequest(
 /// <param name="Reason">A bounded rejection reason.</param>
 public readonly record struct SteamUiBridgeAuthorizationResult(bool Accepted, string? Reason);
 
-/// <summary>Authorizes native-QAM commands without exposing generic evaluation or host APIs.</summary>
+/// <summary>Authorizes consumer-declared commands without exposing generic evaluation or host APIs.</summary>
 public sealed class SteamUiBridgeAuthorizer
 {
-    private static readonly IReadOnlyDictionary<string, string[]> Commands =
-        new Dictionary<string, string[]>(StringComparer.Ordinal)
-        {
-            ["wsgm.native-qam.tdp"] = ["setPrimaryLimit"],
-
-            // The bootstrap declares this component with command "setAutoTdp" and its control
-            // subscribes to the patch id on mount. The id was missing here, and the JS gate is
-            // `Object.hasOwn(config.allowed, patchId)` for subscriptions as well as commands, so
-            // the AutoTDP row threw "subscription not allowlisted" every time it rendered — the one
-            // native-QAM control that could never receive state.
-            ["wsgm.native-qam.auto-tdp"] = ["setAutoTdp"],
-            // Two commands, one row. With the frame limit switched off the unified slider becomes
-            // the refresh rate itself, which is what SteamOS's own row does — so the second
-            // command belongs to this control, not to the separate manual-refresh row that stays
-            // hidden while a cap owns the rate.
-            ["wsgm.native-qam.frame-limit"] = ["setFrameLimit", "setRefreshRate"],
-            ["wsgm.native-qam.controller-target"] = ["setControllerTarget"],
-
-            // Hand-built like the resolution row above, and for the same kind of reason: Valve
-            // ships a VRR component, but it is gated on a react-query over
-            // SteamClient.System.DisplayManager, which this client does not define. The query never
-            // succeeds and the component returns null before reading anything WSGM publishes.
-            ["wsgm.native-qam.vrr"] = ["setVariableRefreshRate"],
-            ["wsgm.native-qam.shell"] = ["toggleQuickAccess"],
-
-            // Audio is supplied as a namespace rather than drawn as a row, so its vocabulary is the
-            // set of operations Steam's own audio store calls: the device list it asks for once at
-            // construction, and the two changes its device picker and volume slider can make.
-            // Registration is not a command — the store subscribes to this patch id for state, and
-            // the JS gate checks the id for subscriptions as well as commands.
-            ["wsgm.native-qam.audio"] = ["getDevices", "setDefaultDevice", "setVolume"],
-
-            // One command, because every performance setter in Steam's own store funnels into
-            // UpdateSettings with a protobuf delta. The delta says which control moved, so a
-            // per-control vocabulary here would only duplicate what the payload already carries.
-            ["wsgm.native-qam.perf"] = ["updateSettings"],
-
-            // The same trap the AutoTDP comment above records, walked into again on 2026-08-30:
-            // this row subscribes to its patch id on mount, the id was missing here, and
-            // subscribe() threw "subscription not allowlisted" during render — which Steam's error
-            // boundary turned into a blank Performance tab, not a missing row.
-            //
-            // ANY new native-QAM control needs its id here before it renders, whether or not it
-            // sends commands.
-            ["wsgm.native-qam.resolution"] = ["setResolution"],
-
-            // Valve's own components, mounted rather than built. No commands: they write through
-            // SteamClient.System.Perf.UpdateSettings, which is the perf entry above. The ids are
-            // listed so that a subscription from one can never throw the way the row above did.
-            ["wsgm.native-qam.valve-profile-header"] = [],
-            ["wsgm.native-qam.valve-reset"] = [],
-            ["wsgm.native-qam.valve-refresh-rate"] = [],
-            ["wsgm.native-qam.valve-overlay-level"] = [],
-
-            // Valve's power-limit pair. No commands: they write the steamos_tdp_limit client
-            // settings, which the SteamOS Manager gate watches — that gate owns the setPrimaryLimit
-            // vocabulary under wsgm.native-qam.tdp above.
-            ["wsgm.native-qam.valve-tdp"] = [],
-
-            // The brightness gate was availability-only until 2026-08-30, when the device disproved
-            // its founding assumption: Steam's SetBrightness is a stub on Windows and
-            // RegisterForBrightnessChanges never fires, so the revealed slider sat at a default and
-            // moved nothing. WSGM is the backend now — the gate forwards the slider's writes here
-            // and subscribes to this id for the level to show, so the id needs both halves.
-            ["wsgm.steam-display.brightness"] = ["setBrightness"],
-
-            // Not controls: these report when Steam's own network UI starts and stops looking for
-            // networks, so WSGM can scan for exactly that long. Scanning on WSGM's own schedule
-            // would either waste power or show a list that went stale while the page was open.
-            ["wsgm.steam-network.gate"] = ["startScan", "stopScan"],
-
-            // The operations Valve's own pairing UI offers, and nothing beyond them. Reads are not
-            // here: GetState and the details calls are answered from the state WSGM already pushed,
-            // so the panel never waits on a round trip to draw.
-            ["wsgm.steam-bluetooth.service"] =
-            [
-                "setDiscovering",
-                "pair",
-                "cancelPair",
-                "connect",
-                "disconnect",
-                "forget",
-                "setTrusted",
-                "setWakeAllowed",
-            ],
-        };
-
+    private readonly IReadOnlyDictionary<string, IReadOnlyList<string>> _commands;
     private readonly object _sync = new();
     private readonly Dictionary<string, (long Sequence, long ActionGeneration)> _last =
         new(StringComparer.Ordinal);
     private SteamUiGenerations _generations;
     private long _lastRequestSequence;
 
-    /// <summary>Creates an authorizer bound to one context and document generation.</summary>
+    /// <summary>Creates an authorizer bound to one context and consumer vocabulary.</summary>
     /// <param name="generations">The generations that installed the bridge.</param>
-    public SteamUiBridgeAuthorizer(SteamUiGenerations generations) => _generations = generations;
-
-    /// <summary>The exact patch and command vocabulary compiled into both bridge sides.</summary>
-    public static IReadOnlyDictionary<string, string[]> AllowedCommands => Commands;
+    /// <param name="allowedCommands">The state identities and commands the consumer declared.</param>
+    public SteamUiBridgeAuthorizer(
+        SteamUiGenerations generations,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> allowedCommands)
+    {
+        _generations = generations;
+        _commands = CopyVocabulary(allowedCommands);
+    }
 
     /// <summary>Replaces the bridge generation and clears replay state.</summary>
     /// <param name="generations">The newly installed bridge generations.</param>
@@ -164,8 +82,8 @@ public sealed class SteamUiBridgeAuthorizer
         }
         if (string.IsNullOrEmpty(request.PatchId)
             || string.IsNullOrEmpty(request.Command)
-            || !Commands.TryGetValue(request.PatchId, out var commands)
-            || Array.IndexOf(commands, request.Command) < 0)
+            || !_commands.TryGetValue(request.PatchId, out IReadOnlyList<string>? commands)
+            || !Contains(commands, request.Command))
         {
             return Reject("patch command is not allowlisted");
         }
@@ -209,6 +127,46 @@ public sealed class SteamUiBridgeAuthorizer
         }
     }
 
+    private static bool Contains(IReadOnlyList<string> commands, string command)
+    {
+        for (int index = 0; index < commands.Count; index++)
+        {
+            if (string.Equals(commands[index], command, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    internal static IReadOnlyDictionary<string, IReadOnlyList<string>> CopyVocabulary(
+        IReadOnlyDictionary<string, IReadOnlyList<string>> allowedCommands)
+    {
+        ArgumentNullException.ThrowIfNull(allowedCommands);
+        var copy = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+        foreach ((string patchId, IReadOnlyList<string> commands) in allowedCommands)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(patchId);
+            ArgumentNullException.ThrowIfNull(commands);
+            var names = new string[commands.Count];
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            for (int index = 0; index < commands.Count; index++)
+            {
+                string command = commands[index];
+                ArgumentException.ThrowIfNullOrWhiteSpace(command);
+                if (!seen.Add(command))
+                {
+                    throw new ArgumentException(
+                        $"Patch '{patchId}' declares command '{command}' more than once.",
+                        nameof(allowedCommands));
+                }
+                names[index] = command;
+            }
+            copy.Add(patchId, Array.AsReadOnly(names));
+        }
+        return copy;
+    }
+
     private static SteamUiBridgeAuthorizationResult Reject(string reason) => new(false, reason);
 }
 
@@ -226,8 +184,9 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
     private static readonly TimeSpan OperationTimeout = TimeSpan.FromSeconds(5);
     private readonly ISteamUiTransport _transport;
     private readonly SteamUiInjectedAsset _asset;
+    private readonly IReadOnlyDictionary<string, IReadOnlyList<string>> _allowedCommands;
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private SteamUiBridgeAuthorizer _authorizer = new(default);
+    private readonly SteamUiBridgeAuthorizer _authorizer;
     private SteamUiGenerations _generations;
     private volatile bool _ready;
     private int _disposed;
@@ -236,10 +195,17 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
     /// <param name="transport">The single Steam UI transport owner.</param>
     /// <param name="asset">The script this host injects, and its hash. Supplied by the host
     /// because the bridge has no business knowing what its consumer injects.</param>
-    public SteamUiBridgeHost(ISteamUiTransport transport, SteamUiInjectedAsset asset)
+    /// <param name="allowedCommands">The exact state identities and semantic commands declared by
+    /// the consumer's modules. The bridge copies this vocabulary at construction.</param>
+    public SteamUiBridgeHost(
+        ISteamUiTransport transport,
+        SteamUiInjectedAsset asset,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> allowedCommands)
     {
         _asset = asset;
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
+        _allowedCommands = SteamUiBridgeAuthorizer.CopyVocabulary(allowedCommands);
+        _authorizer = new(default, _allowedCommands);
         _transport.NotificationReceived += OnNotificationReceived;
         _transport.GenerationChanged += OnGenerationChanged;
     }
@@ -346,7 +312,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (!_ready
-            || !SteamUiBridgeAuthorizer.AllowedCommands.ContainsKey(patchId)
+            || !_allowedCommands.ContainsKey(patchId)
             || payload.GetRawText().Length > MaximumPayloadCharacters)
         {
             return false;
@@ -495,7 +461,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             writer.WriteNumber("maximumPending", 32);
             writer.WriteNumber("timeoutMilliseconds", 5000);
             writer.WriteStartObject("allowed");
-            foreach (var pair in SteamUiBridgeAuthorizer.AllowedCommands)
+            foreach (var pair in _allowedCommands)
             {
                 writer.WriteStartArray(pair.Key);
                 foreach (var command in pair.Value)

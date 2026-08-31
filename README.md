@@ -73,6 +73,10 @@ The library is the machinery; the surfaces are yours. You supply:
 - **your modules** (`ISteamUiModule`), each one surface: the patches that install it, the state it
   publishes, and the commands it answers.
 
+The module set derives the bridge's exact state/command vocabulary. Pass
+`SteamUiModuleSet.AllowedCommands` to `SteamUiBridgeHost`; the toolkit deliberately carries no
+application-specific patch ids or command names of its own.
+
 Your fragments call `registerGate(name, gate)`; your patches reach them through
 `window[namespace].gate(name)`. `SteamUiModuleRuntime` then runs the two traffic directions between
 your modules and the client.

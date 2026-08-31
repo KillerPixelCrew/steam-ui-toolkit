@@ -24,6 +24,19 @@ public sealed class SteamUiModuleTests
         Assert.Equal(["p.one", "p.two", "p.three"], set.Patches.Select(patch => patch.Id));
         Assert.Equal(["p.one", "p.three"], set.Publications.Select(publication => publication.PatchId));
         Assert.True(set.TryGetCommand("p.three", "stop", out _));
+        Assert.Equal(["go"], set.AllowedCommands["p.one"]);
+        Assert.Equal(["go", "stop"], set.AllowedCommands["p.three"]);
+    }
+
+    [Fact]
+    public void StateOnlyPublicationIsStillAllowedToReachItsSubscriber()
+    {
+        SteamUiModuleSet set = new(
+        [
+            new SteamUiModule("state", publications: [Publication("p.state")]),
+        ]);
+
+        Assert.Empty(set.AllowedCommands["p.state"]);
     }
 
     [Fact]

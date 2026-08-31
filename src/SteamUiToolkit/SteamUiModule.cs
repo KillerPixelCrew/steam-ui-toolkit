@@ -139,6 +139,7 @@ public sealed class SteamUiModuleSet
         var patches = new List<ISteamUiPatch>();
         var seenPatches = new HashSet<string>(StringComparer.Ordinal);
         var publications = new List<SteamUiStatePublication>();
+        var allowedCommands = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         _commands = [];
 
         foreach (ISteamUiModule module in modules)
@@ -158,7 +159,11 @@ public sealed class SteamUiModuleSet
                 }
                 patches.Add(patch);
             }
-            publications.AddRange(module.Publications);
+            foreach (SteamUiStatePublication publication in module.Publications)
+            {
+                publications.Add(publication);
+                allowedCommands.TryAdd(publication.PatchId, []);
+            }
             foreach (SteamUiCommandHandler command in module.Commands)
             {
                 if (!_commands.TryAdd((command.PatchId, command.Command), command.Handle))
@@ -167,11 +172,23 @@ public sealed class SteamUiModuleSet
                         $"Steam UI command '{command.PatchId}/{command.Command}' is answered by "
                         + $"more than one module; '{module.Id}' is the second.");
                 }
+                if (!allowedCommands.TryGetValue(command.PatchId, out List<string>? names))
+                {
+                    names = [];
+                    allowedCommands.Add(command.PatchId, names);
+                }
+                names.Add(command.Command);
             }
         }
 
         Patches = patches;
         Publications = publications;
+        var vocabulary = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+        foreach ((string patchId, List<string> commands) in allowedCommands)
+        {
+            vocabulary.Add(patchId, commands.AsReadOnly());
+        }
+        AllowedCommands = vocabulary;
     }
 
     /// <summary>The declared modules, in declaration order.</summary>
@@ -182,6 +199,14 @@ public sealed class SteamUiModuleSet
 
     /// <summary>Every publication across every module.</summary>
     public IReadOnlyList<SteamUiStatePublication> Publications { get; }
+
+    /// <summary>The exact state identities and commands the bridge may carry for these modules.</summary>
+    /// <remarks>
+    /// A publication contributes its patch identity even when it accepts no commands, because the
+    /// injected subscriber is guarded by the same vocabulary as command requests. Deriving this
+    /// view from the modules keeps the bridge and its router from drifting apart.
+    /// </remarks>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> AllowedCommands { get; }
 
     /// <summary>Finds the handler for one addressed command.</summary>
     /// <param name="patchId">The addressed patch.</param>

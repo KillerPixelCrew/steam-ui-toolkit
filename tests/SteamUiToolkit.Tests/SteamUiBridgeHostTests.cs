@@ -9,12 +9,17 @@ public sealed class SteamUiBridgeHostTests
     // still carries the placeholder is the honest fixture.
     private static readonly SteamUiInjectedAsset TestAsset =
         new("(()=>{return __WSGM_CONFIGURATION_JSON__;})()", "TESTASSETHASH");
+    private static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> TestVocabulary =
+        new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+        {
+            ["example.performance"] = ["setLimit"],
+        };
 
     [Fact]
     public async Task CurrentRequestIsDeliveredOnceAndReplayIsRejected()
     {
         await using var transport = new BridgeTransport();
-        await using var host = new SteamUiBridgeHost(transport, TestAsset);
+        await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
         var received = new List<SteamUiBridgeRequest>();
         host.RequestReceived += (_, request) => received.Add(request);
         Assert.True(await host.BootstrapAsync());
@@ -34,7 +39,7 @@ public sealed class SteamUiBridgeHostTests
     public async Task MalformedAndNonBindingNotificationsNeverReachTheRouter()
     {
         await using var transport = new BridgeTransport();
-        await using var host = new SteamUiBridgeHost(transport, TestAsset);
+        await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
         var received = 0;
         host.RequestReceived += (_, _) => received++;
         Assert.True(await host.BootstrapAsync());
@@ -52,7 +57,7 @@ public sealed class SteamUiBridgeHostTests
     public async Task GenerationReplacementSuppressesTrafficUntilTheBridgeIsBootstrappedAgain()
     {
         await using var transport = new BridgeTransport();
-        await using var host = new SteamUiBridgeHost(transport, TestAsset);
+        await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
         var received = 0;
         host.RequestReceived += (_, _) => received++;
         Assert.True(await host.BootstrapAsync());
@@ -63,7 +68,7 @@ public sealed class SteamUiBridgeHostTests
 
         Assert.False(host.IsReady);
         Assert.False(await host.PublishStateAsync(
-            "wsgm.native-qam.tdp",
+            "example.performance",
             Json("{\"watts\":15}")));
         Assert.False(await host.RespondAsync(
             Request(previous, sequence: 1, actionGeneration: 1),
@@ -96,13 +101,13 @@ public sealed class SteamUiBridgeHostTests
     public async Task StateAndResponsesRequireAReadyBridgeAndAnAllowlistedStateIdentity()
     {
         await using var transport = new BridgeTransport();
-        await using var host = new SteamUiBridgeHost(transport, TestAsset);
+        await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
         SteamUiBridgeRequest request = Request(
             transport.Generations,
             sequence: 1,
             actionGeneration: 1);
 
-        Assert.False(await host.PublishStateAsync("wsgm.native-qam.tdp", Json("{}")));
+        Assert.False(await host.PublishStateAsync("example.performance", Json("{}")));
         Assert.False(await host.RespondAsync(request, true, null, null));
         Assert.Empty(transport.Expressions);
 
@@ -110,13 +115,13 @@ public sealed class SteamUiBridgeHostTests
         int afterBootstrap = transport.Expressions.Count;
         Assert.False(await host.PublishStateAsync("not.allowlisted", Json("{}")));
         Assert.False(await host.PublishStateAsync(
-            "wsgm.native-qam.tdp",
+            "example.performance",
             Json("{\"value\":\"" + new string('x', SteamUiBridgeHost.MaximumPayloadCharacters)
                 + "\"}")));
         Assert.Equal(afterBootstrap, transport.Expressions.Count);
 
         Assert.True(await host.PublishStateAsync(
-            "wsgm.native-qam.tdp",
+            "example.performance",
             Json("{\"watts\":15}")));
         Assert.True(await host.RespondAsync(request, false, null, "refused"));
         Assert.Equal(afterBootstrap + 2, transport.Expressions.Count);
@@ -129,7 +134,7 @@ public sealed class SteamUiBridgeHostTests
     public async Task DisposalRetractsTheBindingAndDetachesNotifications()
     {
         await using var transport = new BridgeTransport();
-        var host = new SteamUiBridgeHost(transport, TestAsset);
+        var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
         var received = 0;
         host.RequestReceived += (_, _) => received++;
         Assert.True(await host.BootstrapAsync());
@@ -152,8 +157,8 @@ public sealed class SteamUiBridgeHostTests
         long actionGeneration) => new(
             SteamUiBridgeHost.SchemaVersion,
             "request",
-            "wsgm.native-qam.tdp",
-            "setPrimaryLimit",
+            "example.performance",
+            "setLimit",
             sequence,
             actionGeneration,
             generations.ExecutionContext,
@@ -167,8 +172,8 @@ public sealed class SteamUiBridgeHostTests
         {
             version = SteamUiBridgeHost.SchemaVersion,
             type = "request",
-            patchId = "wsgm.native-qam.tdp",
-            command = "setPrimaryLimit",
+            patchId = "example.performance",
+            command = "setLimit",
             sequence,
             actionGeneration,
             contextGeneration = generations.ExecutionContext,
