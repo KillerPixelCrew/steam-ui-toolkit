@@ -4,7 +4,7 @@ using System.IO;
 using System.Text;
 using System.Text.Json;
 
-namespace WSGM.Core;
+namespace SteamUiToolkit;
 
 /// <summary>Reads installed extensions from a directory and decides which may contribute.</summary>
 /// <remarks>

@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
-namespace WSGM.Core;
+namespace SteamUiToolkit;
 
 /// <summary>What an installed extension declares about itself.</summary>
 /// <remarks>

@@ -3,7 +3,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace WSGM.Core;
+namespace SteamUiToolkit;
 
 /// <summary>
 /// The one place a patch turns an injected expression into a patch result.

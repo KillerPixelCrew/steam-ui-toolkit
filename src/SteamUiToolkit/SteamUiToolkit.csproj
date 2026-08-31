@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>false</ImplicitUsings>
+    <RootNamespace>SteamUiToolkit</RootNamespace>
+    <AssemblyName>SteamUiToolkit</AssemblyName>
+
+    <!-- The listener table behind the debug-port ownership check is a variable-length Win32
+         structure, read through a stack buffer rather than a marshalled layout. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!-- A consumer reads this contract through IntelliSense and nothing else, so a member that
+         ships without documentation fails the build. CS1591 catches an undocumented member; CS1573
+         catches one that documents some parameters and silently omits the rest. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsAsErrors>$(WarningsAsErrors);CS1573;CS1591</WarningsAsErrors>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Package">
+    <PackageId>SteamUiToolkit</PackageId>
+    <!-- Pre-1.0 on purpose: every module id and localization token this reaches for is coupled to a
+         Steam build, and the surface is expected to move as Steam does. -->
+    <Version>0.1.0</Version>
+    <Description>Add, hide and reorganize elements in Steam's Big Picture front-end from .NET. A persistent CDP transport, a probe/apply/verify/remove patch lifecycle with ownership and clean removal, and three stable ways to change the client: feed a store its own data shape, answer an RPC, or reveal a surface SteamOS gates.</Description>
+    <PackageTags>steam;bigpicture;cdp;cef;steamos;gamemode;handheld</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/KillerPixelCrew/steam-ui-toolkit</RepositoryUrl>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" Visible="false" />
+    <!-- The prelude a consumer's asset is built on. Shipped as source, not embedded: the consumer
+         compiles it together with its own fragments into one script, because the whole thing is
+         evaluated in a single CDP call. -->
+    <None Include="SteamUiAssets\Source\**\*.ts" Pack="true" PackagePath="assets\Source\" />
+  </ItemGroup>
+
+</Project>

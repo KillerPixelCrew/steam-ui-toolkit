@@ -1,7 +1,7 @@
-using WSGM.Core;
-using WSGM.Interop;
+using SteamUiToolkit;
+using SteamUiToolkit;
 
-namespace WSGM.Tests;
+namespace SteamUiToolkit.Tests;
 
 /// <summary>Covers the MIB_TCPTABLE_OWNER_PID decode from a synthetic buffer, so
 /// the listener-ownership check stays correct without a live socket. The decoder

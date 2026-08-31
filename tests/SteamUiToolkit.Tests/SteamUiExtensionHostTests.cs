@@ -1,8 +1,7 @@
 using System.Text.Json;
-using WSGM.Core;
-using WSGM.Device.Tests;
+using SteamUiToolkit;
 
-namespace WSGM.Tests;
+namespace SteamUiToolkit.Tests;
 
 public sealed class SteamUiExtensionHostTests
 {

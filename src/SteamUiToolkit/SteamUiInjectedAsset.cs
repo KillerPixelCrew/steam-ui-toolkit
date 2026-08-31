@@ -1,4 +1,4 @@
-namespace WSGM.Core;
+namespace SteamUiToolkit;
 
 /// <summary>The script a host injects, and the hash that identifies this exact copy of it.</summary>
 /// <param name="Source">The JavaScript to evaluate, containing the configuration placeholder the

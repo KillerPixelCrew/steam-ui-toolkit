@@ -3,7 +3,7 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 
-namespace WSGM.Interop;
+namespace SteamUiToolkit;
 
 /// <summary>Flat iphlpapi interop for "which process owns this listening port".
 ///

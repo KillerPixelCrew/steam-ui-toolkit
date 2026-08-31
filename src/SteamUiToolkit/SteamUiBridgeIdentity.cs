@@ -1,4 +1,4 @@
-namespace WSGM.Core;
+namespace SteamUiToolkit;
 
 /// <summary>
 /// The names the injected side is reachable by: the window property carrying the bridge, and the

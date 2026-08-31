@@ -6,7 +6,7 @@ using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace WSGM.Core;
+namespace SteamUiToolkit;
 
 /// <summary>A typed request from repository-owned Steam UI code to WSGM.</summary>
 /// <param name="Version">Bridge schema version.</param>

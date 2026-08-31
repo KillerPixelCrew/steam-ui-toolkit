@@ -18,14 +18,16 @@ import { fileURLToPath } from "node:url";
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const assetPath =
   process.argv[2] ??
-  join(repositoryRoot, "src", "WSGM", "Core", "SteamUiAssets", "NativeQamBootstrap.js");
+  join(repositoryRoot, "dist", "prelude.js");
 const asset = readFileSync(assetPath, "utf8");
-// From the first primitive to the first gate. The upper bound matters: gates register themselves
-// with a top-level call, and evaluating one here would fail on a `registerGate` that only exists
-// inside the real bridge.
+// From the first primitive to the first gate, or the end of the file when there is none. The
+// upper bound matters when this is pointed at a consumer's composed asset rather than the prelude:
+// gates register themselves with a top-level call, and evaluating one here would fail on a
+// `registerGate` that only exists inside the real bridge.
 const start = asset.indexOf("const defineHidden");
-const end = asset.indexOf("\n  function create", start);
-if (start < 0 || end < 0) {
+const gate = asset.indexOf("\n  function create", start);
+const end = gate < 0 ? asset.length : gate;
+if (start < 0) {
   console.error(
     "Could not locate the ownership primitives in the asset. They are expected from " +
       "`const defineHidden` up to the first `function create…` gate; if the asset was " +

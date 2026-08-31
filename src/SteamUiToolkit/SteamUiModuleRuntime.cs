@@ -4,7 +4,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace WSGM.Core;
+namespace SteamUiToolkit;
 
 /// <summary>
 /// Runs the two traffic directions between registered modules and the injected side: state pushed

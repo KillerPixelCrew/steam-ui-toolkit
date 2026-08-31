@@ -7,7 +7,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace WSGM.Core;
+namespace SteamUiToolkit;
 
 internal interface ISteamUiCdpWire : IAsyncDisposable
 {

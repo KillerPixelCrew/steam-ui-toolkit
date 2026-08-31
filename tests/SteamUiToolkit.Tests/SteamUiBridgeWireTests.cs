@@ -1,7 +1,7 @@
 using System.Text.Json;
-using WSGM.Core;
+using SteamUiToolkit;
 
-namespace WSGM.Tests;
+namespace SteamUiToolkit.Tests;
 
 /// <summary>
 /// The wire contract between the injected bootstrap and the bridge host.

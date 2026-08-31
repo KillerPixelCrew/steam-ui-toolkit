@@ -1,4 +1,4 @@
-namespace WSGM.Device.Tests;
+namespace SteamUiToolkit.Tests;
 
 internal sealed class TemporaryDirectory : IDisposable
 {

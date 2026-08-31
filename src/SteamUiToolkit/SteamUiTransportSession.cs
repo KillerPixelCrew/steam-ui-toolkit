@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace WSGM.Core;
+namespace SteamUiToolkit;
 
 /// <summary>Outcome of one repository-owned Steam UI evaluation.</summary>
 /// <param name="Reachable">Whether a validated Steam target accepted the request.</param>

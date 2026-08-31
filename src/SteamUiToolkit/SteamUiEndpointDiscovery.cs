@@ -6,9 +6,8 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using WSGM.Interop;
 
-namespace WSGM.Core;
+namespace SteamUiToolkit;
 
 internal sealed record SteamUiEndpoint(
     string BrowserId,

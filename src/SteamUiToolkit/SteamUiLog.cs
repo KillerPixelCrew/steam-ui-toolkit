@@ -1,4 +1,4 @@
-namespace WSGM.Core;
+namespace SteamUiToolkit;
 
 /// <summary>Where the Steam UI machinery writes its diagnostics.</summary>
 /// <remarks>

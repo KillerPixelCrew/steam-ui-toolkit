@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Build
+        # The library fails its own build on an undocumented public member (CS1591/CS1573 as
+        # errors), so this is the documentation gate too.
+        run: dotnet build SteamUiToolkit.slnx --configuration Release
+
+      - name: Test
+        run: dotnet test SteamUiToolkit.slnx --configuration Release --no-build
+
+      - name: Install prelude toolchain
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Ownership claims
+        # Builds the prelude and runs the claim primitives out of the EMITTED JavaScript against
+        # the scenarios that cost live debugging sessions: reclaiming a previous bridge's work
+        # instead of tearing it down, and restoring exactly what was displaced. Nothing else here
+        # can observe that — the C# tests never execute the injected script.
+        #
+        # The prelude build is also what proves the bridge stands alone: it stops compiling if the
+        # bridge ever names a consumer's gate again.
+        run: npm run prelude:claims

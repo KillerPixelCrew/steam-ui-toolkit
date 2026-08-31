@@ -4,7 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace WSGM.Core;
+namespace SteamUiToolkit;
 
 /// <summary>Observable lifecycle state of one independently recoverable Steam UI patch.</summary>
 public enum SteamUiPatchState

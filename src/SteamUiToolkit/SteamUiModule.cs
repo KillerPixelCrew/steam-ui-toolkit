@@ -4,7 +4,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace WSGM.Core;
+namespace SteamUiToolkit;
 
 /// <summary>One state value a module publishes to the injected side.</summary>
 /// <param name="PatchId">The patch the injected side receives this state as.</param>

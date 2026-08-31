@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace WSGM.Core;
+namespace SteamUiToolkit;
 
 /// <summary>Allowlisted Steam UI contexts that WSGM may attach to persistently.</summary>
 public enum SteamUiTargetRole

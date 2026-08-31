@@ -5,7 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace WSGM.Core;
+namespace SteamUiToolkit;
 
 /// <summary>Owns one persistent bounded CDP connection for each allowlisted Steam UI target.</summary>
 public sealed class PersistentSteamUiTransport : ISteamUiTransport

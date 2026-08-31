@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SteamUiToolkit/SteamUiToolkit.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SteamUiToolkit.Tests/SteamUiToolkit.Tests.csproj" />
+  </Folder>
+</Solution>
