@@ -9,15 +9,35 @@ using System.Threading.Tasks;
 
 namespace SteamUiToolkit;
 
-internal interface ISteamUiCdpWire : IAsyncDisposable
+/// <summary>The framed message channel a CDP connection runs over.</summary>
+/// <remarks>
+/// Public because it is the seam a consumer substitutes to exercise its patches without a running
+/// Steam client. Everything above it — generations, request correlation, the patch lifecycle — is
+/// worth testing that way, and a framework that can only be tested against live Steam is one whose
+/// consumers will not test at all.
+/// </remarks>
+public interface ISteamUiCdpWire : IAsyncDisposable
 {
+    /// <summary>Sends one complete message.</summary>
+    /// <param name="message">The UTF-8 payload.</param>
+    /// <param name="cancellationToken">Cancels the send.</param>
+    /// <returns>A task completing when the message has been handed to the channel.</returns>
     Task SendAsync(ReadOnlyMemory<byte> message, CancellationToken cancellationToken);
 
+    /// <summary>Waits for the next complete message.</summary>
+    /// <param name="cancellationToken">Cancels the receive.</param>
+    /// <returns>The payload, or <see langword="null"/> when the channel closed cleanly.</returns>
     Task<byte[]?> ReceiveAsync(CancellationToken cancellationToken);
 }
 
-internal interface ISteamUiCdpWireFactory
+/// <summary>Opens a channel to a discovered target.</summary>
+public interface ISteamUiCdpWireFactory
 {
+    /// <summary>Connects to one target.</summary>
+    /// <param name="endpoint">The discovered target, whose socket URL has already been checked to
+    /// be loopback on the debug port.</param>
+    /// <param name="cancellationToken">Cancels the connection attempt.</param>
+    /// <returns>The open channel.</returns>
     Task<ISteamUiCdpWire> ConnectAsync(
         SteamUiEndpoint endpoint, CancellationToken cancellationToken);
 }

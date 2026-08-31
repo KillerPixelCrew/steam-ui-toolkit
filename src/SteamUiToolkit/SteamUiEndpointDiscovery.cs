@@ -9,7 +9,16 @@ using System.Threading.Tasks;
 
 namespace SteamUiToolkit;
 
-internal sealed record SteamUiEndpoint(
+/// <summary>One Steam CDP target that passed validation.</summary>
+/// <param name="BrowserId">The browser-level target this page belongs to.</param>
+/// <param name="TargetId">The page target's own id.</param>
+/// <param name="Role">Which of Steam's surfaces this is.</param>
+/// <param name="SocketUri">The debugger socket, already checked to be loopback on the debug
+/// port — a squatter answering the HTTP probe could otherwise redirect the client anywhere.</param>
+/// <param name="Type">The CDP target type, as Steam reported it.</param>
+/// <param name="Title">The page title, as Steam reported it.</param>
+/// <param name="Url">The page URL, as Steam reported it.</param>
+public sealed record SteamUiEndpoint(
     string BrowserId,
     string TargetId,
     SteamUiTargetRole Role,
@@ -18,8 +27,16 @@ internal sealed record SteamUiEndpoint(
     string Title,
     string Url);
 
-internal interface ISteamUiEndpointDiscovery
+/// <summary>Finds the Steam target for a role.</summary>
+/// <remarks>Public alongside <see cref="ISteamUiCdpWire"/>, and for the same reason: substituting
+/// discovery is how a consumer tests without Steam running.</remarks>
+public interface ISteamUiEndpointDiscovery
 {
+    /// <summary>Finds the current target for one role.</summary>
+    /// <param name="role">The surface wanted.</param>
+    /// <param name="cancellationToken">Cancels discovery.</param>
+    /// <returns>The target, or <see langword="null"/> when none is available — which is the normal
+    /// answer while Steam is starting, not an error.</returns>
     Task<SteamUiEndpoint?> DiscoverAsync(
         SteamUiTargetRole role, CancellationToken cancellationToken);
 }

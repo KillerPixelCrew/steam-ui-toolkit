@@ -16,7 +16,7 @@ namespace SteamUiToolkit;
 /// needs to see. Reading the page's own answer is the useful behaviour, so it is what all patches
 /// now do.
 /// </remarks>
-internal static class SteamUiPatchEvaluation
+public static class SteamUiPatchEvaluation
 {
     private const int MaxDiagnosticLength = 2048;
 
@@ -27,7 +27,7 @@ internal static class SteamUiPatchEvaluation
     /// <param name="fallback">Diagnostic used when the page reported nothing usable.</param>
     /// <param name="cancellationToken">Cancels the evaluation.</param>
     /// <returns>The patch operation result.</returns>
-    internal static async Task<SteamUiPatchOperationResult> EvaluateOutcomeAsync(
+    public static async Task<SteamUiPatchOperationResult> EvaluateOutcomeAsync(
         SteamUiPatchContext context,
         SteamUiTargetRole role,
         string expression,
@@ -73,7 +73,7 @@ internal static class SteamUiPatchEvaluation
     /// <param name="value">The raw JSON the expression returned.</param>
     /// <returns><see langword="true"/> when the page reported <c>ok</c>.</returns>
     /// <remarks>Unparseable output is a failure, never an optimistic success.</remarks>
-    internal static bool IsSuccessful(string value)
+    public static bool IsSuccessful(string value)
     {
         try
         {
@@ -95,7 +95,7 @@ internal static class SteamUiPatchEvaluation
     /// Exactly one, never "at least one": a second match means the Steam build has two candidate
     /// components and the patch cannot tell which one it would be modifying.
     /// </remarks>
-    internal static bool IsOne(JsonElement root, string property) =>
+    public static bool IsOne(JsonElement root, string property) =>
         root.TryGetProperty(property, out JsonElement value)
         && value.ValueKind == JsonValueKind.Number
         && value.TryGetInt32(out int count)
@@ -112,7 +112,7 @@ internal static class SteamUiPatchEvaluation
     /// that renamed one of them was still called compatible and the patch installed rules that
     /// could no longer match anything, instead of falling back to Valve's native rendering.
     /// </remarks>
-    internal static bool IsSuccessful(string value, params string[] requiredFlags)
+    public static bool IsSuccessful(string value, params string[] requiredFlags)
     {
         ArgumentNullException.ThrowIfNull(requiredFlags);
         try
@@ -144,7 +144,7 @@ internal static class SteamUiPatchEvaluation
     /// <summary>Truncates a page-supplied diagnostic to a bounded length.</summary>
     /// <param name="value">The raw diagnostic.</param>
     /// <returns>The bounded diagnostic, or null when there was nothing to report.</returns>
-    internal static string? Bounded(string? value) => value switch
+    public static string? Bounded(string? value) => value switch
     {
         null or "" => null,
         { Length: <= MaxDiagnosticLength } => value,
