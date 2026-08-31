@@ -1,7 +1,6 @@
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
-using SteamUiToolkit;
 
 namespace SteamUiToolkit.Tests;
 

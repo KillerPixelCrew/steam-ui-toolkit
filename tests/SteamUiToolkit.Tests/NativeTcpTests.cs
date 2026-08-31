@@ -1,5 +1,3 @@
-using SteamUiToolkit;
-using SteamUiToolkit;
 
 namespace SteamUiToolkit.Tests;
 

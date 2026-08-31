@@ -1,5 +1,4 @@
 using System.Text.Json;
-using SteamUiToolkit;
 
 namespace SteamUiToolkit.Tests;
 
