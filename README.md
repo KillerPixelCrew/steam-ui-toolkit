@@ -2,6 +2,18 @@
 
 Add, hide and reorganize elements in Steam's Big Picture front-end, from .NET.
 
+> ## ⚠️ Very early. Expect it to change under you.
+>
+> This was extracted from one application last week and has exactly one consumer. **The API will
+> break, repeatedly, without deprecation cycles.** Names, shapes and whole types are still moving as
+> the second consumer's needs become clear, and nothing here has been through the round of "someone
+> else tried to use it and found the sharp edge" that settles a library down.
+>
+> It is public now because the knowledge in it is worth more shared than sat on — not because it is
+> ready to build on. If you use it, **pin an exact version, read the commit log before bumping, and
+> expect to fix call sites.** Issues and pull requests are very welcome; a promise of stability is
+> not something this can honestly offer yet.
+
 ```
 dotnet add package SteamUiToolkit
 ```
@@ -70,13 +82,26 @@ differ, and a constructor full of predicates describing one host's would help no
 
 ## Status
 
-**Pre-1.0, and staying there for a while.** Every module id, localization token and class name this
-reaches for is coupled to a Steam build. The probe-first design is what makes a Steam update degrade
-to Valve's own behaviour instead of breaking — but compatibility is something you verify, not
-something a version number promises.
+**0.1.0. Early, single-consumer, and moving.** See the warning at the top — this section is the
+detail behind it.
+
+Two separate things are unstable here, and it is worth keeping them apart:
+
+- **The API**, because it has been shaped by exactly one application. The parts most likely to
+  change are the ones WSGM happens not to stress: the extension host has no second implementer, the
+  module contract has never been built against by anyone who did not also write it, and several
+  types went from `internal` to `public` the day a consumer first reached for them. That process is
+  not finished.
+- **What Steam does**, which nothing here controls. Every module id, localization token and class
+  name this reaches for is coupled to a Steam build. The probe-first design is what makes a Steam
+  update degrade to Valve's own behaviour rather than break — but compatibility is something you
+  verify against a running client, not something a version number can promise.
+
+The second one will not go away at 1.0. The first should.
 
 Extracted from [WSGM](https://github.com/NightHammer1000/WSGM), which reconstructs SteamOS Game Mode
-on Windows handhelds and is where all of this was found.
+on Windows handhelds and is where all of this was found. Its `_plan/steam-ui-toolkit.md` records
+what has been done and what has not.
 
 ## Licence
 
