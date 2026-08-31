@@ -1,6 +1,10 @@
 // @wsgm-bundle-start
 (() => {
   "use strict";
+  // What the whole bundle evaluates to, set at the end of this file and returned by epilogue.ts
+  // after every fragment has registered. The early reuse return below is the one path that leaves
+  // before the fragments run, and it returns its own result directly.
+  let installResult: string;
   const config: BridgeConfiguration = __WSGM_CONFIGURATION_JSON__;
   const prior = window[config.namespace];
   if (
@@ -252,4 +256,7 @@
     enumerable: false,
     writable: false,
   });
-  return JSON.stringify({ ok: true, reused: false, version: config.version });
+  // NOT a return: every fragment after this file is concatenated into the same IIFE, so returning
+  // the install result here would make each gate's top-level registerGate call unreachable and the
+  // bridge would publish with an empty registry. epilogue.ts returns this once the bundle has run.
+  installResult = JSON.stringify({ ok: true, reused: false, version: config.version });
