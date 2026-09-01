@@ -44,34 +44,38 @@ public enum SteamUiPatchState
 public sealed record SteamUiPatchBounds
 {
     /// <summary>Creates validated bounds for every patch phase and retained payload.</summary>
-    /// <param name="operationTimeout">Maximum duration of one phase.</param>
-    /// <param name="maximumExpressionCharacters">Maximum repository-owned expression size.</param>
-    /// <param name="maximumDiagnosticCharacters">Maximum retained diagnostic size.</param>
+    /// <param name="OperationTimeout">Maximum duration of one phase.</param>
+    /// <param name="MaximumExpressionCharacters">Maximum repository-owned expression size.</param>
+    /// <param name="MaximumDiagnosticCharacters">Maximum retained diagnostic size.</param>
+    /// <remarks>
+    /// Parameter casing preserves the names exposed by the original positional record constructor,
+    /// because callers may use named arguments.
+    /// </remarks>
     public SteamUiPatchBounds(
-        TimeSpan operationTimeout,
-        int maximumExpressionCharacters,
-        int maximumDiagnosticCharacters)
+        TimeSpan OperationTimeout,
+        int MaximumExpressionCharacters,
+        int MaximumDiagnosticCharacters)
     {
-        if (operationTimeout <= TimeSpan.Zero || operationTimeout > TimeSpan.FromSeconds(30))
+        if (OperationTimeout <= TimeSpan.Zero || OperationTimeout > TimeSpan.FromSeconds(30))
         {
             throw new ArgumentOutOfRangeException(
-                nameof(operationTimeout),
+                nameof(OperationTimeout),
                 "Patch timeouts must be positive and no greater than 30 seconds.");
         }
-        if (maximumExpressionCharacters <= 0)
+        if (MaximumExpressionCharacters <= 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(maximumExpressionCharacters));
+            throw new ArgumentOutOfRangeException(nameof(MaximumExpressionCharacters));
         }
-        if (maximumDiagnosticCharacters <= 0 || maximumDiagnosticCharacters > 64 * 1024)
+        if (MaximumDiagnosticCharacters <= 0 || MaximumDiagnosticCharacters > 64 * 1024)
         {
             throw new ArgumentOutOfRangeException(
-                nameof(maximumDiagnosticCharacters),
+                nameof(MaximumDiagnosticCharacters),
                 "Diagnostic bounds must be between 1 and 65536 characters.");
         }
 
-        OperationTimeout = operationTimeout;
-        MaximumExpressionCharacters = maximumExpressionCharacters;
-        MaximumDiagnosticCharacters = maximumDiagnosticCharacters;
+        this.OperationTimeout = OperationTimeout;
+        this.MaximumExpressionCharacters = MaximumExpressionCharacters;
+        this.MaximumDiagnosticCharacters = MaximumDiagnosticCharacters;
     }
 
     /// <summary>Maximum duration of one patch phase.</summary>

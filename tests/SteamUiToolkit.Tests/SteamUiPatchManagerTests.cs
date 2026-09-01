@@ -3,6 +3,19 @@ namespace SteamUiToolkit.Tests;
 public sealed class SteamUiPatchManagerTests
 {
     [Fact]
+    public void PatchBoundsPreservePublishedNamedArguments()
+    {
+        SteamUiPatchBounds bounds = new(
+            OperationTimeout: TimeSpan.FromSeconds(1),
+            MaximumExpressionCharacters: 4096,
+            MaximumDiagnosticCharacters: 512);
+
+        Assert.Equal(TimeSpan.FromSeconds(1), bounds.OperationTimeout);
+        Assert.Equal(4096, bounds.MaximumExpressionCharacters);
+        Assert.Equal(512, bounds.MaximumDiagnosticCharacters);
+    }
+
+    [Fact]
     public void PatchBoundsRejectInvalidTimeoutsAndSizes()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new SteamUiPatchBounds(
