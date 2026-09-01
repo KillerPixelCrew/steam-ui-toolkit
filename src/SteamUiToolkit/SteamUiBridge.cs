@@ -225,7 +225,15 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         _authorizer = new(default, _allowedCommands);
         _transport.NotificationReceived += OnNotificationReceived;
         _transport.GenerationChanged += OnGenerationChanged;
-        _requestPump = DispatchRequestsAsync();
+        // Cancellation messages share this queue with requests. A thread-pool continuation can be
+        // delayed indefinitely when a host is saturated by synchronous providers, leaving an
+        // already-running command unable to observe its cancel. One dedicated serial reader keeps
+        // request ordering and cancellation independent of pool availability.
+        _requestPump = Task.Factory.StartNew(
+            DispatchRequests,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
+            TaskScheduler.Default);
     }
 
     /// <summary>Raised only after a request passes the compiled semantic allowlist.</summary>
@@ -512,41 +520,44 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         }
     }
 
-    private async Task DispatchRequestsAsync()
+    private void DispatchRequests()
     {
-        await foreach (SteamUiBridgeRequest request in _requests.Reader.ReadAllAsync())
+        while (_requests.Reader.WaitToReadAsync().AsTask().GetAwaiter().GetResult())
         {
-            if (Volatile.Read(ref _disposed) != 0)
+            while (_requests.Reader.TryRead(out SteamUiBridgeRequest? request))
             {
-                continue;
-            }
-
-            lock (_stateSync)
-            {
-                if (!_ready
-                    || request.ContextGeneration != _generations.ExecutionContext
-                    || request.DocumentGeneration != _generations.Document)
+                if (Volatile.Read(ref _disposed) != 0)
                 {
                     continue;
                 }
-            }
 
-            EventHandler<SteamUiBridgeRequest>? handlers = RequestReceived;
-            if (handlers is null)
-            {
-                continue;
-            }
-            foreach (EventHandler<SteamUiBridgeRequest> handler in handlers.GetInvocationList())
-            {
-                try
+                lock (_stateSync)
                 {
-                    handler(this, request);
+                    if (!_ready
+                        || request.ContextGeneration != _generations.ExecutionContext
+                        || request.DocumentGeneration != _generations.Document)
+                    {
+                        continue;
+                    }
                 }
-                catch (Exception ex)
+
+                EventHandler<SteamUiBridgeRequest>? handlers = RequestReceived;
+                if (handlers is null)
                 {
-                    SteamUiLog.Warn(
-                        $"Steam UI bridge request handler failed for {request.PatchId}/"
-                            + $"{request.Command}: {ex.Message}");
+                    continue;
+                }
+                foreach (EventHandler<SteamUiBridgeRequest> handler in handlers.GetInvocationList())
+                {
+                    try
+                    {
+                        handler(this, request);
+                    }
+                    catch (Exception ex)
+                    {
+                        SteamUiLog.Warn(
+                            $"Steam UI bridge request handler failed for {request.PatchId}/"
+                                + $"{request.Command}: {ex.Message}");
+                    }
                 }
             }
         }
