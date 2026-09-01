@@ -77,11 +77,31 @@ const isPropertySnapshot = (value: unknown): value is PropertySnapshot =>
   (value as Partial<PropertySnapshot>).kind === "wsgm-property-snapshot-v1" &&
   typeof (value as Partial<PropertySnapshot>).hadOwn === "boolean";
 
+// An accessor-backed field is one whose value lives BEHIND the property — a MobX observable, a
+// store's computed flag — and the only safe way to change it is through its own setter.
+// Redefining or deleting the accessor destroys the store's bookkeeping while leaving the getter in
+// place: Steam's settings message (a MobX object) then throws
+// `Cannot read properties of undefined (reading 'get')` on every later read, which crashed the
+// Quick Access Menu until the client restarted (device-reproduced 2026-09-01, brightness flag).
+const accessorSetter = (host: object, property: string) => {
+  const current = Object.getOwnPropertyDescriptor(host, property);
+  if (!current || "value" in current) return null;
+  return typeof current.set === "function" ? current.set : undefined;
+};
+
 const restoreProperty = (
   host: Record<string, unknown>,
   property: string,
   snapshot: PropertySnapshot,
 ) => {
+  const setter = accessorSetter(host, property);
+  if (setter !== null) {
+    if (setter === undefined) {
+      throw new TypeError("restore target is a read-only accessor");
+    }
+    if (host[property] !== snapshot.value) host[property] = snapshot.value;
+    return;
+  }
   if (snapshot.hadOwn && snapshot.descriptor) {
     Object.defineProperty(host, property, snapshot.descriptor);
   } else {
@@ -114,7 +134,16 @@ const installDataValue = (
   const descriptor = Object.getOwnPropertyDescriptor(host, property);
   if (descriptor) {
     if (!("value" in descriptor)) {
-      throw new TypeError("claim target is not a data property");
+      // Through the setter, never by redefinition — see accessorSetter. Read back because a
+      // setter is free to ignore the write, and a claim that did not take must not be marked.
+      if (typeof descriptor.set !== "function") {
+        throw new TypeError("claim target is a read-only accessor");
+      }
+      host[property] = value;
+      if (host[property] !== value) {
+        throw new TypeError("claim target did not accept the value");
+      }
+      return;
     }
     Object.defineProperty(host, property, { ...descriptor, value });
   } else {

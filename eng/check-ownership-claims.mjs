@@ -114,6 +114,62 @@ const keys = { marker: "__mark", original: "__orig" };
       after.writable === before.writable,
   );
 }
+{
+  // An accessor-backed field, shaped like a MobX observable: the value lives in the store's own
+  // map and the property is a getter/setter pair over it. Redefining or deleting that accessor
+  // destroys the map entry while leaving the getter behind, so every later read throws — the
+  // Quick Access Menu crash of 2026-09-01. The claim must go through the setter, and so must
+  // the rollback of a claim that failed.
+  const values = new Map([["flag", false]]);
+  const host = {};
+  Object.defineProperty(host, "flag", {
+    get() {
+      return values.get("flag").valueOf();
+    },
+    set(v) {
+      values.set("flag", v);
+    },
+    configurable: true,
+    enumerable: true,
+  });
+  const before = Object.getOwnPropertyDescriptor(host, "flag");
+  const claim = api.claimValue(host, "flag", keys, true, false);
+  check(
+    "value: claims an accessor-backed field through its setter",
+    claim.ok && host.flag === true,
+  );
+  const during = Object.getOwnPropertyDescriptor(host, "flag");
+  check(
+    "value: the accessor survives the claim",
+    during.get === before.get && during.set === before.set,
+  );
+  api.releaseValue(host, "flag", keys);
+  const after = Object.getOwnPropertyDescriptor(host, "flag");
+  let readable = true;
+  try {
+    readable = host.flag === false;
+  } catch {
+    readable = false;
+  }
+  check(
+    "value: release hands the value back and leaves the accessor readable",
+    readable &&
+      after.get === before.get &&
+      after.set === before.set &&
+      values.get("flag") === false,
+  );
+}
+{
+  // A read-only accessor cannot be claimed; the refusal must leave it exactly as found.
+  const host = {};
+  Object.defineProperty(host, "flag", { get: () => false, configurable: true });
+  const outcome = api.claimValue(host, "flag", keys, true, false);
+  const after = Object.getOwnPropertyDescriptor(host, "flag");
+  check(
+    "value: refuses a read-only accessor without touching it",
+    !outcome.ok && typeof after.get === "function" && host.flag === false && !("__mark" in host),
+  );
+}
 
 // --- member claim: an overlaid METHOD ---------------------------------------------------------
 {
