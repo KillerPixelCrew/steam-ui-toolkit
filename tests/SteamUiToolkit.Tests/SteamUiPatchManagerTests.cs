@@ -90,6 +90,22 @@ public sealed class SteamUiPatchManagerTests
     }
 
     [Fact]
+    public async Task RepeatedSynchronizationVerifiesHealthyPatchWithoutReapplyingIt()
+    {
+        await using var transport = new PatchTransport();
+        await using var manager = new SteamUiPatchManager(transport);
+        var patch = new FixturePatch();
+        manager.Register(patch);
+
+        await manager.SynchronizeAsync();
+        await manager.SynchronizeAsync();
+
+        Assert.Equal(SteamUiPatchState.Verified, Assert.Single(manager.GetSnapshots()).State);
+        Assert.Equal(1, patch.ApplyCalls);
+        Assert.Equal(2, patch.VerifyCalls);
+    }
+
+    [Fact]
     public async Task GenerationChangeDuringVerificationCannotPublishStaleVerifiedState()
     {
         await using var transport = new PatchTransport();
@@ -121,6 +137,25 @@ public sealed class SteamUiPatchManagerTests
     }
 
     [Fact]
+    public async Task SynchronizationDetectsGenerationBeforeItsDelayedEvent()
+    {
+        await using var transport = new PatchTransport();
+        await using var manager = new SteamUiPatchManager(transport);
+        var patch = new FixturePatch();
+        manager.Register(patch);
+        await manager.SynchronizeAsync();
+
+        transport.AdvanceGenerationWithoutEvent();
+        await manager.SynchronizeAsync();
+        transport.EmitCurrentGeneration();
+
+        SteamUiPatchSnapshot snapshot = Assert.Single(manager.GetSnapshots());
+        Assert.Equal(SteamUiPatchState.Verified, snapshot.State);
+        Assert.Equal(2, patch.ApplyCalls);
+        Assert.Equal(transport.CurrentGenerations, snapshot.Generations);
+    }
+
+    [Fact]
     public async Task AwaitedGlobalKillSwitchCompletesOnlyAfterRemoval()
     {
         await using var transport = new PatchTransport();
@@ -149,6 +184,10 @@ public sealed class SteamUiPatchManagerTests
         internal bool Compatible { get; set; } = true;
 
         internal bool BlockVerification { get; init; }
+
+        internal int ApplyCalls { get; private set; }
+
+        internal int VerifyCalls { get; private set; }
 
         internal int RemoveCalls { get; private set; }
 
@@ -192,6 +231,7 @@ public sealed class SteamUiPatchManagerTests
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            ApplyCalls++;
             return Task.FromResult(new SteamUiPatchOperationResult(true, null));
         }
 
@@ -199,6 +239,7 @@ public sealed class SteamUiPatchManagerTests
             SteamUiPatchContext context,
             CancellationToken cancellationToken)
         {
+            VerifyCalls++;
             VerifyStarted.TrySetResult();
             if (BlockVerification)
             {
@@ -223,6 +264,8 @@ public sealed class SteamUiPatchManagerTests
         private SteamUiGenerations _generations = new(1, 1, 1, 1, 1, 1);
 
         internal int ReleasedSubscriptions { get; private set; }
+
+        internal SteamUiGenerations CurrentGenerations => _generations;
 
         public event EventHandler<SteamUiNotification>? NotificationReceived
         {
@@ -260,12 +303,17 @@ public sealed class SteamUiPatchManagerTests
 
         internal void AdvanceGeneration()
         {
+            AdvanceGenerationWithoutEvent();
+            GenerationChanged?.Invoke(this, Snapshot());
+        }
+
+        internal void AdvanceGenerationWithoutEvent()
+        {
             _generations = _generations with
             {
                 ExecutionContext = _generations.ExecutionContext + 1,
                 Document = _generations.Document + 1,
             };
-            GenerationChanged?.Invoke(this, Snapshot());
         }
 
         internal void EmitCurrentGeneration() => GenerationChanged?.Invoke(this, Snapshot());

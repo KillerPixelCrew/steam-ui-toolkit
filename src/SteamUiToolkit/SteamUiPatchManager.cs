@@ -223,6 +223,8 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
     private readonly Dictionary<string, SemaphoreSlim> _resourceGates = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _schedulerGate = new(1, 1);
     private bool _globalEnabled = true;
+    private int _queuedSynchronizationPending;
+    private int _queuedSynchronizationRunning;
     private int _disposed;
 
     /// <summary>Creates a registry over the single process-owned Steam UI transport.</summary>
@@ -375,20 +377,51 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
         }
     }
 
-    private void QueueSynchronization() => _ = SynchronizeAfterSwitchAsync();
+    private void QueueSynchronization()
+    {
+        Interlocked.Exchange(ref _queuedSynchronizationPending, 1);
+        StartQueuedSynchronizationIfNeeded();
+    }
+
+    private void StartQueuedSynchronizationIfNeeded()
+    {
+        if (Interlocked.CompareExchange(ref _queuedSynchronizationRunning, 1, 0) == 0)
+        {
+            // Always leave the caller before synchronizing. A transport backed by already-complete
+            // tasks can otherwise run an entire patch pass inline for every switch changed in one
+            // settings update, repeatedly reapplying the same resources before the next switch is
+            // even set.
+            _ = Task.Run(SynchronizeAfterSwitchAsync);
+        }
+    }
 
     private async Task SynchronizeAfterSwitchAsync()
     {
         try
         {
-            await SynchronizeAsync().ConfigureAwait(false);
+            while (Interlocked.Exchange(ref _queuedSynchronizationPending, 0) != 0)
+            {
+                try
+                {
+                    await SynchronizeAsync().ConfigureAwait(false);
+                }
+                catch (ObjectDisposedException) when (Volatile.Read(ref _disposed) != 0)
+                {
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    SteamUiLog.Warn($"Steam UI kill-switch synchronization failed: {ex.Message}");
+                }
+            }
         }
-        catch (ObjectDisposedException) when (Volatile.Read(ref _disposed) != 0)
+        finally
         {
-        }
-        catch (Exception ex)
-        {
-            SteamUiLog.Warn($"Steam UI kill-switch synchronization failed: {ex.Message}");
+            Volatile.Write(ref _queuedSynchronizationRunning, 0);
+            if (Volatile.Read(ref _queuedSynchronizationPending) != 0)
+            {
+                StartQueuedSynchronizationIfNeeded();
+            }
         }
     }
 
@@ -455,12 +488,40 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
                 patch.TargetRole, cancellationToken).ConfigureAwait(false);
             long generationEpoch;
             SteamUiPatchState stateBeforeProbe;
+            string? fingerprintBeforeProbe;
             lock (entry.Sync)
             {
-                entry.TransportSnapshot = FindTransportSnapshot(patch.TargetRole);
+                SteamUiTransportSnapshot? observedSnapshot =
+                    FindTransportSnapshot(patch.TargetRole);
+                if (entry.TransportSnapshot is { } retainedSnapshot
+                    && observedSnapshot is { } currentSnapshot
+                    && retainedSnapshot.Generations != currentSnapshot.Generations)
+                {
+                    // The transport updates its current snapshot before raising GenerationChanged.
+                    // A synchronization racing that event can therefore observe the replacement
+                    // first. Treat that observation exactly like the event or the later event sees
+                    // matching generations and cannot invalidate a stale Verified state anymore.
+                    entry.TransportSnapshot = currentSnapshot;
+                    entry.GenerationEpoch++;
+                    if (entry.Snapshot.State is SteamUiPatchState.Applying
+                        or SteamUiPatchState.Applied
+                        or SteamUiPatchState.Verified)
+                    {
+                        SetStateLocked(
+                            entry,
+                            SteamUiPatchState.Retrying,
+                            entry.Snapshot.Fingerprint,
+                            "Steam UI generation changed; reapply required.");
+                    }
+                }
+                else
+                {
+                    entry.TransportSnapshot = observedSnapshot;
+                }
                 generationEpoch = entry.GenerationEpoch;
                 activeGenerationEpoch = generationEpoch;
                 stateBeforeProbe = entry.Snapshot.State;
+                fingerprintBeforeProbe = entry.Snapshot.Fingerprint;
             }
             SteamUiPatchProbeResult probe;
             // One timeout per phase, as the bound is documented. A single source spanning probe,
@@ -525,6 +586,42 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
                         diagnostic);
                 }
                 return;
+            }
+
+            // A settings update can legitimately request another synchronization while this patch
+            // is already healthy in the same generation. Verify the retained resource first and
+            // only mutate it again if verification says it was lost. Besides avoiding needless UI
+            // churn, this keeps a request bridge continuously available while unrelated switches
+            // are changing.
+            if (stateBeforeProbe == SteamUiPatchState.Verified
+                && string.Equals(
+                    fingerprintBeforeProbe,
+                    probe.Fingerprint,
+                    StringComparison.Ordinal))
+            {
+                SteamUiPatchOperationResult retainedVerification;
+                using (CancellationTokenSource retainedVerifyPhase =
+                    NewPhaseTimeout(
+                        cancellationToken,
+                        patch.Bounds.OperationTimeout,
+                        activeOperation.Token))
+                {
+                    retainedVerification = await patch.VerifyAsync(
+                            context,
+                            retainedVerifyPhase.Token)
+                        .ConfigureAwait(false);
+                }
+
+                if (retainedVerification.Succeeded)
+                {
+                    TrySetStateForGeneration(
+                        entry,
+                        generationEpoch,
+                        SteamUiPatchState.Verified,
+                        probe.Fingerprint,
+                        null);
+                    return;
+                }
             }
 
             if (!TrySetStateForGeneration(
@@ -802,7 +899,12 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
             CancellationTokenSource? activeOperation = null;
             lock (entry.Sync)
             {
-                if (entry.TransportSnapshot?.Generations == snapshot.Generations)
+                // Compare the generation of the last published lifecycle result, not the mutable
+                // transport observation. A concurrent synchronization can observe the transport's
+                // new snapshot in the tiny interval before this event is raised; treating that
+                // observation as completed work would leave an old Verified result current and
+                // suppress the reapply this event exists to request.
+                if (entry.Snapshot.Generations == snapshot.Generations)
                 {
                     entry.TransportSnapshot = snapshot;
                     continue;
