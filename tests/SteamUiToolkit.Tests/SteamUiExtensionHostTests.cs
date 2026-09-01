@@ -140,6 +140,21 @@ public sealed class SteamUiExtensionHostTests
     }
 
     [Fact]
+    public void ScriptLimitIsMeasuredInUtf8Bytes()
+    {
+        using TemporaryDirectory root = new();
+        Install(
+            root,
+            "com.example.utf8",
+            script: new string('\u00e9', SteamUiExtensionHost.MaximumScriptCharacters / 2 + 1));
+
+        SteamUiExtension extension = Assert.Single(SteamUiExtensionHost.Discover(root.Root));
+
+        Assert.Equal(SteamUiExtensionRejection.UnreadableScript, extension.Rejection);
+        Assert.Contains("UTF-8 bytes", extension.Detail);
+    }
+
+    [Fact]
     public void TwoExtensionsClaimingOneIdKeepTheFirstAndNameTheSecond()
     {
         using TemporaryDirectory root = new();
@@ -169,6 +184,62 @@ public sealed class SteamUiExtensionHostTests
         Assert.True(found[0].Loaded);
         Assert.Equal(SteamUiExtensionRejection.Conflict, found[1].Rejection);
         Assert.Contains("com.example.a.b.row", found[1].Detail);
+    }
+
+    [Fact]
+    public void RejectedConflictDoesNotReserveItsEarlierClaims()
+    {
+        using TemporaryDirectory root = new();
+        Install(
+            root,
+            "com.example.a",
+            directory: "a-first",
+            patches: ["com.example.a.b.shared"]);
+        Install(
+            root,
+            "com.example.a.b",
+            directory: "b-rejected",
+            patches: ["com.example.a.b.reserve.row", "com.example.a.b.shared"]);
+        Install(
+            root,
+            "com.example.a.b.reserve",
+            directory: "c-valid",
+            patches: ["com.example.a.b.reserve.row"]);
+
+        IReadOnlyList<SteamUiExtension> found = SteamUiExtensionHost.Discover(root.Root);
+
+        Assert.True(found[0].Loaded);
+        Assert.Equal(SteamUiExtensionRejection.Conflict, found[1].Rejection);
+        Assert.True(found[2].Loaded);
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("[null]")]
+    public void NullPatchDeclarationsRejectOnlyTheirOwnExtension(string patchesJson)
+    {
+        using TemporaryDirectory root = new();
+        string broken = Path.Combine(root.Root, "a-broken");
+        Directory.CreateDirectory(broken);
+        File.WriteAllText(Path.Combine(broken, "extension.js"), "broken();");
+        File.WriteAllText(
+            Path.Combine(broken, SteamUiExtensionHost.ManifestFileName),
+            $$"""
+            {
+              "id": "com.example.broken",
+              "name": "Broken",
+              "version": "1.0.0",
+              "apiVersion": {{SteamUiExtensionHost.ApiVersion}},
+              "script": "extension.js",
+              "patches": {{patchesJson}}
+            }
+            """);
+        Install(root, "com.example.valid", directory: "b-valid");
+
+        IReadOnlyList<SteamUiExtension> found = SteamUiExtensionHost.Discover(root.Root);
+
+        Assert.Equal(SteamUiExtensionRejection.InvalidManifest, found[0].Rejection);
+        Assert.True(found[1].Loaded);
     }
 
     [Fact]

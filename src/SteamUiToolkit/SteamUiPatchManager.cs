@@ -41,14 +41,62 @@ public enum SteamUiPatchState
 }
 
 /// <summary>Hard bounds declared by one Steam UI patch.</summary>
-/// <param name="OperationTimeout">Maximum duration of one patch phase.</param>
-/// <param name="MaximumExpressionCharacters">Maximum repository-owned expression size.</param>
-/// <param name="MaximumDiagnosticCharacters">Maximum retained diagnostic size.</param>
-public sealed record SteamUiPatchBounds(
-    TimeSpan OperationTimeout,
-    int MaximumExpressionCharacters,
-    int MaximumDiagnosticCharacters)
+public sealed record SteamUiPatchBounds
 {
+    /// <summary>Creates validated bounds for every patch phase and retained payload.</summary>
+    /// <param name="operationTimeout">Maximum duration of one phase.</param>
+    /// <param name="maximumExpressionCharacters">Maximum repository-owned expression size.</param>
+    /// <param name="maximumDiagnosticCharacters">Maximum retained diagnostic size.</param>
+    public SteamUiPatchBounds(
+        TimeSpan operationTimeout,
+        int maximumExpressionCharacters,
+        int maximumDiagnosticCharacters)
+    {
+        if (operationTimeout <= TimeSpan.Zero || operationTimeout > TimeSpan.FromSeconds(30))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(operationTimeout),
+                "Patch timeouts must be positive and no greater than 30 seconds.");
+        }
+        if (maximumExpressionCharacters <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumExpressionCharacters));
+        }
+        if (maximumDiagnosticCharacters <= 0 || maximumDiagnosticCharacters > 64 * 1024)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maximumDiagnosticCharacters),
+                "Diagnostic bounds must be between 1 and 65536 characters.");
+        }
+
+        OperationTimeout = operationTimeout;
+        MaximumExpressionCharacters = maximumExpressionCharacters;
+        MaximumDiagnosticCharacters = maximumDiagnosticCharacters;
+    }
+
+    /// <summary>Maximum duration of one patch phase.</summary>
+    public TimeSpan OperationTimeout { get; }
+
+    /// <summary>Maximum repository-owned expression size.</summary>
+    public int MaximumExpressionCharacters { get; }
+
+    /// <summary>Maximum retained diagnostic size.</summary>
+    public int MaximumDiagnosticCharacters { get; }
+
+    /// <summary>Deconstructs these bounds for callers using positional syntax.</summary>
+    /// <param name="operationTimeout">Maximum duration of one phase.</param>
+    /// <param name="maximumExpressionCharacters">Maximum expression size.</param>
+    /// <param name="maximumDiagnosticCharacters">Maximum diagnostic size.</param>
+    public void Deconstruct(
+        out TimeSpan operationTimeout,
+        out int maximumExpressionCharacters,
+        out int maximumDiagnosticCharacters)
+    {
+        operationTimeout = OperationTimeout;
+        maximumExpressionCharacters = MaximumExpressionCharacters;
+        maximumDiagnosticCharacters = MaximumDiagnosticCharacters;
+    }
+
     /// <summary>Conservative defaults for small bootstrap and store patches.</summary>
     public static SteamUiPatchBounds Default { get; } =
         new(TimeSpan.FromSeconds(8), 96 * 1024, 2048);
@@ -94,6 +142,11 @@ public sealed class SteamUiPatchContext
         string expression,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(expression);
+        if (!Enum.IsDefined(role))
+        {
+            throw new ArgumentOutOfRangeException(nameof(role));
+        }
         if (expression.Length > _bounds.MaximumExpressionCharacters)
         {
             throw new ArgumentOutOfRangeException(
@@ -172,7 +225,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
     /// <param name="transport">Persistent Steam UI transport.</param>
     public SteamUiPatchManager(ISteamUiTransport transport)
     {
-        _transport = transport;
+        _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         _transport.GenerationChanged += OnGenerationChanged;
     }
 
@@ -184,9 +237,12 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(patch);
         if (patch.Version <= 0
             || string.IsNullOrWhiteSpace(patch.Id)
-            || string.IsNullOrWhiteSpace(patch.ResourceKey))
+            || string.IsNullOrWhiteSpace(patch.ResourceKey)
+            || !Enum.IsDefined(patch.TargetRole)
+            || patch.Bounds is null)
         {
-            throw new ArgumentException("Steam UI patch identity, version, and resource are required.");
+            throw new ArgumentException(
+                "Steam UI patch identity, version, target, resource, and bounds are required.");
         }
         if (_patches.ContainsKey(patch.Id))
         {
@@ -198,29 +254,138 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
 
     /// <summary>Enables or disables the global emergency kill switch.</summary>
     /// <param name="enabled">Whether any patch may remain applied.</param>
-    public void SetGlobalEnabled(bool enabled) => _globalEnabled = enabled;
+    public void SetGlobalEnabled(bool enabled)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        Volatile.Write(ref _globalEnabled, enabled);
+        if (!enabled)
+        {
+            CancelActivePatchOperations();
+        }
+        QueueSynchronization();
+    }
+
+    /// <summary>Changes the global kill switch and waits until every patch has reacted.</summary>
+    /// <param name="enabled">Whether any patch may remain applied.</param>
+    /// <param name="cancellationToken">Cancels synchronization.</param>
+    public Task SetGlobalEnabledAsync(
+        bool enabled,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        Volatile.Write(ref _globalEnabled, enabled);
+        if (!enabled)
+        {
+            CancelActivePatchOperations();
+        }
+        return SynchronizeAsync(cancellationToken);
+    }
 
     /// <summary>Sets one patch's independent kill switch.</summary>
     /// <param name="patchId">Stable patch id.</param>
     /// <param name="enabled">Whether that patch may be applied.</param>
     public void SetPatchEnabled(string patchId, bool enabled)
     {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         if (!_patches.TryGetValue(patchId, out var entry))
         {
             throw new KeyNotFoundException($"Steam UI patch '{patchId}' is not registered.");
         }
 
-        if (entry.Enabled == enabled)
+        CancellationTokenSource? activeOperation = null;
+        lock (entry.Sync)
         {
-            return;
-        }
+            if (entry.Enabled == enabled)
+            {
+                return;
+            }
 
-        entry.Enabled = enabled;
-        entry.Snapshot = entry.Snapshot with
+            entry.Enabled = enabled;
+            entry.Snapshot = entry.Snapshot with
+            {
+                Enabled = enabled,
+                LastChangedUtc = DateTimeOffset.UtcNow,
+            };
+            if (!enabled)
+            {
+                activeOperation = entry.ActiveOperationCancellation;
+            }
+        }
+        CancelSafely(activeOperation);
+        QueueSynchronization();
+    }
+
+    /// <summary>Changes one patch kill switch and waits until that patch has reacted.</summary>
+    /// <param name="patchId">Stable patch id.</param>
+    /// <param name="enabled">Whether the patch may be applied.</param>
+    /// <param name="cancellationToken">Cancels synchronization.</param>
+    public Task SetPatchEnabledAsync(
+        string patchId,
+        bool enabled,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        if (!_patches.TryGetValue(patchId, out PatchEntry? entry))
         {
-            Enabled = enabled,
-            LastChangedUtc = DateTimeOffset.UtcNow,
-        };
+            throw new KeyNotFoundException($"Steam UI patch '{patchId}' is not registered.");
+        }
+        CancellationTokenSource? activeOperation = null;
+        lock (entry.Sync)
+        {
+            entry.Enabled = enabled;
+            entry.Snapshot = entry.Snapshot with
+            {
+                Enabled = enabled,
+                LastChangedUtc = DateTimeOffset.UtcNow,
+            };
+            if (!enabled)
+            {
+                activeOperation = entry.ActiveOperationCancellation;
+            }
+        }
+        CancelSafely(activeOperation);
+        return SynchronizeAsync(cancellationToken);
+    }
+
+    private void CancelActivePatchOperations()
+    {
+        foreach (PatchEntry entry in _patches.Values)
+        {
+            CancellationTokenSource? cancellation;
+            lock (entry.Sync)
+            {
+                cancellation = entry.ActiveOperationCancellation;
+            }
+            CancelSafely(cancellation);
+        }
+    }
+
+    private static void CancelSafely(CancellationTokenSource? cancellation)
+    {
+        try
+        {
+            cancellation?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
+    private void QueueSynchronization() => _ = SynchronizeAfterSwitchAsync();
+
+    private async Task SynchronizeAfterSwitchAsync()
+    {
+        try
+        {
+            await SynchronizeAsync().ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException) when (Volatile.Read(ref _disposed) != 0)
+        {
+        }
+        catch (Exception ex)
+        {
+            SteamUiLog.Warn($"Steam UI kill-switch synchronization failed: {ex.Message}");
+        }
     }
 
     /// <summary>Probes, applies, verifies, or retracts every patch independently.</summary>
@@ -231,6 +396,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
         await _schedulerGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
             foreach (var entry in _patches.Values)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -245,34 +411,63 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
 
     /// <summary>Returns immutable health snapshots for diagnostics and UI.</summary>
     public IReadOnlyList<SteamUiPatchSnapshot> GetSnapshots() =>
-        _patches.Values.Select(static entry => entry.Snapshot).ToArray();
+        _patches.Values.Select(static entry =>
+        {
+            lock (entry.Sync)
+            {
+                return entry.Snapshot;
+            }
+        }).ToArray();
 
     private async Task SynchronizePatchAsync(
         PatchEntry entry, CancellationToken cancellationToken)
     {
         var patch = entry.Patch;
-        entry.TransportSnapshot = _transport.GetSnapshots()
-            .FirstOrDefault(snapshot => snapshot.Role == patch.TargetRole);
         var context = new SteamUiPatchContext(_transport, patch.Bounds);
         var resourceGate = _resourceGates[patch.ResourceKey];
         await resourceGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        long? activeGenerationEpoch = null;
+        CancellationTokenSource? activeOperation = null;
         try
         {
-            if (!_globalEnabled || !entry.Enabled)
+            bool patchEnabled;
+            lock (entry.Sync)
+            {
+                patchEnabled = entry.Enabled;
+            }
+            if (!Volatile.Read(ref _globalEnabled) || !patchEnabled)
             {
                 await RemovePatchAsync(entry, context, cancellationToken).ConfigureAwait(false);
                 return;
             }
 
+            activeOperation = new CancellationTokenSource();
+            lock (entry.Sync)
+            {
+                entry.ActiveOperationCancellation = activeOperation;
+            }
+
             entry.Subscription ??= await _transport.SubscribeAsync(
                 patch.TargetRole, cancellationToken).ConfigureAwait(false);
+            long generationEpoch;
+            SteamUiPatchState stateBeforeProbe;
+            lock (entry.Sync)
+            {
+                entry.TransportSnapshot = FindTransportSnapshot(patch.TargetRole);
+                generationEpoch = entry.GenerationEpoch;
+                activeGenerationEpoch = generationEpoch;
+                stateBeforeProbe = entry.Snapshot.State;
+            }
             SteamUiPatchProbeResult probe;
             // One timeout per phase, as the bound is documented. A single source spanning probe,
             // apply and verify meant a reachable but slow client that spent most of the budget
             // probing had its otherwise in-budget apply or verification cancelled underneath it,
             // and the patch dropped to Retrying with nothing actually wrong.
             using (CancellationTokenSource probePhase =
-                NewPhaseTimeout(cancellationToken, patch.Bounds.OperationTimeout))
+                NewPhaseTimeout(
+                    cancellationToken,
+                    patch.Bounds.OperationTimeout,
+                    activeOperation.Token))
             {
                 try
                 {
@@ -280,48 +475,111 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    SetState(entry, SteamUiPatchState.Degraded, null, ex.Message);
+                    TrySetStateForGeneration(
+                        entry,
+                        generationEpoch,
+                        SteamUiPatchState.Degraded,
+                        null,
+                        ex.Message);
                     return;
                 }
             }
 
             if (!probe.TargetPresent)
             {
-                SetState(entry, SteamUiPatchState.AbsentTarget, null, probe.Diagnostic);
+                TrySetStateForGeneration(
+                    entry,
+                    generationEpoch,
+                    SteamUiPatchState.AbsentTarget,
+                    null,
+                    probe.Diagnostic);
                 return;
             }
             if (!probe.Compatible || !probe.Unique || string.IsNullOrWhiteSpace(probe.Fingerprint))
             {
-                SetState(entry, SteamUiPatchState.Incompatible, null,
-                    probe.Diagnostic ?? "Patch fingerprint was not a unique positive match.");
+                string diagnostic = probe.Diagnostic
+                    ?? "Patch fingerprint was not a unique positive match.";
+                if (stateBeforeProbe is SteamUiPatchState.Applying
+                    or SteamUiPatchState.Applied
+                    or SteamUiPatchState.Verified)
+                {
+                    await RetractIncompatiblePatchAsync(
+                            entry,
+                            context,
+                            generationEpoch,
+                            diagnostic,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                else
+                {
+                    TrySetStateForGeneration(
+                        entry,
+                        generationEpoch,
+                        SteamUiPatchState.Incompatible,
+                        null,
+                        diagnostic);
+                }
                 return;
             }
 
-            SetState(entry, SteamUiPatchState.Applying, probe.Fingerprint, null);
+            if (!TrySetStateForGeneration(
+                entry,
+                generationEpoch,
+                SteamUiPatchState.Applying,
+                probe.Fingerprint,
+                null))
+            {
+                return;
+            }
             SteamUiPatchOperationResult applied;
             using (CancellationTokenSource applyPhase =
-                NewPhaseTimeout(cancellationToken, patch.Bounds.OperationTimeout))
+                NewPhaseTimeout(
+                    cancellationToken,
+                    patch.Bounds.OperationTimeout,
+                    activeOperation.Token))
             {
                 applied = await patch.ApplyAsync(context, applyPhase.Token).ConfigureAwait(false);
             }
 
             if (!applied.Succeeded)
             {
-                SetState(entry, SteamUiPatchState.Degraded, probe.Fingerprint, applied.Diagnostic);
+                TrySetStateForGeneration(
+                    entry,
+                    generationEpoch,
+                    SteamUiPatchState.Degraded,
+                    probe.Fingerprint,
+                    applied.Diagnostic);
                 return;
             }
 
-            SetState(entry, SteamUiPatchState.Applied, probe.Fingerprint, null);
+            if (!TrySetStateForGeneration(
+                entry,
+                generationEpoch,
+                SteamUiPatchState.Applied,
+                probe.Fingerprint,
+                null))
+            {
+                return;
+            }
             SteamUiPatchOperationResult verified;
             using (CancellationTokenSource verifyPhase =
-                NewPhaseTimeout(cancellationToken, patch.Bounds.OperationTimeout))
+                NewPhaseTimeout(
+                    cancellationToken,
+                    patch.Bounds.OperationTimeout,
+                    activeOperation.Token))
             {
                 verified = await patch.VerifyAsync(context, verifyPhase.Token).ConfigureAwait(false);
             }
 
             if (verified.Succeeded)
             {
-                SetState(entry, SteamUiPatchState.Verified, probe.Fingerprint, null);
+                TrySetStateForGeneration(
+                    entry,
+                    generationEpoch,
+                    SteamUiPatchState.Verified,
+                    probe.Fingerprint,
+                    null);
                 return;
             }
 
@@ -334,13 +592,17 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
                 + $"{verified.Diagnostic ?? "no detail"}");
             SteamUiPatchOperationResult removed;
             using (CancellationTokenSource removePhase =
-                NewPhaseTimeout(cancellationToken, patch.Bounds.OperationTimeout))
+                NewPhaseTimeout(
+                    cancellationToken,
+                    patch.Bounds.OperationTimeout,
+                    activeOperation.Token))
             {
                 removed = await patch.RemoveAsync(context, removePhase.Token).ConfigureAwait(false);
             }
 
-            SetState(
+            TrySetStateForGeneration(
                 entry,
+                generationEpoch,
                 removed.Succeeded ? SteamUiPatchState.Degraded : SteamUiPatchState.RemoveFailed,
                 probe.Fingerprint,
                 removed.Succeeded
@@ -349,15 +611,52 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            SetState(entry, SteamUiPatchState.Retrying, entry.Snapshot.Fingerprint,
-                "Patch operation timed out.");
+            SteamUiPatchSnapshot snapshot = Snapshot(entry);
+            if (!activeGenerationEpoch.HasValue)
+            {
+                SetState(entry, SteamUiPatchState.Retrying, snapshot.Fingerprint,
+                    "Patch operation timed out.");
+            }
+            else
+            {
+                TrySetStateForGeneration(
+                    entry,
+                    activeGenerationEpoch.Value,
+                    SteamUiPatchState.Retrying,
+                    snapshot.Fingerprint,
+                    "Patch operation timed out.");
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            SetState(entry, SteamUiPatchState.Degraded, entry.Snapshot.Fingerprint, ex.Message);
+            SteamUiPatchSnapshot snapshot = Snapshot(entry);
+            if (!activeGenerationEpoch.HasValue)
+            {
+                SetState(entry, SteamUiPatchState.Degraded, snapshot.Fingerprint, ex.Message);
+            }
+            else
+            {
+                TrySetStateForGeneration(
+                    entry,
+                    activeGenerationEpoch.Value,
+                    SteamUiPatchState.Degraded,
+                    snapshot.Fingerprint,
+                    ex.Message);
+            }
         }
         finally
         {
+            if (activeOperation is not null)
+            {
+                lock (entry.Sync)
+                {
+                    if (ReferenceEquals(entry.ActiveOperationCancellation, activeOperation))
+                    {
+                        entry.ActiveOperationCancellation = null;
+                    }
+                }
+                activeOperation.Dispose();
+            }
             resourceGate.Release();
         }
     }
@@ -365,13 +664,18 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
     /// <summary>Creates a cancellation source giving one patch phase its declared budget.</summary>
     /// <param name="cancellationToken">The synchronization's own cancellation.</param>
     /// <param name="timeout">The per-phase bound the patch declared.</param>
+    /// <param name="operationCancellation">Cancels the active phase for a kill switch or
+    /// generation replacement.</param>
     /// <returns>A linked source the caller disposes when the phase ends.</returns>
     private static CancellationTokenSource NewPhaseTimeout(
         CancellationToken cancellationToken,
-        TimeSpan timeout)
+        TimeSpan timeout,
+        CancellationToken operationCancellation = default)
     {
         CancellationTokenSource phase =
-            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                operationCancellation);
         phase.CancelAfter(timeout);
         return phase;
     }
@@ -381,23 +685,105 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
         SteamUiPatchContext context,
         CancellationToken cancellationToken)
     {
-        if (entry.Snapshot.State != SteamUiPatchState.Disabled)
+        try
         {
-            var removed = await entry.Patch.RemoveAsync(context, cancellationToken)
-                .ConfigureAwait(false);
-            SetState(entry,
-                removed.Succeeded ? SteamUiPatchState.Disabled : SteamUiPatchState.RemoveFailed,
-                entry.Snapshot.Fingerprint,
-                removed.Succeeded ? null : removed.Diagnostic);
+            SteamUiPatchSnapshot snapshot = Snapshot(entry);
+            if (snapshot.State != SteamUiPatchState.Disabled)
+            {
+                try
+                {
+                    SteamUiPatchOperationResult removed;
+                    using (CancellationTokenSource removePhase = NewPhaseTimeout(
+                        cancellationToken,
+                        entry.Patch.Bounds.OperationTimeout))
+                    {
+                        removed = await entry.Patch.RemoveAsync(context, removePhase.Token)
+                            .ConfigureAwait(false);
+                    }
+                    SetState(entry,
+                        removed.Succeeded
+                            ? SteamUiPatchState.Disabled
+                            : SteamUiPatchState.RemoveFailed,
+                        snapshot.Fingerprint,
+                        removed.Succeeded ? null : removed.Diagnostic);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    SetState(
+                        entry,
+                        SteamUiPatchState.RemoveFailed,
+                        snapshot.Fingerprint,
+                        "Patch removal timed out.");
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    SetState(
+                        entry,
+                        SteamUiPatchState.RemoveFailed,
+                        snapshot.Fingerprint,
+                        ex.Message);
+                }
+            }
+            else
+            {
+                SetState(entry, SteamUiPatchState.Disabled, snapshot.Fingerprint, null);
+            }
         }
-        else
+        finally
         {
-            SetState(entry, SteamUiPatchState.Disabled, entry.Snapshot.Fingerprint, null);
+            if (entry.Subscription is not null)
+            {
+                await entry.Subscription.DisposeAsync().ConfigureAwait(false);
+                entry.Subscription = null;
+            }
         }
-        if (entry.Subscription is not null)
+    }
+
+    private async Task RetractIncompatiblePatchAsync(
+        PatchEntry entry,
+        SteamUiPatchContext context,
+        long generationEpoch,
+        string incompatibility,
+        CancellationToken cancellationToken)
+    {
+        try
         {
-            await entry.Subscription.DisposeAsync().ConfigureAwait(false);
-            entry.Subscription = null;
+            SteamUiPatchOperationResult removed;
+            using (CancellationTokenSource removePhase = NewPhaseTimeout(
+                cancellationToken,
+                entry.Patch.Bounds.OperationTimeout))
+            {
+                removed = await entry.Patch.RemoveAsync(context, removePhase.Token)
+                    .ConfigureAwait(false);
+            }
+            TrySetStateForGeneration(
+                entry,
+                generationEpoch,
+                removed.Succeeded
+                    ? SteamUiPatchState.Incompatible
+                    : SteamUiPatchState.RemoveFailed,
+                null,
+                removed.Succeeded
+                    ? incompatibility
+                    : $"{incompatibility} Removal also failed: {removed.Diagnostic}");
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            TrySetStateForGeneration(
+                entry,
+                generationEpoch,
+                SteamUiPatchState.RemoveFailed,
+                null,
+                $"{incompatibility} Removal timed out.");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            TrySetStateForGeneration(
+                entry,
+                generationEpoch,
+                SteamUiPatchState.RemoveFailed,
+                null,
+                $"{incompatibility} Removal failed: {ex.Message}");
         }
     }
 
@@ -409,12 +795,30 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
             {
                 continue;
             }
-            entry.TransportSnapshot = snapshot;
-            if (entry.Snapshot.State is SteamUiPatchState.Applied or SteamUiPatchState.Verified)
+            CancellationTokenSource? activeOperation = null;
+            lock (entry.Sync)
             {
-                SetState(entry, SteamUiPatchState.Retrying, entry.Snapshot.Fingerprint,
-                    "Steam UI generation changed; reapply required.");
+                if (entry.TransportSnapshot?.Generations == snapshot.Generations)
+                {
+                    entry.TransportSnapshot = snapshot;
+                    continue;
+                }
+                entry.TransportSnapshot = snapshot;
+                entry.GenerationEpoch++;
+                activeOperation = entry.ActiveOperationCancellation;
+                if (activeOperation is not null
+                    || entry.Snapshot.State is SteamUiPatchState.Applying
+                    or SteamUiPatchState.Applied
+                    or SteamUiPatchState.Verified)
+                {
+                    SetStateLocked(
+                        entry,
+                        SteamUiPatchState.Retrying,
+                        entry.Snapshot.Fingerprint,
+                        "Steam UI generation changed; reapply required.");
+                }
             }
+            CancelSafely(activeOperation);
         }
     }
 
@@ -435,7 +839,48 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
     /// steady Verified state would otherwise be the next thing to flood the log.
     /// </para>
     /// </remarks>
+    private SteamUiTransportSnapshot? FindTransportSnapshot(SteamUiTargetRole role) =>
+        _transport.GetSnapshots().FirstOrDefault(snapshot => snapshot.Role == role);
+
+    private static SteamUiPatchSnapshot Snapshot(PatchEntry entry)
+    {
+        lock (entry.Sync)
+        {
+            return entry.Snapshot;
+        }
+    }
+
+    private static bool TrySetStateForGeneration(
+        PatchEntry entry,
+        long generationEpoch,
+        SteamUiPatchState state,
+        string? fingerprint,
+        string? failure)
+    {
+        lock (entry.Sync)
+        {
+            if (entry.GenerationEpoch != generationEpoch)
+            {
+                return false;
+            }
+            SetStateLocked(entry, state, fingerprint, failure);
+            return true;
+        }
+    }
+
     private static void SetState(
+        PatchEntry entry,
+        SteamUiPatchState state,
+        string? fingerprint,
+        string? failure)
+    {
+        lock (entry.Sync)
+        {
+            SetStateLocked(entry, state, fingerprint, failure);
+        }
+    }
+
+    private static void SetStateLocked(
         PatchEntry entry,
         SteamUiPatchState state,
         string? fingerprint,
@@ -475,7 +920,8 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
             return;
         }
         _transport.GenerationChanged -= OnGenerationChanged;
-        _globalEnabled = false;
+        Volatile.Write(ref _globalEnabled, false);
+        CancelActivePatchOperations();
         await _schedulerGate.WaitAsync().ConfigureAwait(false);
         try
         {
@@ -490,7 +936,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
                 catch (Exception ex)
                 {
                     SetState(entry, SteamUiPatchState.RemoveFailed,
-                        entry.Snapshot.Fingerprint, ex.Message);
+                        Snapshot(entry).Fingerprint, ex.Message);
                 }
             }
         }
@@ -498,15 +944,15 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
         {
             _schedulerGate.Release();
         }
-        foreach (var gate in _resourceGates.Values)
-        {
-            gate.Dispose();
-        }
-        _schedulerGate.Dispose();
+        // SemaphoreSlim has no unmanaged state. Leaving the scheduler objects for GC avoids a
+        // dispose-versus-WaitAsync race with a caller that passed its disposed check immediately
+        // before shutdown took ownership of the scheduler.
     }
 
     private sealed class PatchEntry(ISteamUiPatch patch)
     {
+        internal object Sync { get; } = new();
+
         internal ISteamUiPatch Patch { get; } = patch;
 
         internal bool Enabled { get; set; } = true;
@@ -514,6 +960,10 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
         internal IAsyncDisposable? Subscription { get; set; }
 
         internal SteamUiTransportSnapshot? TransportSnapshot { get; set; }
+
+        internal long GenerationEpoch { get; set; }
+
+        internal CancellationTokenSource? ActiveOperationCancellation { get; set; }
 
         internal SteamUiPatchSnapshot Snapshot { get; set; } = new(
             patch.Id,

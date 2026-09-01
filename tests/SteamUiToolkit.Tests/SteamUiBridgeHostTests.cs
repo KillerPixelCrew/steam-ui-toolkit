@@ -32,6 +32,7 @@ public sealed class SteamUiBridgeHostTests
             sequence: 2,
             actionGeneration: 2));
 
+        await WaitUntilAsync(() => received.Count == 2);
         Assert.Equal([1L, 2L], received.Select(item => item.Sequence));
     }
 
@@ -94,6 +95,7 @@ public sealed class SteamUiBridgeHostTests
             sequence: 1,
             actionGeneration: 1));
 
+        await WaitUntilAsync(() => received == 1);
         Assert.Equal(1, received);
     }
 
@@ -128,6 +130,81 @@ public sealed class SteamUiBridgeHostTests
         Assert.All(
             transport.Expressions.Skip(afterBootstrap),
             expression => Assert.Contains("deliver", expression, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task DeliveryAcknowledgementMustBeStructuredJson()
+    {
+        await using var transport = new BridgeTransport();
+        await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
+        Assert.True(await host.BootstrapAsync());
+        transport.EvaluationValue = "{\"message\":\"\\\"ok\\\":true\"}";
+
+        Assert.False(await host.PublishStateAsync("example.performance", Json("{}")));
+
+        transport.EvaluationValue = "not json";
+        Assert.False(await host.PublishStateAsync("example.performance", Json("{}")));
+    }
+
+    [Fact]
+    public async Task ResponsePayloadUsesTheSameBoundAsPublishedState()
+    {
+        await using var transport = new BridgeTransport();
+        await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
+        Assert.True(await host.BootstrapAsync());
+        int afterBootstrap = transport.Expressions.Count;
+        JsonElement oversized = Json(
+            "{\"value\":\"" + new string('x', SteamUiBridgeHost.MaximumPayloadCharacters)
+                + "\"}");
+
+        Assert.False(await host.RespondAsync(
+            Request(transport.Generations, 1, 1), true, oversized, null));
+        Assert.Equal(afterBootstrap, transport.Expressions.Count);
+    }
+
+    [Fact]
+    public async Task HandlerFailureDoesNotBlockTheNextBridgeSubscriber()
+    {
+        await using var transport = new BridgeTransport();
+        await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
+        var received = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        host.RequestReceived += (_, _) => throw new InvalidOperationException("fixture failure");
+        host.RequestReceived += (_, _) => received.TrySetResult();
+        Assert.True(await host.BootstrapAsync());
+
+        transport.EmitBindingPayload(RequestJson(transport.Generations, 1, 1));
+
+        await received.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.True(host.IsReady);
+    }
+
+    [Fact]
+    public async Task DisposalWaitsForAnInProgressBootstrapBeforeRetracting()
+    {
+        await using var transport = new BridgeTransport { BlockNextEvaluation = true };
+        var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
+
+        Task<bool> bootstrap = host.BootstrapAsync();
+        await transport.EvaluationStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        Task dispose = host.DisposeAsync().AsTask();
+        Assert.False(dispose.IsCompleted);
+
+        transport.ReleaseEvaluation.TrySetResult();
+        _ = await bootstrap;
+        await dispose;
+
+        Assert.Equal([true, false], transport.BindingStates);
+        Assert.False(host.IsReady);
+    }
+
+    [Fact]
+    public async Task ConnectionGenerationRaisedDuringBindingInstallBecomesBootstrapBaseline()
+    {
+        await using var transport = new BridgeTransport { AdvanceGenerationOnInstall = true };
+        await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
+
+        Assert.True(await host.BootstrapAsync());
+        Assert.True(host.IsReady);
     }
 
     [Fact]
@@ -187,6 +264,15 @@ public sealed class SteamUiBridgeHostTests
         return document.RootElement.Clone();
     }
 
+    private static async Task WaitUntilAsync(Func<bool> predicate)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+        while (!predicate())
+        {
+            await Task.Delay(10, timeout.Token);
+        }
+    }
+
     private sealed class BridgeTransport : ISteamUiTransport
     {
         private EventHandler<SteamUiNotification>? _notificationReceived;
@@ -197,6 +283,18 @@ public sealed class SteamUiBridgeHostTests
         internal List<string> Expressions { get; } = [];
 
         internal List<bool> BindingStates { get; } = [];
+
+        internal string EvaluationValue { get; set; } = "{\"ok\":true}";
+
+        internal bool BlockNextEvaluation { get; init; }
+
+        internal bool AdvanceGenerationOnInstall { get; init; }
+
+        internal TaskCompletionSource EvaluationStarted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal TaskCompletionSource ReleaseEvaluation { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
 
         public event EventHandler<SteamUiNotification>? NotificationReceived
         {
@@ -218,7 +316,7 @@ public sealed class SteamUiBridgeHostTests
             return ValueTask.FromResult<IAsyncDisposable>(new Lease());
         }
 
-        public Task<SteamUiEvaluationResult> EvaluateAsync(
+        public async Task<SteamUiEvaluationResult> EvaluateAsync(
             SteamUiTargetRole role,
             string expression,
             TimeSpan timeout,
@@ -226,11 +324,16 @@ public sealed class SteamUiBridgeHostTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             Expressions.Add(expression);
-            return Task.FromResult(new SteamUiEvaluationResult(
+            if (BlockNextEvaluation && !EvaluationStarted.Task.IsCompleted)
+            {
+                EvaluationStarted.TrySetResult();
+                await ReleaseEvaluation.Task.WaitAsync(cancellationToken);
+            }
+            return new SteamUiEvaluationResult(
                 true,
-                "{\"ok\":true}",
+                EvaluationValue,
                 null,
-                Generations));
+                Generations);
         }
 
         public Task SetRuntimeBindingAsync(
@@ -242,6 +345,10 @@ public sealed class SteamUiBridgeHostTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             BindingStates.Add(installed);
+            if (installed && AdvanceGenerationOnInstall)
+            {
+                AdvanceDocumentGeneration();
+            }
             return Task.CompletedTask;
         }
 

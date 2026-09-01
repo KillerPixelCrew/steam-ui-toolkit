@@ -41,24 +41,36 @@ public interface ISteamUiEndpointDiscovery
         SteamUiTargetRole role, CancellationToken cancellationToken);
 }
 
-internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery
+internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDisposable
 {
     private const int DebugPort = 8080;
     private const int MaximumDiscoveryBytes = 1024 * 1024;
     private static readonly Uri VersionUri = new($"http://127.0.0.1:{DebugPort}/json/version");
     private static readonly Uri TargetsUri = new($"http://127.0.0.1:{DebugPort}/json/list");
     private readonly HttpClient _httpClient;
+    private readonly bool _ownsHttpClient;
+    private int _disposed;
 
     internal SteamUiEndpointDiscovery()
-        : this(new HttpClient { Timeout = TimeSpan.FromSeconds(5) })
+        : this(new HttpClient { Timeout = TimeSpan.FromSeconds(5) }, ownsHttpClient: true)
     {
     }
 
-    internal SteamUiEndpointDiscovery(HttpClient httpClient) => _httpClient = httpClient;
+    internal SteamUiEndpointDiscovery(HttpClient httpClient)
+        : this(httpClient, ownsHttpClient: false)
+    {
+    }
+
+    private SteamUiEndpointDiscovery(HttpClient httpClient, bool ownsHttpClient)
+    {
+        _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+        _ownsHttpClient = ownsHttpClient;
+    }
 
     public async Task<SteamUiEndpoint?> DiscoverAsync(
         SteamUiTargetRole role, CancellationToken cancellationToken)
     {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         // Returning null abandons Steam UI injection, so preserve the decisive discovery reason.
         if (!IsSteamPortOwner(out string ownership))
         {
@@ -213,4 +225,12 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery
                 }
             },
             out reason);
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) == 0 && _ownsHttpClient)
+        {
+            _httpClient.Dispose();
+        }
+    }
 }

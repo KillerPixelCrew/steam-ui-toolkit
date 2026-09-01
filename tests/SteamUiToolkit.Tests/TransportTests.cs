@@ -1,4 +1,3 @@
-using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 
@@ -85,6 +84,71 @@ public sealed class SteamUiCdpConnectionTests
         Assert.Equal("second", second);
     }
 
+    [Fact]
+    public async Task SlowNotificationHandlerDoesNotBlockResponseReader()
+    {
+        var wire = new FakeWire();
+        var handlerStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseHandler = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        wire.Sent = request =>
+        {
+            using var document = JsonDocument.Parse(request);
+            int id = document.RootElement.GetProperty("id").GetInt32();
+            wire.Enqueue("{\"method\":\"Runtime.consoleAPICalled\",\"params\":{}}"u8.ToArray());
+            wire.Enqueue(Encoding.UTF8.GetBytes(
+                $"{{\"id\":{id},\"result\":{{\"result\":{{\"type\":\"string\",\"value\":\"ok\"}}}}}}"));
+        };
+        await using var connection = new SteamUiCdpConnection(
+            Endpoint,
+            wire,
+            (_, _) =>
+            {
+                handlerStarted.TrySetResult();
+                releaseHandler.Task.GetAwaiter().GetResult();
+            },
+            (_, _) => { });
+        connection.Start();
+
+        Task<string?> evaluation = connection.EvaluateAsync(
+            "'ok'", TimeSpan.FromSeconds(1), CancellationToken.None);
+        await handlerStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        try
+        {
+            Assert.Equal("ok", await evaluation.WaitAsync(TimeSpan.FromSeconds(1)));
+        }
+        finally
+        {
+            releaseHandler.TrySetResult();
+        }
+    }
+
+    [Fact]
+    public async Task NotificationHandlerFailureDoesNotPoisonChannel()
+    {
+        var wire = new FakeWire();
+        wire.Sent = request =>
+        {
+            using var document = JsonDocument.Parse(request);
+            int id = document.RootElement.GetProperty("id").GetInt32();
+            wire.Enqueue("{\"method\":\"Runtime.consoleAPICalled\",\"params\":{}}"u8.ToArray());
+            wire.Enqueue(Encoding.UTF8.GetBytes(
+                $"{{\"id\":{id},\"result\":{{\"result\":{{\"type\":\"string\",\"value\":\"ok\"}}}}}}"));
+        };
+        await using var connection = new SteamUiCdpConnection(
+            Endpoint,
+            wire,
+            (_, _) => throw new InvalidOperationException("fixture failure"),
+            (_, _) => { });
+        connection.Start();
+
+        string? value = await connection.EvaluateAsync(
+            "'ok'", TimeSpan.FromSeconds(1), CancellationToken.None);
+
+        Assert.Equal("ok", value);
+    }
+
     private sealed class FakeWire : ISteamUiCdpWire
     {
         private readonly Queue<byte[]> _messages = new();
@@ -153,8 +217,9 @@ public sealed class PersistentSteamUiTransportTests
         var factory = new ResponsiveWireFactory { BlockPageEnable = true };
         await using var transport = new PersistentSteamUiTransport(
             new FixtureDiscovery(), factory);
-        var generationRaised = false;
-        transport.GenerationChanged += (_, _) => generationRaised = true;
+        var generationRaised = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        transport.GenerationChanged += (_, _) => generationRaised.TrySetResult();
 
         Task<SteamUiEvaluationResult> evaluation = transport.EvaluateAsync(
             SteamUiTargetRole.MainWindow,
@@ -162,7 +227,7 @@ public sealed class PersistentSteamUiTransportTests
             TimeSpan.FromSeconds(2));
         await factory.PageEnableStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
 
-        Assert.False(generationRaised);
+        Assert.False(generationRaised.Task.IsCompleted);
         Assert.DoesNotContain(
             transport.GetSnapshots(),
             snapshot => snapshot.Role == SteamUiTargetRole.MainWindow
@@ -170,7 +235,7 @@ public sealed class PersistentSteamUiTransportTests
 
         factory.ReleasePageEnable.TrySetResult();
         Assert.True((await evaluation).Reachable);
-        Assert.True(generationRaised);
+        await generationRaised.Task.WaitAsync(TimeSpan.FromSeconds(1));
     }
 
     [Fact]
@@ -300,6 +365,102 @@ public sealed class PersistentSteamUiTransportTests
     }
 
     [Fact]
+    public async Task SuccessfulEvaluationRestoresHealthAfterTransientJavascriptFailure()
+    {
+        var factory = new ResponsiveWireFactory { FailFirstEvaluation = true };
+        await using var transport = new PersistentSteamUiTransport(
+            new FixtureDiscovery(), factory);
+        await using IAsyncDisposable subscription = await transport.SubscribeAsync(
+            SteamUiTargetRole.SharedJsContext);
+
+        SteamUiEvaluationResult failed = await transport.EvaluateAsync(
+            SteamUiTargetRole.SharedJsContext,
+            "'first'",
+            TimeSpan.FromSeconds(2));
+        Assert.Equal(
+            SteamUiTransportHealth.Incompatible,
+            transport.GetSnapshots().Single(
+                snapshot => snapshot.Role == SteamUiTargetRole.SharedJsContext).Health);
+
+        SteamUiEvaluationResult recovered = await transport.EvaluateAsync(
+            SteamUiTargetRole.SharedJsContext,
+            "'second'",
+            TimeSpan.FromSeconds(2));
+
+        Assert.True(failed.Reachable);
+        Assert.NotNull(failed.Error);
+        Assert.True(recovered.Reachable);
+        Assert.Equal(
+            SteamUiTransportHealth.Ready,
+            transport.GetSnapshots().Single(
+                snapshot => snapshot.Role == SteamUiTargetRole.SharedJsContext).Health);
+    }
+
+    [Fact]
+    public async Task ThrowingGenerationSubscriberDoesNotBlockOtherSubscribersOrChannel()
+    {
+        var factory = new ResponsiveWireFactory();
+        await using var transport = new PersistentSteamUiTransport(
+            new FixtureDiscovery(), factory);
+        await using IAsyncDisposable subscription = await transport.SubscribeAsync(
+            SteamUiTargetRole.MainWindow);
+        Assert.True((await transport.EvaluateAsync(
+            SteamUiTargetRole.MainWindow,
+            "'ready'",
+            TimeSpan.FromSeconds(2))).Reachable);
+        var observed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        transport.GenerationChanged += (_, _) => throw new InvalidOperationException("fixture");
+        transport.GenerationChanged += (_, snapshot) =>
+        {
+            if (snapshot.Role == SteamUiTargetRole.MainWindow
+                && snapshot.Generations.Document > 1)
+            {
+                observed.TrySetResult();
+            }
+        };
+
+        factory.Wires.Single().Notify("DOM.documentUpdated", "{}");
+        await observed.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.True((await transport.EvaluateAsync(
+            SteamUiTargetRole.MainWindow,
+            "'still-ready'",
+            TimeSpan.FromSeconds(2))).Reachable);
+    }
+
+    [Fact]
+    public async Task SlowGenerationSubscriberDoesNotBlockConnectionSetup()
+    {
+        var factory = new ResponsiveWireFactory();
+        await using var transport = new PersistentSteamUiTransport(
+            new FixtureDiscovery(), factory);
+        var handlerStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseHandler = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        transport.GenerationChanged += (_, _) =>
+        {
+            handlerStarted.TrySetResult();
+            releaseHandler.Task.GetAwaiter().GetResult();
+        };
+
+        Task<SteamUiEvaluationResult> evaluation = transport.EvaluateAsync(
+            SteamUiTargetRole.SharedJsContext,
+            "'ready'",
+            TimeSpan.FromSeconds(2));
+        await handlerStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        try
+        {
+            Assert.True((await evaluation.WaitAsync(TimeSpan.FromSeconds(1))).Reachable);
+        }
+        finally
+        {
+            releaseHandler.TrySetResult();
+        }
+    }
+
+    [Fact]
     public async Task ChannelStaysConnectedUntilItsLastSubscriberLeaves()
     {
         var factory = new ResponsiveWireFactory();
@@ -336,6 +497,53 @@ public sealed class PersistentSteamUiTransportTests
             PersistentSteamUiTransport.RetryDelay(attempt));
     }
 
+    [Fact]
+    public async Task FailedAttachDoesNotPublishTheCandidateIntoTheSession()
+    {
+        var factory = new ResponsiveWireFactory();
+        await using var active = new PersistentSteamUiTransport(
+            new FixtureDiscovery(), factory);
+        var disposed = new PersistentSteamUiTransport(
+            new FixtureDiscovery(), new ResponsiveWireFactory());
+        await disposed.DisposeAsync();
+        SteamUiTransportSession.SetEnabled(true);
+        try
+        {
+            Assert.Throws<ObjectDisposedException>(() => SteamUiTransportSession.Attach(disposed));
+            SteamUiTransportSession.Attach(active);
+
+            CefEvalResult result = await SteamUiTransportSession.EvaluateAsync(
+                "'active'",
+                TimeSpan.FromSeconds(2));
+
+            Assert.True(result.Reachable);
+        }
+        finally
+        {
+            SteamUiTransportSession.Detach(active);
+        }
+    }
+
+    [Fact]
+    public async Task PublicTransportOperationsRejectInvalidDeadlinesBeforeConnecting()
+    {
+        var factory = new ResponsiveWireFactory();
+        await using var transport = new PersistentSteamUiTransport(
+            new FixtureDiscovery(), factory);
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => transport.EvaluateAsync(
+            SteamUiTargetRole.SharedJsContext,
+            "'invalid'",
+            TimeSpan.Zero));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => transport.SetRuntimeBindingAsync(
+            SteamUiTargetRole.SharedJsContext,
+            "fixture",
+            true,
+            TimeSpan.FromSeconds(31)));
+
+        Assert.Empty(factory.Wires);
+    }
+
     private sealed class FixtureDiscovery : ISteamUiEndpointDiscovery
     {
         public Task<SteamUiEndpoint?> DiscoverAsync(
@@ -364,6 +572,8 @@ public sealed class PersistentSteamUiTransportTests
 
         internal bool BlockPageEnable { get; init; }
 
+        internal bool FailFirstEvaluation { get; init; }
+
         internal TaskCompletionSource FirstConnectStarted { get; } = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -391,6 +601,7 @@ public sealed class PersistentSteamUiTransportTests
             }
             var wire = new ResponsiveWire(
                 BlockPageEnable,
+                FailFirstEvaluation,
                 PageEnableStarted,
                 ReleasePageEnable);
             lock (Wires)
@@ -403,11 +614,13 @@ public sealed class PersistentSteamUiTransportTests
 
     private sealed class ResponsiveWire(
         bool blockPageEnable,
+        bool failFirstEvaluation,
         TaskCompletionSource pageEnableStarted,
         TaskCompletionSource releasePageEnable) : ISteamUiCdpWire
     {
         private readonly Queue<byte[]> _messages = new();
         private readonly SemaphoreSlim _available = new(0);
+        private int _evaluations;
 
         internal List<string> Methods { get; } = [];
 
@@ -428,9 +641,20 @@ public sealed class PersistentSteamUiTransportTests
                 pageEnableStarted.TrySetResult();
                 await releasePageEnable.Task.WaitAsync(cancellationToken);
             }
-            string result = method == "Runtime.evaluate"
-                ? "{\"result\":{\"type\":\"string\",\"value\":\"ok\"}}"
-                : "{}";
+            string result;
+            if (method == "Runtime.evaluate"
+                && failFirstEvaluation
+                && Interlocked.Increment(ref _evaluations) == 1)
+            {
+                result = "{\"exceptionDetails\":{\"text\":\"fixture failure\"},"
+                    + "\"result\":{\"type\":\"undefined\"}}";
+            }
+            else
+            {
+                result = method == "Runtime.evaluate"
+                    ? "{\"result\":{\"type\":\"string\",\"value\":\"ok\"}}"
+                    : "{}";
+            }
             Enqueue(Encoding.UTF8.GetBytes($"{{\"id\":{id},\"result\":{result}}}"));
         }
 

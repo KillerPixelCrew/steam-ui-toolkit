@@ -33,7 +33,7 @@ public static class SteamUiExtensionHost
     /// <summary>The manifest file every extension package must contain.</summary>
     public const string ManifestFileName = "extension.wsgm.json";
 
-    /// <summary>Largest script accepted from one extension.</summary>
+    /// <summary>Largest UTF-8 script accepted from one extension.</summary>
     /// <remarks>The whole injected asset is evaluated in one CDP call, so an unbounded script is a
     /// way to make that call fail for every surface, not just the extension's own.</remarks>
     public const int MaximumScriptCharacters = 256 * 1024;
@@ -99,9 +99,10 @@ public static class SteamUiExtensionHost
         HashSet<string> claimedIds,
         HashSet<string> claimedPatches)
     {
-        // First one wins, and the second is named. Silently preferring either would make an
-        // extension that stopped working impossible to explain.
-        if (!claimedIds.Add(extension.Id))
+        // Check the complete claim set before committing any of it. A rejected extension must not
+        // reserve its id or an earlier patch and thereby make a later, otherwise valid extension
+        // look conflicting.
+        if (claimedIds.Contains(extension.Id))
         {
             return Reject(
                 extension.Id,
@@ -111,13 +112,19 @@ public static class SteamUiExtensionHost
 
         foreach (string patch in extension.Manifest!.Patches)
         {
-            if (!claimedPatches.Add(patch))
+            if (claimedPatches.Contains(patch))
             {
                 return Reject(
                     extension.Id,
                     SteamUiExtensionRejection.Conflict,
                     $"patch '{patch}' is already claimed by another extension");
             }
+        }
+
+        claimedIds.Add(extension.Id);
+        foreach (string patch in extension.Manifest.Patches)
+        {
+            claimedPatches.Add(patch);
         }
 
         return extension;
@@ -145,12 +152,25 @@ public static class SteamUiExtensionHost
             || !IsSafeIdentifier(manifest.Id)
             || string.IsNullOrWhiteSpace(manifest.Name)
             || string.IsNullOrWhiteSpace(manifest.Version)
-            || string.IsNullOrWhiteSpace(manifest.Script))
+            || string.IsNullOrWhiteSpace(manifest.Script)
+            || manifest.Patches is null)
         {
             return Reject(
                 fallbackId,
                 SteamUiExtensionRejection.InvalidManifest,
                 "id, name, version and script are required, and id must be a safe identifier");
+        }
+
+        var distinctPatches = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string? patch in manifest.Patches)
+        {
+            if (!IsSafeIdentifier(patch) || !distinctPatches.Add(patch!))
+            {
+                return Reject(
+                    manifest.Id,
+                    SteamUiExtensionRejection.InvalidManifest,
+                    "patch ids must be non-empty safe identifiers and may appear only once");
+            }
         }
 
         if (manifest.ApiVersion != ApiVersion)
@@ -224,7 +244,7 @@ public static class SteamUiExtensionHost
             // Checked before reading rather than after, so an oversized file is never loaded.
             if (info.Length > MaximumScriptCharacters)
             {
-                error = $"the script exceeds {MaximumScriptCharacters} characters";
+                error = $"the script exceeds {MaximumScriptCharacters} UTF-8 bytes";
                 return false;
             }
             script = File.ReadAllText(full, new UTF8Encoding(false, true));
@@ -236,10 +256,10 @@ public static class SteamUiExtensionHost
             return false;
         }
 
-        if (script.Length > MaximumScriptCharacters)
+        if (Encoding.UTF8.GetByteCount(script) > MaximumScriptCharacters)
         {
             script = null;
-            error = $"the script exceeds {MaximumScriptCharacters} characters";
+            error = $"the script exceeds {MaximumScriptCharacters} UTF-8 bytes";
             return false;
         }
 

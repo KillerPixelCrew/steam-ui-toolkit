@@ -1,9 +1,11 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace SteamUiToolkit;
@@ -186,8 +188,21 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
     private readonly SteamUiInjectedAsset _asset;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<string>> _allowedCommands;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly object _stateSync = new();
     private readonly SteamUiBridgeAuthorizer _authorizer;
+    // The injected side permits 32 pending requests; reserve matching room for each one's
+    // cancellation so a saturated request burst cannot strand its own cleanup message.
+    private readonly Channel<SteamUiBridgeRequest> _requests =
+        Channel.CreateBounded<SteamUiBridgeRequest>(
+            new BoundedChannelOptions(64)
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                FullMode = BoundedChannelFullMode.Wait,
+            });
+    private readonly Task _requestPump;
     private SteamUiGenerations _generations;
+    private long _generationEpoch;
     private volatile bool _ready;
     private int _disposed;
 
@@ -204,10 +219,13 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
     {
         _asset = asset;
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
+        ArgumentException.ThrowIfNullOrWhiteSpace(asset.Source);
+        ArgumentException.ThrowIfNullOrWhiteSpace(asset.Sha256);
         _allowedCommands = SteamUiBridgeAuthorizer.CopyVocabulary(allowedCommands);
         _authorizer = new(default, _allowedCommands);
         _transport.NotificationReceived += OnNotificationReceived;
         _transport.GenerationChanged += OnGenerationChanged;
+        _requestPump = DispatchRequestsAsync();
     }
 
     /// <summary>Raised only after a request passes the compiled semantic allowlist.</summary>
@@ -225,6 +243,11 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            lock (_stateSync)
+            {
+                _ready = false;
+            }
             var snapshot = FindSharedSnapshot();
             await _transport.SetRuntimeBindingAsync(
                 SteamUiTargetRole.SharedJsContext,
@@ -234,6 +257,11 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
                 cancellationToken).ConfigureAwait(false);
 
             snapshot = FindSharedSnapshot();
+            long bootstrapEpoch;
+            lock (_stateSync)
+            {
+                bootstrapEpoch = _generationEpoch;
+            }
             var configuration = BuildConfiguration(snapshot.Generations);
             var expression = _asset.Source.Replace(
                 "__WSGM_CONFIGURATION_JSON__", configuration, StringComparison.Ordinal);
@@ -244,24 +272,34 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
                 cancellationToken).ConfigureAwait(false);
             if (!result.Reachable || result.Value is null)
             {
-                _ready = false;
                 return false;
             }
             using var handshake = JsonDocument.Parse(result.Value);
-            _ready = handshake.RootElement.TryGetProperty("ok", out var ok)
+            bool ready = handshake.RootElement.TryGetProperty("ok", out var ok)
                 && ok.ValueKind == JsonValueKind.True
                 && result.Generations.ExecutionContext == snapshot.Generations.ExecutionContext
                 && result.Generations.Document == snapshot.Generations.Document;
-            if (_ready)
+            lock (_stateSync)
             {
-                _generations = result.Generations;
-                _authorizer.Reset(_generations);
+                if (ready && bootstrapEpoch == _generationEpoch)
+                {
+                    _generations = result.Generations;
+                    _authorizer.Reset(_generations);
+                    _ready = true;
+                }
+                else
+                {
+                    _ready = false;
+                }
+                return _ready;
             }
-            return _ready;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _ready = false;
+            lock (_stateSync)
+            {
+                _ready = false;
+            }
             SteamUiLog.Warn($"Steam UI bridge bootstrap failed: {ex.Message}");
             return false;
         }
@@ -285,7 +323,22 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         string? error,
         CancellationToken cancellationToken = default)
     {
-        if (!_ready)
+        SteamUiGenerations generations;
+        lock (_stateSync)
+        {
+            if (!_ready)
+            {
+                return false;
+            }
+            generations = _generations;
+        }
+        if (request.Version != SchemaVersion
+            || request.ContextGeneration != generations.ExecutionContext
+            || request.DocumentGeneration != generations.Document
+            || !_allowedCommands.TryGetValue(request.PatchId, out var commands)
+            || !ContainsCommand(commands, request.Command)
+            || (payload.HasValue
+                && payload.Value.GetRawText().Length > MaximumPayloadCharacters))
         {
             return false;
         }
@@ -298,7 +351,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             expression,
             OperationTimeout,
             cancellationToken).ConfigureAwait(false);
-        return result.Reachable && result.Value?.Contains("\"ok\":true", StringComparison.Ordinal) == true;
+        return IsPositiveAcknowledgement(result, generations);
     }
 
     /// <summary>Publishes immutable semantic state to subscribers of one allowlisted patch.</summary>
@@ -311,14 +364,22 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         JsonElement payload,
         CancellationToken cancellationToken = default)
     {
-        if (!_ready
-            || !_allowedCommands.ContainsKey(patchId)
+        SteamUiGenerations generations;
+        lock (_stateSync)
+        {
+            if (!_ready)
+            {
+                return false;
+            }
+            generations = _generations;
+        }
+        if (!_allowedCommands.ContainsKey(patchId)
             || payload.GetRawText().Length > MaximumPayloadCharacters)
         {
             return false;
         }
 
-        var json = BuildState(patchId, payload);
+        var json = BuildState(patchId, payload, generations);
         var expression = "(()=>{const b=window[" + SteamCef.JsString(Namespace)
             + "];return JSON.stringify({ok:!!(b&&b.deliver(JSON.parse("
             + SteamCef.JsString(json) + ")))});})()";
@@ -327,23 +388,34 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             expression,
             OperationTimeout,
             cancellationToken).ConfigureAwait(false);
-        return result.Reachable && result.Value?.Contains("\"ok\":true", StringComparison.Ordinal) == true;
+        return IsPositiveAcknowledgement(result, generations);
     }
 
     /// <summary>Removes only the WSGM-owned bridge namespace and Runtime binding.</summary>
     /// <param name="cancellationToken">Cancels cleanup.</param>
     public async Task RemoveAsync(CancellationToken cancellationToken = default)
     {
-        _ready = false;
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await _transport.EvaluateAsync(
-                SteamUiTargetRole.SharedJsContext,
-                "(()=>{const k=" + SteamCef.JsString(Namespace)
-                    + ";const b=window[k];if(b&&b.dispose)b.dispose('WSGM removed');"
-                    + "try{delete window[k];}catch(e){}return JSON.stringify({ok:true});})()",
-                OperationTimeout,
-                cancellationToken).ConfigureAwait(false);
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            await RemoveCoreAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private async Task RemoveCoreAsync(CancellationToken cancellationToken)
+    {
+        lock (_stateSync)
+        {
+            _ready = false;
+        }
+        try
+        {
             await _transport.SetRuntimeBindingAsync(
                 SteamUiTargetRole.SharedJsContext,
                 BindingName,
@@ -353,17 +425,40 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            SteamUiLog.Warn($"Steam UI bridge removal was incomplete: {ex.Message}");
+            SteamUiLog.Warn($"Steam UI Runtime binding removal was incomplete: {ex.Message}");
+        }
+
+        try
+        {
+            await _transport.EvaluateAsync(
+                SteamUiTargetRole.SharedJsContext,
+                "(()=>{const k=" + SteamCef.JsString(Namespace)
+                    + ";const b=window[k];if(b&&b.dispose)b.dispose('WSGM removed');"
+                    + "try{delete window[k];}catch(e){}return JSON.stringify({ok:true});})()",
+                OperationTimeout,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            SteamUiLog.Warn($"Steam UI bridge namespace removal was incomplete: {ex.Message}");
         }
     }
 
     private void OnNotificationReceived(object? sender, SteamUiNotification notification)
     {
-        if (!_ready
-            || notification.Role != SteamUiTargetRole.SharedJsContext
+        SteamUiGenerations generations;
+        lock (_stateSync)
+        {
+            if (!_ready)
+            {
+                return;
+            }
+            generations = _generations;
+        }
+        if (notification.Role != SteamUiTargetRole.SharedJsContext
             || notification.Method != "Runtime.bindingCalled"
-            || notification.Generations.ExecutionContext != _generations.ExecutionContext
-            || notification.Generations.Document != _generations.Document)
+            || notification.Generations.ExecutionContext != generations.ExecutionContext
+            || notification.Generations.Document != generations.Document)
         {
             return;
         }
@@ -404,11 +499,56 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
                     warning: true);
                 return;
             }
-            RequestReceived?.Invoke(this, request);
+            if (!_requests.Writer.TryWrite(request))
+            {
+                SteamUiLog.Warn(
+                    $"Steam UI bridge request queue was full; refused {request.PatchId}/"
+                        + request.Command + ".");
+            }
         }
         catch (JsonException ex)
         {
             SteamUiLog.Warn($"Steam UI bridge rejected malformed payload: {ex.Message}");
+        }
+    }
+
+    private async Task DispatchRequestsAsync()
+    {
+        await foreach (SteamUiBridgeRequest request in _requests.Reader.ReadAllAsync())
+        {
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                continue;
+            }
+
+            lock (_stateSync)
+            {
+                if (!_ready
+                    || request.ContextGeneration != _generations.ExecutionContext
+                    || request.DocumentGeneration != _generations.Document)
+                {
+                    continue;
+                }
+            }
+
+            EventHandler<SteamUiBridgeRequest>? handlers = RequestReceived;
+            if (handlers is null)
+            {
+                continue;
+            }
+            foreach (EventHandler<SteamUiBridgeRequest> handler in handlers.GetInvocationList())
+            {
+                try
+                {
+                    handler(this, request);
+                }
+                catch (Exception ex)
+                {
+                    SteamUiLog.Warn(
+                        $"Steam UI bridge request handler failed for {request.PatchId}/"
+                            + $"{request.Command}: {ex.Message}");
+                }
+            }
         }
     }
 
@@ -418,11 +558,15 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         {
             return;
         }
-        if (snapshot.Generations.ExecutionContext != _generations.ExecutionContext
-            || snapshot.Generations.Document != _generations.Document)
+        lock (_stateSync)
         {
-            _ready = false;
-            _authorizer.Reset(snapshot.Generations);
+            if (snapshot.Generations.ExecutionContext != _generations.ExecutionContext
+                || snapshot.Generations.Document != _generations.Document)
+            {
+                _generationEpoch++;
+                _ready = false;
+                _authorizer.Reset(snapshot.Generations);
+            }
         }
     }
 
@@ -436,6 +580,43 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             }
         }
         throw new InvalidOperationException("SharedJSContext channel is not registered.");
+    }
+
+    private static bool ContainsCommand(IReadOnlyList<string> commands, string command)
+    {
+        for (int index = 0; index < commands.Count; index++)
+        {
+            if (string.Equals(commands[index], command, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool IsPositiveAcknowledgement(
+        SteamUiEvaluationResult result,
+        SteamUiGenerations expectedGenerations)
+    {
+        if (!result.Reachable
+            || result.Generations.ExecutionContext != expectedGenerations.ExecutionContext
+            || result.Generations.Document != expectedGenerations.Document
+            || string.IsNullOrWhiteSpace(result.Value))
+        {
+            return false;
+        }
+        try
+        {
+            using JsonDocument acknowledgement = JsonDocument.Parse(result.Value);
+            JsonElement root = acknowledgement.RootElement;
+            return root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("ok", out JsonElement ok)
+                && ok.ValueKind == JsonValueKind.True;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     private string BuildConfiguration(SteamUiGenerations generations)
@@ -473,7 +654,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             writer.WriteEndObject();
             writer.WriteEndObject();
         }
-        return System.Text.Encoding.UTF8.GetString(buffer.WrittenSpan);
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
     }
 
     private static string BuildResponse(
@@ -506,10 +687,13 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             }
             writer.WriteEndObject();
         }
-        return System.Text.Encoding.UTF8.GetString(buffer.WrittenSpan);
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
     }
 
-    private string BuildState(string patchId, JsonElement payload)
+    private static string BuildState(
+        string patchId,
+        JsonElement payload,
+        SteamUiGenerations generations)
     {
         var buffer = new ArrayBufferWriter<byte>();
         using (var writer = new Utf8JsonWriter(buffer))
@@ -518,13 +702,13 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             writer.WriteNumber("version", SchemaVersion);
             writer.WriteString("type", "state");
             writer.WriteString("patchId", patchId);
-            writer.WriteNumber("contextGeneration", _generations.ExecutionContext);
-            writer.WriteNumber("documentGeneration", _generations.Document);
+            writer.WriteNumber("contextGeneration", generations.ExecutionContext);
+            writer.WriteNumber("documentGeneration", generations.Document);
             writer.WritePropertyName("payload");
             payload.WriteTo(writer);
             writer.WriteEndObject();
         }
-        return System.Text.Encoding.UTF8.GetString(buffer.WrittenSpan);
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
     }
 
     /// <inheritdoc />
@@ -536,10 +720,18 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         }
         _transport.NotificationReceived -= OnNotificationReceived;
         _transport.GenerationChanged -= OnGenerationChanged;
+        lock (_stateSync)
+        {
+            _ready = false;
+        }
+        _requests.Writer.TryComplete();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var gateHeld = false;
         try
         {
-            await RemoveAsync(timeout.Token).ConfigureAwait(false);
+            await _gate.WaitAsync(timeout.Token).ConfigureAwait(false);
+            gateHeld = true;
+            await RemoveCoreAsync(timeout.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (timeout.IsCancellationRequested)
         {
@@ -549,7 +741,23 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         }
         finally
         {
-            _gate.Dispose();
+            if (gateHeld)
+            {
+                _gate.Release();
+            }
+        }
+
+        try
+        {
+            await _requestPump.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            SteamUiLog.Warn("Steam UI bridge request handlers exceeded their shutdown budget.");
+        }
+        catch (Exception ex)
+        {
+            SteamUiLog.Warn($"Steam UI bridge request cleanup failed: {ex.Message}");
         }
     }
 }

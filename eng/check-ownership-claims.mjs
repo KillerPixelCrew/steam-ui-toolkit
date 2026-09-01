@@ -82,6 +82,38 @@ const keys = { marker: "__mark", original: "__orig" };
   api.releaseValue(host, "flag", keys);
   check("value: a lost original restores the absent value, not undefined", host.flag === false);
 }
+{
+  const proto = { flag: false };
+  const host = Object.create(proto);
+  const outcome = api.claimValue(host, "flag", keys, true, false);
+  check("value: claims an inherited field", outcome.ok && host.flag === true);
+  api.releaseValue(host, "flag", keys);
+  check(
+    "value: release reveals the inherited field without leaving a shadow",
+    host.flag === false && !Object.hasOwn(host, "flag"),
+  );
+}
+{
+  const host = {};
+  Object.defineProperty(host, "flag", {
+    value: undefined,
+    configurable: true,
+    enumerable: false,
+    writable: true,
+  });
+  const before = Object.getOwnPropertyDescriptor(host, "flag");
+  api.claimValue(host, "flag", keys, true, false);
+  api.releaseValue(host, "flag", keys);
+  const after = Object.getOwnPropertyDescriptor(host, "flag");
+  check(
+    "value: restores an own undefined field and its exact descriptor",
+    Object.hasOwn(host, "flag") &&
+      after.value === undefined &&
+      after.enumerable === before.enumerable &&
+      after.configurable === before.configurable &&
+      after.writable === before.writable,
+  );
+}
 
 // --- member claim: an overlaid METHOD ---------------------------------------------------------
 {
@@ -119,6 +151,34 @@ const keys = { marker: "__mark", original: "__orig" };
   api.claimMember(host, "Go", keys, wrapOnce);
   host.Go();
   check("member: reclaim replaces rather than stacking", order.join(",") === "wrap,native");
+}
+{
+  const proto = { Go: () => "native" };
+  const host = Object.create(proto);
+  api.claimMember(host, "Go", keys, () => () => "ours");
+  api.releaseMember(host, "Go", keys);
+  check(
+    "member: release reveals an inherited method without leaving a shadow",
+    host.Go() === "native" && !Object.hasOwn(host, "Go"),
+  );
+}
+{
+  const host = {};
+  Object.defineProperty(host, "Maybe", {
+    value: undefined,
+    configurable: true,
+    enumerable: false,
+    writable: true,
+  });
+  api.claimMember(host, "Maybe", keys, () => () => "ours");
+  api.releaseMember(host, "Maybe", keys);
+  const descriptor = Object.getOwnPropertyDescriptor(host, "Maybe");
+  check(
+    "member: restores an own undefined member instead of deleting it",
+    Object.hasOwn(host, "Maybe") &&
+      descriptor.value === undefined &&
+      descriptor.enumerable === false,
+  );
 }
 
 // --- supplied namespace: the Perf and audio backends the client does not have -------------------

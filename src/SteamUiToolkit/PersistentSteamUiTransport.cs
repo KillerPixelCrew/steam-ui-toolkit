@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace SteamUiToolkit;
@@ -20,25 +21,58 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
 
     private readonly ISteamUiEndpointDiscovery _discovery;
     private readonly ISteamUiCdpWireFactory _wireFactory;
+    private readonly bool _ownsDiscovery;
     private readonly Dictionary<SteamUiTargetRole, TargetChannel> _channels;
     private readonly CancellationTokenSource _shutdown = new();
+    private readonly Channel<SteamUiNotification> _notificationEvents =
+        Channel.CreateBounded<SteamUiNotification>(
+            new BoundedChannelOptions(256)
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                FullMode = BoundedChannelFullMode.DropOldest,
+            });
+    private readonly Channel<SteamUiTransportSnapshot> _generationEvents =
+        Channel.CreateBounded<SteamUiTransportSnapshot>(
+            new BoundedChannelOptions(64)
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                FullMode = BoundedChannelFullMode.DropOldest,
+            });
+    private readonly Task _notificationEventPump;
+    private readonly Task _generationEventPump;
     private volatile bool _enabled = true;
     private int _disposed;
 
     /// <summary>Creates a production transport using Steam's validated loopback endpoint.</summary>
     public PersistentSteamUiTransport()
-        : this(new SteamUiEndpointDiscovery(), new SteamUiWebSocketWireFactory())
+        : this(
+            new SteamUiEndpointDiscovery(),
+            new SteamUiWebSocketWireFactory(),
+            ownsDiscovery: true)
     {
     }
 
     internal PersistentSteamUiTransport(
         ISteamUiEndpointDiscovery discovery, ISteamUiCdpWireFactory wireFactory)
+        : this(discovery, wireFactory, ownsDiscovery: false)
     {
-        _discovery = discovery;
-        _wireFactory = wireFactory;
+    }
+
+    private PersistentSteamUiTransport(
+        ISteamUiEndpointDiscovery discovery,
+        ISteamUiCdpWireFactory wireFactory,
+        bool ownsDiscovery)
+    {
+        _discovery = discovery ?? throw new ArgumentNullException(nameof(discovery));
+        _wireFactory = wireFactory ?? throw new ArgumentNullException(nameof(wireFactory));
+        _ownsDiscovery = ownsDiscovery;
         _channels = Enum.GetValues<SteamUiTargetRole>().ToDictionary(
             role => role,
             role => new TargetChannel(role));
+        _notificationEventPump = DispatchNotificationEventsAsync();
+        _generationEventPump = DispatchGenerationEventsAsync();
     }
 
     /// <inheritdoc />
@@ -78,6 +112,8 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        ArgumentNullException.ThrowIfNull(expression);
+        ValidateTimeout(timeout);
         if (!_enabled)
         {
             return SteamUiEvaluationResult.Unavailable(
@@ -107,6 +143,11 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
 
             var value = await connection.EvaluateAsync(expression, timeout, deadline.Token)
                 .ConfigureAwait(false);
+            SetHealth(
+                channel,
+                ownershipGeneration,
+                SteamUiTransportHealth.Ready,
+                failure: null);
             var generations = Snapshot(channel).Generations;
             return new SteamUiEvaluationResult(true, value, null, generations);
         }
@@ -155,6 +196,7 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(bindingName);
+        ValidateTimeout(timeout);
         if (!_enabled)
         {
             throw new InvalidOperationException("Steam CEF integration is disabled in settings.");
@@ -178,6 +220,11 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
                 timeout,
                 deadline.Token)
             .ConfigureAwait(false);
+        SetHealth(
+            channel,
+            ownershipGeneration,
+            SteamUiTransportHealth.Ready,
+            failure: null);
     }
 
     /// <inheritdoc />
@@ -527,11 +574,11 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         }
 
         var snapshot = Snapshot(channel);
-        NotificationReceived?.Invoke(this,
+        RaiseNotificationReceived(
             new SteamUiNotification(channel.Role, method, parameters, snapshot.Generations));
         if (changed)
         {
-            GenerationChanged?.Invoke(this, snapshot);
+            RaiseGenerationChanged(snapshot);
         }
     }
 
@@ -612,8 +659,62 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         }
     }
 
+    private void RaiseNotificationReceived(SteamUiNotification notification)
+        => _notificationEvents.Writer.TryWrite(notification);
+
+    private async Task DispatchNotificationEventsAsync()
+    {
+        await foreach (SteamUiNotification notification in
+            _notificationEvents.Reader.ReadAllAsync())
+        {
+            EventHandler<SteamUiNotification>? handlers = NotificationReceived;
+            if (handlers is null)
+            {
+                continue;
+            }
+            foreach (EventHandler<SteamUiNotification> handler in handlers.GetInvocationList())
+            {
+                try
+                {
+                    handler(this, notification);
+                }
+                catch (Exception ex)
+                {
+                    SteamUiLog.Warn($"Steam UI notification handler failed: {ex.Message}");
+                }
+            }
+        }
+    }
+
     private void RaiseGenerationChanged(TargetChannel channel) =>
-        GenerationChanged?.Invoke(this, Snapshot(channel));
+        RaiseGenerationChanged(Snapshot(channel));
+
+    private void RaiseGenerationChanged(SteamUiTransportSnapshot snapshot) =>
+        _generationEvents.Writer.TryWrite(snapshot);
+
+    private async Task DispatchGenerationEventsAsync()
+    {
+        await foreach (SteamUiTransportSnapshot snapshot in
+            _generationEvents.Reader.ReadAllAsync())
+        {
+            EventHandler<SteamUiTransportSnapshot>? handlers = GenerationChanged;
+            if (handlers is null)
+            {
+                continue;
+            }
+            foreach (EventHandler<SteamUiTransportSnapshot> handler in handlers.GetInvocationList())
+            {
+                try
+                {
+                    handler(this, snapshot);
+                }
+                catch (Exception ex)
+                {
+                    SteamUiLog.Warn($"Steam UI generation handler failed: {ex.Message}");
+                }
+            }
+        }
+    }
 
     private static SteamUiTransportSnapshot Snapshot(TargetChannel channel)
     {
@@ -648,6 +749,16 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
             ? value
             : value[..maximumLength] + "...";
 
+    private static void ValidateTimeout(TimeSpan timeout)
+    {
+        if (timeout <= TimeSpan.Zero || timeout > TimeSpan.FromSeconds(30))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(timeout),
+                "Steam UI operations require a positive timeout no greater than 30 seconds.");
+        }
+    }
+
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
@@ -655,6 +766,8 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         {
             return;
         }
+        NotificationReceived = null;
+        GenerationChanged = null;
         _shutdown.Cancel();
         foreach (var channel in _channels.Values)
         {
@@ -676,7 +789,25 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
                 await connection.DisposeAsync().ConfigureAwait(false);
             }
         }
-        _shutdown.Dispose();
+        _notificationEvents.Writer.TryComplete();
+        _generationEvents.Writer.TryComplete();
+        try
+        {
+            await Task.WhenAll(_notificationEventPump, _generationEventPump)
+                .WaitAsync(TimeSpan.FromSeconds(1))
+                .ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            SteamUiLog.Warn("Steam UI event handlers exceeded their shutdown budget.");
+        }
+        if (_ownsDiscovery)
+        {
+            (_discovery as IDisposable)?.Dispose();
+        }
+        // Reconnect attempts can finish just after cancellation even when their wire is already
+        // detached. Keep the managed token source alive for those late continuations; it is
+        // collected with the transport.
     }
 
     private sealed class TargetChannel(SteamUiTargetRole role)

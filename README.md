@@ -84,6 +84,10 @@ your modules and the client.
 What patches should be applied when stays yours. That is application policy, every host's rules
 differ, and a constructor full of predicates describing one host's would help nobody.
 
+`SteamUiPatchManager.SetGlobalEnabled` and `SetPatchEnabled` start synchronization immediately;
+their `Async` counterparts wait until retraction or reapplication has finished. Use the awaited
+forms when shutdown, settings confirmation, or an emergency kill switch must know cleanup is done.
+
 ## Status
 
 **0.1.0. Early, single-consumer, and moving.** See the warning at the top — this section is the

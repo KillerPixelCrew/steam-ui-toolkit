@@ -37,7 +37,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
     private readonly HashSet<Task> _requestTasks = [];
     private readonly Task _publication;
     private int _publicationPending;
-    private bool _disposed;
+    private int _disposed;
 
     /// <summary>Starts the publication pump and begins answering bridge requests.</summary>
     /// <param name="bridge">The bridge this runtime publishes through and answers on.</param>
@@ -63,7 +63,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
     /// <summary>Asks for one publication round, coalescing repeats into the pending one.</summary>
     public void QueuePublication()
     {
-        if (_disposed)
+        if (Volatile.Read(ref _disposed) != 0)
         {
             return;
         }
@@ -97,6 +97,10 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
 
     private void OnRequestReceived(object? sender, SteamUiBridgeRequest request)
     {
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            return;
+        }
         if (request.Type == "cancel")
         {
             CancelInflight(request.Sequence);
@@ -126,6 +130,11 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
         SteamUiCommandResult outcome;
         try
         {
+            if (requestCancellation.IsCancellationRequested)
+            {
+                RemoveInflight(request.Sequence);
+                return;
+            }
             if (!_commandsEnabled())
             {
                 outcome = SteamUiCommandResult.Refused;
@@ -171,13 +180,21 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
                 return;
             }
 
-            await _bridge.RespondAsync(
+            bool delivered = await _bridge.RespondAsync(
                     request,
                     outcome.Succeeded,
                     outcome.Payload,
                     outcome.Error,
                     requestCancellation.Token)
                 .ConfigureAwait(false);
+            if (!delivered)
+            {
+                SteamUiLog.Change(
+                    $"steam.ui.response.{request.PatchId}.{request.Command}",
+                    $"Steam UI response {request.PatchId}/{request.Command} was not accepted by "
+                        + "the current document.",
+                    warning: true);
+            }
         }
         catch (OperationCanceledException) when (requestCancellation.IsCancellationRequested)
         {
@@ -207,20 +224,44 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
 
                 foreach (SteamUiStatePublication publication in _modules.Publications)
                 {
-                    if (!publication.Enabled())
+                    try
                     {
-                        continue;
+                        if (!publication.Enabled())
+                        {
+                            continue;
+                        }
+                        JsonElement? payload = await publication.Read().ConfigureAwait(false);
+                        // Null publishes nothing this round, which keeps a reading that is
+                        // momentarily unavailable distinct from a zero.
+                        if (payload is not { } state)
+                        {
+                            continue;
+                        }
+
+                        bool accepted = await _bridge.PublishStateAsync(
+                                    publication.PatchId,
+                                    state,
+                                    _shutdown.Token)
+                                .ConfigureAwait(false);
+                        if (!accepted)
+                        {
+                            SteamUiLog.Change(
+                                "steam.ui.publication." + publication.PatchId,
+                                $"Steam UI state publication {publication.PatchId} was not "
+                                    + "accepted by the current document.",
+                                warning: true);
+                        }
                     }
-                    JsonElement? payload = await publication.Read().ConfigureAwait(false);
-                    // Null publishes nothing this round, which keeps a reading that is momentarily
-                    // unavailable distinct from a zero.
-                    if (payload is { } state)
+                    catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
                     {
-                        await _bridge.PublishStateAsync(
-                                publication.PatchId,
-                                state,
-                                _shutdown.Token)
-                            .ConfigureAwait(false);
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        SteamUiLog.Change(
+                            "steam.ui.publication." + publication.PatchId,
+                            $"Steam UI state publication {publication.PatchId} failed: {ex.Message}",
+                            warning: true);
                     }
                 }
             }
@@ -288,11 +329,10 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
     /// <summary>Stops answering, drains in-flight work, and releases the pump.</summary>
     public async ValueTask DisposeAsync()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
         {
             return;
         }
-        _disposed = true;
         _bridge.RequestReceived -= OnRequestReceived;
         CancelAllInflight();
         _shutdown.Cancel();
@@ -318,7 +358,8 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
             SteamUiLog.Warn($"Steam UI semantic request cleanup failed: {ex.Message}");
         }
 
-        _publicationSignal.Dispose();
-        _shutdown.Dispose();
+        // These managed synchronization objects are collected with the runtime. A bridge callback
+        // already dispatched just before unsubscription may still observe the cancelled token;
+        // disposing the source here would turn that harmless late callback into a teardown race.
     }
 }

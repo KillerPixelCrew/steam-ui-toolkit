@@ -69,8 +69,12 @@ public static class SteamUiTransportSession
             {
                 throw new InvalidOperationException("A Steam UI transport is already attached.");
             }
-            _transport = transport;
+
+            // Configure the candidate before publication. If it was already disposed (or rejects
+            // the session state for any other reason), the previous attachment remains intact and
+            // one-shot callers can never observe a half-attached transport.
             transport.SetEnabled(_enabled);
+            _transport = transport;
         }
     }
 
