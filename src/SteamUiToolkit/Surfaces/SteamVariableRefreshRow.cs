@@ -38,7 +38,7 @@ public interface ISteamVariableRefreshBackend
 public static class SteamVariableRefreshRow
 {
     /// <summary>The patch id this row publishes under and answers commands for.</summary>
-    public const string PatchId = "wsgm.native-qam.vrr";
+    public const string PatchId = "steam-ui.variable-refresh";
 
     /// <summary>The exact command vocabulary the injected row sends.</summary>
     public static IReadOnlyList<string> Commands { get; } = ["setVariableRefreshRate"];
@@ -48,7 +48,7 @@ public static class SteamVariableRefreshRow
         PatchId,
         "vrr",
         "native-qam-vrr-v1:performance-actions+performance-root+valve-toggle",
-        "wsgm_native_vrr_probe_");
+        "steam_ui_variable_refresh_probe_");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
     /// <param name="state">The state to serialize.</param>

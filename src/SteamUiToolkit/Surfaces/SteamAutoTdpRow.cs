@@ -48,7 +48,7 @@ public interface ISteamAutoTdpBackend
 public static class SteamAutoTdpRow
 {
     /// <summary>The patch id this row publishes under and answers commands for.</summary>
-    public const string PatchId = "wsgm.native-qam.auto-tdp";
+    public const string PatchId = "steam-ui.auto-tdp";
 
     /// <summary>The exact command vocabulary the injected row sends.</summary>
     public static IReadOnlyList<string> Commands { get; } = ["setAutoTdp"];
@@ -58,7 +58,7 @@ public static class SteamAutoTdpRow
         PatchId,
         "autoTdp",
         "native-qam-auto-tdp-v1:presentation+performance-root+valve-toggle",
-        "wsgm_native_auto_tdp_probe_",
+        "steam_ui_auto_tdp_probe_",
         "tdpPresentation",
         [
             "#QuickAccess_Tab_Perf_TDPLimitEnabled",

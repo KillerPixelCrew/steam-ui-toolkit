@@ -89,7 +89,7 @@ public interface ISteamAudioBackend
 public static class SteamAudioSurface
 {
     /// <summary>The patch id this surface publishes under and answers commands for.</summary>
-    public const string PatchId = "wsgm.native-qam.audio";
+    public const string PatchId = "steam-ui.audio";
 
     /// <summary>The exact command vocabulary the injected gate sends.</summary>
     public static IReadOnlyList<string> Commands { get; } =
@@ -102,11 +102,11 @@ public static class SteamAudioSurface
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         id: PatchId,
-        resourceKey: "wsgm.native-qam.audio-namespace",
+        resourceKey: "steam-ui.audio-namespace",
         gateName: "audio",
         fingerprint: "native-qam-audio-v1:store+absent-namespace+reachable-singleton",
         probeExpression: $$"""
-            {{SteamUiProbeJs.CountingPreamble("wsgm_native_audio_probe_")}}
+            {{SteamUiProbeJs.CountingPreamble("steam_ui_audio_probe_")}}
               let singleton=false;
               try{const mod=req('1409');singleton=!!(mod&&mod.F5&&('m_bAvailable' in mod.F5));}catch{}
               return JSON.stringify({
@@ -116,7 +116,7 @@ public static class SteamAudioSurface
                   // native backend, and treating it as one made this patch declare itself incompatible
                   // five seconds after a successful install, tear down, and orphan the namespace it had
                   // just defined — leaving Steam's audio page empty until Steam itself restarted.
-                  return !a||a.__wsgmOwnedNamespace===true;})(),
+                  return !a||a.__steamUiOwnedNamespace===true;})(),
                 storeSingletonReachable:singleton
               });
             }catch(error){return JSON.stringify({error:String(error)}); } })()

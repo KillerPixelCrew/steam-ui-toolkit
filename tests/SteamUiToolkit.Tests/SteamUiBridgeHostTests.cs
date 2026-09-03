@@ -8,7 +8,7 @@ public sealed class SteamUiBridgeHostTests
     // tests exercise the envelope handling around that, not the script, so the smallest asset that
     // still carries the placeholder is the honest fixture.
     private static readonly SteamUiInjectedAsset TestAsset =
-        new("(()=>{return __WSGM_CONFIGURATION_JSON__;})()", "TESTASSETHASH");
+        new("(()=>{return __STEAM_UI_CONFIGURATION_JSON__;})()", "TESTASSETHASH");
     private static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> TestVocabulary =
         new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
         {
@@ -48,7 +48,7 @@ public sealed class SteamUiBridgeHostTests
         transport.EmitRawParameters("[");
         transport.EmitBindingPayload("{");
         transport.EmitRawParameters("{\"name\":\"somebody-elses-binding\",\"payload\":\"{}\"}");
-        transport.EmitRawParameters("{\"name\":\"__wsgmNativeBridge_v1_7b24d11c\"}");
+        transport.EmitRawParameters("{\"name\":\"__steamUiBridge_v1_7b24d11c\"}");
         transport.EmitBindingPayload(new string('x', SteamUiBridgeHost.MaximumPayloadCharacters + 1));
 
         Assert.Equal(0, received);
@@ -369,7 +369,7 @@ public sealed class SteamUiBridgeHostTests
             SteamUiGenerations? generations = null) => EmitRawParameters(
                 JsonSerializer.Serialize(new
                 {
-                    name = "__wsgmNativeBridge_v1_7b24d11c",
+                    name = "__steamUiBridge_v1_7b24d11c",
                     payload,
                 }),
                 generations);

@@ -519,7 +519,7 @@ public interface ISteamPerformanceBackend
 public static class SteamPerformanceSurface
 {
     /// <summary>The patch id this surface publishes under and answers commands for.</summary>
-    public const string PatchId = "wsgm.native-qam.perf";
+    public const string PatchId = "steam-ui.performance";
 
     /// <summary>The exact command vocabulary the injected gate sends.</summary>
     public static IReadOnlyList<string> Commands { get; } = ["updateSettings"];
@@ -531,14 +531,14 @@ public static class SteamPerformanceSurface
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         id: PatchId,
-        resourceKey: "wsgm.native-qam.perf-namespace",
+        resourceKey: "steam-ui.performance-namespace",
         gateName: "perf",
         fingerprint: "native-qam-perf-v1:store+absent-namespace+reachable-singleton",
         // The store is counted by the source tokens that make it the perf store, never by module
         // id; the singleton is reached through the one export exposing a Get() returning a
         // state-carrying store, because the state is written into a client that is already running.
         probeExpression: $$"""
-            {{SteamUiProbeJs.CountingPreamble("wsgm_native_perf_probe_")}}
+            {{SteamUiProbeJs.CountingPreamble("steam_ui_performance_probe_")}}
               let singleton=false;
               try{
                 const mod=req('74514');
@@ -552,7 +552,7 @@ public static class SteamPerformanceSurface
                   // Absent, or present and ours — see the audio probe. An orphaned Perf namespace
                   // is the worse case: it leaves SystemPerfStore holding half-written state, which
                   // is what crashed the whole Performance tab.
-                  return !p||p.__wsgmOwnedNamespace===true;})(),
+                  return !p||p.__steamUiOwnedNamespace===true;})(),
                 storeSingletonReachable:singleton
               });
             }catch(error){return JSON.stringify({error:String(error)}); } })()
@@ -573,33 +573,33 @@ public static class SteamPerformanceSurface
     /// is on screen, the toggle is the only control that can change that.
     /// </remarks>
     public static SteamQuickAccessRowPatch ProfileHeaderRow { get; } = new(
-        "wsgm.native-qam.valve-profile-header",
+        "steam-ui.valve-profile-header",
         "valveProfileHeader",
         "native-qam-valve-profile-header-v1:performance-actions+performance-root+valve-header",
-        "wsgm_native_valve_header_probe_");
+        "steam_ui_valve_header_probe_");
 
     /// <summary>Valve's reset-to-default button, rendered last because it undoes everything above it.</summary>
     public static SteamQuickAccessRowPatch ResetRow { get; } = new(
-        "wsgm.native-qam.valve-reset",
+        "steam-ui.valve-reset",
         "valveReset",
         "native-qam-valve-reset-v1:performance-actions+performance-root+valve-reset",
-        "wsgm_native_valve_reset_probe_");
+        "steam_ui_valve_reset_probe_");
 
     /// <summary>Valve's own performance-overlay selector.</summary>
     public static SteamQuickAccessRowPatch OverlayLevelRow { get; } = new(
-        "wsgm.native-qam.valve-overlay-level",
+        "steam-ui.valve-overlay-level",
         "valveOverlayLevel",
         "native-qam-valve-overlay-level-v1:performance-actions+performance-root+valve-selector",
-        "wsgm_native_valve_overlay_probe_");
+        "steam_ui_valve_overlay_probe_");
 
     /// <summary>Valve's manual refresh-rate row, mounted into Quick Settings.</summary>
     /// <remarks>It reads <c>limits.display_refresh_manual_hz_*</c> from the published state, so
     /// it appears exactly when the backend supplies those fields.</remarks>
     public static SteamQuickAccessRowPatch RefreshRateRow { get; } = new(
-        "wsgm.native-qam.valve-refresh-rate",
+        "steam-ui.valve-refresh-rate",
         "valveRefreshRate",
         "native-qam-valve-refresh-rate-v1:performance-actions+performance-root+valve-refresh",
-        "wsgm_native_valve_refresh_probe_");
+        "steam_ui_valve_refresh_probe_");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
     /// <param name="state">The state to serialize.</param>

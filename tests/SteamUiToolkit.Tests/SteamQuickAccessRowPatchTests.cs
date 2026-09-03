@@ -45,17 +45,17 @@ public sealed class SteamQuickAccessRowPatchTests
 
         IReadOnlyDictionary<string, SteamUiPatchSnapshot> snapshots = manager.GetSnapshots()
             .ToDictionary(snapshot => snapshot.Id);
-        Assert.Equal(SteamUiPatchState.Verified, snapshots["wsgm.native-qam.valve-tdp"].State);
-        Assert.Equal(SteamUiPatchState.Verified, snapshots["wsgm.native-qam.frame-limit"].State);
+        Assert.Equal(SteamUiPatchState.Verified, snapshots["steam-ui.valve-power-limit"].State);
+        Assert.Equal(SteamUiPatchState.Verified, snapshots["steam-ui.frame-limit"].State);
         Assert.Equal(
             SteamUiPatchState.Verified,
-            snapshots["wsgm.native-qam.valve-overlay-level"].State);
+            snapshots["steam-ui.valve-overlay-level"].State);
         Assert.Equal(
             SteamUiPatchState.Verified,
-            snapshots["wsgm.native-qam.controller-target"].State);
+            snapshots["steam-ui.controller-target"].State);
         Assert.Equal(
             SteamUiPatchState.Verified,
-            snapshots["wsgm.native-qam.device-controls"].State);
+            snapshots["steam-ui.device-controls"].State);
         Assert.Equal(5, transport.InstallCount);
         Assert.Equal(5, snapshots.Values.Select(snapshot => snapshot.Fingerprint).Distinct().Count());
     }
@@ -69,15 +69,15 @@ public sealed class SteamQuickAccessRowPatchTests
         manager.Register(SteamControllerTargetRow.Patch);
         await manager.SynchronizeAsync();
 
-        manager.SetPatchEnabled("wsgm.native-qam.valve-tdp", false);
+        manager.SetPatchEnabled("steam-ui.valve-power-limit", false);
         await manager.SynchronizeAsync();
 
         IReadOnlyDictionary<string, SteamUiPatchSnapshot> snapshots = manager.GetSnapshots()
             .ToDictionary(snapshot => snapshot.Id);
-        Assert.Equal(SteamUiPatchState.Disabled, snapshots["wsgm.native-qam.valve-tdp"].State);
+        Assert.Equal(SteamUiPatchState.Disabled, snapshots["steam-ui.valve-power-limit"].State);
         Assert.Equal(
             SteamUiPatchState.Verified,
-            snapshots["wsgm.native-qam.controller-target"].State);
+            snapshots["steam-ui.controller-target"].State);
         Assert.Contains("valveTdp", transport.RemovedKinds);
         Assert.DoesNotContain("controllerTarget", transport.RemovedKinds);
     }
@@ -91,15 +91,15 @@ public sealed class SteamQuickAccessRowPatchTests
         manager.Register(SteamPerformanceSurface.OverlayLevelRow);
         await manager.SynchronizeAsync();
 
-        manager.SetPatchEnabled("wsgm.native-qam.frame-limit", false);
+        manager.SetPatchEnabled("steam-ui.frame-limit", false);
         await manager.SynchronizeAsync();
 
         IReadOnlyDictionary<string, SteamUiPatchSnapshot> snapshots = manager.GetSnapshots()
             .ToDictionary(snapshot => snapshot.Id);
-        Assert.Equal(SteamUiPatchState.Disabled, snapshots["wsgm.native-qam.frame-limit"].State);
+        Assert.Equal(SteamUiPatchState.Disabled, snapshots["steam-ui.frame-limit"].State);
         Assert.Equal(
             SteamUiPatchState.Verified,
-            snapshots["wsgm.native-qam.valve-overlay-level"].State);
+            snapshots["steam-ui.valve-overlay-level"].State);
         Assert.Contains("frameLimit", transport.RemovedKinds);
         Assert.DoesNotContain("valveOverlayLevel", transport.RemovedKinds);
     }
@@ -161,7 +161,7 @@ public sealed class SteamQuickAccessRowPatchTests
             CancellationToken cancellationToken = default)
         {
             string value;
-            if (expression.Contains("wsgm_native_controller_target_probe_", StringComparison.Ordinal))
+            if (expression.Contains("steam_ui_controller_target_probe_", StringComparison.Ordinal))
             {
                 value = """
                     {"controllerPresentation":1,"performanceRoot":1,"nativeFields":1,"nativeLayout":1,"localization":1,"react":1}

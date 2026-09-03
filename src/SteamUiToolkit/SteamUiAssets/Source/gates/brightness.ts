@@ -1,11 +1,11 @@
 // Not availability-only, despite the founding comment that said Steam's own backend works on
 // Windows. It does not — device-disproved 2026-08-30: SetBrightness is a native stub and
 // RegisterForBrightnessChanges never fires, so the store's observable sits at its constructed 1
-// and the revealed slider moves nothing. WSGM is the backend: the gate forwards the slider's
+// and the revealed slider moves nothing. The host is the backend: the gate forwards the slider's
 // writes over the bridge and feeds the store's observable from the published state, both through
 // the same \\.\LCD interface the host owns.
 function createBrightnessGate() {
-  const patchId = "wsgm.steam-display.brightness";
+  const patchId = "steam-ui.brightness";
   const field = "is_display_brightness_available";
   // A string key on the settings message, because the probe reads it from a separate CDP
   // evaluation where nothing from this scope is reachable. Without it this gate ran the
@@ -13,12 +13,12 @@ function createBrightnessGate() {
   // the flag to be hidden, a successful apply made it visible, and the patch manager tore down
   // its own work every poll — the row flickered in and out on a ~25-second cycle on the device.
   const availability = {
-    marker: "__wsgmBrightnessRevealed",
-    original: "__wsgmOriginalBrightnessAvailability",
+    marker: "__steamUiBrightnessRevealed",
+    original: "__steamUiOriginalBrightnessAvailability",
   };
   const setter = {
-    marker: "__wsgmOwnedSetBrightness",
-    original: "__wsgmOriginalSetBrightness",
+    marker: "__steamUiOwnedSetBrightness",
+    original: "__steamUiOriginalSetBrightness",
   };
   let installed = false;
   let lastError = "";
@@ -40,7 +40,7 @@ function createBrightnessGate() {
     if (!installed || !state) return;
     const percent = Number(state.percent);
     if (!Number.isInteger(percent) || percent < 0 || percent > 100) return;
-    // Same rule as the volume: write only when WSGM's OWN reading moved, so a publish that
+    // Same rule as the volume: write only when the host's OWN reading moved, so a publish that
     // merely restates the level never fights a drag the store is already ahead on.
     if (percent === lastPercent) return;
     lastPercent = percent;
@@ -98,7 +98,7 @@ function createBrightnessGate() {
       return { ok: false, error: lastError };
     }
 
-    // A client already reporting brightness available needs nothing from WSGM, and overwriting
+    // A client already reporting brightness available needs nothing from the host, and overwriting
     // the flag would mean restoring a value that was never ours to change. Available AND MARKED
     // is different: that is this gate's own earlier reveal, surviving a bridge replaced in
     // place, and refusing it is the teardown trap. Both cases are the claim primitive's job now.

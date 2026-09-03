@@ -47,7 +47,7 @@ public interface ISteamPowerLimitBackend
 public static class SteamPowerLimitSurface
 {
     /// <summary>The patch id this surface publishes under and answers commands for.</summary>
-    public const string PatchId = "wsgm.native-qam.tdp";
+    public const string PatchId = "steam-ui.power-limit";
 
     /// <summary>The exact command vocabulary the injected gate sends.</summary>
     public static IReadOnlyList<string> Commands { get; } = ["setPrimaryLimit"];
@@ -59,7 +59,7 @@ public static class SteamPowerLimitSurface
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         id: PatchId,
-        resourceKey: "wsgm.native-qam.steamos-manager-state",
+        resourceKey: "steam-ui.steamos-manager-state",
         gateName: "steamOsManager",
         fingerprint: "native-qam-steamos-manager-v1:service+tdp-row+query-layer+own-getstate",
         // The service is matched by surface, not by export name: module 90389 exports both the
@@ -67,7 +67,7 @@ public static class SteamPowerLimitSurface
         // what separates them. The query layer must be reachable because the row's answer is cached
         // and a state change that cannot invalidate it never reaches the screen.
         probeExpression: $$"""
-            {{SteamUiProbeJs.CountingPreamble("wsgm_steamos_manager_probe_")}}
+            {{SteamUiProbeJs.CountingPreamble("steam_ui_steamos_manager_probe_")}}
               let manager=null;
               try{
                 for(const value of Object.values(req('90389')||{})){
@@ -89,9 +89,9 @@ public static class SteamPowerLimitSurface
                 // form re-created the loop: every successful apply read as irreplaceable two seconds
                 // later and the row was torn down and rebuilt on a ~2-second cycle (device, 2026-09-01).
                 getStateReplaceable:!!manager&&(typeof manager.GetState==='function')
-                  &&(manager.GetState.__wsgmOwnedGetState!==true
-                    ||typeof manager.GetState.__wsgmOriginalGetState==='function'
-                    ||typeof (manager.GetState.__wsgmOriginalGetState||{}).value==='function'),
+                  &&(manager.GetState.__steamUiOwnedGetState!==true
+                    ||typeof manager.GetState.__steamUiOriginalGetState==='function'
+                    ||typeof (manager.GetState.__steamUiOriginalGetState||{}).value==='function'),
                 queryLayer,
                 tdpRow:count(['is_tdp_limit_available','tdp_limit_min','tdp_limit_max'])
               });
@@ -115,10 +115,10 @@ public static class SteamPowerLimitSurface
     /// this and <see cref="Patch"/> are one mechanism in two halves.
     /// </remarks>
     public static SteamQuickAccessRowPatch ValveRows { get; } = new(
-        "wsgm.native-qam.valve-tdp",
+        "steam-ui.valve-power-limit",
         "valveTdp",
         "native-qam-valve-tdp-v1:performance-actions+performance-root+valve-tdp-pair",
-        "wsgm_native_valve_tdp_probe_");
+        "steam_ui_valve_power_limit_probe_");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
     /// <param name="state">The state to serialize.</param>

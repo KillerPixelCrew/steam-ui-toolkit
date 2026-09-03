@@ -936,7 +936,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
     /// This state machine already computed exactly what a remote diagnosis needs — which patch,
     /// whether the target was absent, whether the fingerprint matched, and a bounded diagnostic
     /// saying why — and then put all of it in a snapshot that nothing logged. A native QAM that
-    /// never appeared produced no line at all, so "nothing is in Steam's QAM" and "WSGM never tried"
+    /// never appeared produced no line at all, so "nothing is in Steam's QAM" and "the host never tried"
     /// looked identical from a pasted log.
     /// </para>
     /// <para>

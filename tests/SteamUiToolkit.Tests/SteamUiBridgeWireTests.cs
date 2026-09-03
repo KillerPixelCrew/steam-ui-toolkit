@@ -26,7 +26,7 @@ public sealed class SteamUiBridgeWireTests
     private static SteamUiGenerations Generations() => new(0, 0, 0, 0, 2, 1);
 
     private const string CapturedEnvelope = """
-        {"version":1,"type":"request","patchId":"wsgm.native-qam.frame-limit",
+        {"version":1,"type":"request","patchId":"steam-ui.frame-limit",
         "command":"setFrameLimit","sequence":6,"actionGeneration":99,
         "contextGeneration":2,"documentGeneration":1,"payload":{"value":60}}
         """;
@@ -34,7 +34,7 @@ public sealed class SteamUiBridgeWireTests
     private static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> Vocabulary =
         new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
         {
-            ["wsgm.native-qam.frame-limit"] = ["setFrameLimit"],
+            ["steam-ui.frame-limit"] = ["setFrameLimit"],
         };
 
     [Fact]
@@ -47,7 +47,7 @@ public sealed class SteamUiBridgeWireTests
         Assert.NotNull(request);
         Assert.Equal(SteamUiBridgeHost.SchemaVersion, request.Version);
         Assert.Equal("request", request.Type);
-        Assert.Equal("wsgm.native-qam.frame-limit", request.PatchId);
+        Assert.Equal("steam-ui.frame-limit", request.PatchId);
         Assert.Equal("setFrameLimit", request.Command);
         Assert.Equal(6, request.Sequence);
         Assert.Equal(99, request.ActionGeneration);
@@ -76,7 +76,7 @@ public sealed class SteamUiBridgeWireTests
         // present even though there is no request to authorize for it.
         (string PatchId, string Command)[] declared =
         [
-            ("wsgm.native-qam.frame-limit", "setFrameLimit"),
+            ("steam-ui.frame-limit", "setFrameLimit"),
         ];
 
         long sequence = 0;

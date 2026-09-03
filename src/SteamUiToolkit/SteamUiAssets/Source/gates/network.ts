@@ -8,14 +8,14 @@
 // configurable, the override flips the value, and restoring the saved descriptor puts it back.
 function createNetworkGate() {
   const property = "networkManagementAvailable";
-  const patchId = "wsgm.steam-network.gate";
+  const patchId = "steam-ui.network";
   const availability = {
-    marker: "__wsgmOwnedGetter",
-    original: "__wsgmOriginalGetterDescriptor",
+    marker: "__steamUiOwnedGetter",
+    original: "__steamUiOriginalGetterDescriptor",
   };
   const scan = {
-    marker: "__wsgmOwnedNetworkScan",
-    original: "__wsgmOriginalNetworkScan",
+    marker: "__steamUiOwnedNetworkScan",
+    original: "__steamUiOriginalNetworkScan",
   };
   let target: object | null = null;
   let lastError = "";
@@ -137,7 +137,7 @@ function createNetworkGate() {
   };
 
   // Steam's own UI calls these when its network page opens and closes, so they are exactly the
-  // signal for when a scan is worth running. WSGM's radio manager is otherwise driven by WSGM's
+  // signal for when a scan is worth running. The host's radio manager is otherwise driven by the host's
   // own panel, and a list refreshed only then would be stale on Steam's page — which is worse
   // than an empty one, because the user picks a network that is gone and the join fails silently.
   //
@@ -158,7 +158,7 @@ function createNetworkGate() {
       const claim = claimMember(net, name, scan, (original) => {
         inner = original as (...a: unknown[]) => unknown;
         return function (this: unknown, ...args: unknown[]) {
-          // A scan request that cannot reach WSGM must not stop Steam's own call. Promise
+          // A scan request that cannot reach the host must not stop Steam's own call. Promise
           // rejection is handled explicitly; a try/catch only sees synchronous construction.
           void request(patchId, command, null).catch(() => {});
 
@@ -208,7 +208,7 @@ function createNetworkGate() {
       installed: !!target,
       available: instance ? instance[property] === true : false,
       // Reported because the row can be on while the list is empty: Steam's Windows backend
-      // never populates wireless.aps, so an access point count of zero here means WSGM has not
+      // never populates wireless.aps, so an access point count of zero here means the host has not
       // supplied one, not that the machine cannot see any networks.
       accessPoints: Array.isArray(instance?.accessPoints) ? instance.accessPoints.length : -1,
       hasWirelessDevice: instance?.hasWirelessDevice === true,

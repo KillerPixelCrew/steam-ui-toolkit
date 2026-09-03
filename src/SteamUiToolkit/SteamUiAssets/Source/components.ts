@@ -14,7 +14,7 @@
     // exports of the perf-components module — re-probed 2026-09-02 after the header rendered with
     // no way to enable a profile: the toggle's token resolves uniquely on its own, so each mounts
     // as its own row under the one valveProfileHeader kind. And Valve's reset button. All are
-    // additive: WSGM built none of them.
+    // additive: the host built none of them.
     let valveProfileHeaderControl;
     let valveProfileToggleControl;
     let valveResetControl;
@@ -58,7 +58,7 @@
 
     // Why each control did or did not draw. A control that renders null leaves no trace anywhere:
     // the row is built and appended, the panel simply has one fewer child, and every other signal
-    // still reports success. This is the difference between "WSGM did not add it" and "WSGM added
+    // still reports success. This is the difference between "the host did not add it" and "the host added
     // it and the device had nothing to show".
     const renderOutcomes: Record<string, string> = {};
     const note = (kind, reason) => {
@@ -78,68 +78,68 @@
 
     const definitions = Object.freeze({
       autoTdp: Object.freeze({
-        patchId: "wsgm.native-qam.auto-tdp",
+        patchId: "steam-ui.auto-tdp",
         command: "setAutoTdp",
       }),
       // Two commands, because this is SteamOS's unified row: one slider that is the frame cap while
       // a cap is set and the refresh rate once it is switched off.
       frameLimit: Object.freeze({
-        patchId: "wsgm.native-qam.frame-limit",
+        patchId: "steam-ui.frame-limit",
         command: "setFrameLimit",
         refreshCommand: "setRefreshRate",
       }),
       controllerTarget: Object.freeze({
-        patchId: "wsgm.native-qam.controller-target",
+        patchId: "steam-ui.controller-target",
         command: "setControllerTarget",
       }),
       // Hand-built for the same reason resolution is: Valve ships a component, and its gate is a
       // namespace this client does not have. See createVrrControl.
       vrr: Object.freeze({
-        patchId: "wsgm.native-qam.vrr",
+        patchId: "steam-ui.variable-refresh",
         command: "setVariableRefreshRate",
       }),
       // Hand-built, unlike the frame limit and VRR rows. SteamOS drives resolution through
       // gamescope and this client ships no component for it, so there is nothing to mount.
       resolution: Object.freeze({
-        patchId: "wsgm.native-qam.resolution",
+        patchId: "steam-ui.resolution",
         command: "setResolution",
       }),
       deviceControls: Object.freeze({
-        patchId: "wsgm.native-qam.device-controls",
+        patchId: "steam-ui.device-controls",
         chargeCommand: "setChargeLimit",
         brightnessCommand: "setLightingBrightness",
         colorCommand: "setLightingColor",
       }),
 
-      // Valve's own components. They carry no command because they never call WSGM directly: they
+      // Valve's own components. They carry no command because they never call the host directly: they
       // read SystemPerfStore and write through SteamClient.System.Perf.UpdateSettings, which is the
       // perf patch's vocabulary, not theirs. They still need an entry here — install() refuses any
       // kind that is not a declared definition.
       valveProfileHeader: Object.freeze({
-        patchId: "wsgm.native-qam.valve-profile-header",
+        patchId: "steam-ui.valve-profile-header",
         command: "",
       }),
       valveReset: Object.freeze({
-        patchId: "wsgm.native-qam.valve-reset",
+        patchId: "steam-ui.valve-reset",
         command: "",
       }),
       // Valve's own refresh-rate row, mounted into Quick Settings per S14. It reads
       // limits.display_refresh_manual_hz_* from SystemPerfStore, which the projection supplies only
       // under FrameLimitOnly — the strategy gate is the state, not a check here.
       valveRefreshRate: Object.freeze({
-        patchId: "wsgm.native-qam.valve-refresh-rate",
+        patchId: "steam-ui.valve-refresh-rate",
         command: "",
       }),
       // Valve's performance-overlay selector replaces the retired hand-rolled imitation.
       valveOverlayLevel: Object.freeze({
-        patchId: "wsgm.native-qam.valve-overlay-level",
+        patchId: "steam-ui.valve-overlay-level",
         command: "",
       }),
       // Valve's own power-limit toggle and slider, in place of the hand-rolled row. They carry no
       // command for the same reason the rows above do not: they write the steamos_tdp_limit client
       // settings, which the SteamOS Manager gate watches and forwards.
       valveTdp: Object.freeze({
-        patchId: "wsgm.native-qam.valve-tdp",
+        patchId: "steam-ui.valve-power-limit",
         command: "",
       }),
     });
@@ -272,7 +272,7 @@
         if (!item || typeof item !== "object") return null;
         const id = normalizeText(item.id);
         const label = normalizeText(item.label);
-        // Uppercase is allowed because the ids WSGM actually sends are PascalCase —
+        // Uppercase is allowed because the ids the host actually sends are PascalCase —
         // SteamDeckComposite, Xbox360, DualShock4. A lowercase-only pattern rejected every one of
         // them, so the whole state normalised to null and the controller row never drew, with
         // nothing anywhere saying a state had been received and thrown away.
@@ -538,7 +538,7 @@
 
             // A state that arrives and fails validation is not the same as one that never
             // arrived, and both used to end as a null the control returned on. The controller row
-            // was invisible for exactly this reason: WSGM sends PascalCase target ids and the
+            // was invisible for exactly this reason: the host sends PascalCase target ids and the
             // validator only accepted lowercase, so every delivery was discarded in silence.
             if (normalized === null && value) {
               renderOutcomes[kind] = "state received but rejected by validation";
@@ -617,7 +617,7 @@
     // would render "#QuickAccess_..." as a label. Live-verified 2026-08-29: a known token localizes,
     // an unknown one comes straight back.
     //
-    // EVERY label goes through this, not only the WSGM-invented ones. With the rows finally
+    // EVERY label goes through this, not only the host-invented ones. With the rows finally
     // rendering on the reference Claw, "#QuickAccess_Tab_Perf_FramerateLimit" and
     // "#QuickAccess_Tab_Perf_PerfOverlayLevel" both came back raw and were shown to the user as
     // their token text. A bare localize() call here is a bug waiting for the next missing string.
@@ -628,12 +628,12 @@
     // and those localize. Both call sites now use the real names, so those two rows are translated
     // rather than permanently English.
     //
-    // The fallback still earns its place, for the labels WSGM invents and Valve has no string for
+    // The fallback still earns its place, for the labels the host invents and Valve has no string for
     // (AutoTDP, the display-resolution row). Those pass no token at all rather than a plausible
     // one: a token that does not exist makes Steam log an unresolved string on every render and
     // still shows the English text.
     // Steam's localizer does not return a string. It returns a React element wrapping one, so
-    // `typeof text === "string"` was false for every token and every WSGM label fell back to its
+    // `typeof text === "string"` was false for every token and every the host label fell back to its
     // English default while Steam's own rows beside them were in the user's language. The element
     // is what should be handed to the field — only the "#" test needs the text inside it.
     const textOf = (value) => {
@@ -647,13 +647,13 @@
       const text = textOf(localized);
       return text && text.length > 0 && text[0] !== "#" ? localized : fallback;
     };
-    // WSGM's own variable-refresh switch. Valve ships one, and it cannot be used: its component is
+    // The host's own variable-refresh switch. Valve ships one, and it cannot be used: its component is
     // gated on a react-query over SteamClient.System.DisplayManager, whose GetState this client
     // does not define — the query never succeeds and the component returns null before it reads a
-    // single field WSGM publishes (live-probed 2026-08-30). The device capability behind this row
+    // single field the host publishes (live-probed 2026-08-30). The device capability behind this row
     // is the one already verified on the reference unit through IGCL Arc Sync.
     const createVrrControl = (controlRuntime) =>
-      function WsgmNativeVrrControl() {
+      function SteamUiVrrControl() {
         const state = useSemanticState(controlRuntime, "vrr", normalizeVrrState);
         if (!state) return note("vrr", "no state");
         if (!state.available)
@@ -663,7 +663,7 @@
         const definition = definitions.vrr;
         return controlRuntime.react.createElement(controlRuntime.toggle, {
           // Valve's own token for the row, so the label matches the client's language even though
-          // the component behind it is WSGM's.
+          // the component behind it is the host's.
           label: localizeOr(
             controlRuntime,
             "#QuickAccess_Tab_Perf_EnableVRR",
@@ -687,7 +687,7 @@
         });
       };
     const createAutoTdpControl = (controlRuntime) =>
-      function WsgmNativeAutoTdpControl() {
+      function SteamUiAutoTdpControl() {
         const state = useSemanticState(controlRuntime, "autoTdp", normalizeAutoTdpState);
         if (!state) return note("autoTdp", "no state");
         if (!state.available)
@@ -713,7 +713,7 @@
             ? state.watts + " W · " + state.statusText
             : state.statusText;
         return controlRuntime.react.createElement(controlRuntime.toggle, {
-          // WSGM's own control; Valve has no string for it, so no token is passed.
+          // The host's own control; Valve has no string for it, so no token is passed.
           label: "Automatic TDP",
           description: description || undefined,
           checked: state.enabled,
@@ -726,7 +726,7 @@
         });
       };
     const createControllerControl = (controlRuntime) =>
-      function WsgmNativeControllerTargetControl() {
+      function SteamUiControllerTargetControl() {
         const state = useSemanticState(
           controlRuntime,
           "controllerTarget",
@@ -773,7 +773,7 @@
         });
       };
     const createResolutionControl = (controlRuntime) =>
-      function WsgmNativeResolutionControl() {
+      function SteamUiResolutionControl() {
         const state = useSemanticState(controlRuntime, "resolution", normalizeResolutionState);
         if (!state) return note("resolution", "no state");
         if (!state.available)
@@ -826,7 +826,7 @@
       return notch;
     };
     const createFrameLimitControl = (controlRuntime) =>
-      function WsgmNativeFrameLimitControl() {
+      function SteamUiFrameLimitControl() {
         const state = useSemanticState(controlRuntime, "frameLimit", normalizeFrameLimitState);
         const value = state ? (state.observedFps ?? state.desiredFps) : null;
         const echoed = useEchoedValue(controlRuntime, value);
@@ -995,7 +995,7 @@
     const rgbCss = (color) => `#${Number(color).toString(16).padStart(6, "0")}`;
 
     const createDeviceControlsControl = (controlRuntime) =>
-      function WsgmNativeDeviceControls() {
+      function SteamUiDeviceControls() {
         const state = useSemanticState(
           controlRuntime,
           "deviceControls",
@@ -1042,7 +1042,7 @@
         };
         if (state.chargeLimit?.available && chargeEcho.value !== null) {
           const range = state.chargeLimit;
-          appendSlider("wsgm-native-qam-charge-limit", {
+          appendSlider("steam-ui-charge-limit", {
             label: "Battery charge limit",
             min: range.minimum,
             max: range.maximum,
@@ -1063,7 +1063,7 @@
 
         if (state.lightingBrightness?.available && brightnessEcho.value !== null) {
           const range = state.lightingBrightness;
-          appendSlider("wsgm-native-qam-lighting-brightness", {
+          appendSlider("steam-ui-lighting-brightness", {
             label: "Lighting brightness",
             min: range.minimum,
             max: range.maximum,
@@ -1090,7 +1090,7 @@
           rows.push(
             controlRuntime.react.createElement(
               controlRuntime.row,
-              { key: "wsgm-native-qam-lighting-zone" },
+              { key: "steam-ui-lighting-zone" },
               controlRuntime.react.createElement(controlRuntime.dropdown, {
                 label: "Lighting zone",
                 rgOptions: options,
@@ -1115,7 +1115,7 @@
           rows.push(
             controlRuntime.react.createElement(
               controlRuntime.row,
-              { key: "wsgm-native-qam-lighting-preview" },
+              { key: "steam-ui-lighting-preview" },
               controlRuntime.react.createElement("div", {
                 title: rgbCss(stagedColor),
                 style: {
@@ -1133,7 +1133,7 @@
               zone: zone.id,
               color: hsvToRgb(hue, saturation, brightness),
             });
-          appendSlider("wsgm-native-qam-lighting-hue", {
+          appendSlider("steam-ui-lighting-hue", {
             label: localizeOr(controlRuntime, "#ColorPicker_Hue", "Hue"),
             min: 0,
             max: 360,
@@ -1157,7 +1157,7 @@
                 ),
               ),
           });
-          appendSlider("wsgm-native-qam-lighting-saturation", {
+          appendSlider("steam-ui-lighting-saturation", {
             label: localizeOr(controlRuntime, "#ColorPicker_Saturation", "Saturation"),
             min: 0,
             max: 100,
@@ -1176,7 +1176,7 @@
                 ),
               ),
           });
-          appendSlider("wsgm-native-qam-lighting-color-brightness", {
+          appendSlider("steam-ui-lighting-color-brightness", {
             label: localizeOr(controlRuntime, "#ColorPicker_Brightness", "Brightness"),
             min: 0,
             max: 100,
@@ -1202,7 +1202,7 @@
         return controlRuntime.react.createElement(controlRuntime.react.Fragment, null, ...rows);
       };
 
-    // Steam's own FPS counter rows, which WSGM replaces with its RTSS-driven overlay. Identified by
+    // Steam's own FPS counter rows, which the host replaces with its RTSS-driven overlay. Identified by
     // localising the same tokens Steam did rather than by CSS class or visible text: the classes
     // are hashed per client build and the text changes with the user's language, while the token is
     // the one thing that is neither.
@@ -1243,7 +1243,7 @@
         // directly, and wrapping them would change identity for refs.
         let wrapper = descendCache.get(type);
         if (!wrapper) {
-          wrapper = function WsgmNativeQamDescend(props) {
+          wrapper = function SteamUiDescend(props) {
             return hideNativeRows(controlRuntime, type(props), labels, 0);
           };
           descendCache.set(type, wrapper);
@@ -1286,7 +1286,7 @@
       if (!filteredNative || filteredNative.inner !== inner) {
         filteredNative = {
           inner,
-          component: function WsgmNativeQamFilteredPerformance(props) {
+          component: function SteamUiFilteredPerformance(props) {
             lastHidden = 0;
             const filtered = hideNativeRows(controlRuntime, inner(props), labels, 0);
             if (appendDiagnostics.perf) {
@@ -1310,36 +1310,36 @@
       const rows = [
         [
           "valveProfileHeader",
-          "wsgm-native-qam-valve-profile-header",
+          "steam-ui-valve-profile-header",
           valveProfileHeaderControl,
           "perf",
         ],
         [
           "valveProfileHeader",
-          "wsgm-native-qam-valve-profile-toggle",
+          "steam-ui-valve-profile-toggle",
           valveProfileToggleControl,
           "perf",
         ],
         [
           "valveOverlayLevel",
-          "wsgm-native-qam-valve-overlay-level",
+          "steam-ui-valve-overlay-level",
           valveOverlayLevelControl,
           "perf",
         ],
-        ["frameLimit", "wsgm-native-qam-frame-limit", frameLimitControl, "perf"],
-        ["vrr", "wsgm-native-qam-vrr", vrrControl, "perf"],
-        ["valveTdp", "wsgm-native-qam-valve-tdp-enabled", valveTdpToggleControl, "perf"],
-        ["valveTdp", "wsgm-native-qam-valve-tdp", valveTdpSliderControl, "perf"],
-        ["autoTdp", "wsgm-native-qam-auto-tdp", autoTdpControl, "perf"],
-        ["resolution", "wsgm-native-qam-resolution", resolutionControl, "quickSettings"],
+        ["frameLimit", "steam-ui-frame-limit", frameLimitControl, "perf"],
+        ["vrr", "steam-ui-vrr", vrrControl, "perf"],
+        ["valveTdp", "steam-ui-valve-tdp-enabled", valveTdpToggleControl, "perf"],
+        ["valveTdp", "steam-ui-valve-tdp", valveTdpSliderControl, "perf"],
+        ["autoTdp", "steam-ui-auto-tdp", autoTdpControl, "perf"],
+        ["resolution", "steam-ui-resolution", resolutionControl, "quickSettings"],
         [
           "valveRefreshRate",
-          "wsgm-native-qam-valve-refresh-rate",
+          "steam-ui-valve-refresh-rate",
           valveRefreshRateControl,
           "quickSettings",
         ],
-        ["controllerTarget", "wsgm-native-qam-controller-target", controllerControl, "perf"],
-        ["valveReset", "wsgm-native-qam-valve-reset", valveResetControl, "perf"],
+        ["controllerTarget", "steam-ui-controller-target", controllerControl, "perf"],
+        ["valveReset", "steam-ui-valve-reset", valveResetControl, "perf"],
       ];
       for (const [kind, key, component, rowPlacement] of rows) {
         if (rowPlacement !== placement || !registrations.has(kind) || !component) continue;
@@ -1358,7 +1358,7 @@
       ) {
         controls.push(
           controlRuntime.react.createElement(deviceControlsControl, {
-            key: "wsgm-native-qam-device-controls",
+            key: "steam-ui-device-controls",
           }),
         );
       }
@@ -1373,7 +1373,7 @@
       if (placement === "quickSettings") {
         const section = controlRuntime.react.createElement(
           controlRuntime.section,
-          { key: "wsgm-native-qam-quick-settings-section" },
+          { key: "steam-ui-quick-settings-section" },
           ...controls,
         );
         appendDiagnostics[placement] = {
@@ -1392,7 +1392,7 @@
         );
       }
 
-      // WSGM's rows go into a PanelSection of their own, appended after whatever the native
+      // The host's rows go into a PanelSection of their own, appended after whatever the native
       // performance panel rendered.
       //
       // The previous implementation searched the tree for a component identical to
@@ -1408,12 +1408,12 @@
       // cannot be broken by a Steam UI change or by the fields Windows hides.
       const own = controlRuntime.react.createElement(
         controlRuntime.section,
-        { key: "wsgm-native-qam-section" },
+        { key: "steam-ui-section" },
         ...controls,
       );
 
       // Shape of what Steam's performance root returned, so the rows it renders can be identified
-      // without guessing. Needed to suppress Steam's own FPS counter rows in favour of WSGM's
+      // without guessing. Needed to suppress Steam's own FPS counter rows in favour of the host's
       // RTSS overlay: their DOM classes are hashed per client build and unusable as selectors.
       const describe = (element, depth) => {
         if (!controlRuntime.react.isValidElement(element)) return typeof element;
@@ -1424,7 +1424,7 @@
           ? name
           : { [name]: kids.map((k) => describe(k, depth + 1)) };
       };
-      // Steam's FPS rows are suppressed only on this path, which runs when WSGM has rows of its own
+      // Steam's FPS rows are suppressed only on this path, which runs when the host has rows of its own
       // to put in their place. Hiding them and then rendering nothing would leave the user neither.
       const native = withNativeRowsHidden(controlRuntime, tree);
       appendDiagnostics.perf = {
@@ -1487,7 +1487,7 @@
         ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_GameSpecificSettings"])
         : null;
       // The toggle reads current_game_id for availability, current==active for its checked state,
-      // and writes through SetGameSpecificProfileEnabled — all state WSGM already backs. Without
+      // and writes through SetGameSpecificProfileEnabled — all state the host already backs. Without
       // this row nothing in the tab can enable a per-game profile.
       valveProfileToggleControl = perfExports
         ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_ToggleGameSettings"])
@@ -1522,7 +1522,7 @@
         ? uniqueFunction(tdpExports, ["#QuickAccess_Tab_Perf_TDPLimitUnits"])
         : null;
 
-      function WsgmNativeQamPerformanceRoot(props) {
+      function SteamUiPerformanceRoot(props) {
         const [, setRevision] = controlRuntime.react.useState(0);
         controlRuntime.react.useEffect(
           () => subscribeHost(() => setRevision((value) => value + 1)),
@@ -1536,15 +1536,15 @@
       // performance wrap honest, applied per root rather than to the array as a whole.
       // The performance panel is matched by export identity; the Quick Settings panel CANNOT be —
       // a tap on the tab array (2026-08-30) showed its type is a local function no module exports.
-      // It is matched by its own source instead, on two Valve strings WSGM's gates never touch: the
+      // It is matched by its own source instead, on two Valve strings the host's gates never touch: the
       // Other-section title and the reorder-controllers button. Deliberately NOT the brightness
-      // title, because that is the surface WSGM's own gate reveals, and a selector must not be
+      // title, because that is the surface the host's own gate reveals, and a selector must not be
       // entangled with a thing this code changes.
       const wrappers = [
         {
           match: (type) => type === performanceRoot,
-          component: () => WsgmNativeQamPerformanceRoot,
-          fallbackKey: "wsgm-native-qam-performance-root",
+          component: () => SteamUiPerformanceRoot,
+          fallbackKey: "steam-ui-performance-root",
         },
         {
           match: (type) => {
@@ -1561,7 +1561,7 @@
           component: (original) => {
             let wrapped = quickSettingsWrapCache.get(original);
             if (!wrapped) {
-              wrapped = function WsgmNativeQamQuickSettingsRoot(props) {
+              wrapped = function SteamUiQuickSettingsRoot(props) {
                 const [, setRevision] = controlRuntime.react.useState(0);
                 controlRuntime.react.useEffect(
                   () => subscribeHost(() => setRevision((value) => value + 1)),
@@ -1574,10 +1574,10 @@
             }
             return wrapped;
           },
-          fallbackKey: "wsgm-native-qam-quick-settings-root",
+          fallbackKey: "steam-ui-quick-settings-root",
         },
       ];
-      patchedUseMemo = function WsgmNativeQamUseMemo(factory, dependencies) {
+      patchedUseMemo = function SteamUiUseMemo(factory, dependencies) {
         const value = originalUseMemo(factory, dependencies);
         if (!Array.isArray(value)) return value;
         let result = value;

@@ -31,7 +31,7 @@ public interface ISteamBrightnessBackend
 public static class SteamBrightnessSurface
 {
     /// <summary>The patch id this surface publishes under and answers commands for.</summary>
-    public const string PatchId = "wsgm.steam-display.brightness";
+    public const string PatchId = "steam-ui.brightness";
 
     /// <summary>The exact command vocabulary the injected gate sends.</summary>
     public static IReadOnlyList<string> Commands { get; } = ["setBrightness"];
@@ -45,11 +45,11 @@ public static class SteamBrightnessSurface
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         id: PatchId,
-        resourceKey: "wsgm.steam-display.brightness-availability",
+        resourceKey: "steam-ui.brightness-availability",
         gateName: "brightness",
         fingerprint: "steam-brightness-v1:hidden-flag+present-backend",
         probeExpression: $$"""
-            {{SteamUiProbeJs.Preamble("wsgm_brightness_probe_")}}
+            {{SteamUiProbeJs.Preamble("steam_ui_brightness_probe_")}}
               const store=req('59547')&&req('59547').mG&&req('59547').mG.Get();
               const settings=store&&store.m_msgSettings;
               if(!settings)return JSON.stringify({error:'display settings unavailable'});
@@ -61,7 +61,7 @@ public static class SteamBrightnessSurface
                 // poll declared the patch incompatible, and the manager removed the reveal it had
                 // just verified — the row flickered on a ~25-second cycle on the device (2026-08-30).
                 revealable:settings.is_display_brightness_available!==true
-                  ||settings.__wsgmBrightnessRevealed===true,
+                  ||settings.__steamUiBrightnessRevealed===true,
                 backendPresent:!!display&&typeof display.SetBrightness==='function'
                   &&typeof display.RegisterForBrightnessChanges==='function'
               });

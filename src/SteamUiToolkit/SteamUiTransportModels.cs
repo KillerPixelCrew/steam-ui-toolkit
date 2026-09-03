@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 
 namespace SteamUiToolkit;
 
-/// <summary>Allowlisted Steam UI contexts that WSGM may attach to persistently.</summary>
+/// <summary>Allowlisted Steam UI contexts that the host may attach to persistently.</summary>
 public enum SteamUiTargetRole
 {
     /// <summary>The headless Steam context that owns client stores and webpack modules.</summary>

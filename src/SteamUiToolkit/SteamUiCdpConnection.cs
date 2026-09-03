@@ -67,8 +67,8 @@ internal sealed class SteamUiWebSocketWireFactory : ISteamUiCdpWireFactory
 internal sealed class SteamUiWebSocketWire : ISteamUiCdpWire
 {
     // Bounds what is READ. Steam's CEF is the peer here and its reply is accumulated into memory, so
-    // without a cap a malformed or enormous response takes the shell down. Nothing bounds what WSGM
-    // sends any more: WSGM decides that, and asserting our own payload is under a number we picked
+    // without a cap a malformed or enormous response takes the shell down. Nothing bounds what the host
+    // sends any more: the host decides that, and asserting our own payload is under a number we picked
     // only ever managed to refuse a legitimate one — the handheld glyph stylesheet carries every
     // control glyph and all three controller illustrations as data URIs, about 500 KB for the Claw,
     // and the old 96 KB expression cap rejected it. The patch reported "expression exceeded its byte
@@ -117,7 +117,7 @@ internal sealed class SteamUiWebSocketWire : ISteamUiCdpWire
             try
             {
                 await _socket.CloseOutputAsync(
-                    WebSocketCloseStatus.NormalClosure, "WSGM channel closed", timeout.Token)
+                    WebSocketCloseStatus.NormalClosure, "the host channel closed", timeout.Token)
                     .ConfigureAwait(false);
             }
             catch
@@ -136,7 +136,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
 
     // Inbound only. A notification's parameters come from Steam and are held as a string, so this is
     // the same framing bound as the response cap. There is deliberately no cap on the expressions
-    // WSGM sends.
+    // the host sends.
     private const int MaximumNotificationBytes = 1024 * 1024;
     private readonly SteamUiEndpoint _endpoint;
     private readonly ISteamUiCdpWire _wire;

@@ -1,16 +1,16 @@
-// @wsgm-bundle-start
+// @steam-ui-bundle-start
 (() => {
   "use strict";
   // What the whole bundle evaluates to, set at the end of this file and returned by epilogue.ts
   // after every fragment has registered. The early reuse return below is the one path that leaves
   // before the fragments run, and it returns its own result directly.
   let installResult: string;
-  const config: BridgeConfiguration = __WSGM_CONFIGURATION_JSON__;
+  const config: BridgeConfiguration = __STEAM_UI_CONFIGURATION_JSON__;
   const prior = window[config.namespace];
   if (
     prior &&
     prior.version === config.version &&
-    // Neither generation changes when WSGM is updated, so without the asset hash a new build kept
+    // Neither generation changes when the host is updated, so without the asset hash a new build kept
     // running the previous build's script until Steam itself restarted.
     prior.assetHash === config.assetHash &&
     prior.contextGeneration === config.contextGeneration &&
@@ -54,7 +54,7 @@
   const getWebpackRuntime = (scope) => {
     let runtime;
     window.webpackChunksteamui.push([
-      [`wsgm_${scope}_${Date.now()}`],
+      [`steam_ui_${scope}_${Date.now()}`],
       {},
       (value) => {
         runtime = value;
@@ -68,17 +68,17 @@
     return Array.isArray(commands) && commands.includes(command);
   };
   const send = (envelope) => {
-    if (disposed) throw new Error("WSGM bridge disposed");
+    if (disposed) throw new Error("Steam UI bridge disposed");
     const binding = window[config.binding];
-    if (typeof binding !== "function") throw new Error("WSGM Runtime binding unavailable");
+    if (typeof binding !== "function") throw new Error("Steam UI Runtime binding unavailable");
     binding(JSON.stringify(envelope));
   };
   // The host REJECTS an action generation of zero, and several gates were passing exactly that —
-  // "sequence or action generation is invalid" against wsgm.native-qam.perf/updateSettings,
+  // "sequence or action generation is invalid" against steam-ui.performance/updateSettings,
   // steam-network.gate/startScan and stopScan, and steam-bluetooth.service/setDiscovering, on the
   // reference device on 2026-08-30. Every Valve performance control's write, and every signal that
-  // Steam's network page had started looking for networks, was dropped by the bridge before WSGM
-  // ever saw it — which is why the Wi-Fi list never filled: WSGM was never told to scan.
+  // Steam's network page had started looking for networks, was dropped by the bridge before the host
+  // ever saw it — which is why the Wi-Fi list never filled: the host was never told to scan.
   //
   // Zero was meant as "no user-initiated row action here", which is true of a gate. Rather than
   // repeat the counter at each such call site, an absent or non-positive generation is allocated
@@ -123,7 +123,7 @@
         try {
           send({ ...envelope, type: "cancel" });
         } catch {}
-        reject(new Error("WSGM bridge request timed out"));
+        reject(new Error("Steam UI bridge request timed out"));
       }, config.timeoutMilliseconds);
       pending.set(sequence, { resolve, reject, timer, patchId, command });
       try {
@@ -198,7 +198,7 @@
     }
     for (const item of pending.values()) {
       clearTimeout(item.timer);
-      item.reject(new Error(reason || "WSGM bridge disposed"));
+      item.reject(new Error(reason || "Steam UI bridge disposed"));
     }
     pending.clear();
     subscribers.clear();
@@ -206,21 +206,21 @@
     actionGenerations.clear();
   };
 
-  // Stamped on every namespace WSGM defines on SteamClient, so a later probe can tell OUR namespace
+  // Stamped on every namespace the host defines on SteamClient, so a later probe can tell OUR namespace
   // from a real backend. Without it the two are indistinguishable and the compatibility check reads
   // its own successful install as "a native backend exists", refuses, and tears the patch down —
   // which is exactly what left this client with an empty audio page and a crashing Performance tab.
   //
   // A string key rather than a Symbol: it has to survive being read back from a probe evaluated in
   // a separate CDP call, where a Symbol from this scope is not reachable.
-  const ownedMarker = "__wsgmOwnedNamespace";
+  const ownedMarker = "__steamUiOwnedNamespace";
 
-  // The same idea one level down: a method WSGM overlaid rather than a namespace it defined. The
+  // The same idea one level down: a method the host overlaid rather than a namespace it defined. The
   // second key carries the method that was replaced, so an overlay outliving the closure that made
   // it can still be unwound back to the client's own.
   const getState = {
-    marker: "__wsgmOwnedGetState",
-    original: "__wsgmOriginalGetState",
+    marker: "__steamUiOwnedGetState",
+    original: "__steamUiOriginalGetState",
   };
 
   // Gates register themselves rather than being named here. The bridge used to construct each one

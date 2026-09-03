@@ -5,7 +5,7 @@ namespace SteamUiToolkit.Tests;
 public sealed class SteamUiModuleRuntimeTests
 {
     private static readonly SteamUiInjectedAsset Asset = new(
-        "(()=>__WSGM_CONFIGURATION_JSON__)()",
+        "(()=>__STEAM_UI_CONFIGURATION_JSON__)()",
         "FIXTUREHASH");
 
     [Fact]

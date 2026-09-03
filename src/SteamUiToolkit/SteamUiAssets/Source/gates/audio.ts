@@ -2,7 +2,7 @@
 // The store's availability flag is literally `null != SteamClient.System.Audio`, so defining this
 // object is the entire gate — there is nothing to patch and nothing to hide.
 function createAudioNamespace() {
-  const patchId = "wsgm.native-qam.audio";
+  const patchId = "steam-ui.audio";
   let installed = false;
   let lastError = "";
   let unsubscribe: (() => void) | null = null;
@@ -32,7 +32,7 @@ function createAudioNamespace() {
     input: number;
   } | null = null;
   // Steam's audio identities are NUMBERS: the live store keeps m_activeOutputDeviceId as a
-  // uint32 with 0xFFFFFFFF for none (read off the running client, 2026-08-30). WSGM's endpoint
+  // uint32 with 0xFFFFFFFF for none (read off the running client, 2026-08-30). The host's endpoint
   // ids are Windows GUID strings, so devices listed by name but nothing could ever match as
   // active — which reads as "no default device" and disables the volume slider. Each GUID gets a
   // stable small number for Steam's side of the wire, translated back on every command.
@@ -65,7 +65,7 @@ function createAudioNamespace() {
   const guidFor = (value) => deviceGuids.get(Number(value)) ?? null;
 
   // The store's device constructor ingests flOutputVolume/flInputVolume (0..1) into the map the
-  // sliders bind — omit them and that direction renders a grey bar over undefined. WSGM observes
+  // sliders bind — omit them and that direction renders a grey bar over undefined. The host observes
   // the two Windows defaults, so every endpoint of a direction carries that direction's current
   // default value; exposing a per-device number for an inactive endpoint would be invented.
   const toDevice = (entry, flOutputVolume, flInputVolume) => ({
@@ -76,7 +76,7 @@ function createAudioNamespace() {
     flOutputVolume: entry.hasOutput === true ? flOutputVolume : undefined,
     flInputVolume:
       entry.hasInput === true && flInputVolume !== null ? flInputVolume : undefined,
-    // Speaker configuration and HDMI CEC reach a service WSGM does not supply. Reported empty and
+    // Speaker configuration and HDMI CEC reach a service the host does not supply. Reported empty and
     // false rather than invented, so those controls simply do not appear.
     currentConfig: {},
     availableConfigs: [],
@@ -143,7 +143,7 @@ function createAudioNamespace() {
       }
       // (deviceId, DIRECTION, volume) — in that order. Read off the store's own methods
       // 2026-08-30: OnAudioDeviceVolumeChanged(e,t,r) forwards to OnVolumeUpdated(t,r), which is
-      // m_mapVolumes.set(t, r). The direction is the KEY and the volume is the VALUE, and WSGM
+      // m_mapVolumes.set(t, r). The direction is the KEY and the volume is the VALUE, and the host
       // was passing them the other way round — every entry it wrote was keyed by a float volume
       // with 1 or 0 as its value, so getDeviceVolume(direction) found nothing and the slider had
       // no number to sit on.
@@ -196,13 +196,13 @@ function createAudioNamespace() {
         //
         // But writing on every publish is wrong in both directions at once. It dispatches a
         // volume change once a second, which is Steam's OSD popping up forever; and while the
-        // user is dragging, the store is already holding the value they chose, so pushing WSGM's
+        // user is dragging, the store is already holding the value they chose, so pushing the host's
         // not-yet-observed one snaps the handle back under their thumb.
         //
-        // So: seed a direction that has no value at all, and otherwise write only when WSGM's
+        // So: seed a direction that has no value at all, and otherwise write only when the host's
         // OWN reading moved — something outside Steam changed the volume — and the store has not
         // already caught up. Both are suppressed, because neither is the user acting inside
-        // Steam: a hardware button already shows WSGM's own overlay.
+        // Steam: a hardware button already shows the host's own overlay.
         const deviceId = numberFor(device.id);
         const entry = store.m_mapAudioDevices?.get(deviceId);
         const volumes: Array<{ direction: number; value: number; changed: boolean }> = [];
@@ -289,7 +289,7 @@ function createAudioNamespace() {
         });
       },
       // (deviceId, DIRECTION, volume) — three arguments. Read off the store's own device class
-      // 2026-08-30: setDeviceVolume(e,t) calls SetDeviceVolume(this.m_id, e, t). WSGM declared
+      // 2026-08-30: setDeviceVolume(e,t) calls SetDeviceVolume(this.m_id, e, t). The host declared
       // two parameters and so read the DIRECTION as the volume: dragging the slider sent
       // Math.round(1 * 100) or Math.round(0 * 100), which is why every drag set 100% or 0% and
       // the log showed "Taskbar volume set to 100%" the moment the slider was touched.

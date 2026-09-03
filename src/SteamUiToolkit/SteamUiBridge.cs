@@ -10,7 +10,7 @@ using System.Threading.Tasks;
 
 namespace SteamUiToolkit;
 
-/// <summary>A typed request from repository-owned Steam UI code to WSGM.</summary>
+/// <summary>A typed request from repository-owned Steam UI code to the host.</summary>
 /// <param name="Version">Bridge schema version.</param>
 /// <param name="Type">Either <c>request</c> or <c>cancel</c>.</param>
 /// <param name="PatchId">The patch owning the command.</param>
@@ -274,7 +274,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             }
             var configuration = BuildConfiguration(snapshot.Generations);
             var expression = _asset.Source.Replace(
-                "__WSGM_CONFIGURATION_JSON__", configuration, StringComparison.Ordinal);
+                "__STEAM_UI_CONFIGURATION_JSON__", configuration, StringComparison.Ordinal);
             var result = await _transport.EvaluateAsync(
                 SteamUiTargetRole.SharedJsContext,
                 expression,
@@ -401,7 +401,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         return IsPositiveAcknowledgement(result, generations);
     }
 
-    /// <summary>Removes only the WSGM-owned bridge namespace and Runtime binding.</summary>
+    /// <summary>Removes only the host-owned bridge namespace and Runtime binding.</summary>
     /// <param name="cancellationToken">Cancels cleanup.</param>
     public async Task RemoveAsync(CancellationToken cancellationToken = default)
     {
@@ -443,7 +443,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             await _transport.EvaluateAsync(
                 SteamUiTargetRole.SharedJsContext,
                 "(()=>{const k=" + SteamCef.JsString(Namespace)
-                    + ";const b=window[k];if(b&&b.dispose)b.dispose('WSGM removed');"
+                    + ";const b=window[k];if(b&&b.dispose)b.dispose('Steam UI removed');"
                     + "try{delete window[k];}catch(e){}return JSON.stringify({ok:true});})()",
                 OperationTimeout,
                 cancellationToken).ConfigureAwait(false);
@@ -640,7 +640,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             writer.WriteString("binding", BindingName);
 
             // The bootstrap reuses an already-installed bridge when the version and both Steam
-            // generations match, and neither of those changes when WSGM is updated. So a new WSGM
+            // generations match, and neither of those changes when the host is updated. So a new the host
             // build kept running the PREVIOUS build's injected script until Steam itself restarted:
             // a fix to the bootstrap appeared to have no effect, and the only clue was a diagnostic
             // field that was missing from output the new code would have produced. Pinning the

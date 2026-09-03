@@ -52,7 +52,7 @@ public interface ISteamNetworkBackend
 public static class SteamNetworkSurface
 {
     /// <summary>The patch id this surface publishes under and answers commands for.</summary>
-    public const string PatchId = "wsgm.steam-network.gate";
+    public const string PatchId = "steam-ui.network";
 
     /// <summary>The exact command vocabulary the injected gate sends.</summary>
     public static IReadOnlyList<string> Commands { get; } = ["startScan", "stopScan"];
@@ -66,11 +66,11 @@ public static class SteamNetworkSurface
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         id: PatchId,
-        resourceKey: "wsgm.steam-network.availability",
+        resourceKey: "steam-ui.network-availability",
         gateName: "network",
         fingerprint: "steam-network-gate-v1:configurable-getter+currently-hidden",
         probeExpression: $$"""
-            {{SteamUiProbeJs.Preamble("wsgm_network_gate_probe_")}}
+            {{SteamUiProbeJs.Preamble("steam_ui_network_probe_")}}
               const store=req('77347')&&req('77347').OQ&&req('77347').OQ.Get();
               if(!store)return JSON.stringify({error:'network store unavailable'});
               const d=Object.getOwnPropertyDescriptor(
@@ -81,7 +81,7 @@ public static class SteamNetworkSurface
                 // that the client reports network management natively, and reading it that way made
                 // this patch refuse itself after a successful apply and tear the network list down.
                 currentlyHidden:store.networkManagementAvailable===false
-                  ||(!!d&&!!d.get&&d.get.__wsgmOwnedGetter===true),
+                  ||(!!d&&!!d.get&&d.get.__steamUiOwnedGetter===true),
                 hasWirelessDevice:store.hasWirelessDevice===true
               });
             }catch(error){return JSON.stringify({error:String(error)}); } })()

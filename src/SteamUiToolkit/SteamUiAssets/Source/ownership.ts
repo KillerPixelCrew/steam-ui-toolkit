@@ -46,7 +46,7 @@ type ClaimKeys = {
 type ClaimOutcome = { ok: true; reclaimed: boolean } | { ok: false; error: string };
 
 type PropertySnapshot = Readonly<{
-  kind: "wsgm-property-snapshot-v1";
+  kind: "steam-ui-property-snapshot-v1";
   hadOwn: boolean;
   descriptor?: PropertyDescriptor;
   value: unknown;
@@ -65,7 +65,7 @@ const claimed = (host: unknown, keys: ClaimKeys) =>
   !!host && (host as Record<string, unknown>)[keys.marker] === true;
 
 const captureProperty = (host: Record<string, unknown>, property: string): PropertySnapshot => ({
-  kind: "wsgm-property-snapshot-v1",
+  kind: "steam-ui-property-snapshot-v1",
   hadOwn: Object.hasOwn(host, property),
   descriptor: Object.getOwnPropertyDescriptor(host, property),
   value: host[property],
@@ -74,7 +74,7 @@ const captureProperty = (host: Record<string, unknown>, property: string): Prope
 const isPropertySnapshot = (value: unknown): value is PropertySnapshot =>
   !!value &&
   typeof value === "object" &&
-  (value as Partial<PropertySnapshot>).kind === "wsgm-property-snapshot-v1" &&
+  (value as Partial<PropertySnapshot>).kind === "steam-ui-property-snapshot-v1" &&
   typeof (value as Partial<PropertySnapshot>).hadOwn === "boolean";
 
 // An accessor-backed field is one whose value lives BEHIND the property — a MobX observable, a
@@ -118,7 +118,7 @@ const legacyValueSnapshot = (
   const current = Object.getOwnPropertyDescriptor(host, property);
   const hadOwn = !(absentMeansMissing && value === undefined) && !!current;
   return {
-    kind: "wsgm-property-snapshot-v1",
+    kind: "steam-ui-property-snapshot-v1",
     hadOwn,
     descriptor:
       hadOwn && current && "value" in current ? { ...current, value } : undefined,

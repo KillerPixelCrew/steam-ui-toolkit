@@ -9,7 +9,7 @@ namespace SteamUiToolkit;
 /// The one place a patch turns an injected expression into a patch result.
 /// </summary>
 /// <remarks>
-/// Every WSGM patch injects a self-contained expression that returns
+/// Every the host patch injects a self-contained expression that returns
 /// <c>JSON.stringify({ok:…,error:…})</c>, so the parse is the same everywhere. It lived in three
 /// copies that had already drifted: two returned only the caller's fallback text when the page
 /// answered with a shape that had no <c>error</c> string, which is exactly the case a remote log

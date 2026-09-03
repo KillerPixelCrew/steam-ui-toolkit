@@ -31,7 +31,7 @@ public static class SteamUiExtensionHost
     public const int ApiVersion = 1;
 
     /// <summary>The manifest file every extension package must contain.</summary>
-    public const string ManifestFileName = "extension.wsgm.json";
+    public const string ManifestFileName = "extension.steam-ui.json";
 
     /// <summary>Largest UTF-8 script accepted from one extension.</summary>
     /// <remarks>The whole injected asset is evaluated in one CDP call, so an unbounded script is a

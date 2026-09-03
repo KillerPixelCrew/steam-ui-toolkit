@@ -44,7 +44,7 @@ const fragments = [
   join(sourceDirectory, "components.ts"),
 ];
 const epiloguePath = join(sourceDirectory, "epilogue.ts");
-const marker = "// @wsgm-bundle-start";
+const marker = "// @steam-ui-bundle-start";
 const preludePath = join(repositoryRoot, "dist", "prelude.js");
 const completePath = join(repositoryRoot, "dist", "steam-ui.js");
 

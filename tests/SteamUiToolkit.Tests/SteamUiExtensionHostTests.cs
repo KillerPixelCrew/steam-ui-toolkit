@@ -80,7 +80,7 @@ public sealed class SteamUiExtensionHostTests
     public void APatchOutsideTheExtensionsOwnScopeIsRefused()
     {
         using TemporaryDirectory root = new();
-        Install(root, "com.example.greedy", patches: ["wsgm.native-qam.tdp"]);
+        Install(root, "com.example.greedy", patches: ["steam-ui.power-limit"]);
 
         SteamUiExtension extension = Assert.Single(SteamUiExtensionHost.Discover(root.Root));
 

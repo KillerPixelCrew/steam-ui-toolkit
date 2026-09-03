@@ -1,6 +1,6 @@
 // Bluetooth is a WebUI transport service whose backend does not exist on Windows. The service,
 // its message shapes and every operation are present — GetState round-trips and answers
-// is_service_available:false with empty adapters and devices — so WSGM replaces the stub's
+// is_service_available:false with empty adapters and devices — so the host replaces the stub's
 // methods rather than implementing the service. `*Handler` exports are message descriptors,
 // not registration hooks, so implementing it is not on offer.
 //
@@ -9,16 +9,16 @@
 // invalidated. Live-verified 2026-08-30 that RF's methods are writable and configurable and that
 // the query client's invalidateQueries is reachable.
 function createBluetoothService() {
-  const patchId = "wsgm.steam-bluetooth.service";
+  const patchId = "steam-ui.bluetooth";
   const queryKey = ["BluetoothManagerService", "State"];
-  const methodMarker = "__wsgmOwnedBluetoothService";
-  const originalMethodField = "__wsgmOriginalBluetoothServiceMethod";
+  const methodMarker = "__steamUiOwnedBluetoothService";
+  const originalMethodField = "__steamUiOriginalBluetoothServiceMethod";
   const originals = new Map<string, unknown>();
   let installed = false;
   let lastError = "";
   let unsubscribe: (() => void) | null = null;
   // Steam's own device and adapter shapes, which are not ours to describe: the store reads them
-  // and WSGM only carries them through from the state it was given.
+  // and the host only carries them through from the state it was given.
   let latest: {
     is_service_available: boolean;
     adapters: any[];
@@ -30,7 +30,7 @@ function createBluetoothService() {
   const reply = transportReply;
   const invalidate = (req) => invalidateQuery(req, queryKey);
 
-  // WSGM sends its own field names and the mapping into Steam's lives here, so the client's
+  // The host sends its own field names and the mapping into Steam's lives here, so the client's
   // schema stays in the half that has to change when the client is rebuilt.
   const onState = (state) => {
     if (!installed || !state) return;
@@ -38,7 +38,7 @@ function createBluetoothService() {
     latest = {
       is_service_available: state.available === true,
       // One synthetic adapter, because the panel needs something to hang the radio toggle on and
-      // Windows exposes no adapter identity WSGM could pass through truthfully.
+      // Windows exposes no adapter identity the host could pass through truthfully.
       adapters:
         state.available === true
           ? [
@@ -58,7 +58,7 @@ function createBluetoothService() {
         etype: device.eType ?? 0,
         is_paired: device.isPaired === true,
         is_connected: device.isConnected === true,
-        // Steam sorts by signal and shows a battery when one is reported. WSGM knows neither, and
+        // Steam sorts by signal and shows a battery when one is reported. The host knows neither, and
         // a fabricated strength would order the list by a number that means nothing.
         strength_raw: 0,
         battery_percent: null,

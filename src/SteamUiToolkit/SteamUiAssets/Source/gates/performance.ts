@@ -9,7 +9,7 @@
 // immediately decode it again. Live-verified 2026-08-30 that the direct write is observed through
 // every accessor the hooks use and restores cleanly.
 function createPerfNamespace() {
-  const patchId = "wsgm.native-qam.perf";
+  const patchId = "steam-ui.performance";
   let installed = false;
   let lastError = "";
   let unsubscribe: (() => void) | null = null;
@@ -19,7 +19,7 @@ function createPerfNamespace() {
   // The message class is never named here — it is taken from an instance the store builds, so
   // this stays correct across minification and client updates. An object argument is still
   // accepted because that is what a caller other than the store would pass, and an
-  // undecodable one is forwarded as-is so WSGM logs a readable rejection instead of nothing.
+  // undecodable one is forwarded as-is so the host logs a readable rejection instead of nothing.
   const decodeSettingsUpdate = (payload) => {
     if (typeof payload !== "string") return payload?.toObject?.() ?? payload ?? {};
     try {
@@ -76,17 +76,17 @@ function createPerfNamespace() {
     }
 
     // Every setter builds a protobuf delta and hands it to UpdateSettings, so that one method is
-    // where all of them arrive. The delta is decoded on WSGM's side rather than here, because the
+    // where all of them arrive. The delta is decoded on the host's side rather than here, because the
     // message shapes belong to the client and this half only forwards.
     const buildApi = () => ({
       // Decode first, always. SystemPerfStore's setters all end in
       // `UpdateSettings(request.serializeBase64String())`, so what arrives here is a BASE64
       // STRING, not the message — live-verified 2026-08-30 by round-tripping a request built by
-      // the store itself. Forwarding it verbatim made WSGM's reader reject every write as
+      // the store itself. Forwarding it verbatim made the host's reader reject every write as
       // "carried no delta object", which is why no control on the Performance tab did anything:
       // the overlay-level selector snapped back to off, the frame cap never took, VRR never
       // toggled. Decoding through the message's OWN deserializeBinary keeps the wire format the
-      // client's business; toObject() then emits snake_case field names, which is what WSGM reads.
+      // client's business; toObject() then emits snake_case field names, which is what the host reads.
       UpdateSettings: (payload) =>
         request(patchId, "updateSettings", { delta: decodeSettingsUpdate(payload) }, 0),
       RegisterForStateChanges: () => ({ unregister: () => {} }),
@@ -121,7 +121,7 @@ function createPerfNamespace() {
     if (target?.m_msgState) {
       try {
         // Back to the empty state the Windows client leaves it in, so every control returns to
-        // rendering nothing rather than keeping WSGM's last answer.
+        // rendering nothing rather than keeping the host's last answer.
         target.m_msgState.limits = undefined;
         target.m_msgState.settings = undefined;
         target.m_msgState.current_game_id = undefined;
@@ -132,7 +132,7 @@ function createPerfNamespace() {
     }
 
     // Marker-checked, which this path was not: it deleted whatever was at System.Perf, so a real
-    // backend appearing under a still-installed gate would have been removed by WSGM's own cleanup.
+    // backend appearing under a still-installed gate would have been removed by the host's own cleanup.
     const withdrawn = withdrawNamespace(window.SteamClient?.System, "Perf", ownedMarker);
     if (!withdrawn.ok) {
       lastError = withdrawn.error ?? "perf namespace withdrawal failed";

@@ -18,7 +18,7 @@ namespace SteamUiToolkit;
 public sealed class SteamUiBridgePatch : ISteamUiPatch
 {
     /// <summary>The bootstrap's stable patch id.</summary>
-    public const string PatchId = "wsgm.native-qam.bootstrap";
+    public const string PatchId = "steam-ui.bridge";
 
     private const string StructuralFingerprint =
         "qam-v1:tdp-availability+tdp-component+perf-actions+profile-readonly";
@@ -39,7 +39,7 @@ public sealed class SteamUiBridgePatch : ISteamUiPatch
     public SteamUiTargetRole TargetRole => SteamUiTargetRole.SharedJsContext;
 
     /// <inheritdoc />
-    public string ResourceKey => "wsgm.native-qam.bridge";
+    public string ResourceKey => "steam-ui.bridge-binding";
 
     /// <inheritdoc />
     public SteamUiPatchBounds Bounds { get; } = SteamUiPatchBounds.Default;
@@ -122,7 +122,7 @@ public sealed class SteamUiBridgePatch : ISteamUiPatch
     // each conjunction identifies exactly one module. Module ids are intentionally
     // not retained because they are build output, not compatibility evidence.
     private static string ProbeExpression => $$"""
-        {{SteamUiProbeJs.CountingPreamble("wsgm_qam_probe_")}}
+        {{SteamUiProbeJs.CountingPreamble("steam_ui_bridge_probe_")}}
           return JSON.stringify({
             tdpAvailability:count(['is_tdp_limit_available','steamos_tdp_limit_enabled','tdp_limit_min','tdp_limit_max']),
             tdpComponent:count(['#QuickAccess_Tab_Perf_TDPLimitEnabled','steamos_tdp_limit','showBookendLabels']),

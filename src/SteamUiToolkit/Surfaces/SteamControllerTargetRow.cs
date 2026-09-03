@@ -55,7 +55,7 @@ public interface ISteamControllerTargetBackend
 public static class SteamControllerTargetRow
 {
     /// <summary>The patch id this row publishes under and answers commands for.</summary>
-    public const string PatchId = "wsgm.native-qam.controller-target";
+    public const string PatchId = "steam-ui.controller-target";
 
     /// <summary>The exact command vocabulary the injected row sends.</summary>
     public static IReadOnlyList<string> Commands { get; } = ["setControllerTarget"];
@@ -65,7 +65,7 @@ public static class SteamControllerTargetRow
         PatchId,
         "controllerTarget",
         "native-qam-controller-target-v1:controller-presentation+performance-root+valve-dropdown",
-        "wsgm_native_controller_target_probe_",
+        "steam_ui_controller_target_probe_",
         "controllerPresentation",
         [
             "#QuickAccess_Tab_Settings_Section_Controller_Title",

@@ -12,11 +12,11 @@ namespace SteamUiToolkit;
 /// compile — it would produce a patch whose probe silently never finds the bridge.
 /// <para>
 /// The suffixes are not decoration. They make the property name unlikely to collide with Steam's own
-/// globals or with another tool sharing SharedJSContext, which is the same reason WSGM's injected
+/// globals or with another tool sharing SharedJSContext, which is the same reason the host's injected
 /// nodes carry their own marker class and never touch CSSLoader's.
 /// </para>
 /// <para>
-/// Held as constants rather than injected because WSGM is currently the only host. When the toolkit
+/// Held as constants rather than injected because the host is currently the only host. When the toolkit
 /// is extracted these become a value the host supplies once — the shape is already right for that,
 /// which is why callers reference this type rather than a literal.
 /// </para>
@@ -24,8 +24,8 @@ namespace SteamUiToolkit;
 public static class SteamUiBridgeIdentity
 {
     /// <summary>The window property the injected bridge is published under.</summary>
-    public const string Namespace = "__wsgmSteamUi_v1_28d7c54a";
+    public const string Namespace = "__steamUi_v1_28d7c54a";
 
     /// <summary>The CDP binding name the injected side sends envelopes through.</summary>
-    public const string BindingName = "__wsgmNativeBridge_v1_7b24d11c";
+    public const string BindingName = "__steamUiBridge_v1_7b24d11c";
 }

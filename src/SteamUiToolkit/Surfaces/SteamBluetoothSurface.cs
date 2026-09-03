@@ -113,7 +113,7 @@ public interface ISteamBluetoothBackend
 public static class SteamBluetoothSurface
 {
     /// <summary>The patch id this surface publishes under and answers commands for.</summary>
-    public const string PatchId = "wsgm.steam-bluetooth.service";
+    public const string PatchId = "steam-ui.bluetooth";
 
     /// <summary>The exact command vocabulary the injected gate sends.</summary>
     public static IReadOnlyList<string> Commands { get; } =
@@ -136,11 +136,11 @@ public static class SteamBluetoothSurface
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         id: PatchId,
-        resourceKey: "wsgm.steam-bluetooth.manager-service",
+        resourceKey: "steam-ui.bluetooth-manager-service",
         gateName: "bluetooth",
         fingerprint: "steam-bluetooth-v1:operations+writable-stub+reachable-cache",
         probeExpression: $$"""
-            {{SteamUiProbeJs.Preamble("wsgm_bluetooth_probe_")}}
+            {{SteamUiProbeJs.Preamble("steam_ui_bluetooth_probe_")}}
               const RF=req('60517')&&req('60517').RF;
               if(!RF)return JSON.stringify({error:'bluetooth service stub unavailable'});
               const ops=['GetState','SetDiscovering','Pair','CancelPair','Connect','Disconnect',

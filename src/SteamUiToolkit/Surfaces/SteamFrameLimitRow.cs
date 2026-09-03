@@ -81,7 +81,7 @@ public interface ISteamFrameLimitBackend
 public static class SteamFrameLimitRow
 {
     /// <summary>The patch id this row publishes under and answers commands for.</summary>
-    public const string PatchId = "wsgm.native-qam.frame-limit";
+    public const string PatchId = "steam-ui.frame-limit";
 
     /// <summary>The exact command vocabulary the injected row sends.</summary>
     public static IReadOnlyList<string> Commands { get; } = ["setFrameLimit", "setRefreshRate"];
@@ -91,7 +91,7 @@ public static class SteamFrameLimitRow
         PatchId,
         "frameLimit",
         "native-qam-frame-limit-v1:performance-actions+performance-root+valve-slider",
-        "wsgm_native_frame_limit_probe_");
+        "steam_ui_frame_limit_probe_");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
     /// <param name="state">The state to serialize.</param>

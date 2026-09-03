@@ -6,7 +6,7 @@ internal sealed class TemporaryDirectory : IDisposable
     {
         Root = Path.Combine(
             Path.GetTempPath(),
-            "wsgm-device-tests",
+            "steam-ui-tests",
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Root);
     }

@@ -14,10 +14,10 @@
 // fields, sourced from the same published state the hand-rolled row used; invalidate that query
 // key when the state changes; and watch the one setting Valve writes so the chosen watts reach
 // the device through the existing setPrimaryLimit command. Valve owns the row, the storage and
-// the write UI — WSGM answers one RPC and observes one number. Live-mapped 2026-08-30: stub
+// the write UI — the host answers one RPC and observes one number. Live-mapped 2026-08-30: stub
 // export Bd beside the Telemetry service, own-writable GetState, body nested under `state`.
 function createSteamOsManagerGate() {
-  const patchId = "wsgm.native-qam.tdp";
+  const patchId = "steam-ui.power-limit";
   const queryKey = ["SteamOSService", "State", "Manager"];
   let installed = false;
   let lastError = "";
@@ -69,7 +69,7 @@ function createSteamOsManagerGate() {
 
   // Valve's TDP rows do not call a namespace. The toggle and the slider are bound to the
   // steamos_tdp_limit_enabled and steamos_tdp_limit CLIENT SETTINGS, Steam persists them, and
-  // WSGM's job is to notice the number and route it to hardware.
+  // the host's job is to notice the number and route it to hardware.
   //
   // Read from the settings store rather than from a change payload. Live-verified 2026-08-30:
   // Valve's own hooks read (0,a.q3)(() => G.clientSettings[name]) off the store reachable as
@@ -96,7 +96,7 @@ function createSteamOsManagerGate() {
     if (forwarding) return;
     forwarding = true;
     // The enabled flag rides along: a limit switched off is not the same as a limit of zero
-    // watts, and WSGM has to release the cap rather than try to apply one.
+    // watts, and the host has to release the cap rather than try to apply one.
     request(patchId, "setPrimaryLimit", { watts: now.watts ?? 0, enabled: now.enabled }).then(
       () => {
         // Latched on SUCCESS, never on the attempt. Recording the value before the answer meant a

@@ -354,13 +354,13 @@ prototype source. Enumerating and calling everything once restarted a machine an
 
 ### Identity and configuration
 
-`SteamUiBridgeIdentity.Namespace = "__wsgmSteamUi_v1_28d7c54a"`,
-`BindingName = "__wsgmNativeBridge_v1_7b24d11c"`. `SteamUiBridgeHost.SchemaVersion = 1`,
+`SteamUiBridgeIdentity.Namespace = "__steamUi_v1_28d7c54a"`,
+`BindingName = "__steamUiBridge_v1_7b24d11c"`. `SteamUiBridgeHost.SchemaVersion = 1`,
 `MaximumPayloadCharacters = 16 KiB`, `OperationTimeout = 5 s`, a 64-slot request channel.
 
 `BootstrapAsync` installs the binding, reads the snapshot **after** the install so a generation
 raised by it is the baseline, substitutes the configuration JSON for the literal
-`__WSGM_CONFIGURATION_JSON__` in the asset, evaluates it, and is ready only when the reply is
+`__STEAM_UI_CONFIGURATION_JSON__` in the asset, evaluates it, and is ready only when the reply is
 `ok: true`, the reply's generations equal the snapshot's, and no generation epoch changed meanwhile.
 
 Configuration fields: `version`, `namespace`, `binding`, `assetHash`, `contextGeneration`,
@@ -374,7 +374,7 @@ restarted.
 | Member | Behaviour |
 | --- | --- |
 | reuse check | If `window[namespace]` exists with equal `version`, `assetHash`, `contextGeneration`, `documentGeneration` and a `gate` function, return `{ok:true, reused:true}` before any fragment runs. Otherwise a prior bridge is unwound: its known gates get `remove()`, then `dispose("generation replaced")`. |
-| `request(patchId, command, payload, actionGeneration?)` | Rejects `command not allowlisted` and `bridge busy` (≥ `maximumPending`). Allocates a positive action generation when the caller passes none or zero, because the host rejects zero and several gates once passed exactly that. Sends the envelope through `window[binding](JSON.stringify(...))`; on timeout sends a `cancel` envelope and rejects `WSGM bridge request timed out`. |
+| `request(patchId, command, payload, actionGeneration?)` | Rejects `command not allowlisted` and `bridge busy` (≥ `maximumPending`). Allocates a positive action generation when the caller passes none or zero, because the host rejects zero and several gates once passed exactly that. Sends the envelope through `window[binding](JSON.stringify(...))`; on timeout sends a `cancel` envelope and rejects `Steam UI bridge request timed out`. |
 | `subscribe(patchId, callback)` | Throws `subscription not allowlisted` unless the patch id is a key of `allowed`; replays the latest state. |
 | `deliver(envelope)` | Accepts only `response` and `state` envelopes whose version and generations match; a response resolves or rejects the pending promise by sequence and patch/command; a state is stored and fanned out. |
 | `dispose(reason)` | Calls `remove?.()` then `dispose?.()` on **every** registered gate, rejects pending requests, clears maps. |
@@ -405,7 +405,7 @@ Rejections log `Change("steam.ui.bridge.rejected", …)` with the first 200 char
 `version`, `type: "response"`, `patchId`, `command`, `sequence`, both generations, `ok`,
 `payload`, `error` (truncated to 1024); state envelopes carry `type: "state"`, `patchId`, both
 generations and `payload`. A `SharedJsContext` generation change drops readiness and resets the
-authorizer. `RemoveAsync` removes the binding, evaluates `b.dispose('WSGM removed'); delete
+authorizer. `RemoveAsync` removes the binding, evaluates `b.dispose('Steam UI removed'); delete
 window[k]`, and logs any incomplete step. Disposal waits 2 s for an in-progress bootstrap and 1 s
 for the request pump.
 
@@ -422,7 +422,7 @@ The three ways to change the client, and what removal owes:
 Three invariants: a claim must recognise its own work, must hand back exactly what was there, and
 both facts must survive a separate CDP evaluation, which is why markers are string-keyed
 non-enumerable fields rather than Symbols. Every claim writes `keys.marker = true` and
-`keys.original = { kind: "wsgm-property-snapshot-v1", hadOwn, descriptor, value }`; the caller
+`keys.original = { kind: "steam-ui-property-snapshot-v1", hadOwn, descriptor, value }`; the caller
 supplies the key names so a renamed key cannot orphan a marker a previous build left.
 
 - `claimValue(host, field, keys, next, absent)` refuses `claim target unavailable` when the field is
@@ -460,7 +460,7 @@ reach as the consumer's gates, and the checks are about identity and collision o
 and validates; it loads no assembly and executes nothing. The returned script is text until the
 consumer builds it into the injected asset.
 
-| Manifest field (`extension.wsgm.json`) | Rule |
+| Manifest field (`extension.steam-ui.json`) | Rule |
 | --- | --- |
 | `id` | 1–96 characters of `[a-z0-9._-]`, no leading or trailing separator |
 | `name`, `version` | free text |
@@ -479,7 +479,7 @@ one look conflicting. Log keys: `steam.ui.extensions.root`, `steam.ui.extension.
 
 `eng/build-prelude.mjs` concatenates `types.ts`, `bridge.ts`, `ownership.ts`, `rpc.ts`, appends
 the IIFE close only for the compile, type-checks with TypeScript 7 under a strict, ES2022,
-type-stripping-only configuration, and emits `dist/prelude.js` from the `// @wsgm-bundle-start`
+type-stripping-only configuration, and emits `dist/prelude.js` from the `// @steam-ui-bundle-start`
 marker onward with the IIFE **left open**. `types.ts` sits above the marker so it types the compile
 and ships nothing. Compiling the prelude alone is what proved it stands on its own: it stopped
 compiling the moment the bridge still named a consumer's gates.
@@ -487,7 +487,7 @@ compiling the moment the bridge still named a consumer's gates.
 A consumer composes one script:
 
 ```text
-(() => { "use strict"; let installResult; const config = __WSGM_CONFIGURATION_JSON__;
+(() => { "use strict"; let installResult; const config = __STEAM_UI_CONFIGURATION_JSON__;
   …bridge.ts…            reuse check, request/subscribe/deliver/dispose, registerGate, window[ns]
   …ownership.ts, rpc.ts…
   …consumer fragments…   hoisted function create…() + top-level registerGate(name, create…())
@@ -537,9 +537,9 @@ The host replaces the placeholder with the configuration, evaluates the whole th
 | Fingerprint bound | 512 |
 | Bridge schema, payload cap, operation timeout, request channel | 1, 16 KiB, 5 s, 64 |
 | Injected `maximumPending`, `timeoutMilliseconds` | 32, 5000 |
-| Bridge namespace, binding | `__wsgmSteamUi_v1_28d7c54a`, `__wsgmNativeBridge_v1_7b24d11c` |
-| Configuration placeholder, bundle marker | `__WSGM_CONFIGURATION_JSON__`, `// @wsgm-bundle-start` |
-| Property snapshot kind | `wsgm-property-snapshot-v1` |
+| Bridge namespace, binding | `__steamUi_v1_28d7c54a`, `__steamUiBridge_v1_7b24d11c` |
+| Configuration placeholder, bundle marker | `__STEAM_UI_CONFIGURATION_JSON__`, `// @steam-ui-bundle-start` |
+| Property snapshot kind | `steam-ui-property-snapshot-v1` |
 | Extension API version, script cap, identifier | 1, 256 KiB, ≤ 96 of `[a-z0-9._-]` |
 
 ## 14. Tests
@@ -602,7 +602,8 @@ and the limits-and-settings pairing are documented on the types.
 Every gate's payload is read with `SteamUiPayload` (exact object shape, bounded strings, ranges) and
 a malformed one is refused with a fixed reason before the backend runs. `SteamUiBridgePatch`
 installs the bridge and must be registered first; every row shares the resource key
-`wsgm.native-qam.performance-root` so the mounted set serializes. Patch ids, resource keys, gate
-names and ownership markers are the ones the surfaces were device-verified under and are kept as
-public constants; `SteamSurfaceModuleTests` locks each surface's `Commands` to its module's actual
+`steam-ui.performanceormance-root` so the mounted set serializes. Patch ids and resource keys are
+`steam-ui.*`, the markers the live client carries are `__steamUi*`, and both are public constants:
+a consumer's kill-switch policy names patches by them and a probe from a separate CDP call reads
+the markers back. `SteamSurfaceModuleTests` locks each surface's `Commands` to its module's actual
 vocabulary and each refusal reason to its payload.

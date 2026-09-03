@@ -39,7 +39,7 @@ public interface ISteamResolutionBackend
 public static class SteamResolutionRow
 {
     /// <summary>The patch id this row publishes under and answers commands for.</summary>
-    public const string PatchId = "wsgm.native-qam.resolution";
+    public const string PatchId = "steam-ui.resolution";
 
     /// <summary>The exact command vocabulary the injected row sends.</summary>
     public static IReadOnlyList<string> Commands { get; } = ["setResolution"];
@@ -49,7 +49,7 @@ public static class SteamResolutionRow
         PatchId,
         "resolution",
         "native-qam-resolution-v1:performance-actions+performance-root+valve-dropdown",
-        "wsgm_native_resolution_probe_");
+        "steam_ui_resolution_probe_");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
     /// <param name="state">The state to serialize.</param>

@@ -10,7 +10,7 @@ type BridgeConfiguration = Readonly<{
   allowed: Readonly<Record<string, readonly string[]>>;
 }>;
 
-declare const __WSGM_CONFIGURATION_JSON__: BridgeConfiguration;
+declare const __STEAM_UI_CONFIGURATION_JSON__: BridgeConfiguration;
 
 // This file is a script, not a module, so the interface merges with the global
 // Window directly; a `declare global` block would need a module context.

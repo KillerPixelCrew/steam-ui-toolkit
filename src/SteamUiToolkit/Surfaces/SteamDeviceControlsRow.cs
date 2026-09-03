@@ -87,7 +87,7 @@ public interface ISteamDeviceControlsBackend
 public static class SteamDeviceControlsRow
 {
     /// <summary>The patch id this row publishes under and answers commands for.</summary>
-    public const string PatchId = "wsgm.native-qam.device-controls";
+    public const string PatchId = "steam-ui.device-controls";
 
     /// <summary>The exact command vocabulary the injected row sends.</summary>
     public static IReadOnlyList<string> Commands { get; } =
@@ -98,7 +98,7 @@ public static class SteamDeviceControlsRow
         PatchId,
         "deviceControls",
         "native-qam-device-controls-v1:performance-root+valve-slider+valve-dropdown",
-        "wsgm_native_device_controls_probe_");
+        "steam_ui_device_controls_probe_");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
     /// <param name="state">The state to serialize.</param>
