@@ -23,8 +23,12 @@ namespace SteamUiToolkit;
 /// <param name="Available">Whether the row can be operated at all.</param>
 /// <param name="MinimumFps">Lowest cap the slider offers, or null when unknown. A pair with <paramref name="MaximumFps"/>.</param>
 /// <param name="MaximumFps">Highest cap the slider offers, at most 1000.</param>
-/// <param name="DesiredFps">The cap asked for, 0 for off, or null when none.</param>
-/// <param name="ObservedFps">The cap the limiter reports, 0 for off, or null when unread.</param>
+/// <param name="DesiredFps">
+/// The cap asked for, 0 for off, or null when none. It need not lie between the bookends: a cap
+/// the limiter really holds stretches them rather than invalidating the row, because the row is
+/// where the user would correct it.
+/// </param>
+/// <param name="ObservedFps">The cap the limiter reports, 0 for off, or null when unread. Stretches the bookends like <paramref name="DesiredFps"/>.</param>
 /// <param name="Progress">Command progress in the closed vocabulary above.</param>
 /// <param name="Fault">The last failure's text, or empty.</param>
 /// <param name="StatusText">One line describing the state, or why the row cannot be operated.</param>
