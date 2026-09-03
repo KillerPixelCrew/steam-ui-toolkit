@@ -64,6 +64,11 @@ passes by construction: it caught a real defect the day it was written.
 
 ## Using it
 
+[`docs/reference.md`](docs/reference.md) describes the whole surface — discovery and the port gate,
+the connection and its generations, the patch lifecycle state by state, the bridge protocol, the
+ownership primitives, the extension host and the prelude composition contract — with every limit
+and log key.
+
 The library is the machinery; the surfaces are yours. You supply:
 
 - **a logger** (`ISteamUiLog`), so diagnostics land wherever your application's do;
