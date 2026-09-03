@@ -84,7 +84,9 @@ function createBluetoothService() {
       );
     const replace = (name, replacement) => {
       const current = RF[name];
-      const original = current?.[methodMarker] === true ? current[originalMethodField] : current;
+      const original = claimed(current, { marker: methodMarker, original: originalMethodField })
+        ? storedOriginal(current, { marker: methodMarker, original: originalMethodField })
+        : current;
       originals.set(name, original);
       Object.defineProperty(replacement, methodMarker, {
         value: true,
@@ -100,7 +102,9 @@ function createBluetoothService() {
     };
     const restore = () => {
       for (const [name, original] of originals) {
-        if (RF[name]?.[methodMarker] === true) RF[name] = original;
+        if (claimed(RF[name], { marker: methodMarker, original: originalMethodField })) {
+          RF[name] = original;
+        }
       }
     };
 
@@ -148,7 +152,9 @@ function createBluetoothService() {
     const RF = req?.("60517")?.RF;
     if (RF) {
       for (const [name, original] of originals) {
-        if (RF[name]?.[methodMarker] === true) RF[name] = original;
+        if (claimed(RF[name], { marker: methodMarker, original: originalMethodField })) {
+          RF[name] = original;
+        }
       }
     }
 

@@ -61,7 +61,9 @@ public static class SteamBrightnessSurface
                 // poll declared the patch incompatible, and the manager removed the reveal it had
                 // just verified — the row flickered on a ~25-second cycle on the device (2026-08-30).
                 revealable:settings.is_display_brightness_available!==true
-                  ||settings.__steamUiBrightnessRevealed===true,
+                  ||settings.__steamUiBrightnessRevealed===true||settings.__wsgmBrightnessRevealed===true,
+                  // The __wsgm* spellings are the markers a build before the rename wrote; read as ours so
+                  // that upgrade needs no Steam restart. Never written.
                 backendPresent:!!display&&typeof display.SetBrightness==='function'
                   &&typeof display.RegisterForBrightnessChanges==='function'
               });

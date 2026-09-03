@@ -61,8 +61,36 @@ const defineHidden = (host: object, key: string, value: unknown) => {
   });
 };
 
+// The names a previous build wrote the same markers under, before the library's identifiers left
+// its first consumer's namespace. A marker is a string key on a live client object, and the client
+// outlives the bridge that wrote it: refusing the old spelling would strand every surface until
+// Steam restarted, which is the orphan trap this file exists to close. Read as ours, never written.
+const legacyKey = (key: string) => key.replace(/^__steamUi/u, "__wsgm");
+
 const claimed = (host: unknown, keys: ClaimKeys) =>
-  !!host && (host as Record<string, unknown>)[keys.marker] === true;
+  !!host &&
+  ((host as Record<string, unknown>)[keys.marker] === true ||
+    (host as Record<string, unknown>)[legacyKey(keys.marker)] === true);
+
+// What a claim stored as the displaced original, under either spelling of the key.
+const storedOriginal = (host: unknown, keys: ClaimKeys): unknown => {
+  const record = host as Record<string, unknown>;
+  if (Object.hasOwn(record, keys.original)) return record[keys.original];
+  if (Object.hasOwn(record, legacyKey(keys.original))) return record[legacyKey(keys.original)];
+  return undefined;
+};
+
+const hasStoredOriginal = (host: unknown, keys: ClaimKeys) =>
+  Object.hasOwn(host as object, keys.original) ||
+  Object.hasOwn(host as object, legacyKey(keys.original));
+
+// Removes both spellings of a claim's markers; releasing what an older build claimed must not
+// leave its keys behind for the next probe to read as a claim.
+const dropClaimKeys = (host: Record<string, unknown>, keys: ClaimKeys) => {
+  for (const key of [keys.marker, keys.original, legacyKey(keys.marker), legacyKey(keys.original)]) {
+    delete host[key];
+  }
+};
 
 const captureProperty = (host: Record<string, unknown>, property: string): PropertySnapshot => ({
   kind: "steam-ui-property-snapshot-v1",
@@ -74,7 +102,9 @@ const captureProperty = (host: Record<string, unknown>, property: string): Prope
 const isPropertySnapshot = (value: unknown): value is PropertySnapshot =>
   !!value &&
   typeof value === "object" &&
-  (value as Partial<PropertySnapshot>).kind === "steam-ui-property-snapshot-v1" &&
+  // Both spellings of the kind, for the same reason claimed() reads both marker spellings.
+  ((value as Partial<PropertySnapshot>).kind === "steam-ui-property-snapshot-v1" ||
+    ((value as { kind?: unknown }).kind === "wsgm-property-snapshot-v1")) &&
   typeof (value as Partial<PropertySnapshot>).hadOwn === "boolean";
 
 // An accessor-backed field is one whose value lives BEHIND the property — a MobX observable, a
@@ -181,13 +211,16 @@ const claimValue = (
   const markerBefore = Object.getOwnPropertyDescriptor(host, keys.marker);
   const originalBefore = Object.getOwnPropertyDescriptor(host, keys.original);
   try {
-    const stored = Object.hasOwn(host, keys.original) ? host[keys.original] : absent;
+    const stored = hasStoredOriginal(host, keys) ? storedOriginal(host, keys) : absent;
     const original = reclaimed
       ? isPropertySnapshot(stored)
         ? stored
         : legacyValueSnapshot(host, field, stored, false)
       : fieldBefore;
     installDataValue(host, field, next);
+    // Rewritten under the current spelling; an older build's keys are dropped so a probe from a
+    // separate evaluation reads one claim, not two.
+    dropClaimKeys(host, keys);
     defineHidden(host, keys.marker, true);
     defineHidden(host, keys.original, original);
     return { ok: true, reclaimed };
@@ -214,13 +247,12 @@ const releaseValue = (
 ): { ok: boolean; error?: string } => {
   if (!host || !claimed(host, keys)) return { ok: true };
   try {
-    const stored = host[keys.original];
+    const stored = storedOriginal(host, keys);
     const original = isPropertySnapshot(stored)
       ? stored
       : legacyValueSnapshot(host, field, stored, false);
     restoreProperty(host, field, original);
-    delete host[keys.marker];
-    delete host[keys.original];
+    dropClaimKeys(host, keys);
     return { ok: true };
   } catch (error) {
     return { ok: false, error: String(error) };
@@ -242,9 +274,7 @@ const claimMember = (
   const current = host[member];
   const reclaimed = claimed(current, keys);
   try {
-    const stored = reclaimed
-      ? (current as Record<string, unknown>)[keys.original]
-      : undefined;
+    const stored = reclaimed ? storedOriginal(current, keys) : undefined;
     const original = reclaimed
       ? isPropertySnapshot(stored)
         ? stored
@@ -278,7 +308,7 @@ const releaseMember = (
   const current = host[member];
   if (!claimed(current, keys)) return { ok: true };
   try {
-    const stored = (current as Record<string, unknown>)[keys.original];
+    const stored = storedOriginal(current, keys);
     const original = isPropertySnapshot(stored)
       ? stored
       : legacyValueSnapshot(host, member, stored, true);
@@ -383,9 +413,7 @@ const claimAccessor = (
   }
   try {
     const reclaimed = claimed(descriptor.get, keys);
-    const original = reclaimed
-      ? (descriptor.get as unknown as Record<string, unknown>)[keys.original]
-      : descriptor;
+    const original = reclaimed ? storedOriginal(descriptor.get, keys) : descriptor;
     defineHidden(getter, keys.marker, true);
     defineHidden(getter, keys.original, original);
     Object.defineProperty(host, property, { get: getter, configurable: true });
@@ -405,7 +433,7 @@ const releaseAccessor = (
   try {
     const descriptor = Object.getOwnPropertyDescriptor(host, property);
     if (!claimed(descriptor?.get, keys)) return { ok: true };
-    const original = (descriptor!.get as unknown as Record<string, unknown>)[keys.original];
+    const original = storedOriginal(descriptor!.get, keys);
     if (original) {
       Object.defineProperty(host, property, original as PropertyDescriptor);
     }

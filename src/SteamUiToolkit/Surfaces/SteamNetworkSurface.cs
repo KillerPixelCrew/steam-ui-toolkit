@@ -81,7 +81,9 @@ public static class SteamNetworkSurface
                 // that the client reports network management natively, and reading it that way made
                 // this patch refuse itself after a successful apply and tear the network list down.
                 currentlyHidden:store.networkManagementAvailable===false
-                  ||(!!d&&!!d.get&&d.get.__steamUiOwnedGetter===true),
+                  ||(!!d&&!!d.get&&(d.get.__steamUiOwnedGetter===true||d.get.__wsgmOwnedGetter===true)),
+                  // The __wsgm* spellings are the markers a build before the rename wrote; read as ours so
+                  // that upgrade needs no Steam restart. Never written.
                 hasWirelessDevice:store.hasWirelessDevice===true
               });
             }catch(error){return JSON.stringify({error:String(error)}); } })()

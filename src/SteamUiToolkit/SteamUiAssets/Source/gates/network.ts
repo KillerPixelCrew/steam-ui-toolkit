@@ -151,7 +151,7 @@ function createNetworkGate() {
       // gate leaves alone entirely, and claiming would mark and reassign something that is not a
       // method at all.
       const current = net[name];
-      const existing = claimed(current, scan) ? current[scan.original] : current;
+      const existing = claimed(current, scan) ? storedOriginal(current, scan) : current;
       if (typeof existing !== "function") return null;
 
       let inner: ((...a: unknown[]) => unknown) | null = null;

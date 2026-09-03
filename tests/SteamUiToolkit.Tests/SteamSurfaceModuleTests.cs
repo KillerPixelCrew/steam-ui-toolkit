@@ -91,16 +91,24 @@ public sealed class SteamSurfaceModuleTests
 
         SteamUiCommandResult connect = await Dispatch(
             set, SteamBluetoothSurface.PatchId, "connect", """{"device":"aa:bb"}""");
+        // The shapes Steam's panel sends, read from the client bundle: {device}, and for the two
+        // BlueZ flags {device, trusted} / {device, allowed}.
         SteamUiCommandResult trusted = await Dispatch(
-            set, SteamBluetoothSurface.PatchId, "setTrusted", """{"anything":1}""");
+            set, SteamBluetoothSurface.PatchId, "setTrusted", """{"device":"aa:bb","trusted":true}""");
+        SteamUiCommandResult wake = await Dispatch(
+            set, SteamBluetoothSurface.PatchId, "setWakeAllowed", """{"device":"aa:bb","allowed":false}""");
         SteamUiCommandResult refused = await Dispatch(
             set, SteamBluetoothSurface.PatchId, "forget", """{"id":"aa:bb"}""");
+        SteamUiCommandResult flagless = await Dispatch(
+            set, SteamBluetoothSurface.PatchId, "setTrusted", """{"device":"aa:bb"}""");
 
         Assert.True(connect.Succeeded);
         Assert.Equal("connect aa:bb", Assert.Single(backend.Calls));
         Assert.True(trusted.Succeeded);
+        Assert.True(wake.Succeeded);
         Assert.False(refused.Succeeded);
         Assert.Equal("The Bluetooth device payload is invalid.", refused.Error);
+        Assert.Equal("The Bluetooth device payload is invalid.", flagless.Error);
     }
 
     [Fact]

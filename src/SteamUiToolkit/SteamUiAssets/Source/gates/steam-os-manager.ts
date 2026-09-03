@@ -166,7 +166,7 @@ function createSteamOsManagerGate() {
     const existing = manager.GetState;
     // The carried original is the claim primitive's property snapshot; a bridge older than the
     // snapshot stored the bare function.
-    const carried = claimed(existing, getState) ? existing[getState.original] : existing;
+    const carried = claimed(existing, getState) ? storedOriginal(existing, getState) : existing;
     const recoverable =
       carried && typeof carried === "object" && "value" in carried ? carried.value : carried;
     if (typeof recoverable !== "function") {

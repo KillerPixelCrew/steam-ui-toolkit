@@ -44,11 +44,13 @@ public sealed record SteamBluetoothState(
 
 /// <summary>What answers Steam's Bluetooth panel.</summary>
 /// <remarks>
-/// Every device operation receives the id the published state named. Trusted and wake-allowed are
-/// BlueZ concepts; their default implementations accept and do nothing, because refusing them
-/// makes Steam's UI report a failure for a control that was never going to change anything on a
-/// platform without the concept. Their payload shape has not been read from the client, so
-/// nothing from it is passed.
+/// Every device operation receives the id the published state named; the payload shapes were read
+/// from the client's bundle (2026-09-03): every device operation sends <c>{device}</c>,
+/// <c>SetTrusted</c> sends <c>{device, trusted}</c>, <c>SetWakeAllowed</c> sends
+/// <c>{device, allowed}</c> and <c>SetDiscovering</c> sends <c>{enabled}</c>. Trusted and
+/// wake-allowed are BlueZ concepts; their default implementations accept and do nothing, because
+/// refusing them makes Steam's UI report a failure for a control that was never going to change
+/// anything on a platform without the concept.
 /// </remarks>
 public interface ISteamBluetoothBackend
 {
@@ -89,15 +91,25 @@ public interface ISteamBluetoothBackend
     Task<SteamUiCommandResult> ForgetAsync(string deviceId, CancellationToken cancellationToken);
 
     /// <summary>Steam's trusted flag. Accepted and ignored unless overridden.</summary>
+    /// <param name="deviceId">The device.</param>
+    /// <param name="trusted">The wanted flag.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The outcome; applied by default.</returns>
-    Task<SteamUiCommandResult> SetTrustedAsync(CancellationToken cancellationToken) =>
+    Task<SteamUiCommandResult> SetTrustedAsync(
+        string deviceId,
+        bool trusted,
+        CancellationToken cancellationToken) =>
         Task.FromResult(SteamUiCommandResult.Applied);
 
     /// <summary>Steam's wake-allowed flag. Accepted and ignored unless overridden.</summary>
+    /// <param name="deviceId">The device.</param>
+    /// <param name="allowed">The wanted flag.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The outcome; applied by default.</returns>
-    Task<SteamUiCommandResult> SetWakeAllowedAsync(CancellationToken cancellationToken) =>
+    Task<SteamUiCommandResult> SetWakeAllowedAsync(
+        string deviceId,
+        bool allowed,
+        CancellationToken cancellationToken) =>
         Task.FromResult(SteamUiCommandResult.Applied);
 }
 
@@ -203,10 +215,8 @@ public static class SteamBluetoothSurface
                 Device("connect", backend.ConnectAsync),
                 Device("disconnect", backend.DisconnectAsync),
                 Device("forget", backend.ForgetAsync),
-                new(PatchId, "setTrusted", (_, cancellationToken) =>
-                    backend.SetTrustedAsync(cancellationToken)),
-                new(PatchId, "setWakeAllowed", (_, cancellationToken) =>
-                    backend.SetWakeAllowedAsync(cancellationToken)),
+                DeviceFlag("setTrusted", "trusted", backend.SetTrustedAsync),
+                DeviceFlag("setWakeAllowed", "allowed", backend.SetWakeAllowedAsync),
             ]);
     }
 
@@ -215,6 +225,19 @@ public static class SteamBluetoothSurface
         Func<string, CancellationToken, Task<SteamUiCommandResult>> operation) =>
         new(PatchId, command, (request, cancellationToken) =>
             SteamUiPayload.TryReadBoundedString(request.Payload, "device", 256, out string deviceId)
+                && SteamUiPayload.HasExactly(request.Payload, 1)
                 ? operation(deviceId, cancellationToken)
+                : SteamSurfaceModule.Invalid("The Bluetooth device payload is invalid."));
+
+    private static SteamUiCommandHandler DeviceFlag(
+        string command,
+        string flagName,
+        Func<string, bool, CancellationToken, Task<SteamUiCommandResult>> operation) =>
+        new(PatchId, command, (request, cancellationToken) =>
+            SteamUiPayload.TryReadBoundedString(request.Payload, "device", 256, out string deviceId)
+                && request.Payload.TryGetProperty(flagName, out JsonElement flag)
+                && flag.ValueKind is JsonValueKind.True or JsonValueKind.False
+                && SteamUiPayload.HasExactly(request.Payload, 2)
+                ? operation(deviceId, flag.ValueKind is JsonValueKind.True, cancellationToken)
                 : SteamSurfaceModule.Invalid("The Bluetooth device payload is invalid."));
 }

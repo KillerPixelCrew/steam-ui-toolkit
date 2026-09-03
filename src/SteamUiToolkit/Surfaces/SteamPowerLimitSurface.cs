@@ -88,10 +88,15 @@ public static class SteamPowerLimitSurface
                 // bare function from a bridge older than the snapshot. Accepting only the function
                 // form re-created the loop: every successful apply read as irreplaceable two seconds
                 // later and the row was torn down and rebuilt on a ~2-second cycle (device, 2026-09-01).
+                // The __wsgm* spellings are the markers a build before the rename wrote; read as
+                // ours so that upgrade needs no Steam restart. Never written.
                 getStateReplaceable:!!manager&&(typeof manager.GetState==='function')
-                  &&(manager.GetState.__steamUiOwnedGetState!==true
+                  &&((manager.GetState.__steamUiOwnedGetState!==true
+                      &&manager.GetState.__wsgmOwnedGetState!==true)
                     ||typeof manager.GetState.__steamUiOriginalGetState==='function'
-                    ||typeof (manager.GetState.__steamUiOriginalGetState||{}).value==='function'),
+                    ||typeof (manager.GetState.__steamUiOriginalGetState||{}).value==='function'
+                    ||typeof manager.GetState.__wsgmOriginalGetState==='function'
+                    ||typeof (manager.GetState.__wsgmOriginalGetState||{}).value==='function'),
                 queryLayer,
                 tdpRow:count(['is_tdp_limit_available','tdp_limit_min','tdp_limit_max'])
               });

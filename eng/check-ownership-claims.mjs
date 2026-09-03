@@ -300,5 +300,70 @@ const keys = { marker: "__mark", original: "__orig" };
   check("accessor: stands aside on a non-configurable property", !outcome.ok);
 }
 
+// --- the previous build's marker spelling: read as ours, rewritten under the current one --------
+{
+  // A client can still carry markers written before the library's identifiers left its first
+  // consumer's namespace. They are string keys on objects that outlive the bridge, so refusing
+  // them would strand every surface until Steam restarted.
+  const keys = { marker: "__steamUiOwnedThing", original: "__steamUiOriginalThing" };
+  const host = { flag: true };
+  Object.defineProperty(host, "__wsgmOwnedThing", { value: true, configurable: true });
+  Object.defineProperty(host, "__wsgmOriginalThing", {
+    value: {
+      kind: "wsgm-property-snapshot-v1",
+      hadOwn: true,
+      descriptor: { value: false, writable: true, enumerable: true, configurable: true },
+      value: false,
+    },
+    configurable: true,
+  });
+  const claim = api.claimValue(host, "flag", keys, true, false);
+  check("legacy: reclaims a value the previous spelling marked", claim.ok && claim.reclaimed);
+  check(
+    "legacy: the reclaim rewrites the markers under the current spelling only",
+    "__steamUiOwnedThing" in host &&
+      !("__wsgmOwnedThing" in host) &&
+      !("__wsgmOriginalThing" in host),
+  );
+  api.releaseValue(host, "flag", keys);
+  check("legacy: release restores the original the previous build stored", host.flag === false);
+}
+{
+  const keys = { marker: "__steamUiOwnedThing", original: "__steamUiOriginalThing" };
+  const nativeMethod = () => "native";
+  const oldOverlay = () => "old";
+  Object.defineProperty(oldOverlay, "__wsgmOwnedThing", { value: true });
+  Object.defineProperty(oldOverlay, "__wsgmOriginalThing", { value: nativeMethod });
+  const host = { Go: oldOverlay };
+  api.claimMember(host, "Go", keys, (original) => () => "new:" + original());
+  check(
+    "legacy: a member claim unwraps the previous build's overlay rather than stacking",
+    host.Go() === "new:native",
+  );
+  api.releaseMember(host, "Go", keys);
+  check(
+    "legacy: release hands back the native method the previous build displaced",
+    host.Go === nativeMethod,
+  );
+}
+{
+  const system = {};
+  const orphan = { GetDevices: () => "orphan" };
+  Object.defineProperty(orphan, "__wsgmOwnedNamespace", { value: true });
+  Object.defineProperty(system, "Audio", {
+    value: orphan,
+    configurable: true,
+    enumerable: true,
+    writable: false,
+  });
+  const supplied = api.supplyNamespace(system, "Audio", "__steamUiOwnedNamespace", () => ({
+    GetDevices: () => "new",
+  }));
+  check(
+    "legacy: an orphaned namespace under the previous spelling is reclaimed, not refused",
+    supplied.ok && supplied.reclaimed && system.Audio.GetDevices() === "new",
+  );
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

@@ -81,7 +81,7 @@ public sealed class SteamQuickAccessRowPatch : ISteamUiPatch
     public SteamUiTargetRole TargetRole => SteamUiTargetRole.SharedJsContext;
 
     /// <summary>One key for every row, so the mounted set serializes on one gate.</summary>
-    public string ResourceKey => "steam-ui.performanceormance-root";
+    public string ResourceKey => "steam-ui.performance-root";
 
     /// <inheritdoc />
     public SteamUiPatchBounds Bounds { get; } = SteamUiPatchBounds.Default;

@@ -116,7 +116,9 @@ public static class SteamAudioSurface
                   // native backend, and treating it as one made this patch declare itself incompatible
                   // five seconds after a successful install, tear down, and orphan the namespace it had
                   // just defined — leaving Steam's audio page empty until Steam itself restarted.
-                  return !a||a.__steamUiOwnedNamespace===true;})(),
+                  return !a||a.__steamUiOwnedNamespace===true||a.__wsgmOwnedNamespace===true;})(),
+                  // The __wsgm* spellings are the markers a build before the rename wrote; read as ours so
+                  // that upgrade needs no Steam restart. Never written.
                 storeSingletonReachable:singleton
               });
             }catch(error){return JSON.stringify({error:String(error)}); } })()

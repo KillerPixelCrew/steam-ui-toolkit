@@ -552,7 +552,9 @@ public static class SteamPerformanceSurface
                   // Absent, or present and ours — see the audio probe. An orphaned Perf namespace
                   // is the worse case: it leaves SystemPerfStore holding half-written state, which
                   // is what crashed the whole Performance tab.
-                  return !p||p.__steamUiOwnedNamespace===true;})(),
+                  return !p||p.__steamUiOwnedNamespace===true||p.__wsgmOwnedNamespace===true;})(),
+                  // The __wsgm* spellings are the markers a build before the rename wrote; read as ours so
+                  // that upgrade needs no Steam restart. Never written.
                 storeSingletonReachable:singleton
               });
             }catch(error){return JSON.stringify({error:String(error)}); } })()
