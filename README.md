@@ -37,6 +37,14 @@ Steam update, cleans up after itself, and tells you why when it does not work.
 | **Answer an RPC** | overlay a method the client already has | restore what was displaced |
 | **Reveal what is gated** | flip the one flag or getter hiding a surface the client can already serve | restore the original |
 
+- **The revived surfaces themselves.** Valve's audio page, Internet page, Bluetooth page,
+  brightness slider, Performance tab and TDP rows ship in the Windows client and are inert only
+  because nothing answers behind them. Each is a `Steam*Surface` here: the injected gate that
+  supplies or reveals it, the patch that probes and verifies it, a typed state record you fill, and
+  a backend interface you implement. The Quick Access rows built on Valve's own field primitives —
+  the unified frame limit, variable refresh, resolution, an automatic power-limit switch, a
+  controller-target dropdown, charge and lighting sliders — are `Steam*Row`s of the same shape.
+  You say "this is our data, and it maps to that feature"; the CEF work stays here.
 - **An extension host**, so a consumer can let third parties add surfaces of their own.
 
 ## The rules it enforces, and why
@@ -69,22 +77,31 @@ the connection and its generations, the patch lifecycle state by state, the brid
 ownership primitives, the extension host and the prelude composition contract — with every limit
 and log key.
 
-The library is the machinery; the surfaces are yours. You supply:
+The library is the machinery and the surfaces; the data behind them is yours. You supply:
 
 - **a logger** (`ISteamUiLog`), so diagnostics land wherever your application's do;
-- **the script you inject** (`SteamUiInjectedAsset`) — this library's prelude fragments compiled
-  together with your own, since the whole thing is evaluated in one CDP call and is therefore one
-  script;
-- **your modules** (`ISteamUiModule`), each one surface: the patches that install it, the state it
-  publishes, and the commands it answers.
+- **the script you inject** (`SteamUiInjectedAsset`) — `dist/steam-ui.js` as built by
+  `npm run prelude:build`, or the same fragments compiled together with your own, since the whole
+  thing is evaluated in one CDP call and is therefore one script;
+- **a backend per surface you want**, and a reading of its state. Each surface's `Module(...)`
+  turns those into an `ISteamUiModule`; register `SteamUiBridgePatch` first and the modules'
+  patches after it.
 
-The module set derives the bridge's exact state/command vocabulary. Pass
-`SteamUiModuleSet.AllowedCommands` to `SteamUiBridgeHost`; the toolkit deliberately carries no
-application-specific patch ids or command names of its own.
+```csharp
+ISteamUiModule audio = SteamAudioSurface.Module(
+    enabled: () => quickAccessOn,
+    read: () => new(myAudio.CurrentState),   // a SteamAudioState, or null to publish nothing
+    backend: myAudio);                        // an ISteamAudioBackend: default device, volume
+```
 
-Your fragments call `registerGate(name, gate)`; your patches reach them through
-`window[namespace].gate(name)`. `SteamUiModuleRuntime` then runs the two traffic directions between
-your modules and the client.
+A surface's patch id and command vocabulary are constants on it (`PatchId`, `Commands`), and the
+module set derives the bridge's exact state/command vocabulary from every module you register.
+Pass `SteamUiModuleSet.AllowedCommands` to `SteamUiBridgeHost`. A surface you do not register
+installs nothing and its Valve UI stays exactly as the client ships it.
+
+A surface of your own is a fragment that calls `registerGate(name, gate)` and a patch that reaches
+it through `window[namespace].gate(name)`, declared in a module like any other.
+`SteamUiModuleRuntime` runs the two traffic directions between your modules and the client.
 
 What patches should be applied when stays yours. That is application policy, every host's rules
 differ, and a constructor full of predicates describing one host's would help nobody.

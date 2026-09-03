@@ -29,7 +29,17 @@ public sealed record SteamUiBridgeRequest(
     long ActionGeneration,
     long ContextGeneration,
     long DocumentGeneration,
-    JsonElement Payload);
+    JsonElement Payload)
+{
+    /// <summary>One identifier that follows this request through a backend's own log.</summary>
+    /// <returns>The generations and sequence that authorized the request, joined.</returns>
+    /// <remarks>
+    /// A method rather than a property so the source-generated serializer never treats it as a
+    /// wire field. The prefix is the established one from the logs this format was diagnosed in.
+    /// </remarks>
+    public string ToCorrelationId() =>
+        $"native-qam:{ContextGeneration}:{DocumentGeneration}:{Sequence}:{ActionGeneration}";
+}
 
 /// <summary>Result of authorizing one narrow Steam UI bridge request.</summary>
 /// <param name="Accepted">Whether the host may dispatch the request.</param>

@@ -7,10 +7,11 @@ the extension host, and the prelude build. The XML documentation on each member 
 authoritative wording; this document reads the library as a whole, in the order a consumer meets
 it.
 
-How WSGM uses the toolkit — the Steam discovery, the gating of the transport on Big Picture, the
-native Quick Access Menu, the library features and every module id and token it names — is
-documented on the WSGM side in `docs/steam-cef-system.md`. This document describes only what the
-toolkit itself defines.
+How WSGM uses the toolkit — the Steam discovery, the gating of the transport on Big Picture, which
+surfaces it registers and what feeds them, and its own library features — is documented on the
+WSGM side in `docs/steam-cef-system.md`. This document describes only what the toolkit itself
+defines, which since the surfaces moved here includes every Steam module id, store field and
+localization token the revived Quick Access Menu depends on (§15).
 
 | Fact | Value |
 | --- | --- |
@@ -36,9 +37,10 @@ SteamUiModuleRuntime         the two traffic directions between modules and the 
 SteamUiExtensionHost         discovers and validates JavaScript extension packages
 ```
 
-The toolkit carries no application-specific patch id, command name, module id or localization token.
-The bridge's vocabulary is derived from the consumer's modules; the fragments the consumer writes
-call `registerGate`; the consumer's patches reach them through `window[namespace].gate(name)`.
+Every Steam-shaped fact — a literal module id, a store's field names, a localization token, a row's
+placement — lives in a surface (§15), never in the machinery. The bridge's vocabulary is derived
+from whichever modules the consumer registers; a consumer's own fragments call `registerGate`, and
+its patches reach them through `window[namespace].gate(name)`, exactly as the shipped surfaces do.
 
 ## 2. Public surface
 
@@ -86,11 +88,23 @@ discarding default. It is a settable static rather than a constructor parameter 
 one sink per process. `Change` is the poll-loop primitive: a line is written once per transition of
 its key, and suppressed repeats are counted rather than dropped.
 
+### Surfaces
+
+`SteamAudioSurface`, `SteamNetworkSurface`, `SteamBluetoothSurface`, `SteamBrightnessSurface`,
+`SteamPerformanceSurface`, `SteamPowerLimitSurface`, `SteamFrameLimitRow`,
+`SteamVariableRefreshRow`, `SteamResolutionRow`, `SteamAutoTdpRow`, `SteamControllerTargetRow`,
+`SteamDeviceControlsRow`, each with its state record and `ISteam*Backend`; the patch classes
+`SteamUiBridgePatch`, `SteamGatePatch`, `SteamQuickAccessRowPatch`; the readers `SteamUiPayload`,
+`SteamPerformanceDeltaReader`, `SteamOverlayLevelWire`; `SteamUiProbeJs`, `SteamUiText`,
+`SteamSettingPersistence`. See §15.
+
 ### Assets
 
-`SteamUiAssets/Source/types.ts`, `bridge.ts`, `ownership.ts`, `rpc.ts`, `epilogue.ts`, built by
-`eng/build-prelude.mjs` and checked by `eng/check-ownership-claims.mjs`. The TypeScript ships as
-source in the package so the consumer can compile it together with its own fragments.
+`SteamUiAssets/Source/types.ts`, `bridge.ts`, `ownership.ts`, `rpc.ts`, `gates/*.ts`,
+`components.ts`, `epilogue.ts`, built by `eng/build-prelude.mjs` and checked by
+`eng/check-ownership-claims.mjs`. The TypeScript ships as source in the package so the consumer can
+compile it together with its own fragments; `dist/steam-ui.js` is the complete asset for a
+consumer with none.
 
 ## 3. Discovery and the port gate
 
@@ -541,3 +555,54 @@ envelope captured from a live client. `SteamUiExtensionHostTests` lock every rej
 conflict rule. `SteamUiModuleTests` and `SteamUiModuleRuntimeTests` lock the module set rules and
 publication isolation. `SteamUiTargetMatchingTests` lock the two role matchers against real URLs.
 `NativeTcpTests` lock the table decoder, the URL gate and the four port-owner reasons.
+
+## 15. Surfaces
+
+A surface is one Valve feature the Windows client ships inert, revived end to end: the injected
+gate that supplies or reveals it, the C# patch that probes, applies, verifies and removes it, the
+typed state a consumer feeds, and the backend interface a consumer implements. Every literal module
+id, store field name, localization token and row placement lives here, in `Surfaces/` and
+`SteamUiAssets/Source/gates/` plus `components.ts`, so a consumer never reads the client's bundle.
+
+Each surface class has the same four members:
+
+| Member | Meaning |
+| --- | --- |
+| `PatchId` | The id its state is published under and its commands are addressed to. |
+| `Commands` | The exact command vocabulary its injected side sends — what the module puts on the bridge. |
+| `Patch` (rows: also `*Row` patches) | The `ISteamUiPatch`(es) that install it. |
+| `Module(enabled, read, backend, id)` | One `ISteamUiModule` from a publication gate, a state reading and a backend. |
+
+`read` returns the state or null; null publishes nothing that round, which keeps "momentarily
+unavailable" distinct from a zero. `Serialize(state)` on each surface emits the exact wire payload,
+for fixtures and diagnostics.
+
+| Surface | Valve feature | Gate kind | State | Backend answers |
+| --- | --- | --- | --- | --- |
+| `SteamAudioSurface` | audio page and Quick Settings audio | supplies `SteamClient.System.Audio`, feeds the running store | `SteamAudioState` | default device, volume |
+| `SteamNetworkSurface` | Internet page and header Wi-Fi indicator | overrides `networkManagementAvailable`, feeds the network store | `SteamNetworkState` | scan start/stop |
+| `SteamBluetoothSurface` | Bluetooth page and panel | replaces the service stub's methods, invalidates the query | `SteamBluetoothState` | discovery, pair, connect, disconnect, forget; trusted and wake-allowed accepted by default |
+| `SteamBrightnessSurface` | brightness slider | reveals the flag, claims `SetBrightness`, feeds the observable | `SteamBrightnessState` | set brightness |
+| `SteamPerformanceSurface` | Performance tab and its Valve rows | supplies `SteamClient.System.Perf`, writes the store, decodes deltas | `SteamPerformanceState` | apply a `SteamPerformanceDelta` |
+| `SteamPowerLimitSurface` | Valve's TDP toggle and slider | overlays the SteamOS Manager `GetState`, watches the client settings | `SteamPowerLimitState` | set or release the limit |
+| `SteamFrameLimitRow` | unified frame-limit row | row on Valve's slider and toggle | `SteamFrameLimitState` | frame cap, refresh rate |
+| `SteamVariableRefreshRow` | VRR switch | row on Valve's toggle | `SteamVariableRefreshState` | VRR on/off |
+| `SteamResolutionRow` | resolution dropdown (Quick Settings) | row on Valve's dropdown | `SteamResolutionState` | apply a mode |
+| `SteamAutoTdpRow` | automatic power-limit switch | row on Valve's toggle | `SteamAutoTdpState` | setting on/off |
+| `SteamControllerTargetRow` | controller-target dropdown | row on Valve's dropdown | `SteamControllerTargetState` | choose a target |
+| `SteamDeviceControlsRow` | charge limit, lighting brightness and colour | rows on Valve's slider and dropdown | `SteamDeviceControlsState` | three writes |
+
+The Performance surface's module also mounts Valve's profile header and per-game toggle, reset
+button, overlay-level selector and manual refresh-rate row; which of them show anything is decided
+entirely by which fields the published `SteamPerformanceState` carries, because Valve's wrappers
+read availability out of that state. Its state, delta and overlay-level types follow Valve's
+protobuf field names; the two-layer hiding rule, the external-display twins, the 769 "no game" id
+and the limits-and-settings pairing are documented on the types.
+
+Every gate's payload is read with `SteamUiPayload` (exact object shape, bounded strings, ranges) and
+a malformed one is refused with a fixed reason before the backend runs. `SteamUiBridgePatch`
+installs the bridge and must be registered first; every row shares the resource key
+`wsgm.native-qam.performance-root` so the mounted set serializes. Patch ids, resource keys, gate
+names and ownership markers are the ones the surfaces were device-verified under and are kept as
+public constants; `SteamSurfaceModuleTests` locks each surface's `Commands` to its module's actual
+vocabulary and each refusal reason to its payload.

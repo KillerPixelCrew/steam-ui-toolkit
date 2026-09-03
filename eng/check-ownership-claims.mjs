@@ -25,8 +25,10 @@ const asset = readFileSync(assetPath, "utf8");
 // gates register themselves with a top-level call, and evaluating one here would fail on a
 // `registerGate` that only exists inside the real bridge.
 const start = asset.indexOf("const defineHidden");
-const gate = asset.indexOf("\n  function create", start);
-const end = gate < 0 ? asset.length : gate;
+// The first gate, at whatever indentation the emitting step chose: the prelude comes out of tsc
+// as-is, a consumer's composed asset is run through Prettier, and the two indent it differently.
+const gate = start < 0 ? -1 : asset.slice(start).search(/\n[ \t]*function create/u);
+const end = gate < 0 ? asset.length : start + gate;
 if (start < 0) {
   console.error(
     "Could not locate the ownership primitives in the asset. They are expected from " +
