@@ -10,10 +10,12 @@ namespace SteamUiToolkit;
 /// It deliberately does not alter a Windows, SteamOS, device, capability, or component gate.
 /// </summary>
 /// <remarks>
-/// Register this first: every gate and row patch reaches the client through the bridge it
-/// installs, and a consumer's kill-switch policy usually keeps it enabled for as long as any
-/// surface is wanted. Its fingerprint requires the Quick Access performance structure to be
-/// present and unique, which is the structure the surfaces in this library were verified against.
+/// Register this in the same manager as every dependent gate and row patch. The manager orders
+/// synchronization by stable patch id and retries unmet conditions, so consumers must not rely on
+/// registration call order. A consumer's kill-switch policy usually keeps the bridge enabled for
+/// as long as any surface is wanted. Its fingerprint requires the Quick Access performance
+/// structure to be present and unique, which is the structure the surfaces in this library were
+/// verified against.
 /// </remarks>
 public sealed class SteamUiBridgePatch : ISteamUiPatch
 {

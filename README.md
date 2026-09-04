@@ -75,7 +75,8 @@ The library is the machinery and the surfaces; the data behind them is yours. Yo
 - a backend per surface you want, and a reading of its state.
 
 Each surface's `Module(...)` turns those into an `ISteamUiModule`. Register `SteamUiBridgePatch`
-first and the modules' patches after it.
+and the modules' patches in the same manager; synchronization uses stable patch-id order and retries
+unmet conditions, so registration call order is not significant.
 
 ```csharp
 ISteamUiModule audio = SteamAudioSurface.Module(

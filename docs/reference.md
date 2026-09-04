@@ -410,7 +410,7 @@ supplies the key names so a renamed key cannot orphan a marker a previous build 
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `claimValue(host, field, keys, next, absent)`        | Refuses `claim target unavailable` when the field is not in the host and `already set by the client` when the unmarked value already equals `next` (restoring later would hand back an invented value). Writes through an accessor's setter and reads back; throws `claim target is a read-only accessor`; rolls back field, marker and original on any failure. |
 | `releaseValue`                                       | Restores through the setter, by redefining the saved descriptor, or by deleting so an inherited value shows through, then deletes both keys. Releasing an unclaimed field succeeds.                                                                                                                                             |
-| `claimMember(host, member, keys, replacement(original))` | Puts the marker on the replacement, which may be an object or a function; a `typeof === "object"` check once let an overlaid method outlive its own removal. A reclaim passes the original original to the factory so wrappers never stack.                                                                                  |
+| `claimMember(host, member, keys, replacement(original))` | Puts the marker on the replacement, which may be an object or a function; a `typeof === "object"` check once let an overlaid method outlive its own removal. A reclaim passes the underlying original to the factory so wrappers never stack.                                                                                |
 | `supplyNamespace(host, name, marker, factory)`       | Refuses a real backend (`<name> already exists`), reclaims its own orphan (a namespace on `SteamClient` outlives the bridge that dies with the context), and defines non-writable rather than assigning, because assignment throws against a previous bridge's definition under strict mode. `withdrawNamespace` deletes only a marked one. |
 | `claimAccessor(host, property, keys, getter)`        | Refuses a non-configurable property and marks the replacement getter with the whole original descriptor; `releaseAccessor` redefines it.                                                                                                                                                                                       |
 
@@ -573,8 +573,9 @@ and the limits-and-settings pairing are documented on the types.
 
 Every gate's payload is read with `SteamUiPayload` (exact object shape, bounded strings, ranges),
 and a malformed one is refused with a fixed reason before the backend runs. `SteamUiBridgePatch`
-installs the bridge and must be registered first; every row shares the resource key
-`steam-ui.performance-root` so the mounted set serializes. Patch ids and resource keys are
+installs the bridge; register it in the same manager as dependent surfaces, but do not rely on call
+order because the manager synchronizes patches by stable id and retries unmet conditions. Every row
+shares the resource key `steam-ui.performance-root` so the mounted set serializes. Patch ids and resource keys are
 `steam-ui.*`, the markers the live client carries are `__steamUi*`, and both are public constants:
 a consumer's kill-switch policy names patches by them and a probe from a separate CDP call reads
 the markers back.
