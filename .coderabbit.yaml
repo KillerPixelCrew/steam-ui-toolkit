@@ -1,0 +1,87 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: "en-US"
+early_access: false
+tone_instructions: >-
+  Be direct, technical, and concise. Report only actionable defects introduced
+  by the pull request, and ground Steam compatibility claims in changed code
+  or repository contracts.
+
+reviews:
+  profile: "chill"
+  request_changes_workflow: true
+  high_level_summary: true
+  poem: false
+  sequence_diagrams: false
+  changed_files_summary: false
+  estimate_code_review_effort: false
+  related_issues: false
+  related_prs: false
+  suggested_labels: false
+  auto_apply_labels: false
+  suggested_reviewers: false
+  auto_assign_reviewers: false
+  in_progress_fortune: false
+  enable_prompt_for_ai_agents: false
+  auto_review:
+    enabled: true
+    drafts: false
+  path_filters:
+    - "!**/bin/**"
+    - "!**/obj/**"
+    - "!dist/**"
+    - "!node_modules/**"
+  path_instructions:
+    - path: "src/SteamUiToolkit/*.cs"
+      instructions: |
+        - Keep core machinery free of Steam-build module ids, store fields,
+          localization tokens, and layout assumptions.
+        - Before HTTP discovery, require accepted Steam ownership of port 8080
+          plus loopback, URL, response-size, and timeout gates.
+        - Flag unbounded request/event work, slow-handler response blocking,
+          stale owners, readiness before domains, or stale-generation success.
+        - Patch synchronization uses stable ids and resource keys; registration
+          call order is not execution order.
+    - path: "src/SteamUiToolkit/SteamUiExtension*.cs"
+      instructions: |
+        Preserve path containment, strict UTF-8, package/payload limits, exact
+        API-version and id-scope checks, and deterministic claim conflicts.
+        Flag sandbox claims or effects on resources an extension did not claim.
+    - path: "src/SteamUiToolkit/Surfaces/**"
+      instructions: |
+        - Require typed state/backend, stable ids/commands, a unique semantic
+          probe, bounded lifecycle, validated payloads, wiring, and tests.
+        - Ambiguous Steam structures fail open. Removal touches only owned work,
+          and success must remain compatible with the next probe.
+        - Quick Access rows share `steam-ui.performance-root`; preserve its
+          serialization and retry unmet bridge conditions.
+    - path: "src/SteamUiToolkit/SteamUiAssets/Source/**"
+      instructions: |
+        - Preserve generation/hash binding, allowlists, positive generations,
+          replay rejection, payload limits, and readiness checks.
+        - Mark every mutation, reclaim the underlying original without wrapper
+          stacking, and restore the exact displaced value or descriptor.
+        - Never invent platform values or set Steam's global platform identity.
+          Use the reviewed empty-chunk capture, then named ids or source.
+        - Keep types.ts declaration-only, the prelude IIFE open, and epilogue.ts
+          as the last fragment before the builder closes the complete asset.
+    - path: "eng/**"
+      instructions: |
+        Preserve deterministic fragment order, sorted gates, and emitted-JS
+        validation. Output stays readable type-stripped ES2022 without bundling,
+        minification, downleveling, or helpers. Ownership changes require
+        `npm run prelude:claims` against the emitted output.
+    - path: "tests/SteamUiToolkit.Tests/**"
+      instructions: |
+        Require deterministic coverage for changed transport, generation,
+        ownership, lifecycle, extension, payload, and surface contracts. Fake
+        wires and fixtures do not prove compatibility with a new Steam build.
+    - path: ".github/workflows/**"
+      instructions: |
+        Keep .NET 10 and Node 22 plus build, no-build test, clean npm install,
+        and emitted-prelude ownership claims. Flag loss of warnings-as-errors,
+        CS1591, or CS1573 enforcement.
+
+knowledge_base:
+  code_guidelines:
+    enabled: true
