@@ -15,9 +15,10 @@ namespace SteamUiToolkit;
 /// the refresh rate, notched to exactly the modes the display accepted.
 /// <para>
 /// <paramref name="Progress"/> must be one of <c>idle</c>, <c>queued</c>, <c>applying</c>,
-/// <c>succeeded-verified</c>, <c>applied-unverified</c>, <c>rejected</c>, <c>timed-out</c>,
-/// <c>indeterminate</c>, <c>failed</c> or <c>external-change</c>; the row rejects anything else
-/// and reports why in its render outcome.
+/// <c>deferred</c>, <c>succeeded-verified</c>, <c>applied-unverified</c>, <c>rejected</c>,
+/// <c>timed-out</c>, <c>indeterminate</c>, <c>failed</c> or <c>external-change</c>; the row rejects
+/// anything else and reports why in its render outcome. The list is exhaustive on purpose — a host
+/// outcome missing from it is read as a malformed state and takes the whole row down.
 /// </para>
 /// </remarks>
 /// <param name="Available">Whether the row can be operated at all.</param>
