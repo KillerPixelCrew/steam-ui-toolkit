@@ -75,6 +75,93 @@ for (const source of [
   assert.equal(f.calls(), 3);
 }
 
+// Exercise the complete emitted host, including failures after React has resolved.
+const hostStart = asset.indexOf("function createNativeComponentHost()");
+const hostEnd = asset.indexOf('registerGate("nativeComponents"', hostStart);
+assert.ok(hostStart >= 0 && hostEnd > hostStart);
+const createHost = (window) =>
+  runInNewContext(
+    `${asset.slice(start, end)}
+     const getWebpackRuntime = scope => createSteamUiModuleResolver(scope);
+     ${asset.slice(hostStart, hostEnd)}
+     createNativeComponentHost();`,
+    { window },
+    { timeout: 1000 },
+  );
+function componentFixture() {
+  const f = fixture();
+  Object.assign(f.factories, {
+    react(_module, exports) {
+      // react.transitional.element useState cloneElement createElement
+      exports.useMemo = function originalUseMemo() {};
+    },
+    fields(_module, exports) {
+      // DialogSlider_Container DropDownField SliderField
+      exports.slider = function () {
+        // onChangeComplete notchCount valueSuffix explainerTitle
+      };
+      exports.dropdown = function () {
+        // contextMenuPositionOptions childrenContainerWidth menuLabel
+      };
+    },
+    layout(_module, exports) {
+      // PanelSectionTitle PanelSectionRow spinner
+      exports.section = function () {
+        // PanelSectionTitle spinner
+      };
+      exports.row = { $$typeof: "test", render() {} };
+    },
+    localization(_module, exports) {
+      // Attempting to localize token Unable to find localization token LocalizeString
+      exports.localize = function () {
+        // LocalizeString(e) void 0===r?e
+      };
+    },
+    performance(_module, exports) {
+      // #QuickAccess_Tab_Perf_Common_Settings #QuickAccess_Tab_Perf_BatteryTimeRemaining
+      exports.root = function () {
+        // TS.ON_FRAME
+        return null;
+      };
+    },
+    tdp() {
+      // #QuickAccess_Tab_Perf_TDPLimitEnabled #QuickAccess_Tab_Perf_TDPLimitUnits
+    },
+  });
+  return f;
+}
+function assertRefused(host) {
+  const result = host.install("autoTdp");
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "native component runtime resolution failed");
+  const status = host.status("autoTdp");
+  assert.equal(status.lastError, result.error);
+  assert.equal(status.registered, false);
+  assert.equal(status.performanceRootWrapped, false);
+}
+assertRefused(createHost({}));
+for (const broken of ["react", "performance", "tdp"]) {
+  const f = componentFixture();
+  const tokens = String(f.factories[broken]);
+  // Retain the real fingerprint but throw when that exact factory is resolved.
+  f.factories[broken] = new Function(`/* ${tokens} */ throw new Error('dependency missing');`);
+  const host = createHost(f.window);
+  assertRefused(host);
+  assert.ok(f.cache[broken], `the failure reached the ${broken} factory`);
+  if (f.cache.react?.exports.useMemo)
+    assert.equal(f.cache.react.exports.useMemo.name, "originalUseMemo");
+  host.remove("autoTdp");
+  host.dispose();
+}
+{
+  const f = componentFixture();
+  const host = createHost(f.window);
+  assert.equal(host.install("autoTdp").ok, true);
+  assert.equal(host.status("autoTdp").performanceRootWrapped, true);
+  host.remove("autoTdp");
+  assert.equal(f.cache.react.exports.useMemo.name, "originalUseMemo");
+}
+
 const network = read("src/SteamUiToolkit/Surfaces/SteamNetworkSurface.cs").match(
   /probeExpression: \$\$"""\s*([\s\S]*?)\s*"""/u,
 )[1];
