@@ -14,11 +14,11 @@ const requests = [];
 const pending = [];
 const api = new Function("normalizeText", "useSemanticState", "note", "definitions",
   "renderOutcomes", "request", "nextActionGeneration",
-  asset.slice(start, end) + "\nreturn { normalizePowerProfileState, createPowerProfileControl };")(
+  asset.slice(start, end) + "\nreturn { normalizePowerProfileState, createPowerProfileControl, normalizePowerPresetState, createPowerPresetControl };")(
   normalizeText,
   (_runtime, _kind, normalize) => normalize(state), () => null,
   { powerProfile: { patchId: "steam-ui.power-profile", command: "setPowerProfile" },
-    powerPreset: { patchId: "steam-ui.power-preset", command: "setPowerPreset" } }, {},
+    powerPreset: { patchId: "steam-ui.power-preset", acCommand: "setAcPowerPreset", batteryCommand: "setBatteryPowerPreset" } }, {},
   (...args) => { requests.push(args); return Promise.resolve(); }, () => 1);
 const options = [{ id: "a", label: "Balanced" }, { id: "b", label: "Balanced" }];
 const longLabel = api.normalizePowerProfileState({ available: true,
@@ -49,19 +49,70 @@ for (const badOptions of [[...options, options[0]], [{ id: 123, label: "Bad" }],
   assert.equal(api.normalizePowerProfileState({ ...state, options: badOptions }), null);
 }
 assert.match(asset, /\["powerProfile", "steam-ui-power-profile", powerProfileControl, "perf"\]/);
-const presetControl = api.createPowerProfileControl({ dropdown: "dropdown", react: {
-  useState: () => [false, () => {}], createElement: (_type, props) => props,
-} }, "powerPreset");
-state = { available: true, options: [{ id: "custom", label: "Custom" }, ...options], current: "custom" };
-assert.equal(presetControl().label, "Device power profile");
-assert.equal(presetControl().selectedOption, "custom");
-const before = requests.length;
-presetControl().onChange({ data: "custom" });
-assert.equal(requests.length, before);
-presetControl().onChange({ data: "a" });
+const presetControl = api.createPowerPresetControl({ dropdown: "dropdown", react: {
+  Fragment: "fragment", useState: () => [false, () => {}],
+  createElement: (type, props, ...children) => ({ type, props, children }),
+} });
+state = { available: true, options, current: "Custom", ac: "a", battery: "b",
+  scope: "Global", unsetLabel: "Manual selection" };
+let rows = presetControl().children.filter(child => child?.type === "dropdown");
+assert.deepEqual(rows.map(row => row.props.label), ["When plugged in", "On battery"]);
+assert.deepEqual(rows.map(row => row.props.selectedOption), ["a", "b"]);
+rows[0].props.onChange({ data: "b" });
 await new Promise(resolve => setImmediate(resolve));
-assert.deepEqual(requests.at(-1), ["steam-ui.power-preset", "setPowerPreset", { target: "a" }, 1]);
-state = { available: false, options: [], current: "" };
+assert.deepEqual(requests.at(-1), ["steam-ui.power-preset", "setAcPowerPreset", { target: "b" }, 1]);
+rows[1].props.onChange({ data: "" });
+await new Promise(resolve => setImmediate(resolve));
+assert.deepEqual(requests.at(-1), ["steam-ui.power-preset", "setBatteryPowerPreset", { target: null }, 1]);
+const before = requests.length;
+rows[0].props.onChange({ data: "missing" });
+assert.equal(requests.length, before);
+state = { ...state, available: false };
+rows = presetControl().children.filter(child => child?.type === "dropdown");
+assert.ok(rows.every(row => row.props.disabled));
+rows[0].props.onChange({ data: "b" });
+assert.equal(requests.length, before);
+assert.equal(api.normalizePowerPresetState({ ...state, ac: "missing" }), null);
+assert.ok(api.normalizePowerPresetState({ ...state, options: [...options, { id: "none", label: "None" }] }));
+state = { ...state, options: [], ac: "", battery: "" };
 assert.equal(presetControl(), null);
 assert.match(asset, /\["powerPreset", "steam-ui-power-preset", powerPresetControl, "perf"\]/);
-console.log("Power-profile emitted dropdown checks passed.");
+console.log("Power-profile and assignment emitted dropdown checks passed.");
+
+// Optional native fields must not take down the remaining device controls.
+const deviceStart = asset.indexOf("const rgbToHsv =");
+const deviceEnd = asset.indexOf("// Steam's own FPS counter rows", deviceStart);
+assert.ok(deviceStart >= 0 && deviceEnd > deviceStart);
+const deviceState = {
+  chargeLimit: { available: true, observed: 80, minimum: 60, maximum: 100, step: 1 },
+  lightingBrightness: { available: true, observed: 100, minimum: 0, maximum: 100, step: 1 },
+  lightingZones: [{ available: true, id: "buttons", label: "Buttons", observedColor: 0xffffff }],
+};
+const createDeviceControl = new Function("useSemanticState", "normalizeDeviceControlsState",
+  "definitions", "request", "nextActionGeneration", "useTrailingCommit", "useEchoedValue",
+  "note", "renderOutcomes", "isBusy", "localizeOr",
+  asset.slice(deviceStart, deviceEnd) + "\nreturn createDeviceControlsControl;")(
+  () => deviceState, value => value, { deviceControls: {} },
+  () => { throw new Error("Rendering must not dispatch hardware writes"); }, () => 1,
+  () => () => {}, (_runtime, value) => ({ value }), () => null, {}, () => false,
+  (_runtime, _token, fallback) => fallback);
+for (const toggle of [undefined, "toggle"]) {
+  for (const expanded of [false, true]) {
+    const render = createDeviceControl({ toggle, row: "row", section: "section",
+      slider: "slider", dropdown: "dropdown", react: {
+        Fragment: "fragment", useState: initial => [typeof initial === "boolean" ? expanded : initial, () => {}],
+        createElement: (type, props, ...children) => {
+          assert.ok(type, "An unresolved native component must never be rendered");
+          return { type, props, children };
+        },
+      } });
+    const tree = render();
+    assert.deepEqual(tree.children.map(section => section.props.title), ["Charging", "RGB lighting"]);
+    const fields = tree.children.flatMap(section => section.children.map(row => row.children[0]));
+    assert.ok(fields.some(field => field.props.label === "Battery charge limit"));
+    assert.ok(fields.some(field => field.props.label === "Lighting brightness"));
+    assert.equal(fields.some(field => field.props.label === "Edit color"), !!toggle);
+    assert.equal(fields.some(field => field.props.label === "Lighting zone"), !!toggle && expanded);
+  }
+}
+console.log("Device controls retain charging and brightness without the optional color toggle.");
