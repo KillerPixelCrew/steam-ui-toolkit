@@ -17,7 +17,8 @@ const api = new Function("normalizeText", "useSemanticState", "note", "definitio
   asset.slice(start, end) + "\nreturn { normalizePowerProfileState, createPowerProfileControl };")(
   normalizeText,
   (_runtime, _kind, normalize) => normalize(state), () => null,
-  { powerProfile: { patchId: "steam-ui.power-profile", command: "setPowerProfile" } }, {},
+  { powerProfile: { patchId: "steam-ui.power-profile", command: "setPowerProfile" },
+    powerPreset: { patchId: "steam-ui.power-preset", command: "setPowerPreset" } }, {},
   (...args) => { requests.push(args); return Promise.resolve(); }, () => 1);
 const options = [{ id: "a", label: "Balanced" }, { id: "b", label: "Balanced" }];
 const longLabel = api.normalizePowerProfileState({ available: true,
@@ -29,7 +30,7 @@ const control = api.createPowerProfileControl({ dropdown: "dropdown", react: {
   createElement: (_type, props) => props,
 } });
 const row = control();
-assert.equal(row.label, "Power profile");
+assert.equal(row.label, "Windows power profile");
 assert.equal(row.selectedOption, "a");
 row.onChange({ data: "unknown" });
 row.onChange({ data: "a" });
@@ -48,4 +49,19 @@ for (const badOptions of [[...options, options[0]], [{ id: 123, label: "Bad" }],
   assert.equal(api.normalizePowerProfileState({ ...state, options: badOptions }), null);
 }
 assert.match(asset, /\["powerProfile", "steam-ui-power-profile", powerProfileControl, "perf"\]/);
+const presetControl = api.createPowerProfileControl({ dropdown: "dropdown", react: {
+  useState: () => [false, () => {}], createElement: (_type, props) => props,
+} }, "powerPreset");
+state = { available: true, options: [{ id: "custom", label: "Custom" }, ...options], current: "custom" };
+assert.equal(presetControl().label, "Device power profile");
+assert.equal(presetControl().selectedOption, "custom");
+const before = requests.length;
+presetControl().onChange({ data: "custom" });
+assert.equal(requests.length, before);
+presetControl().onChange({ data: "a" });
+await new Promise(resolve => setImmediate(resolve));
+assert.deepEqual(requests.at(-1), ["steam-ui.power-preset", "setPowerPreset", { target: "a" }, 1]);
+state = { available: false, options: [], current: "" };
+assert.equal(presetControl(), null);
+assert.match(asset, /\["powerPreset", "steam-ui-power-preset", powerPresetControl, "perf"\]/);
 console.log("Power-profile emitted dropdown checks passed.");

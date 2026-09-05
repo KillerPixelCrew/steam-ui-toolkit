@@ -7,6 +7,7 @@
     let frameLimitControl;
     let controllerControl;
     let powerProfileControl;
+    let powerPresetControl;
     let resolutionControl;
     let vrrControl;
     let deviceControlsControl;
@@ -96,6 +97,10 @@
       powerProfile: Object.freeze({
         patchId: "steam-ui.power-profile",
         command: "setPowerProfile",
+      }),
+      powerPreset: Object.freeze({
+        patchId: "steam-ui.power-preset",
+        command: "setPowerPreset",
       }),
       // Hand-built for the same reason resolution is: Valve ships a component, and its gate is a
       // namespace this client does not have. See createVrrControl.
@@ -758,16 +763,16 @@
       return { available: value.available, options,
         current: normalizeText(value.current), statusText: normalizeText(value.statusText) };
     };
-    const createPowerProfileControl = (controlRuntime) =>
+    const createPowerProfileControl = (controlRuntime, kind = "powerProfile") =>
       function SteamUiPowerProfileControl() {
-        const state = useSemanticState(controlRuntime, "powerProfile", normalizePowerProfileState);
+        const state = useSemanticState(controlRuntime, kind, normalizePowerProfileState);
         const [pending, setPending] = controlRuntime.react.useState(false);
-        if (!state) return note("powerProfile", "no state");
+        if (!state || (kind === "powerPreset" && !state.options.length)) return note(kind, "no state");
         const options = state.options.map(option => ({ data: option.id, label: option.label }));
-        const definition = definitions.powerProfile;
-        renderOutcomes.powerProfile = "rendered";
+        const definition = definitions[kind];
+        renderOutcomes[kind] = "rendered";
         return controlRuntime.react.createElement(controlRuntime.dropdown, {
-          label: "Power profile",
+          label: kind === "powerPreset" ? "Device power profile" : "Windows power profile",
           rgOptions: options,
           selectedOption: options.some(option => option.data === state.current) ? state.current : undefined,
           disabled: pending || !state.available || options.length < 2,
@@ -775,6 +780,7 @@
           layout: "below",
           onChange: (option) => {
             if (pending || !state.available || !option || option.data === state.current
+                || (kind === "powerPreset" && option.data === "custom")
                 || !options.some(candidate => candidate.data === option.data)) return;
             setPending(true);
             void request(definition.patchId, definition.command, { target: option.data },
@@ -1385,6 +1391,7 @@
         ],
         ["frameLimit", "steam-ui-frame-limit", frameLimitControl, "perf"],
         ["powerProfile", "steam-ui-power-profile", powerProfileControl, "perf"],
+        ["powerPreset", "steam-ui-power-preset", powerPresetControl, "perf"],
         ["vrr", "steam-ui-vrr", vrrControl, "perf"],
         ["valveTdp", "steam-ui-valve-tdp-enabled", valveTdpToggleControl, "perf"],
         ["valveTdp", "steam-ui-valve-tdp", valveTdpSliderControl, "perf"],
@@ -1530,6 +1537,7 @@
       frameLimitControl = createFrameLimitControl(controlRuntime);
       controllerControl = createControllerControl(controlRuntime);
       powerProfileControl = createPowerProfileControl(controlRuntime);
+      powerPresetControl = createPowerProfileControl(controlRuntime, "powerPreset");
       resolutionControl = createResolutionControl(controlRuntime);
       vrrControl = createVrrControl(controlRuntime);
       deviceControlsControl = createDeviceControlsControl(controlRuntime);
