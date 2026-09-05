@@ -19,7 +19,43 @@ public sealed class SteamPowerProfileTests
 
     private sealed class Backend : ISteamPowerProfileBackend
     {
+        internal List<(string Option, CancellationToken Token)> Calls { get; } = [];
         public Task<SteamUiCommandResult> SetPowerProfileAsync(string option, CancellationToken cancellationToken)
-            => Task.FromResult(new SteamUiCommandResult(true, null));
+        {
+            Calls.Add((option, cancellationToken));
+            return Task.FromResult(new SteamUiCommandResult(true, null));
+        }
+    }
+
+    [Theory]
+    [InlineData("{\"target\":\"scheme-id\"}", true)]
+    [InlineData("{\"target\":123}", false)]
+    [InlineData("{\"target\":\"\"}", false)]
+    [InlineData("{\"target\":\"scheme-id\",\"extra\":true}", false)]
+    [InlineData("{}", false)]
+    [InlineData("[]", false)]
+    public async Task DispatchValidatesPayloadAndForwardsTheCancellationToken(string json, bool valid)
+    {
+        Backend backend = new();
+        SteamUiModuleSet modules = new([SteamPowerProfileRow.Module(() => true,
+            () => new(null as SteamPowerProfileState), backend)]);
+        Assert.True(modules.TryGetCommand(SteamPowerProfileRow.PatchId, "setPowerProfile", out var handler));
+        using JsonDocument payload = JsonDocument.Parse(json);
+        using CancellationTokenSource cancellation = new();
+        SteamUiBridgeRequest request = new(SteamUiBridgeHost.SchemaVersion, "request",
+            SteamPowerProfileRow.PatchId, "setPowerProfile", 1, 2, 3, 4, payload.RootElement.Clone());
+        SteamUiCommandResult result = await handler!(request, cancellation.Token);
+        Assert.Equal(valid, result.Succeeded);
+        if (valid)
+        {
+            var call = Assert.Single(backend.Calls);
+            Assert.Equal("scheme-id", call.Option);
+            Assert.Equal(cancellation.Token, call.Token);
+        }
+        else
+        {
+            Assert.Empty(backend.Calls);
+            Assert.Equal("The power-profile payload is invalid.", result.Error);
+        }
     }
 }

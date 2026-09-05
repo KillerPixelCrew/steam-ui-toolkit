@@ -8,7 +8,7 @@ namespace SteamUiToolkit;
 
 /// <summary>One host-provided power profile.</summary>
 /// <param name="Id">Stable identifier, 1-64 ASCII letters, digits, dots, underscores or hyphens.</param>
-/// <param name="Label">Display name, independent of identity.</param>
+/// <param name="Label">Display name, independent of identity; the injected row bounds it to 240 characters.</param>
 public sealed record SteamPowerProfileOption(string Id, string Label);
 
 /// <summary>The Performance menu's power-profile dropdown.</summary>

@@ -5,17 +5,24 @@ const asset = readFileSync(process.argv[2] ?? "dist/prelude.js", "utf8");
 const start = asset.indexOf("const normalizePowerProfileState =");
 const end = asset.indexOf("const createControllerControl =", start);
 assert.ok(start >= 0 && end > start);
+const textStart = asset.indexOf("const normalizeText =");
+const textEnd = asset.indexOf(";", textStart);
+assert.ok(textStart >= 0 && textEnd > textStart);
+const normalizeText = new Function(asset.slice(textStart, textEnd + 1) + "return normalizeText;")();
 let state;
 const requests = [];
 const pending = [];
 const api = new Function("normalizeText", "useSemanticState", "note", "definitions",
   "renderOutcomes", "request", "nextActionGeneration",
   asset.slice(start, end) + "\nreturn { normalizePowerProfileState, createPowerProfileControl };")(
-  value => typeof value === "string" ? value : "",
+  normalizeText,
   (_runtime, _kind, normalize) => normalize(state), () => null,
   { powerProfile: { patchId: "steam-ui.power-profile", command: "setPowerProfile" } }, {},
   (...args) => { requests.push(args); return Promise.resolve(); }, () => 1);
 const options = [{ id: "a", label: "Balanced" }, { id: "b", label: "Balanced" }];
+const longLabel = api.normalizePowerProfileState({ available: true,
+  options: [{ id: "a", label: "x".repeat(10000) }], current: "a" });
+assert.equal(longLabel.options[0].label.length, 240);
 state = { available: true, options, current: "a", statusText: "Ready" };
 const control = api.createPowerProfileControl({ dropdown: "dropdown", react: {
   useState: () => [false, value => pending.push(value)],
