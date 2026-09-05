@@ -604,12 +604,20 @@ validation, OS writes, persistence and readback. `SteamPowerProfileTests` covers
 module vocabulary; `eng/check-power-profile.mjs` checks the emitted dropdown, rejected choices,
 malformed states and Performance placement with inert React/bridge fixtures.
 
-`SteamPowerPresetRow` uses the same state and backend contract for an optional Device power profile
-dropdown next to the Windows power profile row. It has its own patch `steam-ui.power-preset`, kind
-`powerPreset`, and exact `setPowerPreset` command. Empty options hide the row. A host may include
-`custom` as a current-only reading; both the component and command parser refuse to select it.
-Both rows reuse the same Valve dropdown component. The C# tests cover independent routing and
-payload refusals; the emitted tests cover Custom, selection and absence without device support.
+`SteamPowerPresetRow` publishes `SteamPowerPresetState`: preset options, observed label, independent
+AC/battery assignment IDs, scope, unset label and status. `ISteamPowerPresetBackend` owns assignment
+policy. Its patch `steam-ui.power-preset` and kind `powerPreset` accept only `setAcPowerPreset` and
+`setBatteryPowerPreset`. Each payload has exactly one `target`: a bounded ID or null to clear the
+local assignment. Custom is read-only and rejected as a target. Empty options hide the controls. The
+C# tests cover routing, cancellation forwarding and payload refusals; emitted tests cover both
+source selectors, clearing, disabled state and malformed publications.
+
+The shared row host uses Valve's titled `PanelSection` containers to group Performance controls by
+profile scope, power profiles, display/frame rate, power limits, controller and reset. Quick
+Settings places its Display section before Valve's common controls, with Charging and RGB lighting
+sections after them. RGB brightness stays visible; an Edit color toggle reveals the zone and HSV controls.
+Empty groups are omitted. Each control retains the existing bridge and patch
+ownership.
 
 The Performance surface's module also mounts Valve's profile header and per-game toggle, reset
 button, overlay-level selector and manual refresh-rate row. Which of them show anything is decided

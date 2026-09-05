@@ -22,10 +22,12 @@ itself, and says why when it does not work.
 
 `SteamPowerProfileRow.Module` adds a Windows power-profile dropdown to QAM Performance. Supply stable ids,
 display labels and observed state through `SteamPowerProfileState`; implement
-`ISteamPowerProfileBackend` to validate and apply selections. `SteamPowerPresetRow.Module` uses the
-same contract for an optional Device power profile dropdown beside it. Empty preset options hide
-that row; `custom` is an observed state and never dispatches a selection. The toolkit does not change OS power
-settings itself.
+`ISteamPowerProfileBackend` to validate and apply selections. `SteamPowerPresetRow.Module` adds
+independent AC and battery assignments with `SteamPowerPresetState` and `ISteamPowerPresetBackend`.
+The active preset is read-only, including Custom. Empty preset options hide those controls.
+Performance controls use titled native sections. Quick Settings places display controls before
+Steam's common settings, then separate Charging and RGB lighting sections. The toolkit does not
+change OS power settings itself.
 
 - A persistent CDP transport that owns one connection per target, tracks execution-context and
   document generations, and verifies the debug port belongs to Steam before connecting.

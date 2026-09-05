@@ -14,11 +14,11 @@ const requests = [];
 const pending = [];
 const api = new Function("normalizeText", "useSemanticState", "note", "definitions",
   "renderOutcomes", "request", "nextActionGeneration",
-  asset.slice(start, end) + "\nreturn { normalizePowerProfileState, createPowerProfileControl };")(
+  asset.slice(start, end) + "\nreturn { normalizePowerProfileState, createPowerProfileControl, normalizePowerPresetState, createPowerPresetControl };")(
   normalizeText,
   (_runtime, _kind, normalize) => normalize(state), () => null,
   { powerProfile: { patchId: "steam-ui.power-profile", command: "setPowerProfile" },
-    powerPreset: { patchId: "steam-ui.power-preset", command: "setPowerPreset" } }, {},
+    powerPreset: { patchId: "steam-ui.power-preset", acCommand: "setAcPowerPreset", batteryCommand: "setBatteryPowerPreset" } }, {},
   (...args) => { requests.push(args); return Promise.resolve(); }, () => 1);
 const options = [{ id: "a", label: "Balanced" }, { id: "b", label: "Balanced" }];
 const longLabel = api.normalizePowerProfileState({ available: true,
@@ -49,19 +49,32 @@ for (const badOptions of [[...options, options[0]], [{ id: 123, label: "Bad" }],
   assert.equal(api.normalizePowerProfileState({ ...state, options: badOptions }), null);
 }
 assert.match(asset, /\["powerProfile", "steam-ui-power-profile", powerProfileControl, "perf"\]/);
-const presetControl = api.createPowerProfileControl({ dropdown: "dropdown", react: {
-  useState: () => [false, () => {}], createElement: (_type, props) => props,
-} }, "powerPreset");
-state = { available: true, options: [{ id: "custom", label: "Custom" }, ...options], current: "custom" };
-assert.equal(presetControl().label, "Device power profile");
-assert.equal(presetControl().selectedOption, "custom");
-const before = requests.length;
-presetControl().onChange({ data: "custom" });
-assert.equal(requests.length, before);
-presetControl().onChange({ data: "a" });
+const presetControl = api.createPowerPresetControl({ dropdown: "dropdown", react: {
+  Fragment: "fragment", useState: () => [false, () => {}],
+  createElement: (type, props, ...children) => ({ type, props, children }),
+} });
+state = { available: true, options, current: "Custom", ac: "a", battery: "b",
+  scope: "Global", unsetLabel: "Manual selection" };
+let rows = presetControl().children.filter(child => child?.type === "dropdown");
+assert.deepEqual(rows.map(row => row.props.label), ["When plugged in", "On battery"]);
+assert.deepEqual(rows.map(row => row.props.selectedOption), ["a", "b"]);
+rows[0].props.onChange({ data: "b" });
 await new Promise(resolve => setImmediate(resolve));
-assert.deepEqual(requests.at(-1), ["steam-ui.power-preset", "setPowerPreset", { target: "a" }, 1]);
-state = { available: false, options: [], current: "" };
+assert.deepEqual(requests.at(-1), ["steam-ui.power-preset", "setAcPowerPreset", { target: "b" }, 1]);
+rows[1].props.onChange({ data: "" });
+await new Promise(resolve => setImmediate(resolve));
+assert.deepEqual(requests.at(-1), ["steam-ui.power-preset", "setBatteryPowerPreset", { target: null }, 1]);
+const before = requests.length;
+rows[0].props.onChange({ data: "missing" });
+assert.equal(requests.length, before);
+state = { ...state, available: false };
+rows = presetControl().children.filter(child => child?.type === "dropdown");
+assert.ok(rows.every(row => row.props.disabled));
+rows[0].props.onChange({ data: "b" });
+assert.equal(requests.length, before);
+assert.equal(api.normalizePowerPresetState({ ...state, ac: "missing" }), null);
+assert.ok(api.normalizePowerPresetState({ ...state, options: [...options, { id: "none", label: "None" }] }));
+state = { ...state, options: [], ac: "", battery: "" };
 assert.equal(presetControl(), null);
 assert.match(asset, /\["powerPreset", "steam-ui-power-preset", powerPresetControl, "perf"\]/);
-console.log("Power-profile emitted dropdown checks passed.");
+console.log("Power-profile and assignment emitted dropdown checks passed.");

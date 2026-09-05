@@ -17,14 +17,36 @@ public sealed class SteamPowerProfileTests
         Assert.Equal(SteamPowerProfileRow.Commands, modules.AllowedCommands[SteamPowerProfileRow.PatchId]);
     }
 
-    private sealed class Backend : ISteamPowerProfileBackend
+    private sealed class Backend : ISteamPowerProfileBackend, ISteamPowerPresetBackend
     {
+        internal List<(bool Ac, string? Option, CancellationToken Token)> Assignments { get; } = [];
+        public Task<SteamUiCommandResult> SetAssignmentAsync(bool ac, string? option, CancellationToken cancellationToken)
+        {
+            Assignments.Add((ac, option, cancellationToken));
+            return Task.FromResult(new SteamUiCommandResult(true, null));
+        }
         internal List<(string Option, CancellationToken Token)> Calls { get; } = [];
         public Task<SteamUiCommandResult> SetPowerProfileAsync(string option, CancellationToken cancellationToken)
         {
             Calls.Add((option, cancellationToken));
             return Task.FromResult(new SteamUiCommandResult(true, null));
         }
+    }
+
+    [Theory]
+    [InlineData("setAcPowerPreset", true)]
+    [InlineData("setBatteryPowerPreset", false)]
+    public async Task ClearingAnAssignmentForwardsNullToTheCorrectSource(string command, bool ac)
+    {
+        Backend backend = new();
+        SteamUiModuleSet modules = new([SteamPowerPresetRow.Module(() => true,
+            () => new(null as SteamPowerPresetState), backend)]);
+        Assert.True(modules.TryGetCommand(SteamPowerPresetRow.PatchId, command, out var handler));
+        using JsonDocument payload = JsonDocument.Parse("{\"target\":null}");
+        SteamUiBridgeRequest request = new(SteamUiBridgeHost.SchemaVersion, "request",
+            SteamPowerPresetRow.PatchId, command, 1, 2, 3, 4, payload.RootElement.Clone());
+        Assert.True((await handler!(request, default)).Succeeded);
+        Assert.Equal((ac, null, default(CancellationToken)), Assert.Single(backend.Assignments));
     }
 
     [Theory]
@@ -37,17 +59,17 @@ public sealed class SteamPowerProfileTests
         Backend backend = new();
         SteamUiModuleSet modules = new([
             SteamPowerProfileRow.Module(() => true, () => new(null as SteamPowerProfileState), new Backend()),
-            SteamPowerPresetRow.Module(() => true, () => new(null as SteamPowerProfileState), backend),
+            SteamPowerPresetRow.Module(() => true, () => new(null as SteamPowerPresetState), backend),
         ]);
         Assert.Equal(SteamPowerPresetRow.Commands, modules.AllowedCommands[SteamPowerPresetRow.PatchId]);
-        Assert.True(modules.TryGetCommand(SteamPowerPresetRow.PatchId, "setPowerPreset", out var handler));
+        Assert.True(modules.TryGetCommand(SteamPowerPresetRow.PatchId, "setAcPowerPreset", out var handler));
         using JsonDocument payload = JsonDocument.Parse(json);
         using CancellationTokenSource cancellation = new();
         SteamUiBridgeRequest request = new(SteamUiBridgeHost.SchemaVersion, "request",
-            SteamPowerPresetRow.PatchId, "setPowerPreset", 1, 2, 3, 4, payload.RootElement.Clone());
+            SteamPowerPresetRow.PatchId, "setAcPowerPreset", 1, 2, 3, 4, payload.RootElement.Clone());
         Assert.Equal(valid, (await handler!(request, cancellation.Token)).Succeeded);
-        if (valid) { Assert.Equal(("battery", cancellation.Token), Assert.Single(backend.Calls)); }
-        else { Assert.Empty(backend.Calls); }
+        if (valid) { Assert.Equal((true, "battery", cancellation.Token), Assert.Single(backend.Assignments)); }
+        else { Assert.Empty(backend.Assignments); }
     }
 
     [Theory]
