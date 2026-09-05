@@ -27,8 +27,9 @@ function createNetworkGate() {
 
   const store = () => {
     try {
-      const req = getWebpackRuntime("network-store");
-      return req?.("77347")?.OQ?.Get() ?? null;
+      // Steam publishes this singleton after its own module initialization. Requiring the
+      // module before its chunk arrives leaves empty exports cached for the whole session.
+      return window.SystemNetworkStore ?? null;
     } catch {
       return null;
     }

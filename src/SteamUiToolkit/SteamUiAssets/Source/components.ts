@@ -165,13 +165,7 @@
       listeners.add(listener);
       return () => listeners.delete(listener);
     };
-    const uniqueFactory = (requiredTokens) => {
-      const matches = Object.entries(runtime.m).filter(([, factory]) => {
-        const source = String(factory);
-        return requiredTokens.every((token) => source.includes(token));
-      });
-      return matches.length === 1 ? matches[0] : null;
-    };
+    const uniqueFactory = (requiredTokens) => runtime.findUnique(requiredTokens);
     const uniqueFunction = (exports, requiredTokens) => {
       const matches = Object.values(exports).filter(
         (value) =>
@@ -1510,7 +1504,7 @@
       )
         return true;
       runtime = getWebpackRuntime("native-components");
-      if (!runtime || !runtime.m) {
+      if (!runtime) {
         lastPatchError = "webpack runtime unavailable";
         return false;
       }

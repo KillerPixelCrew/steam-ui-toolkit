@@ -34,6 +34,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="SteamUiAssets\Source\module-resolver.ts" LogicalName="SteamUiToolkit.ModuleResolver.js" />
     <None Include="..\..\README.md" Pack="true" PackagePath="\" Visible="false" />
     <!-- The prelude a consumer's asset is built on. Shipped as source, not embedded: the consumer
          compiles it together with its own fragments into one script, because the whole thing is

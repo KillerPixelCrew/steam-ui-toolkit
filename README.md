@@ -73,6 +73,19 @@ that get injected, against those scenarios in CI. It caught a real defect the da
 
 ## Using it
 
+For a host that must leave Steam's cold startup untouched, construct
+`new PersistentSteamUiTransport(requireMainWindow: true)`. Discovery waits for one validated main
+window before attaching to any role; the default constructor retains unrestricted target discovery.
+Pass the configured opt-in explicitly to
+`SteamCef.EnsureRemoteDebuggingEnabled(directory, enabled)`; the flag must be writable while the
+transport is intentionally held closed.
+
+Use `SteamUiModuleResolver.CreateExpression(scope)` in standalone feature scripts. The returned
+resolver accepts a literal module id, or `resolve(tokens)` for a unique source fingerprint.
+`count(tokens)` and `findUnique(tokens)` inspect source without loading exports. Missing factories
+never enter webpack's loader, and ambiguous or failed resolution is explicit. Feature scripts must
+not implement their own registry scan. The bridge and built-in probes use this same source.
+
 The library is the machinery and the surfaces; the data behind them is yours. You supply:
 
 - a logger (`ISteamUiLog`), so diagnostics land wherever your application's do;

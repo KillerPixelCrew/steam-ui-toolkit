@@ -39,7 +39,9 @@ const gates = (await readdir(join(sourceDirectory, "gates"), { withFileTypes: tr
   .map((entry) => join(sourceDirectory, "gates", entry.name))
   .sort();
 const fragments = [
-  ...["types.ts", "bridge.ts", "ownership.ts", "rpc.ts"].map((name) => join(sourceDirectory, name)),
+  ...["types.ts", "bridge.ts", "module-resolver.ts", "ownership.ts", "rpc.ts"].map((name) =>
+    join(sourceDirectory, name),
+  ),
   ...gates,
   join(sourceDirectory, "components.ts"),
 ];

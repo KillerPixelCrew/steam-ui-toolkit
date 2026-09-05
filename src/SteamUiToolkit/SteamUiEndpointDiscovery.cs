@@ -49,10 +49,11 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDis
     private static readonly Uri TargetsUri = new($"http://127.0.0.1:{DebugPort}/json/list");
     private readonly HttpClient _httpClient;
     private readonly bool _ownsHttpClient;
+    private readonly bool _requireMainWindow;
     private int _disposed;
 
-    internal SteamUiEndpointDiscovery()
-        : this(new HttpClient { Timeout = TimeSpan.FromSeconds(5) }, ownsHttpClient: true)
+    internal SteamUiEndpointDiscovery(bool requireMainWindow = false)
+        : this(new HttpClient { Timeout = TimeSpan.FromSeconds(5) }, ownsHttpClient: true, requireMainWindow)
     {
     }
 
@@ -61,10 +62,11 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDis
     {
     }
 
-    private SteamUiEndpointDiscovery(HttpClient httpClient, bool ownsHttpClient)
+    private SteamUiEndpointDiscovery(HttpClient httpClient, bool ownsHttpClient, bool requireMainWindow = false)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _ownsHttpClient = ownsHttpClient;
+        _requireMainWindow = requireMainWindow;
     }
 
     public async Task<SteamUiEndpoint?> DiscoverAsync(
@@ -98,9 +100,27 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDis
             throw new InvalidDataException("Steam UI target list was not an array.");
         }
 
-        SteamUiEndpoint? match = null;
-        foreach (var target in targets.RootElement.EnumerateArray())
+        var match = SelectTarget(targets.RootElement, role, browserId, _requireMainWindow);
+        if (match is null && _requireMainWindow)
         {
+            SteamUiLog.Change(
+                "steam.ui.discovery",
+                $"Steam UI discovery for {role} waiting for a validated main window and target.");
+        }
+        return match;
+    }
+
+    internal static SteamUiEndpoint? SelectTarget(
+        JsonElement targets, SteamUiTargetRole role, string browserId, bool requireMainWindow)
+    {
+        SteamUiEndpoint? match = null;
+        int mainWindows = 0;
+        foreach (var target in targets.EnumerateArray())
+        {
+            if (TryReadTarget(target, SteamUiTargetRole.MainWindow, browserId, out _))
+            {
+                mainWindows++;
+            }
             if (!TryReadTarget(target, role, browserId, out var candidate))
             {
                 continue;
@@ -112,7 +132,7 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDis
             }
             match = candidate;
         }
-        return match;
+        return requireMainWindow && mainWindows != 1 ? null : match;
     }
 
     internal static bool MatchesTarget(

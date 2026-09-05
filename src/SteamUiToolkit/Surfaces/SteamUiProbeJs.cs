@@ -14,9 +14,7 @@ public static class SteamUiProbeJs
     /// <returns>The opening of a probe expression; the caller closes it.</returns>
     public static string Preamble(string chunkLabel) => $$"""
         (()=>{try{
-          let req;
-          window.webpackChunksteamui.push([["{{chunkLabel}}"+Date.now()],{},r=>req=r]);
-          if(!req||!req.m)return JSON.stringify({error:'webpack unavailable'});
+          const req={{SteamUiModuleResolver.CreateExpression(chunkLabel)}};
         """;
 
     /// <summary>The preamble plus the factory-source token counter structural probes share.</summary>
@@ -24,9 +22,6 @@ public static class SteamUiProbeJs
     /// <returns>The opening of a probe expression that defines <c>count(tokens)</c>.</returns>
     public static string CountingPreamble(string chunkLabel) => $$"""
         {{Preamble(chunkLabel)}}
-          const count=(tokens)=>Object.values(req.m).reduce((total,factory)=>{
-            const source=String(factory);
-            return total+(tokens.every(token=>source.includes(token))?1:0);
-          },0);
+          const count=req.count;
         """;
 }

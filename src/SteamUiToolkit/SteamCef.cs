@@ -20,13 +20,15 @@ public static class SteamCef
     /// <param name="steamDirectory">Steam's install directory, or <see langword="null"/> when the
     /// host could not find it. Finding Steam is the host's job: a library that guessed would be
     /// wrong on someone else's machine, and this writes a file into the directory it is given.</param>
+    /// <param name="enabled">The host's configured CEF master switch, independent of whether
+    /// startup readiness currently allows a transport connection.</param>
     /// <returns><see langword="true"/> when the flag is present afterwards.</returns>
-    public static bool EnsureRemoteDebuggingEnabled(string? steamDirectory)
+    public static bool EnsureRemoteDebuggingEnabled(string? steamDirectory, bool enabled)
     {
         // Master switch off: never write the debug flag. An existing flag — from the user, another
         // tool, or a previous run — is deliberately left in place. Deleting a file shared with
         // things this library knows nothing about is not its call; it simply stops opting Steam in.
-        if (!SteamUiTransportSession.Enabled || steamDirectory is null)
+        if (!enabled || steamDirectory is null)
         {
             return false;
         }
