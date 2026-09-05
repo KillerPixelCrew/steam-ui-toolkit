@@ -21,6 +21,7 @@ namespace SteamUiToolkit;
 [JsonSerializable(typeof(SteamFrameLimitState))]
 [JsonSerializable(typeof(SteamVariableRefreshState))]
 [JsonSerializable(typeof(SteamResolutionState))]
+[JsonSerializable(typeof(SteamPowerProfileState))]
 [JsonSerializable(typeof(SteamAutoTdpState))]
 [JsonSerializable(typeof(SteamControllerTargetState))]
 [JsonSerializable(typeof(SteamControllerTargetOption))]
