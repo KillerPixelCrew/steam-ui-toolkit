@@ -47,8 +47,16 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
 
     /// <summary>Creates a production transport using Steam's validated loopback endpoint.</summary>
     public PersistentSteamUiTransport()
+        : this(requireMainWindow: false)
+    {
+    }
+
+    /// <summary>Creates a transport that can defer attachment until Steam has a main window.</summary>
+    /// <param name="requireMainWindow">Whether discovery must find a validated main-window
+    /// target before attaching to any role, including the headless shared context.</param>
+    public PersistentSteamUiTransport(bool requireMainWindow)
         : this(
-            new SteamUiEndpointDiscovery(),
+            new SteamUiEndpointDiscovery(requireMainWindow),
             new SteamUiWebSocketWireFactory(),
             ownsDiscovery: true)
     {

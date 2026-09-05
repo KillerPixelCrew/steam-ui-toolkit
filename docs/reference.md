@@ -42,7 +42,7 @@ its patches reach them through `window[namespace].gate(name)`, exactly as the sh
 
 | Type                                                                          | Role                                                                                                                                   |
 | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `SteamCef` (static)                                                           | `EnsureRemoteDebuggingEnabled(steamDirectory)`, `JsString`, and the pure gates `IsAllowedDebuggerUrl` and `IsSteamPortOwner`.        |
+| `SteamCef` (static)                                                           | `EnsureRemoteDebuggingEnabled(steamDirectory, enabled)`, `JsString`, and the pure gates `IsAllowedDebuggerUrl` and `IsSteamPortOwner`.        |
 | `SteamUiEndpoint`                                                             | One validated target: `BrowserId`, `TargetId`, `Role`, `SocketUri`, `Type`, `Title`, `Url`.                                            |
 | `ISteamUiEndpointDiscovery`                                                   | `DiscoverAsync(role, ct)` returning an endpoint or null. Public so a consumer can test above it.                                       |
 | `ISteamUiCdpWire`, `ISteamUiCdpWireFactory`                                   | The framed message channel and its connector; the seam for testing generations, correlation and the patch lifecycle on a fake wire. |
@@ -77,11 +77,12 @@ for a consumer with none.
 
 ### The opt-in flag
 
-`SteamCef.EnsureRemoteDebuggingEnabled(steamDirectory)` creates an empty
+`SteamCef.EnsureRemoteDebuggingEnabled(steamDirectory, enabled)` creates an empty
 `.cef-enable-remote-debugging` file in Steam's directory when it is missing and logs
-`Steam CEF remote-debugging enabled (<path>).`. It writes nothing when the session master switch is
+`Steam CEF remote-debugging enabled (<path>).`. It writes nothing when the explicit configured switch is
 off or the directory is null. It never deletes an existing flag: the file is shared with other
 tools, and the library cannot know who created it. The flag takes effect on Steam's next cold start.
+The transport's temporary readiness hold does not control this write.
 
 ### Port ownership
 
@@ -107,6 +108,35 @@ A refusal logs `Change("steam.ui.discovery", "Steam UI discovery for <role> refu
 as a warning.
 
 ### HTTP discovery
+
+`PersistentSteamUiTransport(requireMainWindow: true)` requires exactly one validated MainWindow in
+the same target list before attaching to any role. Login popups, foreign websocket URLs and
+ambiguous main windows do not satisfy this condition. This is an attachment gate; it does not
+disconnect an established session when its window is minimized or hidden. The parameterless
+constructor preserves the default discovery behavior. Hosts still own game-mode transition policy.
+
+### Module resolution
+
+`SteamUiModuleResolver.CreateExpression(scope)` embeds `module-resolver.ts`, kept valid JavaScript,
+as a standalone expression. The same source is compiled into the bridge. The returned function
+accepts a literal string id and refuses a missing factory before invoking webpack. `resolve(tokens)`
+loads exports only for a unique source match; `count(tokens)` and `findUnique(tokens)` inspect
+source without invoking factories. `findUnique` returns an id/source pair or null. Invalid
+fingerprints, absent/ambiguous resolution and load failures throw diagnostic errors. Fingerprints
+have 1 to 16 nonempty tokens of at most 512 characters; discovery accepts at most 32,768 factories.
+A resolver does not repeat a factory call that threw through that resolver. It exposes no raw
+registry or loader. This is not a sandbox for arbitrary page JavaScript, nor proof that a factory's
+dependencies have initialized; hosts must enforce startup readiness as well.
+
+Probes and gates share this resolver. The network surface instead reads Steam's published
+`window.SystemNetworkStore`, so inspecting availability cannot construct the singleton early.
+`eng/check-startup.mjs` exercises both the standalone source and emitted asset against the loader
+failure shape that leaves empty exports cached after a missing-factory call. Native-component
+installation catches discovery and dependency-resolution exceptions before installing the React
+hook or registering a row. It returns `ok: false` and records the refusal in `status().lastError`.
+The emitted-host checks cover missing webpack, early and late load failures, and successful removal.
+
+### Endpoint validation
 
 `SteamUiEndpointDiscovery` reads `http://127.0.0.1:8080/json/version` and `/json/list` with a 5 s
 client timeout and a 1 MiB cap enforced on both `Content-Length` and the streamed body. The

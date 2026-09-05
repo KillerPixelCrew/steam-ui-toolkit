@@ -2,7 +2,7 @@
   "private": true,
   "scripts": {
     "prelude:build": "node eng/build-prelude.mjs",
-    "prelude:claims": "node eng/build-prelude.mjs && node eng/check-ownership-claims.mjs dist/prelude.js && node eng/check-power-profile.mjs dist/prelude.js"
+    "prelude:claims": "node eng/build-prelude.mjs && node eng/check-ownership-claims.mjs dist/prelude.js && node eng/check-power-profile.mjs dist/prelude.js && node eng/check-startup.mjs dist/prelude.js"
   },
   "devDependencies": {
     "typescript": "7.0.2"

@@ -165,13 +165,7 @@
       listeners.add(listener);
       return () => listeners.delete(listener);
     };
-    const uniqueFactory = (requiredTokens) => {
-      const matches = Object.entries(runtime.m).filter(([, factory]) => {
-        const source = String(factory);
-        return requiredTokens.every((token) => source.includes(token));
-      });
-      return matches.length === 1 ? matches[0] : null;
-    };
+    const uniqueFactory = (requiredTokens) => runtime.findUnique(requiredTokens);
     const uniqueFunction = (exports, requiredTokens) => {
       const matches = Object.values(exports).filter(
         (value) =>
@@ -1501,19 +1495,9 @@
       };
       return controlRuntime.react.createElement(controlRuntime.react.Fragment, null, native, own);
     };
-    const ensurePatched = () => {
-      if (
-        controlRuntime &&
-        performanceRoot &&
-        patchedUseMemo &&
-        controlRuntime.react.useMemo === patchedUseMemo
-      )
-        return true;
+    // Resolve every dependency before changing React or registering a component.
+    const resolveControls = () => {
       runtime = getWebpackRuntime("native-components");
-      if (!runtime || !runtime.m) {
-        lastPatchError = "webpack runtime unavailable";
-        return false;
-      }
       const performanceFactory = uniqueFactory([
         "#QuickAccess_Tab_Perf_Common_Settings",
         "#QuickAccess_Tab_Perf_BatteryTimeRemaining",
@@ -1588,6 +1572,23 @@
       valveTdpSliderControl = tdpExports
         ? uniqueFunction(tdpExports, ["#QuickAccess_Tab_Perf_TDPLimitUnits"])
         : null;
+      return true;
+    };
+
+    const ensurePatched = () => {
+      if (
+        controlRuntime &&
+        performanceRoot &&
+        patchedUseMemo &&
+        controlRuntime.react.useMemo === patchedUseMemo
+      )
+        return true;
+      try {
+        if (!resolveControls()) return false;
+      } catch {
+        lastPatchError = "native component runtime resolution failed";
+        return false;
+      }
 
       function SteamUiPerformanceRoot(props) {
         const [, setRevision] = controlRuntime.react.useState(0);

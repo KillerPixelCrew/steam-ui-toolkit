@@ -51,17 +51,7 @@
   // One reviewed runtime tap for every gate. Capturing webpack's runtime by pushing an empty
   // chunk is the proven primitive; six private copies only made it possible for their safety and
   // diagnostics to drift. This helper captures the runtime but never evaluates an unknown module.
-  const getWebpackRuntime = (scope) => {
-    let runtime;
-    window.webpackChunksteamui.push([
-      [`steam_ui_${scope}_${Date.now()}`],
-      {},
-      (value) => {
-        runtime = value;
-      },
-    ]);
-    return runtime;
-  };
+  const getWebpackRuntime = (scope) => createSteamUiModuleResolver(scope);
 
   const allowed = (patchId, command) => {
     const commands = config.allowed[patchId];

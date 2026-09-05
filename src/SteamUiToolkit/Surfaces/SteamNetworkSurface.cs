@@ -70,8 +70,8 @@ public static class SteamNetworkSurface
         gateName: "network",
         fingerprint: "steam-network-gate-v1:configurable-getter+currently-hidden",
         probeExpression: $$"""
-            {{SteamUiProbeJs.Preamble("steam_ui_network_probe_")}}
-              const store=req('77347')&&req('77347').OQ&&req('77347').OQ.Get();
+            (()=>{try{
+              const store=window.SystemNetworkStore;
               if(!store)return JSON.stringify({error:'network store unavailable'});
               const d=Object.getOwnPropertyDescriptor(
                 Object.getPrototypeOf(store),'networkManagementAvailable');

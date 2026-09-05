@@ -106,7 +106,10 @@ Ownership must survive separate CDP evaluations:
 - Never restore an invented platform value.
 - Reveal one gated surface or getter; never set Steam's global platform identity.
 - Never iterate the webpack registry while constructing arbitrary exports. Capture the runtime by
-  the reviewed empty-chunk mechanism, then inspect named module ids or source.
+  the shared module resolver, then inspect named module ids or source. Features supply fingerprints
+  to `SteamUiModuleResolver`; they do not implement their own registry scans or raw require calls.
+  Keep `module-resolver.ts` valid JavaScript because those exact bytes are also embedded for C#
+  probes.
 - A successful patch must remain compatible with its own next probe.
 
 The extension host validates identity and conflicts; it is not a security sandbox. Keep path
