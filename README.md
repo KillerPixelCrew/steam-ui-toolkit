@@ -20,9 +20,11 @@ itself, and says why when it does not work.
 
 ## What it gives you
 
-`SteamPowerProfileRow.Module` adds a power-profile dropdown to QAM Performance. Supply stable ids,
+`SteamPowerProfileRow.Module` adds a Windows power-profile dropdown to QAM Performance. Supply stable ids,
 display labels and observed state through `SteamPowerProfileState`; implement
-`ISteamPowerProfileBackend` to validate and apply selections. The toolkit does not change OS power
+`ISteamPowerProfileBackend` to validate and apply selections. `SteamPowerPresetRow.Module` uses the
+same contract for an optional Device power profile dropdown beside it. Empty preset options hide
+that row; `custom` is an observed state and never dispatches a selection. The toolkit does not change OS power
 settings itself.
 
 - A persistent CDP transport that owns one connection per target, tracks execution-context and

@@ -574,6 +574,13 @@ validation, OS writes, persistence and readback. `SteamPowerProfileTests` covers
 module vocabulary; `eng/check-power-profile.mjs` checks the emitted dropdown, rejected choices,
 malformed states and Performance placement with inert React/bridge fixtures.
 
+`SteamPowerPresetRow` uses the same state and backend contract for an optional Device power profile
+dropdown next to the Windows power profile row. It has its own patch `steam-ui.power-preset`, kind
+`powerPreset`, and exact `setPowerPreset` command. Empty options hide the row. A host may include
+`custom` as a current-only reading; both the component and command parser refuse to select it.
+Both rows reuse the same Valve dropdown component. The C# tests cover independent routing and
+payload refusals; the emitted tests cover Custom, selection and absence without device support.
+
 The Performance surface's module also mounts Valve's profile header and per-game toggle, reset
 button, overlay-level selector and manual refresh-rate row. Which of them show anything is decided
 entirely by which fields the published `SteamPerformanceState` carries, because Valve's wrappers
