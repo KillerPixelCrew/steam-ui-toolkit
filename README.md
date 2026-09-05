@@ -20,6 +20,11 @@ itself, and says why when it does not work.
 
 ## What it gives you
 
+`SteamPowerProfileRow.Module` adds a power-profile dropdown to QAM Performance. Supply stable ids,
+display labels and observed state through `SteamPowerProfileState`; implement
+`ISteamPowerProfileBackend` to validate and apply selections. The toolkit does not change OS power
+settings itself.
+
 - A persistent CDP transport that owns one connection per target, tracks execution-context and
   document generations, and verifies the debug port belongs to Steam before connecting.
 - A patch lifecycle (probe, apply, verify, remove) where each patch declares what it owns, proves it

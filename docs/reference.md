@@ -564,6 +564,16 @@ for fixtures and diagnostics.
 | `SteamControllerTargetRow` | controller-target dropdown                    | row on Valve's dropdown                                               | `SteamControllerTargetState` | choose a target                                                                            |
 | `SteamDeviceControlsRow`   | charge limit, lighting brightness and colour  | rows on Valve's slider and dropdown                                   | `SteamDeviceControlsState`   | three writes                                                                               |
 
+`SteamPowerProfileRow` adds a dropdown on Performance through patch `steam-ui.power-profile`, kind
+`powerProfile`, and command `setPowerProfile`. Payloads are exactly `{ target: "id" }`, validated
+with `TryReadTarget`. `SteamPowerProfileState` carries up to 64 unique id/label options, observed
+`Current`, `Available` and `StatusText`. Unknown current ids select nothing. Labels are bounded to
+240 characters by the shared text normalizer. Unavailable state stays
+visible but disabled; selection is also disabled while its request is pending. The host owns
+validation, OS writes, persistence and readback. `SteamPowerProfileTests` covers serialization and
+module vocabulary; `eng/check-power-profile.mjs` checks the emitted dropdown, rejected choices,
+malformed states and Performance placement with inert React/bridge fixtures.
+
 The Performance surface's module also mounts Valve's profile header and per-game toggle, reset
 button, overlay-level selector and manual refresh-rate row. Which of them show anything is decided
 entirely by which fields the published `SteamPerformanceState` carries, because Valve's wrappers

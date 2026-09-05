@@ -6,6 +6,7 @@
     let autoTdpControl;
     let frameLimitControl;
     let controllerControl;
+    let powerProfileControl;
     let resolutionControl;
     let vrrControl;
     let deviceControlsControl;
@@ -91,6 +92,10 @@
       controllerTarget: Object.freeze({
         patchId: "steam-ui.controller-target",
         command: "setControllerTarget",
+      }),
+      powerProfile: Object.freeze({
+        patchId: "steam-ui.power-profile",
+        command: "setPowerProfile",
       }),
       // Hand-built for the same reason resolution is: Valve ships a component, and its gate is a
       // namespace this client does not have. See createVrrControl.
@@ -738,6 +743,45 @@
           onChange: setEnabled,
         });
       };
+    const normalizePowerProfileState = (value) => {
+      if (!value || typeof value.available !== "boolean"
+          || !Array.isArray(value.options) || value.options.length > 64) return null;
+      const ids = new Set();
+      const options: { id: string; label: string }[] = [];
+      for (const item of value.options) {
+        const label = normalizeText(item?.label);
+        if (!item || typeof item.id !== "string" || !/^[A-Za-z0-9._-]{1,64}$/.test(item.id)
+            || !label.trim() || ids.has(item.id)) return null;
+        ids.add(item.id);
+        options.push({ id: item.id, label });
+      }
+      return { available: value.available, options,
+        current: normalizeText(value.current), statusText: normalizeText(value.statusText) };
+    };
+    const createPowerProfileControl = (controlRuntime) =>
+      function SteamUiPowerProfileControl() {
+        const state = useSemanticState(controlRuntime, "powerProfile", normalizePowerProfileState);
+        const [pending, setPending] = controlRuntime.react.useState(false);
+        if (!state) return note("powerProfile", "no state");
+        const options = state.options.map(option => ({ data: option.id, label: option.label }));
+        const definition = definitions.powerProfile;
+        renderOutcomes.powerProfile = "rendered";
+        return controlRuntime.react.createElement(controlRuntime.dropdown, {
+          label: "Power profile",
+          rgOptions: options,
+          selectedOption: options.some(option => option.data === state.current) ? state.current : undefined,
+          disabled: pending || !state.available || options.length < 2,
+          description: state.statusText || undefined,
+          layout: "below",
+          onChange: (option) => {
+            if (pending || !state.available || !option || option.data === state.current
+                || !options.some(candidate => candidate.data === option.data)) return;
+            setPending(true);
+            void request(definition.patchId, definition.command, { target: option.data },
+              nextActionGeneration(definition.patchId)).catch(() => {}).finally(() => setPending(false));
+          },
+        });
+      };
     const createControllerControl = (controlRuntime) =>
       function SteamUiControllerTargetControl() {
         const state = useSemanticState(
@@ -1340,6 +1384,7 @@
           "perf",
         ],
         ["frameLimit", "steam-ui-frame-limit", frameLimitControl, "perf"],
+        ["powerProfile", "steam-ui-power-profile", powerProfileControl, "perf"],
         ["vrr", "steam-ui-vrr", vrrControl, "perf"],
         ["valveTdp", "steam-ui-valve-tdp-enabled", valveTdpToggleControl, "perf"],
         ["valveTdp", "steam-ui-valve-tdp", valveTdpSliderControl, "perf"],
@@ -1484,6 +1529,7 @@
       autoTdpControl = createAutoTdpControl(controlRuntime);
       frameLimitControl = createFrameLimitControl(controlRuntime);
       controllerControl = createControllerControl(controlRuntime);
+      powerProfileControl = createPowerProfileControl(controlRuntime);
       resolutionControl = createResolutionControl(controlRuntime);
       vrrControl = createVrrControl(controlRuntime);
       deviceControlsControl = createDeviceControlsControl(controlRuntime);
