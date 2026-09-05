@@ -78,3 +78,41 @@ state = { ...state, options: [], ac: "", battery: "" };
 assert.equal(presetControl(), null);
 assert.match(asset, /\["powerPreset", "steam-ui-power-preset", powerPresetControl, "perf"\]/);
 console.log("Power-profile and assignment emitted dropdown checks passed.");
+
+// Optional native fields must not take down the remaining device controls.
+const deviceStart = asset.indexOf("const rgbToHsv =");
+const deviceEnd = asset.indexOf("// Steam's own FPS counter rows", deviceStart);
+assert.ok(deviceStart >= 0 && deviceEnd > deviceStart);
+const deviceState = {
+  chargeLimit: { available: true, observed: 80, minimum: 60, maximum: 100, step: 1 },
+  lightingBrightness: { available: true, observed: 100, minimum: 0, maximum: 100, step: 1 },
+  lightingZones: [{ available: true, id: "buttons", label: "Buttons", observedColor: 0xffffff }],
+};
+const createDeviceControl = new Function("useSemanticState", "normalizeDeviceControlsState",
+  "definitions", "request", "nextActionGeneration", "useTrailingCommit", "useEchoedValue",
+  "note", "renderOutcomes", "isBusy", "localizeOr",
+  asset.slice(deviceStart, deviceEnd) + "\nreturn createDeviceControlsControl;")(
+  () => deviceState, value => value, { deviceControls: {} },
+  () => { throw new Error("Rendering must not dispatch hardware writes"); }, () => 1,
+  () => () => {}, (_runtime, value) => ({ value }), () => null, {}, () => false,
+  (_runtime, _token, fallback) => fallback);
+for (const toggle of [undefined, "toggle"]) {
+  for (const expanded of [false, true]) {
+    const render = createDeviceControl({ toggle, row: "row", section: "section",
+      slider: "slider", dropdown: "dropdown", react: {
+        Fragment: "fragment", useState: initial => [typeof initial === "boolean" ? expanded : initial, () => {}],
+        createElement: (type, props, ...children) => {
+          assert.ok(type, "An unresolved native component must never be rendered");
+          return { type, props, children };
+        },
+      } });
+    const tree = render();
+    assert.deepEqual(tree.children.map(section => section.props.title), ["Charging", "RGB lighting"]);
+    const fields = tree.children.flatMap(section => section.children.map(row => row.children[0]));
+    assert.ok(fields.some(field => field.props.label === "Battery charge limit"));
+    assert.ok(fields.some(field => field.props.label === "Lighting brightness"));
+    assert.equal(fields.some(field => field.props.label === "Edit color"), !!toggle);
+    assert.equal(fields.some(field => field.props.label === "Lighting zone"), !!toggle && expanded);
+  }
+}
+console.log("Device controls retain charging and brightness without the optional color toggle.");

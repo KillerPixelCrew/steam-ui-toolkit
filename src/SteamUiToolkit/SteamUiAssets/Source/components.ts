@@ -1177,7 +1177,7 @@
           });
         }
 
-        if (zone && hsv) {
+        if (zone && hsv && controlRuntime.toggle) {
           rows.push(controlRuntime.react.createElement(controlRuntime.row,
             { key: "steam-ui-lighting-edit" },
             controlRuntime.react.createElement(controlRuntime.toggle, {
@@ -1186,7 +1186,7 @@
             })));
         }
 
-        if (zone && hsv && editingColor) {
+        if (zone && hsv && controlRuntime.toggle && editingColor) {
           const options = zones.map((candidate) => ({
             data: candidate.id,
             label: candidate.label,

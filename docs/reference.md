@@ -616,6 +616,7 @@ The shared row host uses Valve's titled `PanelSection` containers to group Perfo
 profile scope, power profiles, display/frame rate, power limits, controller and reset. Quick
 Settings places its Display section before Valve's common controls, with Charging and RGB lighting
 sections after them. RGB brightness stays visible; an Edit color toggle reveals the zone and HSV controls.
+If Valve's toggle component is unavailable, the color editor is omitted while charging and brightness remain usable.
 Empty groups are omitted. Each control retains the existing bridge and patch
 ownership.
 
