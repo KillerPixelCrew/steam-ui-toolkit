@@ -54,8 +54,8 @@ public static class SteamPowerLimitSurface
 
     /// <summary>The SteamOS Manager RPC answer Valve's TDP rows read availability and range from.</summary>
     /// <remarks>
-    /// Verification requires the overlay to be the method actually on the service; the settings
-    /// watch is reported but not required, since losing it costs the write path, not the row.
+    /// Verification requires both the overlay on the service and the settings watcher that
+    /// forwards Valve's changes to the backend. A visible row alone is not a working control.
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         id: PatchId,
@@ -109,8 +109,8 @@ public static class SteamPowerLimitSurface
             && rows > 0
             && SteamGatePatch.Flag(root, "queryLayer")
             && SteamGatePatch.Flag(root, "getStateReplaceable"),
-        verifyOk: "status.installed&&status.getStateOverlaid",
-        removeOk: "!status.getStateOverlaid",
+        verifyOk: "status.installed&&status.getStateOverlaid&&status.settingsWatched",
+        removeOk: "!status.getStateOverlaid&&!status.settingsWatched",
         subject: "SteamOS Manager state");
 
     /// <summary>Valve's power-limit toggle and slider pair.</summary>

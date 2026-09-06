@@ -131,7 +131,13 @@
     let set = subscribers.get(patchId);
     if (!set) subscribers.set(patchId, (set = new Set()));
     set.add(callback);
-    if (latestStates.has(patchId)) callback(latestStates.get(patchId));
+    // Cached replay has the same isolation as later publications. A consumer callback must
+    // not prevent its installer from receiving the unsubscribe handle and finishing setup.
+    if (latestStates.has(patchId)) {
+      try {
+        callback(latestStates.get(patchId));
+      } catch {}
+    }
     return () => set.delete(callback);
   };
   const deliver = (envelope) => {

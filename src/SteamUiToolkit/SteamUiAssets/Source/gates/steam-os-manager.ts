@@ -55,7 +55,15 @@ function createSteamOsManagerGate() {
     return null;
   };
 
-  const invalidate = (req) => invalidateQuery(req, queryKey);
+  const invalidate = (req?) => {
+    try {
+      invalidateQuery(req ?? modules(), queryKey);
+    } catch (error) {
+      // Query refresh is independent of command routing and subscription cleanup. Steam can
+      // temporarily lose its runtime while cached bridge state is replayed during installation.
+      lastError = "power limit query refresh failed: " + String(error);
+    }
+  };
 
   const onState = (state) => {
     if (!installed || !state) return;
@@ -64,7 +72,7 @@ function createSteamOsManagerGate() {
       min: Number(state.minimumWatts) || 0,
       max: Number(state.maximumWatts) || 0,
     };
-    invalidate(modules());
+    invalidate();
   };
 
   // Valve's TDP rows do not call a namespace. The toggle and the slider are bound to the
@@ -226,7 +234,7 @@ function createSteamOsManagerGate() {
       return { ok: false, error: lastError };
     }
     latest = { available: false, min: 0, max: 0 };
-    invalidate(modules());
+    invalidate();
     manager = null;
     originalGetState = null;
     return { ok: true, removed: true };

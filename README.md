@@ -54,6 +54,10 @@ change OS power settings itself.
   work stays here.
 - An extension host, so a consumer can let third parties add surfaces of their own.
 
+State callbacks are isolated during both cached replay and later publications, so a failing
+subscriber cannot interrupt another subscriber or prevent installation cleanup from being registered.
+TDP verification requires its settings watcher as well as the visible row's service overlay.
+
 ## The rules it enforces
 
 Each of these cost a debugging session against a live client.

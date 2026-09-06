@@ -384,6 +384,16 @@ restarted.
 | `gate(name)`                                            | Returns null for an unknown gate so a failed fragment reads as "gate absent".                                                                                                                                                                                                                                                                                                   |
 | `registerGate(name, gate)`                              | What consumer fragments call.                                                                                                                                                                                                                                                                                                                                                   |
 
+Subscriber exceptions are isolated during cached replay as well as later delivery. A throwing
+callback cannot prevent `subscribe` from returning its cleanup handle or stop another subscriber.
+The emitted `eng/check-startup.mjs` fixtures exercise both paths across the built-in module IDs.
+
+The TDP gate also isolates query-refresh failures from its settings watcher and cleanup, recording
+the error in gate status. Verification requires both `getStateOverlaid` and `settingsWatched`;
+removal requires both to be false. A visible slider without command forwarding cannot verify.
+Startup fixtures reproduce transient module loss during cached state replay, forward subsequent
+TDP edits and check removal and reinstallation without leaked subscriptions or timers.
+
 The bridge object is frozen and defined on `window` as non-enumerable, non-writable, configurable.
 `installResult` is assigned, not returned; `epilogue.ts` returns it after every fragment ran,
 because a return in `bridge.ts` once published a bridge with an empty registry while the bootstrap
