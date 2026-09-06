@@ -24,7 +24,9 @@ itself, and says why when it does not work.
 display labels and observed state through `SteamPowerProfileState`; implement
 `ISteamPowerProfileBackend` to validate and apply selections. `SteamPowerPresetRow.Module` adds
 independent AC and battery assignments with `SteamPowerPresetState` and `ISteamPowerPresetBackend`.
-The active preset is read-only, including Custom. Empty preset options hide those controls.
+The active preset is read-only, including Custom. A host may also publish `custom` as a saved
+source assignment; it is displayed only for that source and never sent as a selection command.
+Empty preset options hide those controls.
 Performance controls use titled native sections. Quick Settings places display controls before
 Steam's common settings, then separate Charging and RGB lighting sections. The toolkit does not
 change OS power settings itself.

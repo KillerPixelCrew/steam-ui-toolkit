@@ -608,7 +608,9 @@ malformed states and Performance placement with inert React/bridge fixtures.
 AC/battery assignment IDs, scope, unset label and status. `ISteamPowerPresetBackend` owns assignment
 policy. Its patch `steam-ui.power-preset` and kind `powerPreset` accept only `setAcPowerPreset` and
 `setBatteryPowerPreset`. Each payload has exactly one `target`: a bounded ID or null to clear the
-local assignment. Custom is read-only and rejected as a target. Empty options hide the controls. The
+local assignment. A host may publish a `custom` option for a saved Custom assignment on AC or
+battery. It appears only in the source dropdown already assigned Custom and is read-only; the
+bridge still rejects it as a command target. Empty options hide the controls. The
 C# tests cover routing, cancellation forwarding and payload refusals; emitted tests cover both
 source selectors, clearing, disabled state and malformed publications.
 

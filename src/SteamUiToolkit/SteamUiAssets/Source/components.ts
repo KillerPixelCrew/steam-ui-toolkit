@@ -788,7 +788,8 @@
       if (!state || typeof value.ac !== "string" || typeof value.battery !== "string") return null;
       const valid = (id) => id === "" || state.options.some(option => option.id === id);
       if (!valid(value.ac) || !valid(value.battery)
-          || state.options.some(option => option.id === "custom")) return null;
+          || (state.options.some(option => option.id === "custom")
+            && value.ac !== "custom" && value.battery !== "custom")) return null;
       return { ...state, ac: value.ac, battery: value.battery,
         scope: normalizeText(value.scope), unsetLabel: normalizeText(value.unsetLabel) };
     };
@@ -801,10 +802,10 @@
           ...state.options.map(option => ({ data: option.id, label: option.label }))];
         const definition = definitions.powerPreset;
         const assignment = (label, selected, command) => controlRuntime.react.createElement(controlRuntime.dropdown, {
-          label, layout: "below", rgOptions: options, selectedOption: selected,
+          label, layout: "below", rgOptions: options.filter(option => option.data !== "custom" || selected === "custom"), selectedOption: selected,
           disabled: pending || !state.available,
           onChange: option => {
-            if (pending || !state.available || !option || !options.some(item => item.data === option.data)) return;
+            if (pending || !state.available || !option || option.data === "custom" || !options.some(item => item.data === option.data)) return;
             setPending(true);
             void request(definition.patchId, command, { target: option.data || null }, nextActionGeneration(definition.patchId))
               .catch(() => {}).finally(() => setPending(false));

@@ -74,6 +74,17 @@ rows[0].props.onChange({ data: "b" });
 assert.equal(requests.length, before);
 assert.equal(api.normalizePowerPresetState({ ...state, ac: "missing" }), null);
 assert.ok(api.normalizePowerPresetState({ ...state, options: [...options, { id: "none", label: "None" }] }));
+for (const ac of [true, false]) {
+  state = { ...state, available: true, options: [...options, { id: "custom", label: "Custom" }],
+    ac: ac ? "custom" : "a", battery: ac ? "b" : "custom" };
+  rows = presetControl().children.filter(child => child?.type === "dropdown");
+  assert.deepEqual(rows.map(row => row.props.selectedOption), ac ? ["custom", "b"] : ["a", "custom"]);
+  assert.ok(rows[ac ? 0 : 1].props.rgOptions.some(option => option.data === "custom"));
+  assert.ok(!rows[ac ? 1 : 0].props.rgOptions.some(option => option.data === "custom"));
+  rows[ac ? 0 : 1].props.onChange({ data: "custom" });
+  assert.equal(requests.length, before);
+}
+assert.equal(api.normalizePowerPresetState({ ...state, ac: "a", battery: "b" }), null);
 state = { ...state, options: [], ac: "", battery: "" };
 assert.equal(presetControl(), null);
 assert.match(asset, /\["powerPreset", "steam-ui-power-preset", powerPresetControl, "perf"\]/);
