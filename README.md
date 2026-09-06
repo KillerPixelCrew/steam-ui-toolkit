@@ -56,7 +56,9 @@ change OS power settings itself.
 
 State callbacks are isolated during both cached replay and later publications, so a failing
 subscriber cannot interrupt another subscriber or prevent installation cleanup from being registered.
-TDP verification requires its settings watcher as well as the visible row's service overlay.
+Power controls use two Valve slider primitives for sustained (PL1) and boost (PL2) power. Both
+follow hardware observations, including profile changes, and write only on completed user edits.
+Steam's saved TDP setting is not applied or polled.
 
 ## The rules it enforces
 

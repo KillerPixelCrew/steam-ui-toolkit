@@ -23,11 +23,7 @@
     let valveRefreshRateControl;
     let valveOverlayLevelControl;
 
-    // Valve's power-limit pair. They arrive as two exports, not one row: the toggle reveals the
-    // slider through the steamos_tdp_limit_enabled setting, which is how SteamOS models "off" for
-    // this control and why the slider has no zero position.
-    let valveTdpToggleControl;
-    let valveTdpSliderControl;
+    let powerLimitControl;
     let performanceRoot;
 
     // The Quick Settings panel Steam rendered, captured at match time. S14 puts resolution and
@@ -146,12 +142,10 @@
         patchId: "steam-ui.valve-overlay-level",
         command: "",
       }),
-      // Valve's own power-limit toggle and slider, in place of the hand-rolled row. They carry no
-      // command for the same reason the rows above do not: they write the steamos_tdp_limit client
-      // settings, which the SteamOS Manager gate watches and forwards.
-      valveTdp: Object.freeze({
-        patchId: "steam-ui.valve-power-limit",
-        command: "",
+      powerLimit: Object.freeze({
+        patchId: "steam-ui.power-limit",
+        primaryCommand: "setPrimaryLimit",
+        boostCommand: "setBoostLimit",
       }),
     });
 
@@ -1088,6 +1082,112 @@
     };
     const rgbCss = (color) => `#${Number(color).toString(16).padStart(6, "0")}`;
 
+    const normalizePowerLimitRange = (value) => {
+      if (!value || typeof value !== "object") return null;
+      const {
+        minimumWatts: min,
+        maximumWatts: max,
+        stepWatts: step,
+        observedWatts: observed,
+      } = value;
+      if (
+        ![min, max, step].every(Number.isInteger) ||
+        min < 1 ||
+        max > 200 ||
+        min >= max ||
+        step < 1 ||
+        step > max - min ||
+        !Number.isInteger(observed) ||
+        observed < min ||
+        observed > max ||
+        (observed - min) % step !== 0
+      )
+        return null;
+      return {
+        available: value.available === true,
+        min,
+        max,
+        step,
+        observed,
+        progress: normalizeText(value.progress),
+        statusText: normalizeText(value.statusText),
+      };
+    };
+    const normalizePowerLimitState = (value) =>
+      value && typeof value === "object"
+        ? {
+            sustained: normalizePowerLimitRange(value.sustained),
+            boost: normalizePowerLimitRange(value.boost),
+          }
+        : null;
+    const createPowerLimitControl = (controlRuntime) =>
+      function SteamUiPowerLimits() {
+        const state = useSemanticState(controlRuntime, "powerLimit", normalizePowerLimitState);
+        const definition = definitions.powerLimit;
+        const sustainedEcho = useEchoedValue(controlRuntime, state?.sustained?.observed ?? null);
+        const boostEcho = useEchoedValue(controlRuntime, state?.boost?.observed ?? null);
+        const pending = controlRuntime.react.useRef(false);
+        const [sending, setSending] = controlRuntime.react.useState(false);
+        const [error, setError] = controlRuntime.react.useState("");
+        if (!state) return note("powerLimit", "no state");
+        const busy = sending || isBusy(state.sustained?.progress) || isBusy(state.boost?.progress);
+        const rows: unknown[] = [];
+        for (const [key, label, range, echo, command] of [
+          ["pl1", "Sustained power (PL1)", state.sustained, sustainedEcho, definition.primaryCommand],
+          ["pl2", "Boost power (PL2)", state.boost, boostEcho, definition.boostCommand],
+        ] as const) {
+          if (!range) continue;
+          const commit = (watts) => {
+            if (
+              pending.current ||
+              busy ||
+              !range.available ||
+              !Number.isInteger(watts) ||
+              watts < range.min ||
+              watts > range.max ||
+              (watts - range.min) % range.step !== 0 ||
+              watts === range.observed
+            )
+              return;
+            pending.current = true;
+            setSending(true);
+            setError("");
+            void request(
+              definition.patchId,
+              command,
+              { watts },
+              nextActionGeneration(definition.patchId),
+            )
+              .catch((reason) => setError(normalizeText(String(reason))))
+              .finally(() => {
+                pending.current = false;
+                setSending(false);
+              });
+          };
+          rows.push(
+            controlRuntime.react.createElement(
+              controlRuntime.row,
+              { key },
+              controlRuntime.react.createElement(controlRuntime.slider, {
+                label,
+                min: range.min,
+                max: range.max,
+                step: range.step,
+                value: echo.value,
+                valueSuffix: " W",
+                showValue: true,
+                showBookendLabels: true,
+                disabled: busy || !range.available,
+                description: error || range.statusText || undefined,
+                onChange: echo.onChange,
+                onChangeComplete: (next) => echo.onChangeComplete(next, commit),
+              }),
+            ),
+          );
+        }
+        return controlRuntime.react.createElement(controlRuntime.react.Fragment, null, ...rows);
+      };
+
     const createDeviceControlsControl = (controlRuntime) =>
       function SteamUiDeviceControls() {
         const state = useSemanticState(
@@ -1416,7 +1516,7 @@
       const groupFor = (kind) => ({
         valveProfileHeader: "Profile scope", powerPreset: "Power profiles", powerProfile: "Power profiles",
         valveOverlayLevel: "Display and frame rate", frameLimit: "Display and frame rate", vrr: "Display and frame rate",
-        valveTdp: "Power limits", autoTdp: "Power limits", controllerTarget: "Controller", valveReset: "Reset",
+        powerLimit: "Power limits", autoTdp: "Power limits", controllerTarget: "Controller", valveReset: "Reset",
       }[kind] || "Display");
       // Registration, component and placement share one table. The group order below determines
       // section placement; this table determines the order of controls within each group.
@@ -1443,8 +1543,7 @@
         ["powerProfile", "steam-ui-power-profile", powerProfileControl, "perf"],
         ["powerPreset", "steam-ui-power-preset", powerPresetControl, "perf"],
         ["vrr", "steam-ui-vrr", vrrControl, "perf"],
-        ["valveTdp", "steam-ui-valve-tdp-enabled", valveTdpToggleControl, "perf"],
-        ["valveTdp", "steam-ui-valve-tdp", valveTdpSliderControl, "perf"],
+        ["powerLimit", "steam-ui-power-limits", powerLimitControl, "perf"],
         ["autoTdp", "steam-ui-auto-tdp", autoTdpControl, "perf"],
         ["resolution", "steam-ui-resolution", resolutionControl, "quickSettings"],
         [
@@ -1585,6 +1684,7 @@
       resolutionControl = createResolutionControl(controlRuntime);
       vrrControl = createVrrControl(controlRuntime);
       deviceControlsControl = createDeviceControlsControl(controlRuntime);
+      powerLimitControl = createPowerLimitControl(controlRuntime);
 
       // Selected by the localization token it draws, never by a minified export name: the names are
       // right for today's build and are not guaranteed for the next. Live-probed 2026-08-30 that
@@ -1613,25 +1713,6 @@
         ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_Overlay_Level"])
         : null;
 
-      // A DIFFERENT module from the perf components above: the power-limit rows live with the
-      // GPU-clock and charge-limit rows, next to the SteamOS Manager hooks they read. Selected by
-      // the setting each one is bound to plus its own token, because both rows carry
-      // #QuickAccess_Tab_Perf_TDPLimitEnabled — the toggle as its label, the slider as its
-      // explainer title. Live-verified 2026-08-30 that each pair matches exactly one export.
-      const tdpComponents = uniqueFactory([
-        "#QuickAccess_Tab_Perf_TDPLimitEnabled",
-        "#QuickAccess_Tab_Perf_TDPLimitUnits",
-      ]);
-      const tdpExports = tdpComponents ? runtime(tdpComponents[0]) : null;
-      valveTdpToggleControl = tdpExports
-        ? uniqueFunction(tdpExports, [
-            '"steamos_tdp_limit_enabled"',
-            "#QuickAccess_Tab_Perf_TDPLimitEnabled",
-          ])
-        : null;
-      valveTdpSliderControl = tdpExports
-        ? uniqueFunction(tdpExports, ["#QuickAccess_Tab_Perf_TDPLimitUnits"])
-        : null;
       return true;
     };
 

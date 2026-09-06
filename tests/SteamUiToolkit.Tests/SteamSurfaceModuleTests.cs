@@ -112,19 +112,51 @@ public sealed class SteamSurfaceModuleTests
     }
 
     [Fact]
-    public async Task PowerLimitCarriesTheSwitchBesideTheWatts()
+    public async Task PowerLimitsRouteIndependentExplicitWrites()
     {
         RecordingBackend backend = new();
         SteamUiModuleSet set = new([SteamPowerLimitSurface.Module(Always, () => new(null as SteamPowerLimitState), backend)]);
 
         SteamUiCommandResult released = await Dispatch(
-            set, SteamPowerLimitSurface.PatchId, "setPrimaryLimit", """{"watts":15,"enabled":false}""");
+            set, SteamPowerLimitSurface.PatchId, "setPrimaryLimit", """{"watts":15}""");
         SteamUiCommandResult refused = await Dispatch(
-            set, SteamPowerLimitSurface.PatchId, "setPrimaryLimit", """{"watts":"15","enabled":true}""");
+            set, SteamPowerLimitSurface.PatchId, "setPrimaryLimit", """{"watts":"15"}""");
 
         Assert.True(released.Succeeded);
-        Assert.Equal("limit 15 off", Assert.Single(backend.Calls));
-        Assert.Equal("The primary power-limit payload is invalid.", refused.Error);
+        Assert.Equal("limit 15", Assert.Single(backend.Calls));
+        Assert.Equal("The sustained power-limit payload is invalid.", refused.Error);
+        SteamUiCommandResult boosted = await Dispatch(
+            set, SteamPowerLimitSurface.PatchId, "setBoostLimit", """{"watts":30}""");
+        Assert.True(boosted.Succeeded);
+        Assert.Equal(["limit 15", "boost 30"], backend.Calls);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"watts\":0}")]
+    [InlineData("{\"watts\":201}")]
+    [InlineData("{\"watts\":20.5}")]
+    [InlineData("{\"watts\":\"20\"}")]
+    [InlineData("{\"watts\":20,\"enabled\":true}")]
+    [InlineData("{\"watts\":20,\"watts\":21}")]
+    public async Task PowerSlidersRejectInvalidOrLegacyPayloads(string payload)
+    {
+        RecordingBackend backend = new();
+        SteamUiModuleSet set = new([SteamPowerLimitSurface.Module(Always, () => new(null as SteamPowerLimitState), backend)]);
+        foreach (string command in SteamPowerLimitSurface.Commands)
+        {
+            Assert.False((await Dispatch(set, SteamPowerLimitSurface.PatchId, command, payload)).Succeeded);
+        }
+        Assert.Empty(backend.Calls);
+    }
+
+    [Fact]
+    public void PowerSlidersSerializeSeparateHardwareReadbacks()
+    {
+        SteamPowerLimitRangeState sustained = new(true, 8, 37, 1, 23, "", "");
+        JsonElement wire = SteamPowerLimitSurface.Serialize(new(sustained, sustained with { ObservedWatts = 37 }));
+        Assert.Equal(23, wire.GetProperty("sustained").GetProperty("observedWatts").GetInt32());
+        Assert.Equal(37, wire.GetProperty("boost").GetProperty("observedWatts").GetInt32());
     }
 
     [Fact]
@@ -271,8 +303,10 @@ public sealed class SteamSurfaceModuleTests
 
         public Task<SteamUiCommandResult> SetBrightnessAsync(int percent, CancellationToken cancellationToken) => Record($"brightness {percent}");
 
-        public Task<SteamUiCommandResult> SetPrimaryLimitAsync(int watts, bool enabled, CancellationToken cancellationToken) =>
-            Record($"limit {watts} {(enabled ? "on" : "off")}");
+        public Task<SteamUiCommandResult> SetPrimaryLimitAsync(int watts, CancellationToken cancellationToken) =>
+            Record($"limit {watts}");
+
+        public Task<SteamUiCommandResult> SetBoostLimitAsync(int watts, CancellationToken cancellationToken) => Record($"boost {watts}");
 
         public Task<SteamUiCommandResult> ApplyAsync(SteamPerformanceDelta delta, string correlationId, CancellationToken cancellationToken) =>
             Record($"perf {delta.SteamAppId} " + string.Join(",", delta.Recognized.Select(c => $"{c.Kind}={c.Value}")));

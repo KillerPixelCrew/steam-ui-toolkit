@@ -140,7 +140,7 @@ function assertRefused(host) {
   assert.equal(status.performanceRootWrapped, false);
 }
 assertRefused(createHost({}));
-for (const broken of ["react", "performance", "tdp"]) {
+for (const broken of ["react", "performance"]) {
   const f = componentFixture();
   const tokens = String(f.factories[broken]);
   // Retain the real fingerprint but throw when that exact factory is resolved.
@@ -184,76 +184,11 @@ console.log(
   "Steam startup: missing factories stay uncached; network probe waits for Steam's singleton.",
 );
 
-// A cached publication calls onState inside subscribe. Losing module access there used to
-// strand an installed GetState overlay without ever starting the TDP command watcher.
-const powerStart = asset.indexOf("function createSteamOsManagerGate()");
-const powerEnd = asset.indexOf('registerGate("steamOsManager"', powerStart);
-assert.ok(powerStart >= 0 && powerEnd > powerStart);
-const settings = { steamos_tdp_limit: 23, steamos_tdp_limit_enabled: true };
-const original = async () => ({});
-const manager = { GetState: original, RefreshScreenReaderAutoLocale() {} };
-const timers = new Set();
-const listeners = new Set();
-const forwards = [];
-let moduleCalls = 0;
-let moduleFailure = true;
-const power = runInNewContext(
-  `${asset.slice(powerStart, powerEnd)} createSteamOsManagerGate();`,
-  {
-    window: { settingsStore: { clientSettings: settings } },
-    getWebpackRuntime() {
-      if (++moduleCalls > 1 && moduleFailure) throw new Error("Steam modules unavailable");
-      return () => ({ manager });
-    },
-    invalidateQuery() {},
-    getState: {},
-    claimed: () => false,
-    claimMember(target, key, _marker, create) { target[key] = create(); return { ok: true }; },
-    releaseMember(target, key) { target[key] = original; return { ok: true }; },
-    memberClaimed: (target, key) => !!target && target[key] !== original,
-    subscribe(_id, callback) {
-      listeners.add(callback);
-      callback({ available: true, minimumWatts: 8, maximumWatts: 37 });
-      return () => listeners.delete(callback);
-    },
-    setInterval(callback) { timers.add(callback); return callback; },
-    clearInterval: callback => timers.delete(callback),
-    request(_id, _command, payload) { forwards.push({ ...payload }); return Promise.resolve(); },
-  },
-  { timeout: 1000 },
-);
-assert.equal(power.install().ok, true);
-assert.equal(power.status().settingsWatched, true);
-assert.match(power.status().lastError, /Steam modules unavailable/u);
-await new Promise(resolve => setImmediate(resolve));
-assert.deepEqual(forwards, [{ watts: 23, enabled: true }]);
-settings.steamos_tdp_limit = 19;
-for (const tick of timers) tick();
-await new Promise(resolve => setImmediate(resolve));
-assert.deepEqual(forwards.at(-1), { watts: 19, enabled: true });
-power.install();
-assert.equal(timers.size, 1);
-assert.equal(listeners.size, 1);
-assert.equal(power.remove().ok, true);
-assert.equal(timers.size, 0);
-assert.equal(listeners.size, 0);
-assert.equal(manager.GetState, original);
-moduleFailure = false;
-assert.equal(power.install().ok, true);
-assert.equal(power.status().settingsWatched, true);
-assert.equal(timers.size, 1);
-assert.equal(power.remove().ok, true);
-console.log("Steam TDP: transient query failures preserve forwarding and clean removal.");
-const powerSurface = read("src/SteamUiToolkit/Surfaces/SteamPowerLimitSurface.cs");
-const verifyPower = new Function("status", `return ${powerSurface.match(/verifyOk: "([^"]+)"/u)[1]};`);
-assert.equal(verifyPower({ installed: true, getStateOverlaid: true, settingsWatched: false }), false);
-assert.equal(verifyPower({ installed: true, getStateOverlaid: true, settingsWatched: true }), true);
-
 // Exercise the shared bridge, so cached replay cannot interrupt any module's installation.
 const subscribeStart = asset.indexOf("const subscribe =");
 const subscribeEnd = asset.indexOf("const dispose =", subscribeStart);
 assert.ok(subscribeStart >= 0 && subscribeEnd > subscribeStart);
-const ids = [...new Set([...asset.matchAll(/const patchId = "([^"]+)"/gu)].map(m => m[1]))];
+const ids = ["steam-ui.power-limit", ...new Set([...asset.matchAll(/const patchId = "([^"]+)"/gu)].map(m => m[1]))];
 assert.ok(ids.includes("steam-ui.power-limit") && ids.length >= 6);
 const bridgeConfig = { version: 1, contextGeneration: 1, documentGeneration: 1,
   allowed: Object.fromEntries(ids.map(id => [id, []])) };

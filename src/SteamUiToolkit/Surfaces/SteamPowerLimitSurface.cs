@@ -6,136 +6,77 @@ using System.Threading.Tasks;
 
 namespace SteamUiToolkit;
 
-/// <summary>What Valve's TDP rows read out of the SteamOS Manager: whether a limit exists, and its range.</summary>
-/// <remarks>
-/// The rows themselves bind two client settings Steam persists (<c>steamos_tdp_limit_enabled</c>
-/// and <c>steamos_tdp_limit</c>); this state only decides whether they appear and what the slider
-/// spans. The current watts are not published here because the row shows what Steam stored, and
-/// the gate brings the hardware to that value rather than the other way round.
-/// </remarks>
-/// <param name="Available">Whether a sustained power limit can be written at all. False hides the rows.</param>
-/// <param name="MinimumWatts">Lowest limit the slider offers. Must be positive for the rows to appear.</param>
-/// <param name="MaximumWatts">Highest limit the slider offers.</param>
-public sealed record SteamPowerLimitState(
+/// <summary>One independently writable power limit, in watts.</summary>
+/// <param name="Available">Whether the control may be operated.</param>
+/// <param name="MinimumWatts">Lowest supported wattage.</param>
+/// <param name="MaximumWatts">Highest supported wattage, at most 200.</param>
+/// <param name="StepWatts">Increment between supported values.</param>
+/// <param name="ObservedWatts">Hardware readback, or null when unknown.</param>
+/// <param name="Progress">Command progress, including applying or uncertain.</param>
+/// <param name="StatusText">A bounded explanation of availability or the last outcome.</param>
+public sealed record SteamPowerLimitRangeState(
     bool Available,
     int? MinimumWatts,
-    int? MaximumWatts);
+    int? MaximumWatts,
+    int? StepWatts,
+    int? ObservedWatts,
+    string Progress,
+    string StatusText);
 
-/// <summary>What routes Valve's TDP rows to hardware.</summary>
+/// <summary>Observed sustained and boost power limits shown in Quick Access.</summary>
+/// <param name="Sustained">The sustained power limit, PL1.</param>
+/// <param name="Boost">The boost power limit, PL2.</param>
+public sealed record SteamPowerLimitState(
+    SteamPowerLimitRangeState Sustained,
+    SteamPowerLimitRangeState Boost);
+
+/// <summary>Routes explicit power slider edits through the consumer's hardware coordinator.</summary>
 public interface ISteamPowerLimitBackend
 {
-    /// <summary>Applies the limit Steam's rows hold, or releases it.</summary>
-    /// <param name="watts">The watts the slider holds — still carried when the switch is off.</param>
-    /// <param name="enabled">Whether the limit applies. Off means release the cap, not apply zero:
-    /// a limit switched off is not a limit of zero watts.</param>
+    /// <summary>Sets sustained power, PL1.</summary>
+    /// <param name="watts">The requested wattage on a published step.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns>The outcome; the gate retries an unsuccessful forward on its own schedule.</returns>
-    Task<SteamUiCommandResult> SetPrimaryLimitAsync(
-        int watts,
-        bool enabled,
-        CancellationToken cancellationToken);
+    /// <returns>The outcome. Uncertain writes must not be retried automatically.</returns>
+    Task<SteamUiCommandResult> SetPrimaryLimitAsync(int watts, CancellationToken cancellationToken);
+
+    /// <summary>Sets boost power, PL2.</summary>
+    /// <param name="watts">The requested wattage on a published step.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>The outcome. Uncertain writes must not be retried automatically.</returns>
+    Task<SteamUiCommandResult> SetBoostLimitAsync(int watts, CancellationToken cancellationToken);
 }
 
-/// <summary>Valve's own TDP toggle and slider on the Performance tab, backed by the consumer's power limit.</summary>
+/// <summary>Two hardware-backed power sliders built from Valve's field primitives.</summary>
 /// <remarks>
-/// Two halves of one mechanism. The gate overlays the SteamOS Manager's <c>GetState</c> answer with
-/// the published availability and range — merging into the real reply, never replacing it, because
-/// it carries fields a fabricated one would zero — invalidates the query that caches it, and watches
-/// the two client settings Valve's rows write, forwarding a change as <c>setPrimaryLimit</c>. The
-/// row patch mounts Valve's toggle and slider exports. Both share this one patch id and state.
+/// Observations drive both sliders, including after profile changes. Only a completed user edit
+/// sends a command; publication and mounting never apply Steam's persisted TDP setting.
 /// </remarks>
 public static class SteamPowerLimitSurface
 {
-    /// <summary>The patch id this surface publishes under and answers commands for.</summary>
+    /// <summary>The patch id used for publication and commands.</summary>
     public const string PatchId = "steam-ui.power-limit";
 
-    /// <summary>The exact command vocabulary the injected gate sends.</summary>
-    public static IReadOnlyList<string> Commands { get; } = ["setPrimaryLimit"];
+    /// <summary>The exact command vocabulary.</summary>
+    public static IReadOnlyList<string> Commands { get; } = ["setPrimaryLimit", "setBoostLimit"];
 
-    /// <summary>The SteamOS Manager RPC answer Valve's TDP rows read availability and range from.</summary>
-    /// <remarks>
-    /// Verification requires both the overlay on the service and the settings watcher that
-    /// forwards Valve's changes to the backend. A visible row alone is not a working control.
-    /// </remarks>
-    public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
-        id: PatchId,
-        resourceKey: "steam-ui.steamos-manager-state",
-        gateName: "steamOsManager",
-        fingerprint: "native-qam-steamos-manager-v1:service+tdp-row+query-layer+own-getstate",
-        // The service is matched by surface, not by export name: module 90389 exports both the
-        // Manager and a Telemetry service and both have GetState, so the screen-reader method is
-        // what separates them. The query layer must be reachable because the row's answer is cached
-        // and a state change that cannot invalidate it never reaches the screen.
-        probeExpression: $$"""
-            {{SteamUiProbeJs.CountingPreamble("steam_ui_steamos_manager_probe_")}}
-              let manager=null;
-              try{
-                for(const value of Object.values(req('90389')||{})){
-                  if(value&&typeof value==='object'
-                    &&typeof value.GetState==='function'
-                    &&typeof value.RefreshScreenReaderAutoLocale==='function'){manager=value;break;}
-                }
-              }catch{}
-              let queryLayer=false;
-              try{const q=req('21371');queryLayer=typeof q?.L?.invalidateQueries==='function';}catch{}
-              return JSON.stringify({
-                managerFound:!!manager,
-                // Valve's own method, or one of our overlays that still carries it. Requiring the
-                // PRE-patch shape here is the self-incompatibility trap this project has already paid
-                // for twice: a successful apply would invalidate its own probe, and the next
-                // compatibility pass would tear down what it had just installed.
-                // The carried original is the claim primitive's property snapshot ({value}), or a
-                // bare function from a bridge older than the snapshot. Accepting only the function
-                // form re-created the loop: every successful apply read as irreplaceable two seconds
-                // later and the row was torn down and rebuilt on a ~2-second cycle (device, 2026-09-01).
-                // The __wsgm* spellings are the markers a build before the rename wrote; read as
-                // ours so that upgrade needs no Steam restart. Never written.
-                getStateReplaceable:!!manager&&(typeof manager.GetState==='function')
-                  &&((manager.GetState.__steamUiOwnedGetState!==true
-                      &&manager.GetState.__wsgmOwnedGetState!==true)
-                    ||typeof manager.GetState.__steamUiOriginalGetState==='function'
-                    ||typeof (manager.GetState.__steamUiOriginalGetState||{}).value==='function'
-                    ||typeof manager.GetState.__wsgmOriginalGetState==='function'
-                    ||typeof (manager.GetState.__wsgmOriginalGetState||{}).value==='function'),
-                queryLayer,
-                tdpRow:count(['is_tdp_limit_available','tdp_limit_min','tdp_limit_max'])
-              });
-            }catch(error){return JSON.stringify({error:String(error)}); } })()
-            """,
-        compatible: root =>
-            SteamGatePatch.Flag(root, "managerFound")
-            && root.TryGetProperty("tdpRow", out JsonElement row)
-            && row.TryGetInt32(out int rows)
-            && rows > 0
-            && SteamGatePatch.Flag(root, "queryLayer")
-            && SteamGatePatch.Flag(root, "getStateReplaceable"),
-        verifyOk: "status.installed&&status.getStateOverlaid&&status.settingsWatched",
-        removeOk: "!status.getStateOverlaid&&!status.settingsWatched",
-        subject: "SteamOS Manager state");
+    /// <summary>The sustained and boost sliders on the Performance page.</summary>
+    public static SteamQuickAccessRowPatch Patch { get; } = new(
+        PatchId,
+        "powerLimit",
+        "native-qam-power-limits-v2:performance-actions+performance-root+observed-pl1-pl2",
+        "steam_ui_power_limits_probe_");
 
-    /// <summary>Valve's power-limit toggle and slider pair.</summary>
-    /// <remarks>
-    /// Not gated by <c>SystemPerfStore</c> at all: both halves read availability and the watt range
-    /// out of the SteamOS Manager RPC and write the <c>steamos_tdp_limit</c> client settings, so
-    /// this and <see cref="Patch"/> are one mechanism in two halves.
-    /// </remarks>
-    public static SteamQuickAccessRowPatch ValveRows { get; } = new(
-        "steam-ui.valve-power-limit",
-        "valveTdp",
-        "native-qam-valve-tdp-v1:performance-actions+performance-root+valve-tdp-pair",
-        "steam_ui_valve_power_limit_probe_");
-
-    /// <summary>Serializes a state exactly as the module publishes it.</summary>
-    /// <param name="state">The state to serialize.</param>
+    /// <summary>Serializes both independent limits for the injected controls.</summary>
+    /// <param name="state">The observed state.</param>
     /// <returns>The wire payload.</returns>
     public static JsonElement Serialize(SteamPowerLimitState state) =>
         JsonSerializer.SerializeToElement(state, SteamSurfaceJsonContext.Default.SteamPowerLimitState);
 
-    /// <summary>Declares the surface as one module: the gate, Valve's rows, the state and the answer.</summary>
-    /// <param name="enabled">Whether the state may be published right now.</param>
-    /// <param name="read">The current state, or null to publish nothing this round.</param>
-    /// <param name="backend">What routes the rows' writes to hardware.</param>
-    /// <param name="id">The module id, for diagnostics and duplicate detection.</param>
+    /// <summary>Declares the rows, state publication and explicit write commands.</summary>
+    /// <param name="enabled">Whether publication is enabled.</param>
+    /// <param name="read">Reads current state, or null to skip publication.</param>
+    /// <param name="backend">The hardware command backend.</param>
+    /// <param name="id">The module id.</param>
     /// <returns>The module to register.</returns>
     public static ISteamUiModule Module(
         Func<bool> enabled,
@@ -146,7 +87,7 @@ public static class SteamPowerLimitSurface
         ArgumentNullException.ThrowIfNull(backend);
         return new SteamUiModule(
             id,
-            patches: [Patch, ValveRows],
+            patches: [Patch],
             publications:
             [
                 SteamSurfaceModule.Publication(
@@ -155,35 +96,35 @@ public static class SteamPowerLimitSurface
             commands:
             [
                 new(PatchId, "setPrimaryLimit", (request, cancellationToken) =>
-                    TryReadPowerLimitPayload(request.Payload, out int watts, out bool limitEnabled)
-                        ? backend.SetPrimaryLimitAsync(watts, limitEnabled, cancellationToken)
-                        : SteamSurfaceModule.Invalid("The primary power-limit payload is invalid.")),
+                    TryReadWatts(request.Payload, out int watts)
+                        ? backend.SetPrimaryLimitAsync(watts, cancellationToken)
+                        : SteamSurfaceModule.Invalid("The sustained power-limit payload is invalid.")),
+                new(PatchId, "setBoostLimit", (request, cancellationToken) =>
+                    TryReadWatts(request.Payload, out int watts)
+                        ? backend.SetBoostLimitAsync(watts, cancellationToken)
+                        : SteamSurfaceModule.Invalid("The boost power-limit payload is invalid.")),
             ]);
     }
 
-    /// <summary>Reads the power-limit payload: the watts and the switch beside them.</summary>
-    /// <remarks>
-    /// The switch is not optional: a limit switched off still carries the watts the slider holds,
-    /// and reading only the number would apply a cap the user had just turned off.
-    /// </remarks>
-    private static bool TryReadPowerLimitPayload(
-        JsonElement payload,
-        out int watts,
-        out bool enabled)
+    private static bool TryReadWatts(JsonElement payload, out int watts)
     {
         watts = default;
-        enabled = false;
-        if (payload.ValueKind != JsonValueKind.Object
-            || !payload.TryGetProperty("watts", out JsonElement wattsProperty)
-            || wattsProperty.ValueKind != JsonValueKind.Number
-            || !wattsProperty.TryGetInt32(out watts)
-            || !payload.TryGetProperty("enabled", out JsonElement enabledProperty)
-            || enabledProperty.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        if (payload.ValueKind != JsonValueKind.Object)
         {
             return false;
         }
 
-        enabled = enabledProperty.ValueKind is JsonValueKind.True;
-        return true;
+        int count = 0;
+        foreach (JsonProperty property in payload.EnumerateObject())
+        {
+            if (++count != 1 || property.Name != "watts"
+                || property.Value.ValueKind != JsonValueKind.Number
+                || !property.Value.TryGetInt32(out watts))
+            {
+                return false;
+            }
+        }
+
+        return count == 1 && watts is >= 1 and <= 200;
     }
 }

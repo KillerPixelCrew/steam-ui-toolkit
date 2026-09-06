@@ -127,3 +127,143 @@ for (const toggle of [undefined, "toggle"]) {
   }
 }
 console.log("Device controls retain charging and brightness without the optional color toggle.");
+
+// Hardware observations, not Steam's saved TDP setting, drive both power sliders.
+{
+  const first = asset.indexOf("const normalizePowerLimitRange =");
+  const last = asset.indexOf("const createDeviceControlsControl =", first);
+  const echoFirst = asset.indexOf("const useEchoedValue =");
+  const echoLast = asset.indexOf("const useTrailingCommit =", echoFirst);
+  assert.ok(first >= 0 && last > first && echoFirst >= 0 && echoLast > echoFirst);
+  const slots = [];
+  let cursor = 0;
+  const writes = [];
+  const replies = [];
+  const range = (watts) => ({
+    available: true,
+    minimumWatts: 8,
+    maximumWatts: 37,
+    stepWatts: 1,
+    observedWatts: watts,
+    progress: "",
+    statusText: "",
+  });
+  let powerState = { sustained: range(23), boost: range(30) };
+  const runtime = {
+    slider: "slider",
+    row: "row",
+    react: {
+      Fragment: "fragment",
+      useState(initial) {
+        const index = cursor++;
+        if (!(index in slots)) slots[index] = initial;
+        return [
+          slots[index],
+          (value) => {
+            slots[index] = value;
+          },
+        ];
+      },
+      useRef(initial) {
+        const index = cursor++;
+        if (!(index in slots)) slots[index] = { current: initial };
+        return slots[index];
+      },
+      createElement: (type, props, ...children) => ({ type, props, children }),
+    },
+  };
+  const powerApi = new Function(
+    "normalizeText",
+    "useSemanticState",
+    "definitions",
+    "request",
+    "nextActionGeneration",
+    "isBusy",
+    "note",
+    asset.slice(echoFirst, echoLast) +
+      asset.slice(first, last) +
+      "\nreturn { createPowerLimitControl, normalizePowerLimitState };",
+  )(
+    normalizeText,
+    (_runtime, _kind, normalize) => normalize(powerState),
+    {
+      powerLimit: {
+        patchId: "steam-ui.power-limit",
+        primaryCommand: "setPrimaryLimit",
+        boostCommand: "setBoostLimit",
+      },
+    },
+    (...args) => {
+      writes.push(args);
+      return new Promise((resolve, reject) => replies.push({ resolve, reject }));
+    },
+    () => 1,
+    (progress) => ["queued", "applying", "replacing"].includes(progress),
+    () => null,
+  );
+  const control = powerApi.createPowerLimitControl(runtime);
+  const render = () => {
+    cursor = 0;
+    return control()?.children.map((row) => row.children[0].props) ?? [];
+  };
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+  let sliders = render();
+  assert.deepEqual(
+    sliders.map((slider) => slider.label),
+    ["Sustained power (PL1)", "Boost power (PL2)"],
+  );
+  assert.deepEqual(
+    sliders.map((slider) => slider.value),
+    [23, 30],
+  );
+  assert.equal(writes.length, 0);
+  sliders[0].onChange(20);
+  assert.equal(render()[0].value, 20);
+  assert.equal(writes.length, 0, "dragging does not issue hardware writes");
+  powerState = { sustained: range(37), boost: range(37) };
+  render();
+  sliders = render();
+  assert.deepEqual(
+    sliders.map((slider) => slider.value),
+    [37, 37],
+    "profile readback supersedes local drag echo",
+  );
+  assert.equal(writes.length, 0, "profile publication never echoes a hardware command");
+  sliders[1].onChangeComplete(28);
+  sliders[0].onChangeComplete(20);
+  assert.equal(writes.length, 1, "both controls serialize against the pending command");
+  assert.deepEqual(writes[0], ["steam-ui.power-limit", "setBoostLimit", { watts: 28 }, 1]);
+  assert.ok(render().every((slider) => slider.disabled));
+  replies.shift().resolve();
+  await flush();
+  powerState.boost = range(28);
+  render();
+  sliders = render();
+  assert.deepEqual(
+    sliders.map((slider) => slider.value),
+    [37, 28],
+  );
+  sliders[0].onChangeComplete(20);
+  assert.deepEqual(writes[1], ["steam-ui.power-limit", "setPrimaryLimit", { watts: 20 }, 1]);
+  replies.shift().reject(new Error("Hardware outcome uncertain"));
+  await flush();
+  sliders = render();
+  assert.equal(sliders[0].value, 37);
+  assert.match(sliders[0].description, /uncertain/);
+  render();
+  assert.equal(writes.length, 2, "failure and re-render do not automatically retry");
+  for (const invalid of [0, 38, 20.5, "20", null]) sliders[0].onChangeComplete(invalid);
+  assert.equal(writes.length, 2);
+  powerState.sustained = { ...range(23), progress: "applying" };
+  assert.ok(render().every((slider) => slider.disabled));
+  powerState.sustained = { ...range(23), available: false };
+  assert.equal(render()[0].disabled, true);
+  powerState = { sustained: range(23), boost: { ...range(28), observedWatts: null } };
+  assert.equal(render().length, 1, "unknown boost readback cannot fabricate a value");
+  powerState.sustained = { ...range(23), stepWatts: 2 };
+  assert.equal(render().length, 0, "off-step observations are refused");
+  assert.ok(!asset.includes("steamos_tdp_limit"), "no saved Steam TDP setting can be replayed");
+}
+console.log(
+  "Power sliders: independent PL1/PL2 edits, profile readback, pending commands and refusal checks passed.",
+);

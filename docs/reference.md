@@ -388,11 +388,16 @@ Subscriber exceptions are isolated during cached replay as well as later deliver
 callback cannot prevent `subscribe` from returning its cleanup handle or stop another subscriber.
 The emitted `eng/check-startup.mjs` fixtures exercise both paths across the built-in module IDs.
 
-The TDP gate also isolates query-refresh failures from its settings watcher and cleanup, recording
-the error in gate status. Verification requires both `getStateOverlaid` and `settingsWatched`;
-removal requires both to be false. A visible slider without command forwarding cannot verify.
-Startup fixtures reproduce transient module loss during cached state replay, forward subsequent
-TDP edits and check removal and reinstallation without leaked subscriptions or timers.
+`SteamPowerLimitSurface` publishes independent sustained (PL1) and boost (PL2) ranges with
+availability, minimum/maximum/step watts, observed watts, progress and status. Its `powerLimit`
+control uses Valve slider primitives, following hardware readback after profile or external edits.
+Only a completed slider edit sends `setPrimaryLimit` or `setBoostLimit` with exactly `{watts}`
+(an integer from 1 through 200). The host validates the current descriptor and performs readback.
+The sliders share a pending-command guard, show refusals and never retry automatically. Mounting,
+publication and profile changes issue no writes. The former SteamOS Manager overlay and settings
+watcher are removed; Steam's persisted TDP setting has no authority over this surface.
+`eng/check-power-profile.mjs` exercises profile updates, drag echoes, independent commands,
+unavailable readback, bounds, pending commands and failures using the emitted controls.
 
 The bridge object is frozen and defined on `window` as non-enumerable, non-writable, configurable.
 `installResult` is assigned, not returned; `epilogue.ts` returns it after every fragment ran,
@@ -596,7 +601,7 @@ for fixtures and diagnostics.
 | `SteamBluetoothSurface`    | Bluetooth page and panel                      | replaces the service stub's methods, invalidates the query            | `SteamBluetoothState`        | discovery, pair, connect, disconnect, forget; trusted and wake-allowed accepted by default |
 | `SteamBrightnessSurface`   | brightness slider                             | reveals the flag, claims `SetBrightness`, feeds the observable        | `SteamBrightnessState`       | set brightness                                                                             |
 | `SteamPerformanceSurface`  | Performance tab and its Valve rows            | supplies `SteamClient.System.Perf`, writes the store, decodes deltas  | `SteamPerformanceState`      | apply a `SteamPerformanceDelta`                                                            |
-| `SteamPowerLimitSurface`   | Valve's TDP toggle and slider                 | overlays the SteamOS Manager `GetState`, watches the client settings  | `SteamPowerLimitState`       | set or release the limit                                                                   |
+| `SteamPowerLimitSurface` | Sustained and boost power sliders | Valve field primitives driven by hardware readback | `SteamPowerLimitState` | set PL1 or PL2 independently |
 | `SteamFrameLimitRow`       | unified frame-limit row                       | row on Valve's slider and toggle                                      | `SteamFrameLimitState`       | frame cap, refresh rate                                                                    |
 | `SteamVariableRefreshRow`  | VRR switch                                    | row on Valve's toggle                                                 | `SteamVariableRefreshState`  | VRR on/off                                                                                 |
 | `SteamResolutionRow`       | resolution dropdown (Quick Settings)          | row on Valve's dropdown                                               | `SteamResolutionState`       | apply a mode                                                                               |

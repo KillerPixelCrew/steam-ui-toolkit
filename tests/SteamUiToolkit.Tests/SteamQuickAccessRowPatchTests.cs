@@ -3,11 +3,11 @@ namespace SteamUiToolkit.Tests;
 public sealed class SteamQuickAccessRowPatchTests
 {
     [Fact]
-    public async Task ValveTdpRowRequiresEveryUniqueStructuralMatchBeforeInstall()
+    public async Task PowerLimitRowRequiresEveryUniqueStructuralMatchBeforeInstall()
     {
         await using var transport = new RowTransport { PerformanceActionsCount = 2 };
         await using var manager = new SteamUiPatchManager(transport);
-        manager.Register(SteamPowerLimitSurface.ValveRows);
+        manager.Register(SteamPowerLimitSurface.Patch);
 
         await manager.SynchronizeAsync();
 
@@ -35,7 +35,7 @@ public sealed class SteamQuickAccessRowPatchTests
     {
         await using var transport = new RowTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        manager.Register(SteamPowerLimitSurface.ValveRows);
+        manager.Register(SteamPowerLimitSurface.Patch);
         manager.Register(SteamFrameLimitRow.Patch);
         manager.Register(SteamPerformanceSurface.OverlayLevelRow);
         manager.Register(SteamControllerTargetRow.Patch);
@@ -45,7 +45,7 @@ public sealed class SteamQuickAccessRowPatchTests
 
         IReadOnlyDictionary<string, SteamUiPatchSnapshot> snapshots = manager.GetSnapshots()
             .ToDictionary(snapshot => snapshot.Id);
-        Assert.Equal(SteamUiPatchState.Verified, snapshots["steam-ui.valve-power-limit"].State);
+        Assert.Equal(SteamUiPatchState.Verified, snapshots["steam-ui.power-limit"].State);
         Assert.Equal(SteamUiPatchState.Verified, snapshots["steam-ui.frame-limit"].State);
         Assert.Equal(
             SteamUiPatchState.Verified,
@@ -65,20 +65,20 @@ public sealed class SteamQuickAccessRowPatchTests
     {
         await using var transport = new RowTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        manager.Register(SteamPowerLimitSurface.ValveRows);
+        manager.Register(SteamPowerLimitSurface.Patch);
         manager.Register(SteamControllerTargetRow.Patch);
         await manager.SynchronizeAsync();
 
-        manager.SetPatchEnabled("steam-ui.valve-power-limit", false);
+        manager.SetPatchEnabled("steam-ui.power-limit", false);
         await manager.SynchronizeAsync();
 
         IReadOnlyDictionary<string, SteamUiPatchSnapshot> snapshots = manager.GetSnapshots()
             .ToDictionary(snapshot => snapshot.Id);
-        Assert.Equal(SteamUiPatchState.Disabled, snapshots["steam-ui.valve-power-limit"].State);
+        Assert.Equal(SteamUiPatchState.Disabled, snapshots["steam-ui.power-limit"].State);
         Assert.Equal(
             SteamUiPatchState.Verified,
             snapshots["steam-ui.controller-target"].State);
-        Assert.Contains("valveTdp", transport.RemovedKinds);
+        Assert.Contains("powerLimit", transport.RemovedKinds);
         Assert.DoesNotContain("controllerTarget", transport.RemovedKinds);
     }
 
@@ -115,7 +115,7 @@ public sealed class SteamQuickAccessRowPatchTests
             SteamAutoTdpRow.Patch,
             SteamControllerTargetRow.Patch,
             SteamDeviceControlsRow.Patch,
-            SteamPowerLimitSurface.ValveRows,
+            SteamPowerLimitSurface.Patch,
             SteamPerformanceSurface.ProfileHeaderRow,
             SteamPerformanceSurface.ResetRow,
             SteamPerformanceSurface.OverlayLevelRow,
@@ -190,7 +190,7 @@ public sealed class SteamQuickAccessRowPatchTests
                             ? "frameLimit"
                             : expression.Contains("valveOverlayLevel", StringComparison.Ordinal)
                                 ? "valveOverlayLevel"
-                                : "valveTdp";
+                                : "powerLimit";
                 RemovedKinds.Add(kind);
                 value = "{\"ok\":true}";
             }
