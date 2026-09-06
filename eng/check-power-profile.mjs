@@ -74,6 +74,27 @@ assert.deepEqual(rows.map(row => row.props.icon), ["plug", "battery"]);
   assert.ok(!presetControl().children.some(child => child?.type === "div"),
     "no unformatted div may survive beside Steam's own rows");
 }
+// A refusal must stay visible when there is no active profile to carry it. Readback can fail with
+// no current profile at all, which left two disabled dropdowns and no reason for either.
+{
+  const failed = { ...state, available: false, current: "", statusText: "Readback failed" };
+  const previous = state;
+  state = failed;
+  const tree = presetControl();
+  assert.ok(!tree.children.some(child => child?.type === "labelField"),
+    "no active profile means no active-profile row");
+  assert.ok(JSON.stringify(tree).includes("Readback failed"),
+    "the reason a profile could not be read must reach the panel anyway");
+  // Same when the client could not resolve LabelField and the row is gone for a different reason.
+  const withoutField = api.createPowerPresetControl({ dropdown: "dropdown", icon: name => name, react: {
+    Fragment: "fragment", useState: () => [false, () => {}],
+    createElement: (type, props, ...children) => ({ type, props, children }),
+  } });
+  state = { ...previous, available: false, statusText: "Readback failed" };
+  assert.ok(JSON.stringify(withoutField()).includes("Readback failed"),
+    "an unresolved LabelField must not take the reason with it");
+  state = previous;
+}
 assert.deepEqual(rows.map(row => row.props.selectedOption), ["a", "b"]);
 rows[0].props.onChange({ data: "b" });
 await new Promise(resolve => setImmediate(resolve));
@@ -120,20 +141,30 @@ const sectionTitle = new Function(
 const titleText = (title) => (typeof title === "string" ? title : title.children.at(-1));
 const titleGlyph = (title) => (typeof title === "string" ? null : title.children[0]?.glyph);
 
-// Every placement gets its own glyph. A shape that appears twice tells a user scanning the panel
-// that two different controls are the same one, which is worse than leaving a row bare. This covers
-// the section table and every call site that names its glyph outright; the four the preset and
-// power-limit tables pass by variable are asserted by name in this file instead.
+// Every placement gets its own glyph, and every glyph gets a placement. A shape that appears twice
+// tells a user scanning the panel that two different controls are the same one, which is worse than
+// leaving a row bare; a shape nothing places is dead weight that survives until somebody notices it
+// by eye, which is how `sun` outlived the two rows it used to sit on.
+//
+// The scan reads the emitted asset, so it is textual and has limits worth stating: it sees the
+// section table and every call site that spells its glyph out, and the four names the preset and
+// power-limit tables pass by variable are listed here by hand. A placement built from a computed
+// name would be invisible to it. The set comparison below is what makes that survivable — a new
+// placement that this cannot see also fails to account for one of the declared glyphs.
 {
   const table = asset.indexOf("const SteamUiIconShapes =");
   const tableEnd = table + asset.slice(table).search(/\n[ \t]*function create/u);
   assert.ok(table >= 0 && tableEnd > table);
   const drawings = asset.slice(table, tableEnd);
-  const sectionTable = asset.slice(headerStart, asset.indexOf("});", headerStart));
+  // Comments are emitted verbatim, and a commented-out call site is not a placement.
+  const code = asset.replace(/^[ \t]*\/\/.*$/gmu, "");
+  const sectionTable = code.slice(
+    code.indexOf("const SectionIcons ="),
+    code.indexOf("});", code.indexOf("const SectionIcons =")),
+  );
   const used = [
-    ...[...asset.matchAll(/\bicon\("([A-Za-z]+)"/gu)].map((match) => match[1]),
-    ...[...asset.matchAll(/\bwithIcon\([^)]*"([A-Za-z]+)"\)/gu)].map((match) => match[1]),
-    ...[...sectionTable.matchAll(/:\s*"([A-Za-z]+)"/gu)].map((match) => match[1]),
+    ...[...code.matchAll(/\bicon\(\s*["']([A-Za-z]+)["']/gu)].map((match) => match[1]),
+    ...[...sectionTable.matchAll(/:\s*["']([A-Za-z]+)["']/gu)].map((match) => match[1]),
     "plug",
     "battery",
     "bolt",
@@ -141,10 +172,18 @@ const titleGlyph = (title) => (typeof title === "string" ? null : title.children
   ];
   const repeated = [...new Set(used.filter((name, at) => used.indexOf(name) !== at))];
   assert.deepEqual(repeated, [], `glyphs used for more than one control: ${repeated.join(", ")}`);
-  assert.ok(used.length >= 29, `only ${used.length} glyph placements were found`);
-  for (const name of used) {
-    assert.match(drawings, new RegExp(`\\b${name}:`, "u"), `${name} is not in the icon table`);
-  }
+  // Declared glyphs, read off the table's own keys rather than a number kept in step by hand.
+  // Indentation differs between the two compositions - the prelude comes out of tsc as-is, a
+  // consumer's asset is run through Prettier - so the key is anchored to its line, not a depth.
+  const declared = [...drawings.matchAll(/^[ \t]*([A-Za-z][A-Za-z0-9]*): \[/gmu)].map(
+    (match) => match[1],
+  );
+  assert.ok(declared.length >= 29, `only ${declared.length} glyphs were found in the table`);
+  assert.deepEqual(
+    [...used].sort(),
+    [...declared].sort(),
+    "every glyph must be placed exactly once and every placement must name a drawn glyph",
+  );
 }
 
 // Optional native fields must not take down the remaining device controls.
