@@ -1185,6 +1185,7 @@
             ),
           );
         }
+        note("powerLimit", `rendered ${rows.length} row(s)`);
         return controlRuntime.react.createElement(controlRuntime.react.Fragment, null, ...rows);
       };
 
