@@ -52,15 +52,28 @@ for (const badOptions of [[...options, options[0]], [{ id: 123, label: "Bad" }],
   assert.equal(api.normalizePowerProfileState({ ...state, options: badOptions }), null);
 }
 assert.match(asset, /\["powerProfile", "steam-ui-power-profile", powerProfileControl, "perf"\]/);
-const presetControl = api.createPowerPresetControl({ dropdown: "dropdown", icon: name => name, react: {
-  Fragment: "fragment", useState: () => [false, () => {}],
-  createElement: (type, props, ...children) => ({ type, props, children }),
-} });
+const presetControl = api.createPowerPresetControl({ dropdown: "dropdown", labelField: "labelField",
+  icon: name => name, react: {
+    Fragment: "fragment", useState: () => [false, () => {}],
+    createElement: (type, props, ...children) => ({ type, props, children }),
+  } });
 state = { available: true, options, current: "Custom", ac: "a", battery: "b",
   scope: "Global", unsetLabel: "Manual selection" };
 let rows = presetControl().children.filter(child => child?.type === "dropdown");
 assert.deepEqual(rows.map(row => row.props.label), ["When plugged in", "On battery"]);
 assert.deepEqual(rows.map(row => row.props.icon), ["plug", "battery"]);
+// The profile in effect is a Valve label/value row, not a bare div: it carries a label, a glyph and
+// the scope and status together as its description.
+{
+  const active = presetControl().children.find(child => child?.type === "labelField");
+  assert.ok(active, "the active profile must render as a Valve field");
+  assert.equal(active.props.label, "Active profile");
+  assert.equal(active.props.icon, "check");
+  assert.equal(active.props.description, "Global");
+  assert.deepEqual(active.children, ["Custom"]);
+  assert.ok(!presetControl().children.some(child => child?.type === "div"),
+    "no unformatted div may survive beside Steam's own rows");
+}
 assert.deepEqual(rows.map(row => row.props.selectedOption), ["a", "b"]);
 rows[0].props.onChange({ data: "b" });
 await new Promise(resolve => setImmediate(resolve));
@@ -119,6 +132,7 @@ const titleGlyph = (title) => (typeof title === "string" ? null : title.children
   const sectionTable = asset.slice(headerStart, asset.indexOf("});", headerStart));
   const used = [
     ...[...asset.matchAll(/\bicon\("([A-Za-z]+)"/gu)].map((match) => match[1]),
+    ...[...asset.matchAll(/\bwithIcon\([^)]*"([A-Za-z]+)"\)/gu)].map((match) => match[1]),
     ...[...sectionTable.matchAll(/:\s*"([A-Za-z]+)"/gu)].map((match) => match[1]),
     "plug",
     "battery",
@@ -127,7 +141,7 @@ const titleGlyph = (title) => (typeof title === "string" ? null : title.children
   ];
   const repeated = [...new Set(used.filter((name, at) => used.indexOf(name) !== at))];
   assert.deepEqual(repeated, [], `glyphs used for more than one control: ${repeated.join(", ")}`);
-  assert.ok(used.length >= 26, `only ${used.length} glyph placements were found`);
+  assert.ok(used.length >= 29, `only ${used.length} glyph placements were found`);
   for (const name of used) {
     assert.match(drawings, new RegExp(`\\b${name}:`, "u"), `${name} is not in the icon table`);
   }

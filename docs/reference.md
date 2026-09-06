@@ -654,6 +654,17 @@ glyph on a header that reappears on a row inside it, or on two rows that do diff
 those controls are the same control. Adding a row means drawing a shape, not borrowing one, and
 `eng/check-power-profile.mjs` fails the build on a repeat.
 
+Valve's own rows take no props, so `withIcon` renders one and clones what it returned. Only the
+overlay-level row qualifies: it returns Valve's slider wrapper, which spreads every unrecognized
+prop into `SliderField` and on into `Field`. The per-game toggle returns a Fragment, which keeps no
+prop but `key`; the reset row is a button rather than a field; the profile header already draws the
+game's capsule art.
+
+The profile a preset row reports, rather than sets, uses Valve's `LabelField` — resolved from the
+Field module, whose `#Field_MoreInfo_Action` token occurs once in the whole client bundle — with the
+scope and status as its description. Like the toggle, it is outside `createControlRuntime`'s guard:
+a client where it cannot be resolved loses that one line and keeps the assignments.
+
 The Performance surface's module also mounts Valve's profile header and per-game toggle, reset
 button, overlay-level selector and manual refresh-rate row. Which of them show anything is decided
 entirely by which fields the published `SteamPerformanceState` carries, because Valve's wrappers

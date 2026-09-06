@@ -80,6 +80,9 @@ const SteamUiIconShapes: Readonly<Record<string, readonly SteamUiIconShape[]>> =
     ["rect", { x: 7, y: 9, width: 5, height: 6, rx: 0.8 }],
   ],
 
+  // The profile actually in effect right now, above the two assignments that choose it.
+  check: [["path", { d: "M8.2 15.4 3.6 10.8 1.5 12.9 8.2 19.6 20.9 6.9 18.8 4.8 8.2 15.4Z" }]],
+
   // -- Charging -------------------------------------------------------------------------------
 
   // The same casing as `battery` with a bolt in it, because the Charging section and the On battery
@@ -147,12 +150,35 @@ const SteamUiIconShapes: Readonly<Record<string, readonly SteamUiIconShape[]>> =
     ["rect", { x: 11.1, y: 8.6, width: 1.8, height: 5.4 }],
     ["rect", { x: 11.1, y: 13.1, width: 6, height: 1.8 }],
   ],
+  // Valve's performance-overlay level, which is how much of the overlay is drawn. Stacked layers
+  // rather than a rectangle: `display`, `profile` and `aspect` are already frames, and a fourth
+  // would be the shape all four get confused for.
+  layers: [
+    ["path", { d: "M12 2.2 22.4 7.9 12 13.6 1.6 7.9 12 2.2Z" }],
+    ["path", { d: "M4.3 11.2 1.6 12.7 12 18.4 22.4 12.7 19.7 11.2 12 15.4 4.3 11.2Z" }],
+    ["path", { d: "M4.3 15.6 1.6 17.1 12 22.8 22.4 17.1 19.7 15.6 12 19.8 4.3 15.6Z" }],
+  ],
   // Rising bars for the frame-rate row: the same shape reads as a cap while one is set and as the
   // refresh rate once the cap is off, which is exactly what that one slider does.
   frameRate: [
     ["rect", { x: 3, y: 13, width: 4, height: 8, rx: 1.2 }],
     ["rect", { x: 10, y: 8, width: 4, height: 13, rx: 1.2 }],
     ["rect", { x: 17, y: 3, width: 4, height: 18, rx: 1.2 }],
+  ],
+  // Switching the frame cap off is the slider's own negation, so the glyph is the cap removed
+  // rather than a second frame-rate shape.
+  infinity: [
+    [
+      "path",
+      {
+        d: "M8.6 8.4a3.6 3.6 0 1 0 0 7.2c3.6 0 5.2-7.2 6.8-7.2a3.6 3.6 0 1 1 0 7.2c-3.6 0-5.2-7.2-6.8-7.2Z",
+        fill: "none",
+        stroke: "currentColor",
+        strokeWidth: 2.2,
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+      },
+    ],
   ],
   // Variable refresh: an uneven trace rather than a steady one. Stroked, not filled — a 2px line is
   // the only honest way to draw a waveform at this size.
