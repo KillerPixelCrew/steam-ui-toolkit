@@ -649,6 +649,11 @@ than the label. A section header is composed by `sectionTitle`, which pairs the 
 as valid there as a string. An unknown name renders no glyph rather than failing the row, so a
 mistyped name costs an icon and nothing else.
 
+Every glyph is used exactly once. A panel like this is scanned by shape before it is read, so a
+glyph on a header that reappears on a row inside it, or on two rows that do different things, says
+those controls are the same control. Adding a row means drawing a shape, not borrowing one, and
+`eng/check-power-profile.mjs` fails the build on a repeat.
+
 The Performance surface's module also mounts Valve's profile header and per-game toggle, reset
 button, overlay-level selector and manual refresh-rate row. Which of them show anything is decided
 entirely by which fields the published `SteamPerformanceState` carries, because Valve's wrappers

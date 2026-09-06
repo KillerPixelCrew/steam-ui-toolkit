@@ -768,7 +768,7 @@
         renderOutcomes[kind] = "rendered";
         return controlRuntime.react.createElement(controlRuntime.dropdown, {
           label: "Windows power profile",
-          icon: controlRuntime.icon("plug"),
+          icon: controlRuntime.icon("power"),
           rgOptions: options,
           selectedOption: options.some(option => option.data === state.current) ? state.current : undefined,
           disabled: pending || !state.available || options.length < 2,
@@ -859,7 +859,7 @@
             "#QuickAccess_Tab_Settings_Section_Controller_Title",
             "Controller",
           ),
-          icon: controlRuntime.icon("controller"),
+          icon: controlRuntime.icon("swap"),
           rgOptions: options,
           selectedOption: selected,
           onChange: setTarget,
@@ -899,7 +899,7 @@
           // language but English. Passing a token that does not exist is worse than passing none —
           // it makes Steam log an unresolved token on every render and still shows this string.
           label: "Display resolution",
-          icon: controlRuntime.icon("display"),
+          icon: controlRuntime.icon("aspect"),
           rgOptions: options,
           // A current mode outside the offered list selects nothing rather than the first entry,
           // which would silently misreport what the display is doing.
@@ -1257,7 +1257,7 @@
           const range = state.chargeLimit;
           appendSlider("steam-ui-charge-limit", {
             label: "Battery charge limit",
-            icon: controlRuntime.icon("battery"),
+            icon: controlRuntime.icon("percent"),
             iconLocation: "front",
             min: range.minimum,
             max: range.maximum,
@@ -1281,7 +1281,7 @@
           const range = state.lightingBrightness;
           appendSlider("steam-ui-lighting-brightness", {
             label: "Lighting brightness",
-            icon: controlRuntime.icon("sun"),
+            icon: controlRuntime.icon("bulb"),
             iconLocation: "front",
             min: range.minimum,
             max: range.maximum,
@@ -1304,7 +1304,7 @@
           rows.push(controlRuntime.react.createElement(controlRuntime.row,
             { key: "steam-ui-lighting-edit" },
             controlRuntime.react.createElement(controlRuntime.toggle, {
-              label: "Edit color", icon: controlRuntime.icon("colors"),
+              label: "Edit color", icon: controlRuntime.icon("pencil"),
               checked: editingColor, controlled: true,
               onChange: setEditingColor,
             })));
@@ -1364,7 +1364,7 @@
             });
           appendSlider("steam-ui-lighting-hue", {
             label: localizeOr(controlRuntime, "#ColorPicker_Hue", "Hue"),
-            icon: controlRuntime.icon("colors"),
+            icon: controlRuntime.icon("rainbow"),
             iconLocation: "front",
             min: 0,
             max: 360,
@@ -1411,7 +1411,7 @@
           });
           appendSlider("steam-ui-lighting-color-brightness", {
             label: localizeOr(controlRuntime, "#ColorPicker_Brightness", "Brightness"),
-            icon: controlRuntime.icon("sun"),
+            icon: controlRuntime.icon("contrast"),
             iconLocation: "front",
             min: 0,
             max: 100,
@@ -1547,15 +1547,18 @@
     // is inside its own text element, so an element is as valid there as a string; the row of icon
     // and text is laid out here rather than left to Valve's header CSS, which only sizes an svg that
     // is its DIRECT child and would leave a nested one at its intrinsic size.
+    // No header shares a glyph with a row beneath it, and no two rows share one either: the panel
+    // is scanned by shape before it is read, so a repeated glyph says two controls are the same
+    // control.
     const SectionIcons = Object.freeze({
       "Profile scope": "profile",
-      "Power profiles": "plug",
-      "Display and frame rate": "display",
-      "Power limits": "bolt",
+      "Power profiles": "sliders",
+      "Display and frame rate": "timer",
+      "Power limits": "gauge",
       Controller: "controller",
       Reset: "reset",
       Display: "display",
-      Charging: "battery",
+      Charging: "batteryCharging",
       "RGB lighting": "colors",
     });
     // 18px is the size Valve's own header rule gives a section icon, against a 16px header. A

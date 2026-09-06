@@ -33,7 +33,7 @@ const control = api.createPowerProfileControl({ dropdown: "dropdown", icon: name
 } });
 const row = control();
 assert.equal(row.label, "Windows power profile");
-assert.equal(row.icon, "plug");
+assert.equal(row.icon, "power");
 assert.equal(row.selectedOption, "a");
 row.onChange({ data: "unknown" });
 row.onChange({ data: "a" });
@@ -107,6 +107,32 @@ const sectionTitle = new Function(
 const titleText = (title) => (typeof title === "string" ? title : title.children.at(-1));
 const titleGlyph = (title) => (typeof title === "string" ? null : title.children[0]?.glyph);
 
+// Every placement gets its own glyph. A shape that appears twice tells a user scanning the panel
+// that two different controls are the same one, which is worse than leaving a row bare. This covers
+// the section table and every call site that names its glyph outright; the four the preset and
+// power-limit tables pass by variable are asserted by name in this file instead.
+{
+  const table = asset.indexOf("const SteamUiIconShapes =");
+  const tableEnd = table + asset.slice(table).search(/\n[ \t]*function create/u);
+  assert.ok(table >= 0 && tableEnd > table);
+  const drawings = asset.slice(table, tableEnd);
+  const sectionTable = asset.slice(headerStart, asset.indexOf("});", headerStart));
+  const used = [
+    ...[...asset.matchAll(/\bicon\("([A-Za-z]+)"/gu)].map((match) => match[1]),
+    ...[...sectionTable.matchAll(/:\s*"([A-Za-z]+)"/gu)].map((match) => match[1]),
+    "plug",
+    "battery",
+    "bolt",
+    "boost",
+  ];
+  const repeated = [...new Set(used.filter((name, at) => used.indexOf(name) !== at))];
+  assert.deepEqual(repeated, [], `glyphs used for more than one control: ${repeated.join(", ")}`);
+  assert.ok(used.length >= 26, `only ${used.length} glyph placements were found`);
+  for (const name of used) {
+    assert.match(drawings, new RegExp(`\\b${name}:`, "u"), `${name} is not in the icon table`);
+  }
+}
+
 // Optional native fields must not take down the remaining device controls.
 const deviceStart = asset.indexOf("const rgbToHsv =");
 const deviceEnd = asset.indexOf("// Steam's own FPS counter rows", deviceStart);
@@ -138,12 +164,19 @@ for (const toggle of [undefined, "toggle"]) {
     assert.deepEqual(tree.children.map(section => titleText(section.props.title)),
       ["Charging", "RGB lighting"]);
     assert.deepEqual(tree.children.map(section => titleGlyph(section.props.title)),
-      ["battery", "colors"]);
+      ["batteryCharging", "colors"]);
     const fields = tree.children.flatMap(section => section.children.map(row => row.children[0]));
     assert.ok(fields.some(field => field.props.label === "Battery charge limit"
-      && field.props.icon.glyph === "battery"));
+      && field.props.icon.glyph === "percent"));
     assert.ok(fields.some(field => field.props.label === "Lighting brightness"
-      && field.props.icon.glyph === "sun"));
+      && field.props.icon.glyph === "bulb"));
+    // A glyph on a header must not reappear on a row inside it, and no two rows may share one:
+    // shape is how this panel is navigated before the label is read.
+    const glyphs = tree.children.flatMap(section => [
+      titleGlyph(section.props.title),
+      ...section.children.map(row => row.children[0].props.icon?.glyph),
+    ]).filter(Boolean);
+    assert.equal(new Set(glyphs).size, glyphs.length, `device glyphs repeat: ${glyphs.join(", ")}`);
     assert.equal(fields.some(field => field.props.label === "Edit color"), !!toggle);
     assert.equal(fields.some(field => field.props.label === "Lighting zone"), !!toggle && expanded);
   }
