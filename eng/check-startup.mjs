@@ -79,9 +79,20 @@ for (const source of [
 const hostStart = asset.indexOf("function createNativeComponentHost()");
 const hostEnd = asset.indexOf('registerGate("nativeComponents"', hostStart);
 assert.ok(hostStart >= 0 && hostEnd > hostStart);
+// The row glyphs, which the host builds a renderer from before it resolves anything else. Taken from
+// the asset rather than stubbed, so a fragment that stopped being emitted fails here instead of
+// silently leaving every row without an icon. It ends at the first hoisted `function create…` after
+// it, which is the next fragment in either composition — the toolkit's gates or a consumer's
+// resolver.
+const iconStart = asset.indexOf("const SteamUiIconShapes =");
+const iconRelativeEnd = iconStart < 0 ? -1 : asset.slice(iconStart).search(/\n[ \t]*function create/u);
+assert.ok(iconStart >= 0 && iconRelativeEnd > 0);
+const icons = asset.slice(iconStart, iconStart + iconRelativeEnd);
+assert.match(icons, /const createIconRenderer =/u);
 const createHost = (window) =>
   runInNewContext(
     `${asset.slice(start, end)}
+     ${icons}
      const getWebpackRuntime = scope => createSteamUiModuleResolver(scope);
      ${asset.slice(hostStart, hostEnd)}
      createNativeComponentHost();`,

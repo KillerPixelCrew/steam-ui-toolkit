@@ -225,7 +225,10 @@
       // The toggle is deliberately not in that guard. It arrived after the other four, so a client
       // whose toggle cannot be found still gets every control that does not need one, rather than
       // losing the whole native surface.
-      return { react, slider, dropdown, toggle, section, row, localize };
+      // The icon renderer is built once per control runtime and closes over Steam's React, so a row
+      // asks for a glyph by name and never touches element construction itself.
+      const icon = createIconRenderer(react);
+      return { react, slider, dropdown, toggle, section, row, localize, icon };
     };
     const normalizeText = (value) => (typeof value === "string" ? value.slice(0, 240) : "");
     // Deliberately small. Everything the row needs is a switch position and a reason, because the
@@ -681,6 +684,7 @@
             "#QuickAccess_Tab_Perf_EnableVRR",
             "Variable refresh rate",
           ),
+          icon: controlRuntime.icon("pulse"),
           description: state.statusText || undefined,
           checked: state.enabled,
           // Controlled: the switch shows what the device reports, so a write the panel refuses
@@ -727,6 +731,7 @@
         return controlRuntime.react.createElement(controlRuntime.toggle, {
           // The host's own control; Valve has no string for it, so no token is passed.
           label: "Automatic TDP",
+          icon: controlRuntime.icon("auto"),
           description: description || undefined,
           checked: state.enabled,
           // Controlled, so the switch shows the stored setting rather than its own click. A command
@@ -763,6 +768,7 @@
         renderOutcomes[kind] = "rendered";
         return controlRuntime.react.createElement(controlRuntime.dropdown, {
           label: "Windows power profile",
+          icon: controlRuntime.icon("plug"),
           rgOptions: options,
           selectedOption: options.some(option => option.data === state.current) ? state.current : undefined,
           disabled: pending || !state.available || options.length < 2,
@@ -795,8 +801,9 @@
         const options = [{ data: "", label: state.unsetLabel || "Manual selection" },
           ...state.options.map(option => ({ data: option.id, label: option.label }))];
         const definition = definitions.powerPreset;
-        const assignment = (label, selected, command) => controlRuntime.react.createElement(controlRuntime.dropdown, {
-          label, layout: "below", rgOptions: options.filter(option => option.data !== "custom" || selected === "custom"), selectedOption: selected,
+        const assignment = (label, iconName, selected, command) => controlRuntime.react.createElement(controlRuntime.dropdown, {
+          label, icon: controlRuntime.icon(iconName), layout: "below",
+          rgOptions: options.filter(option => option.data !== "custom" || selected === "custom"), selectedOption: selected,
           disabled: pending || !state.available,
           onChange: option => {
             if (pending || !state.available || !option || option.data === "custom" || !options.some(item => item.data === option.data)) return;
@@ -809,8 +816,8 @@
         return controlRuntime.react.createElement(controlRuntime.react.Fragment, null,
           controlRuntime.react.createElement("div", { role: "status" }, `Active profile: ${state.current}`),
           controlRuntime.react.createElement("div", null, state.scope),
-          assignment("When plugged in", state.ac, definition.acCommand),
-          assignment("On battery", state.battery, definition.batteryCommand),
+          assignment("When plugged in", "plug", state.ac, definition.acCommand),
+          assignment("On battery", "battery", state.battery, definition.batteryCommand),
           state.statusText ? controlRuntime.react.createElement("div", { role: "status" }, state.statusText) : null);
       };
     const createControllerControl = (controlRuntime) =>
@@ -852,6 +859,7 @@
             "#QuickAccess_Tab_Settings_Section_Controller_Title",
             "Controller",
           ),
+          icon: controlRuntime.icon("controller"),
           rgOptions: options,
           selectedOption: selected,
           onChange: setTarget,
@@ -891,6 +899,7 @@
           // language but English. Passing a token that does not exist is worse than passing none —
           // it makes Steam log an unresolved token on every render and still shows this string.
           label: "Display resolution",
+          icon: controlRuntime.icon("display"),
           rgOptions: options,
           // A current mode outside the offered list selects nothing rather than the first entry,
           // which would silently misreport what the display is doing.
@@ -999,6 +1008,12 @@
                 "#QuickAccess_Tab_Perf_LimitFrameRate",
                 "Frame rate limit",
               ),
+          icon: controlRuntime.icon("frameRate"),
+          // SliderField would otherwise put the glyph beside the track, which is where Valve keeps
+          // the Quick Settings brightness icon on a slider that has no label at all. These sliders
+          // are labelled, and the icon belongs with the label so every row in a section lines its
+          // glyph up in one column.
+          iconLocation: "front",
           // The two modes are two different sliders sharing one row. The frame cap is NOTCHLESS
           // under every strategy — the limiter holds any integer and the pairing is what snaps —
           // while the refresh rate is notched to exactly the modes the display accepted, because
@@ -1132,9 +1147,9 @@
         if (!state) return note("powerLimit", "no state");
         const busy = sending || isBusy(state.sustained?.progress) || isBusy(state.boost?.progress);
         const rows: unknown[] = [];
-        for (const [key, label, range, echo, command] of [
-          ["pl1", "Sustained power (PL1)", state.sustained, sustainedEcho, definition.primaryCommand],
-          ["pl2", "Boost power (PL2)", state.boost, boostEcho, definition.boostCommand],
+        for (const [key, label, iconName, range, echo, command] of [
+          ["pl1", "Sustained power (PL1)", "bolt", state.sustained, sustainedEcho, definition.primaryCommand],
+          ["pl2", "Boost power (PL2)", "boost", state.boost, boostEcho, definition.boostCommand],
         ] as const) {
           if (!range) continue;
           const commit = (watts) => {
@@ -1170,6 +1185,8 @@
               { key },
               controlRuntime.react.createElement(controlRuntime.slider, {
                 label,
+                icon: controlRuntime.icon(iconName),
+                iconLocation: "front",
                 min: range.min,
                 max: range.max,
                 step: range.step,
@@ -1240,6 +1257,8 @@
           const range = state.chargeLimit;
           appendSlider("steam-ui-charge-limit", {
             label: "Battery charge limit",
+            icon: controlRuntime.icon("battery"),
+            iconLocation: "front",
             min: range.minimum,
             max: range.maximum,
             step: range.step,
@@ -1262,6 +1281,8 @@
           const range = state.lightingBrightness;
           appendSlider("steam-ui-lighting-brightness", {
             label: "Lighting brightness",
+            icon: controlRuntime.icon("sun"),
+            iconLocation: "front",
             min: range.minimum,
             max: range.maximum,
             step: range.step,
@@ -1283,7 +1304,8 @@
           rows.push(controlRuntime.react.createElement(controlRuntime.row,
             { key: "steam-ui-lighting-edit" },
             controlRuntime.react.createElement(controlRuntime.toggle, {
-              label: "Edit color", checked: editingColor, controlled: true,
+              label: "Edit color", icon: controlRuntime.icon("colors"),
+              checked: editingColor, controlled: true,
               onChange: setEditingColor,
             })));
         }
@@ -1299,6 +1321,7 @@
               { key: "steam-ui-lighting-zone" },
               controlRuntime.react.createElement(controlRuntime.dropdown, {
                 label: "Lighting zone",
+                icon: controlRuntime.icon("zones"),
                 rgOptions: options,
                 selectedOption: zone.id,
                 onChange: (option) => {
@@ -1341,6 +1364,8 @@
             });
           appendSlider("steam-ui-lighting-hue", {
             label: localizeOr(controlRuntime, "#ColorPicker_Hue", "Hue"),
+            icon: controlRuntime.icon("colors"),
+            iconLocation: "front",
             min: 0,
             max: 360,
             step: 1,
@@ -1365,6 +1390,8 @@
           });
           appendSlider("steam-ui-lighting-saturation", {
             label: localizeOr(controlRuntime, "#ColorPicker_Saturation", "Saturation"),
+            icon: controlRuntime.icon("droplet"),
+            iconLocation: "front",
             min: 0,
             max: 100,
             step: 1,
@@ -1384,6 +1411,8 @@
           });
           appendSlider("steam-ui-lighting-color-brightness", {
             label: localizeOr(controlRuntime, "#ColorPicker_Brightness", "Brightness"),
+            icon: controlRuntime.icon("sun"),
+            iconLocation: "front",
             min: 0,
             max: 100,
             step: 1,
@@ -1407,9 +1436,11 @@
         renderOutcomes.deviceControls = `rendered ${rows.length + chargingRows.length} row(s)`;
         return controlRuntime.react.createElement(controlRuntime.react.Fragment, null,
           chargingRows.length ? controlRuntime.react.createElement(controlRuntime.section,
-            { title: "Charging", key: "charging" }, ...chargingRows) : null,
+            { title: sectionTitle(controlRuntime, "Charging"), key: "charging" },
+            ...chargingRows) : null,
           rows.length ? controlRuntime.react.createElement(controlRuntime.section,
-            { title: "RGB lighting", key: "lighting" }, ...rows) : null);
+            { title: sectionTitle(controlRuntime, "RGB lighting"), key: "lighting" },
+            ...rows) : null);
       };
 
     // Steam's own FPS counter rows, which the host replaces with its RTSS-driven overlay. Identified by
@@ -1510,6 +1541,38 @@
       return controlRuntime.react.createElement(filteredNative.component, tree.props);
     };
 
+    // The glyph beside each section header, keyed by the header text so every placement — the
+    // Performance groups, the Quick Settings Display group and the device sections — reads from one
+    // table instead of carrying its icon at its own call site. PanelSection renders whatever `title`
+    // is inside its own text element, so an element is as valid there as a string; the row of icon
+    // and text is laid out here rather than left to Valve's header CSS, which only sizes an svg that
+    // is its DIRECT child and would leave a nested one at its intrinsic size.
+    const SectionIcons = Object.freeze({
+      "Profile scope": "profile",
+      "Power profiles": "plug",
+      "Display and frame rate": "display",
+      "Power limits": "bolt",
+      Controller: "controller",
+      Reset: "reset",
+      Display: "display",
+      Charging: "battery",
+      "RGB lighting": "colors",
+    });
+    // 18px is the size Valve's own header rule gives a section icon, against a 16px header. A
+    // section with no glyph of its own keeps the plain string, so the header is never wrapped in
+    // markup that buys it nothing.
+    const sectionTitle = (controlRuntime, title) => {
+      const icon = controlRuntime.icon(SectionIcons[title], 18);
+      return icon
+        ? controlRuntime.react.createElement(
+            "div",
+            { style: { display: "flex", alignItems: "center", gap: "8px" } },
+            icon,
+            title,
+          )
+        : title;
+    };
+
     const appendControls = (controlRuntime, tree, placement = "perf") => {
       // Rendered React elements from Steam's own untyped runtime.
       const controls: unknown[] = [];
@@ -1591,7 +1654,10 @@
       if (placement === "quickSettings") {
         const section = groups.has("Display") ? controlRuntime.react.createElement(
           controlRuntime.section,
-          { key: "steam-ui-quick-settings-section", title: "Display" },
+          {
+            key: "steam-ui-quick-settings-section",
+            title: sectionTitle(controlRuntime, "Display"),
+          },
           ...(groups.get("Display") || []),
         ) : null;
         appendDiagnostics[placement] = {
@@ -1629,7 +1695,8 @@
       const own = controlRuntime.react.createElement(controlRuntime.react.Fragment, null,
         ...["Profile scope", "Power profiles", "Display and frame rate", "Power limits", "Controller", "Reset"]
           .filter(title => groups.has(title))
-          .map(title => controlRuntime.react.createElement(controlRuntime.section, { key: title, title }, ...groups.get(title)!)));
+          .map(title => controlRuntime.react.createElement(controlRuntime.section,
+            { key: title, title: sectionTitle(controlRuntime, title) }, ...groups.get(title)!)));
 
       // Shape of what Steam's performance root returned, so the rows it renders can be identified
       // without guessing. Needed to suppress Steam's own FPS counter rows in favour of the host's

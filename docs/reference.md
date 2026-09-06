@@ -65,7 +65,7 @@ its patches reach them through `window[namespace].gate(name)`, exactly as the sh
 | Logging    | `ISteamUiLog { Info, Warn, Change(key, message, warning) }`, static `SteamUiLog` with a discarding default                                                                                                                                                                                                                                                   |
 | Surfaces   | `SteamAudioSurface`, `SteamNetworkSurface`, `SteamBluetoothSurface`, `SteamBrightnessSurface`, `SteamPerformanceSurface`, `SteamPowerLimitSurface`, `SteamFrameLimitRow`, `SteamVariableRefreshRow`, `SteamResolutionRow`, `SteamAutoTdpRow`, `SteamControllerTargetRow`, `SteamDeviceControlsRow`, each with a state record and `ISteam*Backend` (§15) |
 | Patch helpers | `SteamUiBridgePatch`, `SteamGatePatch`, `SteamQuickAccessRowPatch`; readers `SteamUiPayload`, `SteamPerformanceDeltaReader`, `SteamOverlayLevelWire`; `SteamUiProbeJs`, `SteamUiText`, `SteamSettingPersistence`                                                                                                                                         |
-| Assets     | `SteamUiAssets/Source/types.ts`, `bridge.ts`, `ownership.ts`, `rpc.ts`, `gates/*.ts`, `components.ts`, `epilogue.ts`; built by `eng/build-prelude.mjs`, checked by `eng/check-ownership-claims.mjs`                                                                                                                                                       |
+| Assets     | `SteamUiAssets/Source/types.ts`, `bridge.ts`, `ownership.ts`, `rpc.ts`, `icons.ts`, `gates/*.ts`, `components.ts`, `epilogue.ts`; built by `eng/build-prelude.mjs`, checked by `eng/check-ownership-claims.mjs`                                                                                                                                           |
 
 `SteamUiLog` is a settable static rather than a constructor parameter because there is one sink per
 process. `Change` is the poll-loop primitive: a line is written once per transition of its key, and
@@ -495,8 +495,8 @@ one look conflicting. Log keys: `steam.ui.extensions.root`, `steam.ui.extension.
 
 ## 11. The prelude build and the composition contract
 
-`eng/build-prelude.mjs` concatenates `types.ts`, `bridge.ts`, `ownership.ts`, `rpc.ts`, appends
-the IIFE close only for the compile, type-checks with TypeScript 7 under a strict, ES2022,
+`eng/build-prelude.mjs` concatenates `types.ts`, `bridge.ts`, `ownership.ts`, `rpc.ts`, `icons.ts`,
+appends the IIFE close only for the compile, type-checks with TypeScript 7 under a strict, ES2022,
 type-stripping-only configuration, and emits `dist/prelude.js` from the `// @steam-ui-bundle-start`
 marker onward with the IIFE left open. `types.ts` sits above the marker so it types the compile and
 ships nothing. Compiling the prelude alone is what proves it stands on its own: it stopped compiling
@@ -507,7 +507,7 @@ A consumer composes one script:
 ```text
 (() => { "use strict"; let installResult; const config = __STEAM_UI_CONFIGURATION_JSON__;
   …bridge.ts…            reuse check, request/subscribe/deliver/dispose, registerGate, window[ns]
-  …ownership.ts, rpc.ts…
+  …ownership.ts, rpc.ts, icons.ts…
   …consumer fragments…   hoisted function create…() + top-level registerGate(name, create…())
   …epilogue.ts…          return installResult;
 })();
@@ -636,6 +636,18 @@ sections after them. RGB brightness stays visible; an Edit color toggle reveals 
 If Valve's toggle component is unavailable, the color editor is omitted while charging and brightness remain usable.
 Empty groups are omitted. Each control retains the existing bridge and patch
 ownership.
+
+Rows and section headers carry a glyph. `icons.ts` holds the drawings — the toolkit's own, on a
+24x24 grid, filled with `currentColor` and cut with `fill-rule="evenodd"`, because the client's
+artwork is Valve's and cannot be vendored. `createIconRenderer(react)` builds them with Steam's
+React and caches one element per name and size, and the control runtime exposes it as
+`controlRuntime.icon(name, size = 20)`. A row passes the result as Field's `icon` prop, which
+`SliderField`, `ToggleField` and `DropDownField` all forward; sliders also pass
+`iconLocation: "front"`, because `SliderField` otherwise places the glyph beside the track rather
+than the label. A section header is composed by `sectionTitle`, which pairs the 18px glyph named in
+`SectionIcons` with the header text — `PanelSection` renders whatever `title` is, so an element is
+as valid there as a string. An unknown name renders no glyph rather than failing the row, so a
+mistyped name costs an icon and nothing else.
 
 The Performance surface's module also mounts Valve's profile header and per-game toggle, reset
 button, overlay-level selector and manual refresh-rate row. Which of them show anything is decided

@@ -25,12 +25,15 @@ const longLabel = api.normalizePowerProfileState({ available: true,
   options: [{ id: "a", label: "x".repeat(10000) }], current: "a" });
 assert.equal(longLabel.options[0].label.length, 240);
 state = { available: true, options, current: "a", statusText: "Ready" };
-const control = api.createPowerProfileControl({ dropdown: "dropdown", react: {
+// The icon fixture hands back the requested name, so an assertion can say which glyph a row asked
+// for without this file having to know how an svg element is built.
+const control = api.createPowerProfileControl({ dropdown: "dropdown", icon: name => name, react: {
   useState: () => [false, value => pending.push(value)],
   createElement: (_type, props) => props,
 } });
 const row = control();
 assert.equal(row.label, "Windows power profile");
+assert.equal(row.icon, "plug");
 assert.equal(row.selectedOption, "a");
 row.onChange({ data: "unknown" });
 row.onChange({ data: "a" });
@@ -49,7 +52,7 @@ for (const badOptions of [[...options, options[0]], [{ id: 123, label: "Bad" }],
   assert.equal(api.normalizePowerProfileState({ ...state, options: badOptions }), null);
 }
 assert.match(asset, /\["powerProfile", "steam-ui-power-profile", powerProfileControl, "perf"\]/);
-const presetControl = api.createPowerPresetControl({ dropdown: "dropdown", react: {
+const presetControl = api.createPowerPresetControl({ dropdown: "dropdown", icon: name => name, react: {
   Fragment: "fragment", useState: () => [false, () => {}],
   createElement: (type, props, ...children) => ({ type, props, children }),
 } });
@@ -57,6 +60,7 @@ state = { available: true, options, current: "Custom", ac: "a", battery: "b",
   scope: "Global", unsetLabel: "Manual selection" };
 let rows = presetControl().children.filter(child => child?.type === "dropdown");
 assert.deepEqual(rows.map(row => row.props.label), ["When plugged in", "On battery"]);
+assert.deepEqual(rows.map(row => row.props.icon), ["plug", "battery"]);
 assert.deepEqual(rows.map(row => row.props.selectedOption), ["a", "b"]);
 rows[0].props.onChange({ data: "b" });
 await new Promise(resolve => setImmediate(resolve));
@@ -90,6 +94,19 @@ assert.equal(presetControl(), null);
 assert.match(asset, /\["powerPreset", "steam-ui-power-preset", powerPresetControl, "perf"\]/);
 console.log("Power-profile and assignment emitted dropdown checks passed.");
 
+// The real section header composer, so the device sections are checked against the titles the panel
+// actually receives rather than a stand-in. It reads its glyph off the runtime, so it needs nothing
+// from the icon table itself.
+const headerStart = asset.indexOf("const SectionIcons =");
+const headerEnd = asset.indexOf("const appendControls =", headerStart);
+assert.ok(headerStart >= 0 && headerEnd > headerStart);
+const sectionTitle = new Function(
+  asset.slice(headerStart, headerEnd) + "\nreturn sectionTitle;",
+)();
+// A header is an icon and its text in a row; a section with no glyph keeps the bare string.
+const titleText = (title) => (typeof title === "string" ? title : title.children.at(-1));
+const titleGlyph = (title) => (typeof title === "string" ? null : title.children[0]?.glyph);
+
 // Optional native fields must not take down the remaining device controls.
 const deviceStart = asset.indexOf("const rgbToHsv =");
 const deviceEnd = asset.indexOf("// Steam's own FPS counter rows", deviceStart);
@@ -101,16 +118,16 @@ const deviceState = {
 };
 const createDeviceControl = new Function("useSemanticState", "normalizeDeviceControlsState",
   "definitions", "request", "nextActionGeneration", "useTrailingCommit", "useEchoedValue",
-  "note", "renderOutcomes", "isBusy", "localizeOr",
+  "note", "renderOutcomes", "isBusy", "localizeOr", "sectionTitle",
   asset.slice(deviceStart, deviceEnd) + "\nreturn createDeviceControlsControl;")(
   () => deviceState, value => value, { deviceControls: {} },
   () => { throw new Error("Rendering must not dispatch hardware writes"); }, () => 1,
   () => () => {}, (_runtime, value) => ({ value }), () => null, {}, () => false,
-  (_runtime, _token, fallback) => fallback);
+  (_runtime, _token, fallback) => fallback, sectionTitle);
 for (const toggle of [undefined, "toggle"]) {
   for (const expanded of [false, true]) {
     const render = createDeviceControl({ toggle, row: "row", section: "section",
-      slider: "slider", dropdown: "dropdown", react: {
+      slider: "slider", dropdown: "dropdown", icon: (glyph, size) => ({ glyph, size }), react: {
         Fragment: "fragment", useState: initial => [typeof initial === "boolean" ? expanded : initial, () => {}],
         createElement: (type, props, ...children) => {
           assert.ok(type, "An unresolved native component must never be rendered");
@@ -118,10 +135,15 @@ for (const toggle of [undefined, "toggle"]) {
         },
       } });
     const tree = render();
-    assert.deepEqual(tree.children.map(section => section.props.title), ["Charging", "RGB lighting"]);
+    assert.deepEqual(tree.children.map(section => titleText(section.props.title)),
+      ["Charging", "RGB lighting"]);
+    assert.deepEqual(tree.children.map(section => titleGlyph(section.props.title)),
+      ["battery", "colors"]);
     const fields = tree.children.flatMap(section => section.children.map(row => row.children[0]));
-    assert.ok(fields.some(field => field.props.label === "Battery charge limit"));
-    assert.ok(fields.some(field => field.props.label === "Lighting brightness"));
+    assert.ok(fields.some(field => field.props.label === "Battery charge limit"
+      && field.props.icon.glyph === "battery"));
+    assert.ok(fields.some(field => field.props.label === "Lighting brightness"
+      && field.props.icon.glyph === "sun"));
     assert.equal(fields.some(field => field.props.label === "Edit color"), !!toggle);
     assert.equal(fields.some(field => field.props.label === "Lighting zone"), !!toggle && expanded);
   }
@@ -152,6 +174,7 @@ console.log("Device controls retain charging and brightness without the optional
   const runtime = {
     slider: "slider",
     row: "row",
+    icon: (name) => name,
     react: {
       Fragment: "fragment",
       useState(initial) {
@@ -212,6 +235,12 @@ console.log("Device controls retain charging and brightness without the optional
     sliders.map((slider) => slider.label),
     ["Sustained power (PL1)", "Boost power (PL2)"],
   );
+  assert.deepEqual(
+    sliders.map((slider) => slider.icon),
+    ["bolt", "boost"],
+  );
+  // SliderField would otherwise place the glyph beside the track rather than the label.
+  assert.ok(sliders.every((slider) => slider.iconLocation === "front"));
   assert.deepEqual(
     sliders.map((slider) => slider.value),
     [23, 30],
