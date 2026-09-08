@@ -100,6 +100,9 @@ resolver accepts a literal module id, or `resolve(tokens)` for a unique source f
 never enter webpack's loader, and ambiguous or failed resolution is explicit. Feature scripts must
 not implement their own registry scan. The bridge and built-in probes use this same source.
 
+Semantic sliders render hardware observations and suppress unchanged completion echoes, so a live
+power-limit update does not dispatch a manual write back to its owner.
+
 The library is the machinery and the surfaces; the data behind them is yours. You supply:
 
 - a logger (`ISteamUiLog`), so diagnostics land wherever your application's do;

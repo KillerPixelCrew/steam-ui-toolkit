@@ -607,7 +607,7 @@
         onChange: (next) => setEcho(typeof next === "number" ? next : null),
         onChangeComplete: (next, commit) => {
           setEcho(null);
-          commit(next);
+          if (typeof next === "number" && Number.isFinite(next) && next !== observed) commit(next);
         },
       };
     };

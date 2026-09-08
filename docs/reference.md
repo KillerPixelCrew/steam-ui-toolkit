@@ -617,6 +617,10 @@ Failures keep the last confirmed level and expose `lastError`; they never retry 
 `eng/check-brightness.mjs` exercises focused-slider echoes, stale readback, overlapping requests,
 failures and reinstall against the emitted JavaScript without a live Steam session.
 
+Semantic slider completion also suppresses an unchanged observed value. Programmatic refresh and
+command acknowledgments cannot become new user writes. `eng/check-slider-readback.mjs` checks the
+emitted echo hook with an inert React fixture.
+
 `SteamPowerProfileRow` adds a dropdown on Performance through patch `steam-ui.power-profile`, kind
 `powerProfile`, and command `setPowerProfile`. Payloads are exactly `{ target: "id" }`, validated
 with `TryReadTarget`. `SteamPowerProfileState` carries up to 64 unique id/label options, observed
