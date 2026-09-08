@@ -609,6 +609,14 @@ for fixtures and diagnostics.
 | `SteamControllerTargetRow` | controller-target dropdown                    | row on Valve's dropdown                                               | `SteamControllerTargetState` | choose a target                                                                            |
 | `SteamDeviceControlsRow`   | charge limit, lighting brightness and colour  | rows on Valve's slider and dropdown                                   | `SteamDeviceControlsState`   | three writes                                                                               |
 
+`SteamBrightnessState` carries confirmed `Percent` and a monotonic `Revision`. A successful
+`setBrightness` response returns serialized brightness readback in its payload. Use the same
+revision sequence for responses and publications. The gate holds confirmed state separately from
+pending requests, rejects old revisions and suppresses observable-update feedback into the setter.
+Failures keep the last confirmed level and expose `lastError`; they never retry automatically.
+`eng/check-brightness.mjs` exercises focused-slider echoes, stale readback, overlapping requests,
+failures and reinstall against the emitted JavaScript without a live Steam session.
+
 `SteamPowerProfileRow` adds a dropdown on Performance through patch `steam-ui.power-profile`, kind
 `powerProfile`, and command `setPowerProfile`. Payloads are exactly `{ target: "id" }`, validated
 with `TryReadTarget`. `SteamPowerProfileState` carries up to 64 unique id/label options, observed

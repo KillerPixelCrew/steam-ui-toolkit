@@ -8,7 +8,8 @@ namespace SteamUiToolkit;
 
 /// <summary>The panel backlight level Steam's brightness slider shows.</summary>
 /// <param name="Percent">The level, 0 to 100, read from the panel itself.</param>
-public sealed record SteamBrightnessState(int Percent);
+/// <param name="Revision">Monotonic host observation revision, shared by publications and command readback.</param>
+public sealed record SteamBrightnessState(int Percent, long Revision = 0);
 
 /// <summary>What answers Steam's brightness slider.</summary>
 public interface ISteamBrightnessBackend
@@ -16,7 +17,7 @@ public interface ISteamBrightnessBackend
     /// <summary>Sets the panel backlight.</summary>
     /// <param name="percent">The level, 0 to 100.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns>The outcome.</returns>
+    /// <returns>The outcome with serialized <see cref="SteamBrightnessState"/> readback as its payload on success.</returns>
     Task<SteamUiCommandResult> SetBrightnessAsync(int percent, CancellationToken cancellationToken);
 }
 
@@ -25,8 +26,8 @@ public interface ISteamBrightnessBackend
 /// The slider ships in the Windows client behind one settings boolean, and its native
 /// <c>SetBrightness</c> is a stub whose change notifications never fire. The gate reveals the flag,
 /// claims the setter so the slider's writes reach the backend, and feeds the store's observable
-/// from the published level so a change made elsewhere moves the slider. Publish only on an actual
-/// level change: a publication that merely restates the level fights a drag the store is ahead on.
+/// from confirmed readback. Pending user requests and programmatic state projection are separate:
+/// an observable refresh must never invoke the hardware setter. Revisions reject stale publications.
 /// </remarks>
 public static class SteamBrightnessSurface
 {

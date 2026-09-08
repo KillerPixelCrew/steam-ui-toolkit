@@ -22,7 +22,7 @@ public sealed record SteamUiStatePublication(
 /// <param name="Error">Why it did not, when it did not. Never null on failure: an unexplained
 /// refusal is the defect this contract exists to prevent, because the injected side has nowhere to
 /// put a reason and the user sees only a control that did nothing.</param>
-/// <param name="Payload">An optional answer for commands that read rather than write.</param>
+/// <param name="Payload">An optional answer, including confirmed readback after a write.</param>
 public readonly record struct SteamUiCommandResult(
     bool Succeeded,
     string? Error,

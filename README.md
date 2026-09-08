@@ -83,6 +83,10 @@ that get injected, against those scenarios in CI. It caught a real defect the da
 
 ## Using it
 
+Brightness hosts publish confirmed percentages with increasing observation revisions and return
+readback in successful command responses. The native slider consumes that state without sending
+programmatic refreshes back as hardware writes; see `SteamBrightnessSurface` in the reference.
+
 For a host that must leave Steam's cold startup untouched, construct
 `new PersistentSteamUiTransport(requireMainWindow: true)`. Discovery waits for one validated main
 window before attaching to any role; the default constructor retains unrestricted target discovery.
