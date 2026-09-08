@@ -24,7 +24,11 @@ public readonly record struct SteamBluetoothDevice(
     string Mac,
     int EType,
     bool IsPaired,
-    bool IsConnected);
+    bool IsConnected)
+{
+    /// <summary>Whether a pairing or connection operation is still in progress.</summary>
+    public bool OperationInProgress { get; init; }
+}
 
 /// <summary>Bluetooth as Steam's own pairing panel expects to receive it.</summary>
 /// <remarks>

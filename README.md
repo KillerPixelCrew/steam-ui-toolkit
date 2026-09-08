@@ -54,6 +54,9 @@ change OS power settings itself.
   work stays here.
 - An extension host, so a consumer can let third parties add surfaces of their own.
 
+Bluetooth state includes optional operation progress for Steam's spinner. Failed backend commands
+return failed transport replies, and device detail queries preserve the semantic device identity.
+
 State callbacks are isolated during both cached replay and later publications, so a failing
 subscriber cannot interrupt another subscriber or prevent installation cleanup from being registered.
 Power controls use two Valve slider primitives for sustained (PL1) and boost (PL2) power. Both
