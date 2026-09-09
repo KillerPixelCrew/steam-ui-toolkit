@@ -20,6 +20,11 @@ itself, and says why when it does not work.
 
 ## What it gives you
 
+`SteamSideMenuObserver.ReadAsync` reads main-window and overlay-window menu state through the
+host's subscribed transport. Register `SteamOverlayActivationPatch` with the patch manager to
+observe overlay activation as well. Unknown activation remains unknown after attachment or
+reconnect; a closed QAM alone does not prove that an in-game overlay is closed.
+
 `SteamPowerProfileRow.Module` adds a Windows power-profile dropdown to QAM Performance. Supply stable ids,
 display labels and observed state through `SteamPowerProfileState`; implement
 `ISteamPowerProfileBackend` to validate and apply selections. `SteamPowerPresetRow.Module` adds

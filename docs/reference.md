@@ -18,6 +18,27 @@ Big Picture, which surfaces it registers) is on the WSGM side in `docs/steam-cef
 
 ## 1. The shape
 
+### Steam surface observations
+
+`SteamUiToolkit.Surfaces.SteamSideMenuObserver` reads the known window/menu stores through an
+existing subscribed `ISteamUiTransport`. It does not create a transport or control input ownership.
+Snapshots include CEF generations, the main window and at most 32 overlay windows identified by
+process/application id. Missing stores, invalid identities, malformed menus and stale generations
+produce unknown data. Consumers must also invalidate previously held snapshots when transport
+generations change.
+
+Register `SteamOverlayActivationPatch` through the normal patch manager lifecycle. It owns one
+`RegisterForOverlayActivated` subscription, replaces only a recognized older observer, and ignores
+late callbacks after cleanup. Events are bounded to 32 identities; overflow or malformed events
+make activation unknown until reattachment. No synthetic closed event is supplied at startup.
+`AllSideMenusClosed` concerns menus only. `AllSteamSurfacesClosed` additionally requires confirmed
+inactive overlays. Controller leases, HidHide and recovery policy remain the consumer's responsibility.
+
+On 2026-09-09, the installed Big Picture client accepted the compiled subscription and menu-read
+expressions; the temporary subscription was removed afterward. Main-window QAM was separately
+observed changing 0 to 2 to 0. No game-overlay window existed during this check, so game-overlay
+activation and its callback identity mapping still require a live game scenario.
+
 ```text
 consumer ──── ISteamUiLog ──────────────────▶ SteamUiLog.Use(sink)
 consumer ──── SteamUiInjectedAsset ─────────▶ SteamUiBridgeHost (prelude + consumer fragments, one script)
