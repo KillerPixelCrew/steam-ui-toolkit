@@ -22,7 +22,9 @@ public enum SteamSideMenu
 /// <param name="AppId">Steam application identity, or zero for the main window.</param>
 /// <param name="Menu">The window's verified side-menu state.</param>
 /// <param name="OverlayActive">Overlay activation, or null when no current event has established it.</param>
-public sealed record SteamWindowSideMenu(uint ProcessId, uint AppId, SteamSideMenu Menu, bool? OverlayActive = null);
+/// <param name="KeyboardOpen">Native keyboard visibility, or null when unavailable.</param>
+public sealed record SteamWindowSideMenu(uint ProcessId, uint AppId, SteamSideMenu Menu, bool? OverlayActive = null,
+    bool? KeyboardOpen = false);
 
 /// <summary>A bounded observation tied to the CEF generation that produced it.</summary>
 /// <param name="Generations">The observed transport generations.</param>
@@ -37,7 +39,7 @@ public sealed record SteamSideMenuSnapshot(
 
     /// <summary>Gets whether menus and overlay activation are both confirmed closed.</summary>
     public bool AllSteamSurfacesClosed => AllSideMenusClosed
-        && System.Linq.Enumerable.All(Windows!, window => window.OverlayActive == false);
+        && System.Linq.Enumerable.All(Windows!, window => window.OverlayActive == false && window.KeyboardOpen == false);
 }
 
 /// <summary>Reads Steam's known menu stores through an existing transport.</summary>
@@ -57,7 +59,9 @@ public static class SteamSideMenuObserver
               const activation=window[{{SteamCef.JsString(SteamOverlayActivationPatch.StateKey)}}];
               const active=pid===0?false:activation?.live===true&&!activation.overflow
                 ?activation.events.get(`${pid}:${appid}`):undefined;
-              return {pid,appid,menu:w.MenuStore.GetOpenSideMenu(),active:typeof active==='boolean'?active:null};
+              const keyboard=w.VirtualKeyboardManager?.IsShowingVirtualKeyboard?.Value;
+              return {pid,appid,menu:w.MenuStore.GetOpenSideMenu(),active:typeof active==='boolean'?active:null,
+                keyboard:typeof keyboard==='boolean'?keyboard:null};
             };
             return JSON.stringify([read(main,0,0),...overlays.map(w=>read(
               w,w.params?.browserInfo?.m_unPID,w.params?.browserInfo?.m_unAppID))]);
@@ -112,7 +116,10 @@ public static class SteamSideMenuObserver
                 bool? active = item.TryGetProperty("active", out var activation)
                     && activation.ValueKind is JsonValueKind.True or JsonValueKind.False
                     ? activation.GetBoolean() : null;
-                windows.Add(new(process, appId, (SteamSideMenu)state, active));
+                bool? keyboard = item.TryGetProperty("keyboard", out var keyboardState)
+                    && keyboardState.ValueKind is JsonValueKind.True or JsonValueKind.False
+                    ? keyboardState.GetBoolean() : null;
+                windows.Add(new(process, appId, (SteamSideMenu)state, active, keyboard));
             }
             return windows.AsReadOnly();
         }

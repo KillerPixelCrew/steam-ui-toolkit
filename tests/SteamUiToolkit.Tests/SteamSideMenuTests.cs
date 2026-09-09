@@ -5,6 +5,16 @@ namespace SteamUiToolkit.Tests;
 public sealed class SteamSideMenuTests
 {
     [Theory]
+    [InlineData("null", false)]
+    [InlineData("true", false)]
+    [InlineData("false", true)]
+    public void KeyboardMustBeConfirmedClosedBeforeOwnershipRestoration(string keyboard, bool closed)
+    {
+        var windows = SteamSideMenuObserver.Parse(
+            "[{\"pid\":0,\"appid\":0,\"menu\":0,\"active\":false,\"keyboard\":" + keyboard + "}]");
+        Assert.Equal(closed, new SteamSideMenuSnapshot(default, windows).AllSteamSurfacesClosed);
+    }
+    [Theory]
     [InlineData(null)]
     [InlineData("null")]
     [InlineData("[]")]
@@ -46,8 +56,8 @@ public sealed class SteamSideMenuTests
     public void ClosedMenusDoNotProveAnOverlayIsInactive(string active, bool closed)
     {
         var windows = SteamSideMenuObserver.Parse(
-            "[{\"pid\":0,\"appid\":0,\"menu\":0,\"active\":false},"
-            + "{\"pid\":42,\"appid\":123,\"menu\":0,\"active\":" + active + "}]");
+            "[{\"pid\":0,\"appid\":0,\"menu\":0,\"active\":false,\"keyboard\":false},"
+            + "{\"pid\":42,\"appid\":123,\"menu\":0,\"keyboard\":false,\"active\":" + active + "}]");
         var snapshot = new SteamSideMenuSnapshot(default, windows);
         Assert.True(snapshot.AllSideMenusClosed);
         Assert.Equal(closed, snapshot.AllSteamSurfacesClosed);

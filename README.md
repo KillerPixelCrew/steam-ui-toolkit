@@ -22,6 +22,8 @@ itself, and says why when it does not work.
 
 `SteamNativeSurfaceCommands.ReplayAsync` invokes Steam's native Home or Quick Access handler on an
 exact process/app window identity and CEF generation. It does not retry or fall back to another window.
+The `Keyboard` action shows the native keyboard through the exact window's keyboard manager and
+game-overlay route. An already visible keyboard stays open. Snapshots include nullable keyboard visibility.
 
 `SteamSideMenuObserver.ReadAsync` reads main-window and overlay-window menu state through the
 host's subscribed transport. Register `SteamOverlayActivationPatch` with the patch manager to

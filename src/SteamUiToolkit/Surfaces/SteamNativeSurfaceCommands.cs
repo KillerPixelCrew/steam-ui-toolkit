@@ -13,6 +13,8 @@ public enum SteamNativeSurfaceAction
     QuickAccess,
     /// <summary>Steam's Home/Overlay button.</summary>
     Home,
+    /// <summary>Shows Steam's native virtual keyboard without toggling an open keyboard closed.</summary>
+    Keyboard,
 }
 
 /// <summary>Replays semantic controller commands through Steam's existing window handlers.</summary>
@@ -54,6 +56,21 @@ public static class SteamNativeSurfaceCommands
         }
         string method = action == SteamNativeSurfaceAction.QuickAccess
             ? "OnQuickAccessButtonPressed" : "OnHomeButtonPressed";
+        string invoke = action == SteamNativeSurfaceAction.Keyboard ? """
+                const keyboard=target?.VirtualKeyboardManager;
+                const route=require("18057").BV?.GamepadUI?.Keyboard;
+                if(typeof keyboard?.IsShowingVirtualKeyboard?.Value!=='boolean'
+                  ||typeof keyboard.SetDismissOnEnterKey!=='function'
+                  ||typeof keyboard.SetVirtualKeyboardVisible!=='function'
+                  ||typeof target?.MenuStore?.CloseSideMenus!=='function')return false;
+                if(keyboard.IsShowingVirtualKeyboard.Value)return true;
+                if(pid!==0&&(typeof route!=='function'||typeof target.NavigateWithoutChangingFocus!=='function'))return false;
+                target.MenuStore.CloseSideMenus();
+                keyboard.SetDismissOnEnterKey(true);
+                if(pid!==0)target.NavigateWithoutChangingFocus(route(),true,true);
+                else keyboard.SetVirtualKeyboardVisible();
+                return true;
+            """ : $"if(typeof target?.{method}!=='function')return false;target.{method}();return true;";
         return $$"""
             (()=>{
               try {
@@ -70,8 +87,7 @@ public static class SteamNativeSurfaceCommands
                   if(matches.length!==1||matches[0].IsGamepadUIOverlayWindow?.()!==true)return false;
                   target=matches[0];
                 }
-                if(typeof target?.{{method}}!=='function')return false;
-                target.{{method}}();return true;
+                {{invoke}}
               }catch{return false;}
             })()
             """;

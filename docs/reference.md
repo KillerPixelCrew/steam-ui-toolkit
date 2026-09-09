@@ -30,6 +30,12 @@ not retry an uncertain dispatch. On 2026-09-09, the compiled main-window Quick A
 was observed opening and closing live Big Picture QAM (0 to 2 to 0). No live game-overlay dispatch
 was exercised.
 
+`Keyboard` uses the same exact target and generation checks. It closes side menus, enables dismissal
+on Enter and shows the window keyboard, using Steam's native `/keyboard` route for game overlays.
+It returns true for an already visible keyboard without toggling it. Missing keyboard methods refuse
+the request before mutation. The installed main-window methods and route were inspected on 2026-09-09;
+actual keyboard interaction remains a field check.
+
 `SteamUiToolkit.Surfaces.SteamSideMenuObserver` reads the known window/menu stores through an
 existing subscribed `ISteamUiTransport`. It does not create a transport or control input ownership.
 Snapshots include CEF generations, the main window and at most 32 overlay windows identified by
@@ -42,7 +48,8 @@ Register `SteamOverlayActivationPatch` through the normal patch manager lifecycl
 late callbacks after cleanup. Events are bounded to 32 identities; overflow or malformed events
 make activation unknown until reattachment. No synthetic closed event is supplied at startup.
 `AllSideMenusClosed` concerns menus only. `AllSteamSurfacesClosed` additionally requires confirmed
-inactive overlays. Controller leases, HidHide and recovery policy remain the consumer's responsibility.
+inactive overlays and a confirmed closed keyboard on every window. Missing keyboard state remains
+unknown. Controller leases, HidHide and recovery policy remain the consumer's responsibility.
 
 On 2026-09-09, the installed Big Picture client accepted the compiled subscription and menu-read
 expressions; the temporary subscription was removed afterward. Main-window QAM was separately

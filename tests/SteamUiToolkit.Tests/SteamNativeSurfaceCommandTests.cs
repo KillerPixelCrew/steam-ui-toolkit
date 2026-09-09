@@ -19,7 +19,7 @@ public sealed class SteamNativeSurfaceCommandTests
                 OnHomeButtonPressed(){calls.push('overlay-home');},
                 OnQuickAccessButtonPressed(){calls.push('overlay-qam');}};
               const ui={BHomeAndQuickAccessButtonsEnabled:()=>true,WindowStore:{MainWindowInstance:main,OverlayWindows:[overlay]}};
-              const require=id=>{assert.equal(id,'61236');return {oy:ui};};require.m={'61236':()=>{}};
+              const require=id=>{if(id==='18057')return {BV:{GamepadUI:{Keyboard:()=>'/keyboard'}}};assert.equal(id,'61236');return {oy:ui};};require.m={'61236':()=>{},'18057':()=>{}};
               const context=vm.createContext({window:{webpackChunksteamui:{push(a){a[2](require);}}}});
               const run=key=>vm.runInContext(expressions[key],context);
               assert.equal(run('main'),true);assert.equal(run('home'),true);assert.equal(run('qam'),true);
@@ -32,6 +32,19 @@ public sealed class SteamNativeSurfaceCommandTests
               assert.equal(run('home'),false);
               ui.BHomeAndQuickAccessButtonsEnabled=()=>false;assert.equal(run('main'),false);
               assert.equal(calls.length,3);
+              ui.BHomeAndQuickAccessButtonsEnabled=()=>true;
+              main.MenuStore={CloseSideMenus(){}};
+              main.VirtualKeyboardManager={IsShowingVirtualKeyboard:{Value:false},SetDismissOnEnterKey(){},
+                SetVirtualKeyboardVisible(){this.IsShowingVirtualKeyboard.Value=true;calls.push('keyboard');}};
+              assert.equal(run('keyboard'),true);assert.equal(run('keyboard'),true);
+              assert.equal(calls.filter(c=>c==='keyboard').length,1);
+              overlay.IsGamepadUIOverlayWindow=()=>true;
+              overlay.MenuStore=main.MenuStore;
+              overlay.VirtualKeyboardManager={...main.VirtualKeyboardManager,IsShowingVirtualKeyboard:{Value:false}};
+              overlay.NavigateWithoutChangingFocus=(route,a,b)=>{assert.equal(route,'/keyboard');assert.equal(a,true);assert.equal(b,true);calls.push('game-keyboard');};
+              assert.equal(run('gameKeyboard'),true);
+              assert.equal(calls.at(-1),'game-keyboard');
+              delete overlay.NavigateWithoutChangingFocus;assert.equal(run('gameKeyboard'),false);
             });
             """;
         var start = new ProcessStartInfo("node")
@@ -52,6 +65,8 @@ public sealed class SteamNativeSurfaceCommandTests
             main = SteamNativeSurfaceCommands.CreateExpression(SteamNativeSurfaceAction.QuickAccess, 0, 0),
             home = SteamNativeSurfaceCommands.CreateExpression(SteamNativeSurfaceAction.Home, 42, 123),
             qam = SteamNativeSurfaceCommands.CreateExpression(SteamNativeSurfaceAction.QuickAccess, 42, 123),
+            keyboard = SteamNativeSurfaceCommands.CreateExpression(SteamNativeSurfaceAction.Keyboard, 0, 0),
+            gameKeyboard = SteamNativeSurfaceCommands.CreateExpression(SteamNativeSurfaceAction.Keyboard, 42, 123),
         }));
         process.StandardInput.Close();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
