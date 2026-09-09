@@ -730,3 +730,8 @@ shares the resource key `steam-ui.performance-root` so the mounted set serialize
 `steam-ui.*`, the markers the live client carries are `__steamUi*`, and both are public constants:
 a consumer's kill-switch policy names patches by them and a probe from a separate CDP call reads
 the markers back.
+
+Power-limit state additionally carries unified and canSelectMode. The optional mode toggle sends
+setUnifiedMode with exactly one boolean unified property. Consumers own persistence and paired
+hardware dispatch. Unified presentation hides the independent boost slider while showing both
+observed values in the TDP description. Default state retains the existing split presentation.

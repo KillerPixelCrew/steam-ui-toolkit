@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -26,13 +27,21 @@ public sealed record SteamPowerLimitRangeState(
 /// <summary>Observed sustained and boost power limits shown in Quick Access.</summary>
 /// <param name="Sustained">The sustained power limit, PL1.</param>
 /// <param name="Boost">The boost power limit, PL2.</param>
+/// <param name="Unified">Whether the primary slider controls the coordinated power pair.</param>
+/// <param name="CanSelectMode">Whether the backend supports manual mode selection.</param>
 public sealed record SteamPowerLimitState(
     SteamPowerLimitRangeState Sustained,
-    SteamPowerLimitRangeState Boost);
+    SteamPowerLimitRangeState Boost, bool Unified = false, bool CanSelectMode = false);
 
 /// <summary>Routes explicit power slider edits through the consumer's hardware coordinator.</summary>
 public interface ISteamPowerLimitBackend
 {
+    /// <summary>Saves manual power mode without applying a wattage.</summary>
+    /// <param name="unified">Whether to use coordinated power targets.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The persistence outcome.</returns>
+    Task<SteamUiCommandResult> SetUnifiedModeAsync(bool unified, CancellationToken cancellationToken) =>
+        Task.FromResult(SteamUiCommandResult.Refused);
     /// <summary>Sets sustained power, PL1.</summary>
     /// <param name="watts">The requested wattage on a published step.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
@@ -57,13 +66,13 @@ public static class SteamPowerLimitSurface
     public const string PatchId = "steam-ui.power-limit";
 
     /// <summary>The exact command vocabulary.</summary>
-    public static IReadOnlyList<string> Commands { get; } = ["setPrimaryLimit", "setBoostLimit"];
+    public static IReadOnlyList<string> Commands { get; } = ["setUnifiedMode", "setPrimaryLimit", "setBoostLimit"];
 
     /// <summary>The sustained and boost sliders on the Performance page.</summary>
     public static SteamQuickAccessRowPatch Patch { get; } = new(
         PatchId,
         "powerLimit",
-        "native-qam-power-limits-v2:performance-actions+performance-root+observed-pl1-pl2",
+        "native-qam-power-limits-v3:performance-actions+performance-root+unified-mode",
         "steam_ui_power_limits_probe_");
 
     /// <summary>Serializes both independent limits for the injected controls.</summary>
@@ -95,6 +104,12 @@ public static class SteamPowerLimitSurface
             ],
             commands:
             [
+                new(PatchId, "setUnifiedMode", (request, cancellationToken) =>
+                    request.Payload.ValueKind == JsonValueKind.Object && request.Payload.EnumerateObject().Count() == 1
+                        && request.Payload.TryGetProperty("unified", out var mode)
+                        && mode.ValueKind is JsonValueKind.True or JsonValueKind.False
+                        ? backend.SetUnifiedModeAsync(mode.GetBoolean(), cancellationToken)
+                        : SteamSurfaceModule.Invalid("The manual power mode payload is invalid.")),
                 new(PatchId, "setPrimaryLimit", (request, cancellationToken) =>
                     TryReadWatts(request.Payload, out int watts)
                         ? backend.SetPrimaryLimitAsync(watts, cancellationToken)

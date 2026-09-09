@@ -170,3 +170,6 @@ what has been done and what has not.
 ## Licence
 
 MIT. See `LICENSE`.
+
+Power-limit consumers can publish Unified and CanSelectMode and implement SetUnifiedModeAsync.
+Unified mode renders one TDP slider with both limit readbacks; its toggle saves policy only.
