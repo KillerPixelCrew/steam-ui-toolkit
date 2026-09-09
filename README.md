@@ -20,6 +20,9 @@ itself, and says why when it does not work.
 
 ## What it gives you
 
+`SteamNativeSurfaceCommands.ReplayAsync` invokes Steam's native Home or Quick Access handler on an
+exact process/app window identity and CEF generation. It does not retry or fall back to another window.
+
 `SteamSideMenuObserver.ReadAsync` reads main-window and overlay-window menu state through the
 host's subscribed transport. Register `SteamOverlayActivationPatch` with the patch manager to
 observe overlay activation as well. Unknown activation remains unknown after attachment or

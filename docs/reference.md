@@ -20,6 +20,16 @@ Big Picture, which surfaces it registers) is on the WSGM side in `docs/steam-cef
 
 ### Steam surface observations
 
+`SteamNativeSurfaceCommands.ReplayAsync` replays `QuickAccess` or `Home` through the existing
+window handler. Supply the process/app identity and CEF generations from the target observation;
+zero/zero identifies the main window. Overlay targets must match exactly one gamepad overlay.
+Missing, ambiguous, desktop-overlay and stale-generation targets are refused without fallback.
+The result means the handler was invoked, not that its surface opened; Steam keeps its native
+debounce and availability policy. Consumers observe the resulting surface separately and must
+not retry an uncertain dispatch. On 2026-09-09, the compiled main-window Quick Access command
+was observed opening and closing live Big Picture QAM (0 to 2 to 0). No live game-overlay dispatch
+was exercised.
+
 `SteamUiToolkit.Surfaces.SteamSideMenuObserver` reads the known window/menu stores through an
 existing subscribed `ISteamUiTransport`. It does not create a transport or control input ownership.
 Snapshots include CEF generations, the main window and at most 32 overlay windows identified by
