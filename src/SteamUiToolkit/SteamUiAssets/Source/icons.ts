@@ -62,6 +62,33 @@ const SteamUiIconShapes: Readonly<Record<string, readonly SteamUiIconShape[]>> =
     ],
     ["rect", { x: 10.8, y: 2.6, width: 2.4, height: 8.6, rx: 1.2 }],
   ],
+  // A processor die with its pins, for the core-preference row. Drawn rather than reusing the power
+  // glyph because every control places exactly one glyph of its own, and this one chooses which
+  // kind of core runs work rather than which power state the machine is in.
+  cores: [
+    [
+      "rect",
+      {
+        x: 6.4,
+        y: 6.4,
+        width: 11.2,
+        height: 11.2,
+        rx: 1.8,
+        fill: "none",
+        stroke: "currentColor",
+        strokeWidth: 2,
+      },
+    ],
+    ["rect", { x: 10.4, y: 10.4, width: 3.2, height: 3.2, rx: 0.8 }],
+    ["rect", { x: 9, y: 2.4, width: 1.8, height: 3.2, rx: 0.9 }],
+    ["rect", { x: 13.2, y: 2.4, width: 1.8, height: 3.2, rx: 0.9 }],
+    ["rect", { x: 9, y: 18.4, width: 1.8, height: 3.2, rx: 0.9 }],
+    ["rect", { x: 13.2, y: 18.4, width: 1.8, height: 3.2, rx: 0.9 }],
+    ["rect", { x: 2.4, y: 9, width: 3.2, height: 1.8, rx: 0.9 }],
+    ["rect", { x: 2.4, y: 13.2, width: 3.2, height: 1.8, rx: 0.9 }],
+    ["rect", { x: 18.4, y: 9, width: 3.2, height: 1.8, rx: 0.9 }],
+    ["rect", { x: 18.4, y: 13.2, width: 3.2, height: 1.8, rx: 0.9 }],
+  ],
   plug: [
     ["path", { d: "M8.5 2h2v5h-2V2Zm5 0h2v5h-2V2Z" }],
     ["path", { d: "M6 8h12v4a6 6 0 0 1-5 5.92V22h-2v-4.08A6 6 0 0 1 6 12V8Z" }],

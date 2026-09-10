@@ -669,6 +669,18 @@ validation, OS writes, persistence and readback. `SteamPowerProfileTests` covers
 module vocabulary; `eng/check-power-profile.mjs` checks the emitted dropdown, rejected choices,
 malformed states and Performance placement with inert React/bridge fixtures.
 
+`SteamHybridCoreRow` adds a second dropdown on Performance through patch `steam-ui.hybrid-cores`,
+kind `hybridCores`, and command `setHybridCores`. `SteamHybridCoreState` is the same shape as the
+power-profile state and reuses `SteamPowerProfileOption`, because it is the same control: host-named
+choices, the one observed, and a status line. The host owns what a choice means, whether the machine
+supports any, and the OS write. An empty `Current` is the honest answer for a machine set to
+something the host does not offer, and selects nothing.
+
+The two rows are written out separately rather than sharing one factory. Each control's glyph is
+read from the string literal at its own `icon()` call, so a factory taking the name as an argument
+would make both rows invisible to the check that proves every glyph is placed exactly once and every
+placement names a drawn glyph. The core row draws `cores`, its own glyph.
+
 `SteamPowerPresetRow` publishes `SteamPowerPresetState`: preset options, observed label, independent
 AC/battery assignment IDs, scope, unset label and status. `ISteamPowerPresetBackend` owns assignment
 policy. Its patch `steam-ui.power-preset` and kind `powerPreset` accept only `setAcPowerPreset` and
