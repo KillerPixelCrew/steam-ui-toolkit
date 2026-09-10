@@ -101,7 +101,7 @@ its patches reach them through `window[namespace].gate(name)`, exactly as the sh
 | Modules    | `ISteamUiModule`, `SteamUiModule`, `SteamUiModuleSet`, `SteamUiStatePublication`, `SteamUiCommandHandler`, `SteamUiCommandDelegate`, `SteamUiCommandResult`, `SteamUiModuleRuntime`                                                                                                                                                                         |
 | Extensions | `SteamUiExtensionHost` (static), `SteamUiExtension`, `SteamUiExtensionManifest`, `SteamUiExtensionRejection`                                                                                                                                                                                                                                                 |
 | Logging    | `ISteamUiLog { Info, Warn, Change(key, message, warning) }`, static `SteamUiLog` with a discarding default                                                                                                                                                                                                                                                   |
-| Surfaces   | `SteamAudioSurface`, `SteamNetworkSurface`, `SteamBluetoothSurface`, `SteamBrightnessSurface`, `SteamPerformanceSurface`, `SteamPowerLimitSurface`, `SteamFrameLimitRow`, `SteamVariableRefreshRow`, `SteamResolutionRow`, `SteamAutoTdpRow`, `SteamControllerTargetRow`, `SteamDeviceControlsRow`, `SteamNavigationPanelSurface`, each with a state record and `ISteam*Backend` (§15) |
+| Surfaces   | `SteamAudioSurface`, `SteamNetworkSurface`, `SteamBluetoothSurface`, `SteamBrightnessSurface`, `SteamPerformanceSurface`, `SteamPowerLimitSurface`, `SteamFrameLimitRow`, `SteamVariableRefreshRow`, `SteamResolutionRow`, `SteamAutoTdpRow`, `SteamControllerTargetRow`, `SteamDeviceControlsRow`, `SteamNavigationPanelSurface`, `SteamPageSurface`, each with a state record and `ISteam*Backend` (§15) |
 | Patch helpers | `SteamUiBridgePatch`, `SteamGatePatch`, `SteamQuickAccessRowPatch`; readers `SteamUiPayload`, `SteamPerformanceDeltaReader`, `SteamOverlayLevelWire`; `SteamUiProbeJs`, `SteamUiText`, `SteamSettingPersistence`                                                                                                                                         |
 | Assets     | `SteamUiAssets/Source/types.ts`, `bridge.ts`, `ownership.ts`, `rpc.ts`, `icons.ts`, `gates/*.ts`, `components.ts`, `epilogue.ts`; built by `eng/build-prelude.mjs`, checked by `eng/check-ownership-claims.mjs`                                                                                                                                           |
 
@@ -612,6 +612,7 @@ The host replaces the placeholder with the configuration, evaluates the whole th
 | `SteamSurfaceModuleTests`                          | each surface's `Commands` against its module's vocabulary, each refusal reason against its payload                                                                                       |
 | `SteamNavigationPanelTests`                        | the panel probe's separate structural facts, selection by what an export draws rather than by its minified name, already-claimed compatibility, the published wire shape                 |
 | `eng/check-navigation-panel.mjs`                   | the emitted gate against an inert React fixture: descent to the panel root, anchoring by route and by descriptor key, orphan reporting, hiding before insertion, activation, exact restoration, reinstall |
+| `SteamPageTests`, `eng/check-pages.mjs`            | the page probe's separate facts and its rendered-tree search; the emitted gate's route-list discovery by content, an addition losing to Steam's own route and an override winning, path validation, exact restoration, reinstall |
 
 ## 15. Surfaces
 
@@ -649,6 +650,35 @@ for fixtures and diagnostics.
 | `SteamControllerTargetRow` | controller-target dropdown                    | row on Valve's dropdown                                               | `SteamControllerTargetState` | choose a target                                                                            |
 | `SteamDeviceControlsRow`   | charge limit, lighting brightness and colour  | rows on Valve's slider and dropdown                                   | `SteamDeviceControlsState`   | three writes                                                                               |
 | `SteamNavigationPanelSurface` | left slideout navigation panel             | claims the exported memo's `type`, reaches the panel root by rendering | `SteamNavigationPanelState`  | activate an added entry                                                                    |
+| `SteamPageSurface`         | custom pages in Steam's router                | claims the router memo's `type`, inserts routes into the route list   | `SteamPageState`             | none: a page is declared, not commanded                                                    |
+
+### Custom pages
+
+Steam's router renders its routes as the children of its own switch, so registering a page is a
+list operation on props rather than DOM work — unlike the navigation panel, whose entries do not
+exist until its root renders.
+
+Three facts decide the API, and all three were measured against the live client on 2026-09-10:
+
+- **The switch takes the first matching child.** So inserting ahead of Steam's routes overrides one
+  and inserting behind them adds one. `SteamPage.Override` is that distinction, and it defaults to
+  adding, because shadowing a client route is not something a caller should get by accident.
+- **The `Route` must be Steam's own.** It comes from the module carrying `router-backstack`, whose
+  single matching export registers the match with Steam's back stack. React-router's `Route` renders
+  the same content and silently loses back-navigation, which is the failure this would otherwise
+  ship with and nobody would notice until they pressed B.
+- **The router memo is not an export.** It is built locally inside its module — every export of that
+  module was inspected and none carries it — so the handle comes from SharedJSContext's own React
+  root, which is the tree every Steam window renders from. The walk is bounded and matches on
+  component source; on the reference client it finds the router in 659 visited nodes.
+
+The route list is found by content: the array holding a route for a path every client has. Decky's
+gamepad path indexes `children.props.children[0].props.children` instead, which is the kind of
+selector that breaks on a client update with no diagnostic; its own desktop path searches by
+`/library/home`, and that is the half worth following.
+
+A page whose path is relative, or is `/`, is dropped rather than registered. A catch-all route
+inserted ahead of Steam's own would black out the client.
 
 ### The navigation panel
 

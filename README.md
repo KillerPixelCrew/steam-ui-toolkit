@@ -45,6 +45,14 @@ and keys are stable across client builds and languages while the labels are loca
 applied before insertion. An entry whose anchor is not in the panel goes to the end and is reported
 as orphaned rather than dropped. The claim is on the one exported handle and is restored on removal.
 
+`SteamPageSurface.Module` registers custom pages with Steam's own router. Publish `SteamPageState`
+with a path, a title and an id; the path is matched by Steam's matcher, so `/wsgm/artwork/:appid`
+takes parameters the way Valve's routes do. Pages are built with Steam's back-stack `Route`, not
+react-router's, so they push and pop the back stack like a native page instead of rendering
+correctly and losing B. `Override` decides whether a page replaces a Steam route of the same path or
+adds a new one: Steam's switch takes the first match, so an override is inserted ahead of Valve's
+routes and an addition behind them. Adding is the default.
+
 Performance controls use titled native sections. Quick Settings places display controls before
 Steam's common settings, then separate Charging and RGB lighting sections. The toolkit does not
 change OS power settings itself.
