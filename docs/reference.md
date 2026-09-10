@@ -101,7 +101,7 @@ its patches reach them through `window[namespace].gate(name)`, exactly as the sh
 | Modules    | `ISteamUiModule`, `SteamUiModule`, `SteamUiModuleSet`, `SteamUiStatePublication`, `SteamUiCommandHandler`, `SteamUiCommandDelegate`, `SteamUiCommandResult`, `SteamUiModuleRuntime`                                                                                                                                                                         |
 | Extensions | `SteamUiExtensionHost` (static), `SteamUiExtension`, `SteamUiExtensionManifest`, `SteamUiExtensionRejection`                                                                                                                                                                                                                                                 |
 | Logging    | `ISteamUiLog { Info, Warn, Change(key, message, warning) }`, static `SteamUiLog` with a discarding default                                                                                                                                                                                                                                                   |
-| Surfaces   | `SteamAudioSurface`, `SteamNetworkSurface`, `SteamBluetoothSurface`, `SteamBrightnessSurface`, `SteamPerformanceSurface`, `SteamPowerLimitSurface`, `SteamFrameLimitRow`, `SteamVariableRefreshRow`, `SteamResolutionRow`, `SteamAutoTdpRow`, `SteamControllerTargetRow`, `SteamDeviceControlsRow`, each with a state record and `ISteam*Backend` (§15) |
+| Surfaces   | `SteamAudioSurface`, `SteamNetworkSurface`, `SteamBluetoothSurface`, `SteamBrightnessSurface`, `SteamPerformanceSurface`, `SteamPowerLimitSurface`, `SteamFrameLimitRow`, `SteamVariableRefreshRow`, `SteamResolutionRow`, `SteamAutoTdpRow`, `SteamControllerTargetRow`, `SteamDeviceControlsRow`, `SteamNavigationPanelSurface`, each with a state record and `ISteam*Backend` (§15) |
 | Patch helpers | `SteamUiBridgePatch`, `SteamGatePatch`, `SteamQuickAccessRowPatch`; readers `SteamUiPayload`, `SteamPerformanceDeltaReader`, `SteamOverlayLevelWire`; `SteamUiProbeJs`, `SteamUiText`, `SteamSettingPersistence`                                                                                                                                         |
 | Assets     | `SteamUiAssets/Source/types.ts`, `bridge.ts`, `ownership.ts`, `rpc.ts`, `icons.ts`, `gates/*.ts`, `components.ts`, `epilogue.ts`; built by `eng/build-prelude.mjs`, checked by `eng/check-ownership-claims.mjs`                                                                                                                                           |
 
@@ -610,6 +610,8 @@ The host replaces the placeholder with the configuration, evaluates the whole th
 | `SteamUiTargetMatchingTests`                       | the two role matchers against real URLs                                                                                                                                                  |
 | `NativeTcpTests`                                   | the table decoder, the URL gate, the four port-owner reasons                                                                                                                             |
 | `SteamSurfaceModuleTests`                          | each surface's `Commands` against its module's vocabulary, each refusal reason against its payload                                                                                       |
+| `SteamNavigationPanelTests`                        | the panel probe's separate structural facts, selection by what an export draws rather than by its minified name, already-claimed compatibility, the published wire shape                 |
+| `eng/check-navigation-panel.mjs`                   | the emitted gate against an inert React fixture: descent to the panel root, anchoring by route and by descriptor key, orphan reporting, hiding before insertion, activation, exact restoration, reinstall |
 
 ## 15. Surfaces
 
@@ -646,6 +648,34 @@ for fixtures and diagnostics.
 | `SteamAutoTdpRow`          | automatic power-limit switch                  | row on Valve's toggle                                                 | `SteamAutoTdpState`          | setting on/off                                                                             |
 | `SteamControllerTargetRow` | controller-target dropdown                    | row on Valve's dropdown                                               | `SteamControllerTargetState` | choose a target                                                                            |
 | `SteamDeviceControlsRow`   | charge limit, lighting brightness and colour  | rows on Valve's slider and dropdown                                   | `SteamDeviceControlsState`   | three writes                                                                               |
+| `SteamNavigationPanelSurface` | left slideout navigation panel             | claims the exported memo's `type`, reaches the panel root by rendering | `SteamNavigationPanelState`  | activate an added entry                                                                    |
+
+### The navigation panel
+
+The panel is module-private. Its root builds its own entry list from a local function, neither is
+exported, and that function calls React hooks — calling the module's own exported list builder from
+outside a render throws React error #321. So reading the entries and changing them both have to
+happen during a render, and one wrapper serves both.
+
+The only public handle is an exported `React.memo`, and the gate claims its `type`. From there it
+reaches the panel root by rendering: a component's children do not exist until React renders it, so
+a walk over `props.children` alone arrives nowhere. Function components met on the way down are
+replaced by cached wrappers that render the original and keep descending, bounded at twelve levels.
+This is the mechanism `hideNativeRows` already uses for the Performance tab, pointed at a different
+target.
+
+Entries are addressed by route (`/library`) or by Valve's own descriptor key (`power`), never by
+index or by a generated class name: routes and keys are stable across client builds and languages,
+whereas the rendered labels are localized and the class names are content hashes. Hiding is applied
+before insertion, so an anchor and the entry it anchors to cannot disagree about what the user can
+see. An entry whose anchor is not in the panel goes to the end and is counted in `lastOutcome` as
+orphaned rather than dropped, because a control that silently does nothing is a defect.
+
+Mapped against the live client on 2026-09-10: `#MainMenu_Title` occurs in exactly one of the 2581
+loaded modules, `MainNavMenuContainer` in exactly one, that module has exactly one export whose memo
+renders the container, and that export's `type` is a writable and configurable own property, which
+is what makes the claim restorable. The probe checks each of those separately so an incompatible
+client says which one moved, and accepts a panel this gate already claimed.
 
 `SteamBrightnessState` carries confirmed `Percent` and a monotonic `Revision`. A successful
 `setBrightness` response returns serialized brightness readback in its payload. Use the same

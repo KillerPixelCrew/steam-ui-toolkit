@@ -37,6 +37,14 @@ independent AC and battery assignments with `SteamPowerPresetState` and `ISteamP
 The active preset is read-only, including Custom. A host may also publish `custom` as a saved
 source assignment; it is displayed only for that source and never sent as a selection command.
 Empty preset options hide those controls.
+`SteamNavigationPanelSurface.Module` makes Steam's left slideout navigation panel an extension
+surface. Publish `SteamNavigationPanelState` to add entries and hide Steam's own; implement
+`ISteamNavigationPanelBackend` to answer an added entry's activation. Entries are placed relative to
+Steam's by route (`/library`) or by Valve's descriptor key (`power`), not by index, because routes
+and keys are stable across client builds and languages while the labels are localized. Hiding is
+applied before insertion. An entry whose anchor is not in the panel goes to the end and is reported
+as orphaned rather than dropped. The claim is on the one exported handle and is restored on removal.
+
 Performance controls use titled native sections. Quick Settings places display controls before
 Steam's common settings, then separate Charging and RGB lighting sections. The toolkit does not
 change OS power settings itself.

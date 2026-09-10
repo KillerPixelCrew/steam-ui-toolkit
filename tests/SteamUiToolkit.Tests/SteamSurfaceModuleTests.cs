@@ -29,6 +29,7 @@ public sealed class SteamSurfaceModuleTests
             SteamAutoTdpRow.Module(Always, () => new(null as SteamAutoTdpState), backend),
             SteamControllerTargetRow.Module(Always, () => new(null as SteamControllerTargetState), backend),
             SteamDeviceControlsRow.Module(Always, () => new(null as SteamDeviceControlsState), backend),
+            SteamNavigationPanelSurface.Module(Always, () => new(null as SteamNavigationPanelState), backend),
         ]);
 
         Assert.Equal(SteamAudioSurface.Commands, set.AllowedCommands[SteamAudioSurface.PatchId]);
@@ -43,10 +44,13 @@ public sealed class SteamSurfaceModuleTests
         Assert.Equal(SteamAutoTdpRow.Commands, set.AllowedCommands[SteamAutoTdpRow.PatchId]);
         Assert.Equal(SteamControllerTargetRow.Commands, set.AllowedCommands[SteamControllerTargetRow.PatchId]);
         Assert.Equal(SteamDeviceControlsRow.Commands, set.AllowedCommands[SteamDeviceControlsRow.PatchId]);
+        Assert.Equal(
+            SteamNavigationPanelSurface.Commands,
+            set.AllowedCommands[SteamNavigationPanelSurface.PatchId]);
 
         // The full set registers together without an identity collision, which is what a consumer
         // declaring every surface at once relies on.
-        Assert.Equal(12, set.Modules.Count);
+        Assert.Equal(13, set.Modules.Count);
     }
 
     [Fact]
@@ -268,7 +272,8 @@ public sealed class SteamSurfaceModuleTests
         ISteamResolutionBackend,
         ISteamAutoTdpBackend,
         ISteamControllerTargetBackend,
-        ISteamDeviceControlsBackend
+        ISteamDeviceControlsBackend,
+        ISteamNavigationPanelBackend
     {
         internal List<string> Calls { get; } = [];
 
@@ -283,6 +288,9 @@ public sealed class SteamSurfaceModuleTests
 
         public Task<SteamUiCommandResult> SetVolumeAsync(int percent, bool input, CancellationToken cancellationToken) =>
             Record($"volume {percent} {(input ? "input" : "output")}");
+
+        public Task<SteamUiCommandResult> ActivateAsync(string id, CancellationToken cancellationToken) =>
+            Record($"activate {id}");
 
         public Task<SteamUiCommandResult> StartScanAsync(CancellationToken cancellationToken) => Record("scan on");
 
