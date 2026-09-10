@@ -53,6 +53,14 @@ correctly and losing B. `Override` decides whether a page replaces a Steam route
 adds a new one: Steam's switch takes the first match, so an override is inserted ahead of Valve's
 routes and an addition behind them. Adding is the default.
 
+`SteamStorageSurface.Module` revives Steam's own SteamOS storage management on Windows. The whole UI
+is gated on one unanswered service question, so the gate claims `SendMsg` on the service transport
+and answers `StorageDeviceManager.*` from `SteamStorageState`; implement `ISteamStorageBackend` to
+adopt, eject, format and trim. Every other service message Steam sends passes straight through with
+its own arguments and receiver, and removal deletes the claim so Valve's method shows through again.
+The injected half performs no storage operation itself, which keeps one Windows implementation
+behind both Steam's pages and WSGM's own.
+
 Performance controls use titled native sections. Quick Settings places display controls before
 Steam's common settings, then separate Charging and RGB lighting sections. The toolkit does not
 change OS power settings itself.

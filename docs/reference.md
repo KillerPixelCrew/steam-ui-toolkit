@@ -101,7 +101,7 @@ its patches reach them through `window[namespace].gate(name)`, exactly as the sh
 | Modules    | `ISteamUiModule`, `SteamUiModule`, `SteamUiModuleSet`, `SteamUiStatePublication`, `SteamUiCommandHandler`, `SteamUiCommandDelegate`, `SteamUiCommandResult`, `SteamUiModuleRuntime`                                                                                                                                                                         |
 | Extensions | `SteamUiExtensionHost` (static), `SteamUiExtension`, `SteamUiExtensionManifest`, `SteamUiExtensionRejection`                                                                                                                                                                                                                                                 |
 | Logging    | `ISteamUiLog { Info, Warn, Change(key, message, warning) }`, static `SteamUiLog` with a discarding default                                                                                                                                                                                                                                                   |
-| Surfaces   | `SteamAudioSurface`, `SteamNetworkSurface`, `SteamBluetoothSurface`, `SteamBrightnessSurface`, `SteamPerformanceSurface`, `SteamPowerLimitSurface`, `SteamFrameLimitRow`, `SteamVariableRefreshRow`, `SteamResolutionRow`, `SteamAutoTdpRow`, `SteamControllerTargetRow`, `SteamDeviceControlsRow`, `SteamNavigationPanelSurface`, `SteamPageSurface`, each with a state record and `ISteam*Backend` (§15) |
+| Surfaces   | `SteamAudioSurface`, `SteamNetworkSurface`, `SteamBluetoothSurface`, `SteamBrightnessSurface`, `SteamPerformanceSurface`, `SteamPowerLimitSurface`, `SteamFrameLimitRow`, `SteamVariableRefreshRow`, `SteamResolutionRow`, `SteamAutoTdpRow`, `SteamControllerTargetRow`, `SteamDeviceControlsRow`, `SteamNavigationPanelSurface`, `SteamPageSurface`, `SteamStorageSurface`, each with a state record and `ISteam*Backend` (§15) |
 | Patch helpers | `SteamUiBridgePatch`, `SteamGatePatch`, `SteamQuickAccessRowPatch`; readers `SteamUiPayload`, `SteamPerformanceDeltaReader`, `SteamOverlayLevelWire`; `SteamUiProbeJs`, `SteamUiText`, `SteamSettingPersistence`                                                                                                                                         |
 | Assets     | `SteamUiAssets/Source/types.ts`, `bridge.ts`, `ownership.ts`, `rpc.ts`, `icons.ts`, `gates/*.ts`, `components.ts`, `epilogue.ts`; built by `eng/build-prelude.mjs`, checked by `eng/check-ownership-claims.mjs`                                                                                                                                           |
 
@@ -613,6 +613,7 @@ The host replaces the placeholder with the configuration, evaluates the whole th
 | `SteamNavigationPanelTests`                        | the panel probe's separate structural facts, selection by what an export draws rather than by its minified name, already-claimed compatibility, the published wire shape                 |
 | `eng/check-navigation-panel.mjs`                   | the emitted gate against an inert React fixture: descent to the panel root, anchoring by route and by descriptor key, orphan reporting, hiding before insertion, activation, exact restoration, reinstall |
 | `SteamPageTests`, `eng/check-pages.mjs`            | the page probe's separate facts and its rendered-tree search; the emitted gate's route-list discovery by content, an addition losing to Steam's own route and an override winning, path validation, exact restoration, reinstall |
+| `SteamStorageTests`, `eng/check-storage.mjs`       | the storage probe's service and transport facts and every action having a command; the emitted gate's availability answer, Steam's own state field names, action forwarding, unrelated service traffic passing through with its arguments and receiver, and restoration putting Valve's method back |
 
 ## 15. Surfaces
 
@@ -651,6 +652,41 @@ for fixtures and diagnostics.
 | `SteamDeviceControlsRow`   | charge limit, lighting brightness and colour  | rows on Valve's slider and dropdown                                   | `SteamDeviceControlsState`   | three writes                                                                               |
 | `SteamNavigationPanelSurface` | left slideout navigation panel             | claims the exported memo's `type`, reaches the panel root by rendering | `SteamNavigationPanelState`  | activate an added entry                                                                    |
 | `SteamPageSurface`         | custom pages in Steam's router                | claims the router memo's `type`, inserts routes into the route list   | `SteamPageState`             | none: a page is declared, not commanded                                                    |
+| `SteamStorageSurface`      | SteamOS storage management pages              | claims `SendMsg` on the service transport, answers `StorageDeviceManager.*` | `SteamStorageState`     | adopt, unmount, eject, format, trim                                                        |
+
+### SteamOS storage management
+
+Big Picture ships a complete storage UI — drives, volumes, format, adopt, eject, trim — that never
+appears on Windows. The whole surface hangs off one question: its hooks ask
+`StorageDeviceManager.IsServiceAvailable#1` over the WebUI service transport, and every other query
+is `enabled:` on that answer. The Windows client has no service behind it, so the answer never
+arrives and the pages stay inert. Nothing is hidden by a SteamOS check; it is simply unanswered.
+
+The claim is `SendMsg` on the live transport instance. It is defined on the transport prototype as
+writable and configurable and the instance carries no own property, so the claim is an own property
+that removal deletes, leaving Valve's method showing through untouched.
+
+**That one method carries every service call Steam makes**, which sets the rule for the whole gate:
+the name prefix is checked first and nothing else happens on the pass-through path — same arguments,
+same receiver, same return. The harness asserts exactly that, and asserts that after removal a
+storage message goes to Valve like any other.
+
+The message vocabulary is read from the client's own generated classes rather than guessed:
+
+| Class | Fields |
+| --- | --- |
+| `CStorageDeviceManagerDrive` | `id`, `is_formattable`, `is_unformatted` |
+| `CStorageDeviceManagerBlockDevice` | `block_device_id`, `drive_id`, `mount_paths`, `has_steam_library` |
+| `CStorageDeviceManagerState` | `drives`, `block_devices`, `is_adopt_supported`, `is_unmount_supported`, `is_trim_supported`, `is_trim_running` |
+
+Responses are duck-typed to the two things Steam's callers ask of them — `BSuccess()` and `Body()` —
+rather than built as protobuf messages. The wire format is the client's business, and mirroring it
+would mean owning a second copy of it.
+
+Every action is the host's. The injected half performs no storage operation at all, which is what
+keeps one Windows implementation behind both Steam's pages and WSGM's own surfaces instead of two
+that can disagree. An empty published state is still answered: "no removable drives" is a truthful
+answer and the page renders it, where refusing to answer leaves Steam's spinner up forever.
 
 ### Custom pages
 

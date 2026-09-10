@@ -2,7 +2,7 @@
   "private": true,
   "scripts": {
     "prelude:build": "node eng/build-prelude.mjs",
-    "prelude:claims": "node eng/build-prelude.mjs && node eng/check-ownership-claims.mjs dist/prelude.js && node eng/check-power-profile.mjs dist/prelude.js && node eng/check-startup.mjs dist/prelude.js && node eng/check-brightness.mjs dist/prelude.js && node eng/check-slider-readback.mjs dist/prelude.js && node eng/check-bluetooth-actions.mjs dist/prelude.js && node eng/check-navigation-panel.mjs dist/prelude.js && node eng/check-pages.mjs dist/prelude.js"
+    "prelude:claims": "node eng/build-prelude.mjs && node eng/check-ownership-claims.mjs dist/prelude.js && node eng/check-power-profile.mjs dist/prelude.js && node eng/check-startup.mjs dist/prelude.js && node eng/check-brightness.mjs dist/prelude.js && node eng/check-slider-readback.mjs dist/prelude.js && node eng/check-bluetooth-actions.mjs dist/prelude.js && node eng/check-navigation-panel.mjs dist/prelude.js && node eng/check-pages.mjs dist/prelude.js && node eng/check-storage.mjs dist/prelude.js"
   },
   "devDependencies": {
     "typescript": "7.0.2"
