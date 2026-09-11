@@ -32,6 +32,9 @@ public sealed class SteamHomeCarouselTests
         Assert.Contains("GamepadUIMainWindowInstance", probe, StringComparison.Ordinal);
         Assert.Contains("popup_target", probe, StringComparison.Ordinal);
         Assert.Contains("g_PopupManager", probe, StringComparison.Ordinal);
+        // A miss reports what the walk saw, so a new client says which assumption failed.
+        Assert.Contains("homeRoutes", probe, StringComparison.Ordinal);
+        Assert.Contains("visited", probe, StringComparison.Ordinal);
         Assert.Contains("mobx-react-lite requires React with Hooks support", probe, StringComparison.Ordinal);
     }
 

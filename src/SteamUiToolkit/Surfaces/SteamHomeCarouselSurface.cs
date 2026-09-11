@@ -98,29 +98,40 @@ public static class SteamHomeCarouselSurface
               add(window.SteamUIStore?.WindowStore?.GamepadUIMainWindowInstance?.BrowserWindow?.document);
               try{for(const p of window.g_PopupManager?.m_mapPopups?.values?.()??[])add(p&&p.window&&p.window.document);}catch(e){}
               add(document);
-              let home=null,visited=0;
-              const stack=roots.slice();
-              while(stack.length&&!home&&visited<60000){
-                const node=stack.pop();
+              // Breadth-first: a router sits near the top, and depth-first can spend the bound inside a
+              // mounted library grid first. What the walk saw is reported, so a miss says why.
+              let home=null,visited=0,homeRoutes=0,page='';
+              const queue=roots.slice();
+              for(let head=0;head<queue.length&&!home&&visited<250000;head++){
+                const node=queue[head];
                 if(!node)continue;
                 visited++;
-                const kids=node.memoizedProps&&node.memoizedProps.children;
+                // A Fragment's fiber holds its children array as the props themselves.
+                const props=node.memoizedProps;
+                const kids=Array.isArray(props)?props:props&&props.children;
                 if(Array.isArray(kids)&&kids.length>2&&kids.length<512){
                   const route=kids.find(k=>k&&k.props&&k.props.path==='/library/home');
-                  const page=route&&route.props&&route.props.children;
-                  const type=page&&page.type;
-                  // Home by its source, or one this gate already claimed, whose type is ours.
-                  if(type&&typeof type==='object'&&typeof type.type==='function'
-                    &&(type.type.__steamUiHomeCarouselClaimed===true
-                      ||(String(type.type).includes('HomeTabsActive')
-                        &&String(type.type).includes('HomeActiveTab'))))home=type;
+                  if(route){
+                    homeRoutes++;
+                    const type=route.props.children&&route.props.children.type;
+                    page=!type?'none':typeof type==='function'?'function':String(type.$$typeof);
+                    // Home by its source, or one this gate already claimed, whose type is ours.
+                    if(type&&typeof type==='object'&&typeof type.type==='function'
+                      &&(type.type.__steamUiHomeCarouselClaimed===true
+                        ||(String(type.type).includes('HomeTabsActive')
+                          &&String(type.type).includes('HomeActiveTab'))))home=type;
+                  }
                 }
-                stack.push(node.sibling,node.child);
+                queue.push(node.child,node.sibling);
               }
               const descriptor=home?Object.getOwnPropertyDescriptor(home,'type'):null;
               return JSON.stringify({
                 homeModule:count(['HomeTabsActive','#Showcase_RecentGames']),
                 homeFound:home?1:0,
+                roots:roots.length,
+                visited:visited,
+                homeRoutes:homeRoutes,
+                page:page,
                 claimable:!!descriptor&&descriptor.writable===true&&descriptor.configurable===true,
                 // Already ours is compatible; see the remarks on this patch.
                 claimed:!!home&&home.type.__steamUiHomeCarouselClaimed===true,

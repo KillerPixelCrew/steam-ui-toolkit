@@ -750,7 +750,11 @@ does not render under SharedJSContext's `#root`, where the page gate finds the d
 Big Picture window is a popup with a `popup_target` root of its own. The gate searches that window
 first, through `SteamUIStore.WindowStore.GamepadUIMainWindowInstance`, then every popup in
 `g_PopupManager`, then `#root`. The first live probe, on 2026-09-11, searched `#root` alone and found
-the Home module, the stores and the observer hook but no Home. In what Home renders it finds the carousel memo by its
+the Home module, the stores and the observer hook but no Home. The walk is breadth-first over the
+fiber child and sibling links, bounded at 250,000 nodes, because a router sits near the top of its
+tree and a depth-first walk can spend its bound inside a mounted library grid. A miss reports the
+roots searched, the nodes visited, how many route lists held `/library/home` and what that route
+renders, in the probe's diagnostic and in `status.search`. In what Home renders it finds the carousel memo by its
 source (`#Showcase_RecentGames`, `RecentGamesContainer`) and replaces it with a memo of its own over
 the same inner function and comparison. In what the carousel renders it replaces `games` on the two
 elements that take it, told apart by shape: the background takes `refOnItemFocus`, the carousel
