@@ -44,8 +44,11 @@ public sealed record SteamStorageDrive(
 /// </remarks>
 public enum SteamStorageAdoptStage
 {
+    /// <summary>Steam's first enum member, which it treats as no valid stage at all.</summary>
+    Invalid = 0,
+
     /// <summary>Nothing in progress. The only stage that renders a drive rather than a spinner.</summary>
-    Idle = 0,
+    Idle = 1,
 }
 
 /// <summary>One mounted volume on a drive.</summary>
