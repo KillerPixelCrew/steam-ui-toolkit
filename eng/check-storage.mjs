@@ -95,9 +95,11 @@ assert.deepEqual(state.block_devices, []);
 assert.equal(state.is_adopt_supported, false);
 
 globals.publish({
-  drives: [{ id: "disk0", formattable: true, unformatted: false }],
+  drives: [
+    { id: 1, model: "Card reader", vendor: "Realtek", sizeBytes: 64000000000, ejectable: true, formattable: true, unformatted: false },
+  ],
   blockDevices: [
-    { id: "vol0", driveId: "disk0", mountPaths: ["D:\\"], hasSteamLibrary: true },
+    { id: 2, driveId: 1, label: "SDCard12", friendlyPath: "D:\\", sizeBytes: 63900000000, mountPaths: ["D:\\", "D:\\SteamLibrary"], hasSteamLibrary: true },
   ],
   adoptSupported: true,
   unmountSupported: true,
@@ -105,31 +107,74 @@ globals.publish({
   trimRunning: false,
 });
 state = (await transport.SendMsg("StorageDeviceManager.GetState#1", {}, null, {})).Body().toObject().state;
-// The field names are Steam's own, read off its generated message classes. A rename here shows up
-// as an empty page rather than an error, which is why they are pinned.
-assert.deepEqual(state.drives, [{ id: "disk0", is_formattable: true, is_unformatted: false }]);
+// The field names are Steam's own, read off its generated message classes, and every declared field
+// is present: the client formats what it is given without checking, so a missing size renders
+// "NaN B" and a missing adopt stage a spinner. The idle adopt stage is 1, not 0 (0 is Invalid).
+assert.deepEqual(state.drives, [
+  {
+    id: 1,
+    model: "Card reader",
+    vendor: "Realtek",
+    serial: "",
+    is_ejectable: true,
+    size_bytes: "64000000000",
+    media_type: 0,
+    is_unformatted: false,
+    adopt_stage: 1,
+    is_formattable: true,
+    is_media_available: true,
+  },
+]);
 assert.deepEqual(state.block_devices, [
-  { block_device_id: "vol0", drive_id: "disk0", mount_paths: ["D:\\"], has_steam_library: true },
+  {
+    id: 2,
+    drive_id: 1,
+    path: "D:\\",
+    friendly_path: "D:\\",
+    label: "SDCard12",
+    size_bytes: "63900000000",
+    is_formattable: false,
+    is_read_only: false,
+    is_root_device: false,
+    content_type: 0,
+    filesystem_type: 0,
+    mount_paths: ["D:\\", "D:\\SteamLibrary"],
+    is_unmounting: false,
+    has_steam_library: true,
+  },
 ]);
 assert.equal(state.is_adopt_supported, true);
 assert.equal(state.is_unmount_supported, true);
 
-// Actions are forwarded to the host, never performed here.
-await transport.SendMsg("StorageDeviceManager.Adopt#1", { toObject: () => ({ drive_id: "disk0" }) }, null, {});
+// Actions are forwarded to the host, never performed here. Requests arrive as Steam's envelope,
+// whose Body() holds the message; the ids are Steam's uint32s and the Format Drive modal sends
+// Adopt with the typed label and a validate flag.
+const envelope = (fields) => ({ Body: () => ({ toObject: () => fields }) });
 await transport.SendMsg(
-  "StorageDeviceManager.Unmount#1",
-  { toObject: () => ({ block_device_id: "vol0", drive_id: "disk0" }) },
+  "StorageDeviceManager.Adopt#1",
+  envelope({ drive_id: 1, label: "Games", validate: true }),
   null,
   {},
 );
-await transport.SendMsg("StorageDeviceManager.TrimAll#1", {}, null, {});
+await transport.SendMsg(
+  "StorageDeviceManager.Unmount#1",
+  envelope({ block_device_id: 2, drive_id: 1 }),
+  null,
+  {},
+);
+await transport.SendMsg("StorageDeviceManager.TrimAll#1", envelope({}), null, {});
 assert.deepEqual(
   requests.map((r) => r.command),
   ["adopt", "unmount", "trimall"],
   "every action must reach the host",
 );
-assert.equal(requests[0].payload.driveId, "disk0", "the drive id must survive the request decode");
-assert.equal(requests[1].payload.blockDeviceId, "vol0");
+assert.deepEqual(
+  requests[0].payload,
+  { driveId: 1, blockDeviceId: 0, label: "Games", validate: true },
+  "the adopt request must carry the drive, the typed label and the validate flag",
+);
+assert.equal(requests[1].payload.blockDeviceId, 2, "unmount must name the volume");
+assert.equal(requests[1].payload.driveId, 1);
 
 // An unknown storage method fails rather than silently succeeding.
 const unknown = await transport.SendMsg("StorageDeviceManager.Nonsense#1", {}, null, {});

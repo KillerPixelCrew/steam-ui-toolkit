@@ -101,7 +101,7 @@ its patches reach them through `window[namespace].gate(name)`, exactly as the sh
 | Modules    | `ISteamUiModule`, `SteamUiModule`, `SteamUiModuleSet`, `SteamUiStatePublication`, `SteamUiCommandHandler`, `SteamUiCommandDelegate`, `SteamUiCommandResult`, `SteamUiModuleRuntime`                                                                                                                                                                         |
 | Extensions | `SteamUiExtensionHost` (static), `SteamUiExtension`, `SteamUiExtensionManifest`, `SteamUiExtensionRejection`                                                                                                                                                                                                                                                 |
 | Logging    | `ISteamUiLog { Info, Warn, Change(key, message, warning) }`, static `SteamUiLog` with a discarding default                                                                                                                                                                                                                                                   |
-| Surfaces   | `SteamAudioSurface`, `SteamNetworkSurface`, `SteamBluetoothSurface`, `SteamBrightnessSurface`, `SteamPerformanceSurface`, `SteamPowerLimitSurface`, `SteamFrameLimitRow`, `SteamVariableRefreshRow`, `SteamResolutionRow`, `SteamAutoTdpRow`, `SteamControllerTargetRow`, `SteamDeviceControlsRow`, `SteamNavigationPanelSurface`, `SteamPageSurface`, `SteamStorageSurface`, each with a state record and `ISteam*Backend` (§15) |
+| Surfaces   | `SteamAudioSurface`, `SteamNetworkSurface`, `SteamBluetoothSurface`, `SteamBrightnessSurface`, `SteamPerformanceSurface`, `SteamPowerLimitSurface`, `SteamFrameLimitRow`, `SteamVariableRefreshRow`, `SteamResolutionRow`, `SteamAutoTdpRow`, `SteamControllerTargetRow`, `SteamDeviceControlsRow`, `SteamNavigationPanelSurface`, `SteamPageSurface`, `SteamStorageSurface`, `SteamLibraryBadgeSurface`, each with a state record and `ISteam*Backend` (§15) |
 | Patch helpers | `SteamUiBridgePatch`, `SteamGatePatch`, `SteamQuickAccessRowPatch`; readers `SteamUiPayload`, `SteamPerformanceDeltaReader`, `SteamOverlayLevelWire`; `SteamUiProbeJs`, `SteamUiText`, `SteamSettingPersistence`                                                                                                                                         |
 | Assets     | `SteamUiAssets/Source/types.ts`, `bridge.ts`, `ownership.ts`, `rpc.ts`, `icons.ts`, `gates/*.ts`, `components.ts`, `epilogue.ts`; built by `eng/build-prelude.mjs`, checked by `eng/check-ownership-claims.mjs`                                                                                                                                           |
 
@@ -614,6 +614,7 @@ The host replaces the placeholder with the configuration, evaluates the whole th
 | `eng/check-navigation-panel.mjs`                   | the emitted gate against an inert React fixture: descent to the panel root, anchoring by route and by descriptor key, orphan reporting, hiding before insertion, activation, exact restoration, reinstall |
 | `SteamPageTests`, `eng/check-pages.mjs`            | the page probe's separate facts and its rendered-tree search; the emitted gate's route-list discovery by content, an addition losing to Steam's own route and an override winning, path validation, exact restoration, reinstall |
 | `SteamStorageTests`, `eng/check-storage.mjs`       | the storage probe's service and transport facts and every action having a command; the emitted gate's availability answer, Steam's own state field names, action forwarding, unrelated service traffic passing through with its arguments and receiver, and restoration putting Valve's method back |
+| `SteamLibraryBadgeTests`, `eng/check-library-badge.mjs` | the badge probe's separate structural facts, selection of the tile and the badge by what they are rather than by name, the published wire shape, the exact layout payload; the emitted gate placing the badge left of Valve's in one row, naming the library or the internal label, green for installed and grey otherwise, no badge for a game installed nowhere, an anchorless tile left untouched, Big Art reported once per change, exact restoration, reinstall |
 
 ## 15. Surfaces
 
@@ -653,6 +654,7 @@ for fixtures and diagnostics.
 | `SteamNavigationPanelSurface` | left slideout navigation panel             | claims the exported memo's `type`, reaches the panel root by rendering | `SteamNavigationPanelState`  | activate an added entry                                                                    |
 | `SteamPageSurface`         | custom pages in Steam's router                | claims the router memo's `type`, inserts routes into the route list   | `SteamPageState`             | none: a page is declared, not commanded                                                    |
 | `SteamStorageSurface`      | SteamOS storage management pages              | claims `SendMsg` on the service transport, answers `StorageDeviceManager.*` | `SteamStorageState`     | adopt, unmount, eject, format, trim                                                        |
+| `SteamLibraryBadgeSurface` | a library badge on every library tile         | claims the tile memo's `type`, replaces the Steam Input badge element with a row of two | `SteamLibraryBadgeState` | hears the Home layout (Big Art Mode) report                                          |
 
 ### SteamOS storage management
 
@@ -687,6 +689,44 @@ Every action is the host's. The injected half performs no storage operation at a
 keeps one Windows implementation behind both Steam's pages and WSGM's own surfaces instead of two
 that can disagree. An empty published state is still answered: "no removable drives" is a truthful
 answer and the page renders it, where refusing to answer leaves Steam's spinner up forever.
+
+### The library badge
+
+Every library tile — Home's carousel, the library grid, the collection views — is one exported
+`React.memo`, a mobx observer, drawn by every caller through the export. Its icon row holds Valve's
+Steam Input badge, which is also exported from the same module but called by the tile through its
+module-local name, so claiming the badge export changes nothing the tile draws. The claim is on the
+tile memo's `type`; the badge is found in what the tile renders by element type — identity with the
+export — and replaced by one flex box holding this badge and then Valve's. The row is
+`space-between` with Valve's badge pushed to its end by an auto margin, so a bare sibling would land
+at the far left; the box keeps the two together wherever the row puts them.
+
+The walk is over props alone: the tile's whole icon row is host elements and fragments below its
+Focusable root, so nothing has to be rendered to reach the anchor, and function components on the
+way keep every identity Valve's reconciler holds. It is bounded at twelve levels and sixty-four
+children per level. A tile whose tree has no anchor — a music album, a tile with compat icons
+hidden — renders exactly what Valve shipped and is counted in `lastOutcome` as unanchored.
+
+The badge text is the library's name alone, and its colour is Steam's own installed flag on the
+app overview: green installed, grey not, which is what a disconnected card amounts to. The
+published `connected` stands in only for an overview that cannot say. A game no published library
+holds is on the internal library by definition and is labelled with `internalLabel` while it is
+installed; one installed nowhere gets no badge, because there is no library to name. The
+publication is bounded at 64 libraries, 4096 app ids and 64-character names.
+
+Big Art Mode is `library_home_big_art`, a client setting the Home component reads through a
+settings hook. The gate resolves the settings store by its own class body — the module carrying
+`get clientSettings()` and `m_setDeferredSettings` — and the one export carrying `clientSettings`.
+It reads the flag on every tile render and sends `homeLayout { bigArt }` once when it first
+resolves and once per change, so a host learns of a toggle without a subscription into Valve's
+store; `status.bigArt` carries the current reading and `null` when the store did not resolve. The
+store is wanted, not required: the badge is tile-relative and draws the same in either layout.
+
+Mapped against the September 2026 client beta on 2026-09-11: `appportrait_` occurs in exactly one
+of the 2622 loaded modules, that module has exactly one memo export and exactly one function
+export whose source draws the controller-support icon, five modules render the tile through the
+export, and the memo's `type` is a writable and configurable own property. The probe checks each
+of those separately and accepts a tile this gate already claimed.
 
 ### Custom pages
 

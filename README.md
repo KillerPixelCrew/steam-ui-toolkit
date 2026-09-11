@@ -45,6 +45,15 @@ and keys are stable across client builds and languages while the labels are loca
 applied before insertion. An entry whose anchor is not in the panel goes to the end and is reported
 as orphaned rather than dropped. The claim is on the one exported handle and is restored on removal.
 
+`SteamLibraryBadgeSurface.Module` draws a library badge on every library tile, immediately left of
+Valve's Steam Input badge in the tile's icon row: the name of the library that holds the game,
+green when the game is installed and grey when it is not. Publish `SteamLibraryBadgeState` with the
+libraries worth naming and their app ids; a game in none of them is on the internal library and is
+labelled with `InternalLabel`. The claim is on the tile memo's `type`, so Home's carousel and the
+library grid are covered by one claim, and the badge shows exactly when Valve shows the icon row.
+Implement `ISteamLibraryBadgeBackend` to hear `homeLayout`, which reports Steam's own Big Art Mode
+setting when the gate resolves it and whenever a tile render sees it change.
+
 `SteamPageSurface.Module` registers custom pages with Steam's own router. Publish `SteamPageState`
 with a path, a title and an id; the path is matched by Steam's matcher, so `/wsgm/artwork/:appid`
 takes parameters the way Valve's routes do. Pages are built with Steam's back-stack `Route`, not
