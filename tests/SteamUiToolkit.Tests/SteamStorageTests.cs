@@ -57,18 +57,44 @@ public sealed class SteamStorageTests
     public void TheStateReachesTheWireWithSteamsOwnFieldNames()
     {
         SteamStorageState state = new(
-            [new SteamStorageDrive("disk0", Formattable: true, Unformatted: false)],
-            [new SteamStorageBlockDevice("vol0", "disk0", ["D:\\"], HasSteamLibrary: true)],
+            [new SteamStorageDrive(
+                Id: 1,
+                Model: "Realtek PCIE CardReader",
+                Vendor: "",
+                SizeBytes: 256_003_538_944,
+                Ejectable: true,
+                Formattable: true,
+                Unformatted: false)],
+            [new SteamStorageBlockDevice(
+                Id: 2,
+                DriveId: 1,
+                Label: "SDCard1",
+                FriendlyPath: "D:\\",
+                SizeBytes: 256_002_359_296,
+                MountPaths: ["D:\\", "D:\\SteamLibrary"],
+                HasSteamLibrary: true)],
             AdoptSupported: true,
             UnmountSupported: true);
 
         JsonElement wire = SteamStorageSurface.Serialize(state);
 
-        Assert.Equal("disk0", wire.GetProperty("drives")[0].GetProperty("id").GetString());
+        Assert.Equal(1u, wire.GetProperty("drives")[0].GetProperty("id").GetUInt32());
         Assert.True(wire.GetProperty("drives")[0].GetProperty("formattable").GetBoolean());
-        Assert.Equal("vol0", wire.GetProperty("blockDevices")[0].GetProperty("id").GetString());
+        Assert.Equal(
+            "Realtek PCIE CardReader", wire.GetProperty("drives")[0].GetProperty("model").GetString());
+        Assert.Equal(2u, wire.GetProperty("blockDevices")[0].GetProperty("id").GetUInt32());
+        Assert.Equal(1u, wire.GetProperty("blockDevices")[0].GetProperty("driveId").GetUInt32());
         Assert.Equal("D:\\", wire.GetProperty("blockDevices")[0].GetProperty("mountPaths")[0].GetString());
+
+        // The library path travels with the root because Steam finds the volume behind a folder by
+        // looking for a block device whose mount paths contain that folder.
+        Assert.Equal(
+            "D:\\SteamLibrary",
+            wire.GetProperty("blockDevices")[0].GetProperty("mountPaths")[1].GetString());
+
+        // Both support flags, because Steam gates Format on one and Eject on the other.
         Assert.True(wire.GetProperty("adoptSupported").GetBoolean());
+        Assert.True(wire.GetProperty("unmountSupported").GetBoolean());
     }
 
     [Fact]
@@ -82,12 +108,17 @@ public sealed class SteamStorageTests
             SteamStorageSurface.Module(Always, () => new(null as SteamStorageState), backend),
         ]);
 
-        Assert.True((await Dispatch(set, "eject", """{"blockDeviceId":"vol0"}""")).Succeeded);
-        Assert.True((await Dispatch(set, "unmount", """{"driveId":"disk0"}""")).Succeeded);
+        Assert.True((await Dispatch(set, "eject", """{"blockDeviceId":2}""")).Succeeded);
+        Assert.True((await Dispatch(set, "unmount", """{"driveId":1}""")).Succeeded);
         SteamUiCommandResult refused = await Dispatch(set, "eject", """{}""");
 
         Assert.Equal("The storage eject payload named neither a volume nor a drive.", refused.Error);
-        Assert.Equal(["eject vol0/", "eject /disk0"], backend.Calls);
+
+        // Zero is Steam's "not named" rather than a drive, so it refuses like an absent property.
+        SteamUiCommandResult zero = await Dispatch(
+            set, "eject", """{"blockDeviceId":0,"driveId":0}""");
+        Assert.Equal("The storage eject payload named neither a volume nor a drive.", zero.Error);
+        Assert.Equal(["eject 2/0", "eject 0/1"], backend.Calls);
     }
 
     [Fact]
@@ -99,12 +130,12 @@ public sealed class SteamStorageTests
             SteamStorageSurface.Module(Always, () => new(null as SteamStorageState), backend),
         ]);
 
-        Assert.True((await Dispatch(set, "adopt", """{"driveId":"disk0"}""")).Succeeded);
+        Assert.True((await Dispatch(set, "adopt", """{"driveId":1}""")).Succeeded);
         Assert.True((await Dispatch(set, "trimall", """{}""")).Succeeded);
-        SteamUiCommandResult refused = await Dispatch(set, "format", """{"driveId":""}""");
+        SteamUiCommandResult refused = await Dispatch(set, "format", """{"driveId":0}""");
 
         Assert.Equal("The storage format payload is invalid.", refused.Error);
-        Assert.Equal(["adopt disk0", "trimall"], backend.Calls);
+        Assert.Equal(["adopt 1", "trimall"], backend.Calls);
     }
 
     [Fact]
@@ -158,14 +189,14 @@ public sealed class SteamStorageTests
             return Task.FromResult(SteamUiCommandResult.Applied);
         }
 
-        public Task<SteamUiCommandResult> AdoptAsync(string driveId, CancellationToken cancellationToken) =>
+        public Task<SteamUiCommandResult> AdoptAsync(uint driveId, CancellationToken cancellationToken) =>
             Record($"adopt {driveId}");
 
         public Task<SteamUiCommandResult> EjectAsync(
-            string blockDeviceId, string driveId, CancellationToken cancellationToken) =>
+            uint blockDeviceId, uint driveId, CancellationToken cancellationToken) =>
             Record($"eject {blockDeviceId}/{driveId}");
 
-        public Task<SteamUiCommandResult> FormatAsync(string driveId, CancellationToken cancellationToken) =>
+        public Task<SteamUiCommandResult> FormatAsync(uint driveId, CancellationToken cancellationToken) =>
             Record($"format {driveId}");
 
         public Task<SteamUiCommandResult> TrimAllAsync(CancellationToken cancellationToken) => Record("trimall");
