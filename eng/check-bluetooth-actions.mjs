@@ -5,13 +5,27 @@ const asset = readFileSync(process.argv[2] ?? "dist/prelude.js", "utf8");
 const start = asset.indexOf("function createBluetoothService()");
 const end = asset.indexOf('registerGate("bluetooth"', start);
 assert.ok(start >= 0 && end > start);
-const rf = { GetState() {} };
+const rf = { GetState() {}, Pair() {} };
+// The stub as the gate finds it: by its service method name and its shape, never by module id or
+// export name.
+const runtime = () => {
+  const require = () => {
+    throw new Error("the gate must not name a module id");
+  };
+  require.exported = (tokens, predicate) => {
+    assert.deepEqual(tokens, ["BluetoothManager.GetState#1"]);
+    assert.equal(predicate({ GetState() {} }), false, "an object without Pair is not the stub");
+    assert.equal(predicate(rf), true);
+    return rf;
+  };
+  return require;
+};
 let publish;
 let failure = false;
 const calls = [];
 const gate = new Function("getWebpackRuntime", "transportReply", "invalidateQuery", "request", "subscribe", "claimed", "storedOriginal",
   asset.slice(start, end) + "\nreturn createBluetoothService();")(
-  () => () => ({ RF: rf }),
+  runtime,
   body => ({ BSuccess: () => true, BFailed: () => false, GetEResult: () => 1, Body: () => ({ toObject: () => body }) }),
   () => {},
   async (_, command, payload) => { calls.push([command, payload]); if (failure) throw new Error("device unavailable"); },

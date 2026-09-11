@@ -442,3 +442,69 @@ const releaseAccessor = (
     return { ok: false, error: String(error) };
   }
 };
+
+// Intercepts what React.useMemo returns, for every surface that needs to see an array Steam builds
+// through it: the Quick Access tab list, the Settings page list.
+//
+// React has one useMemo. Two gates each wrapping it would stack wrappers, and whichever was removed
+// first would hand back the other's wrapper or the original from under it. So there is one member
+// claim on it for all of them: taken with the first transform and released with the last. Transforms
+// run in registration order, each seeing the result of the one before, and one that throws leaves
+// the value as it found it. The claim's marker and original live on the wrapper, so a bridge
+// replaced in place reclaims rather than wraps its predecessor.
+const memoClaimKeys = {
+  marker: "__steamUiOwnedUseMemo",
+  original: "__steamUiOriginalUseMemo",
+} as const;
+const memoTransforms = new Map<string, (value: unknown) => unknown>();
+let memoWrapper: unknown = null;
+
+const interceptMemo = (
+  react: Record<string, unknown> | null | undefined,
+  name: string,
+  transform: (value: unknown) => unknown,
+): { ok: boolean; error?: string } => {
+  if (!react || typeof react.useMemo !== "function") {
+    return { ok: false, error: "React useMemo unavailable" };
+  }
+  memoTransforms.set(name, transform);
+  if (memoWrapper && react.useMemo === memoWrapper) return { ok: true };
+  const claim = claimMember(react, "useMemo", memoClaimKeys, (original) => {
+    const useMemo = original as (factory: unknown, dependencies: unknown) => unknown;
+    return function SteamUiUseMemo(factory, dependencies) {
+      let value = useMemo(factory, dependencies);
+      for (const apply of memoTransforms.values()) {
+        try {
+          value = apply(value);
+        } catch {
+          // A failing transform leaves what it was given.
+        }
+      }
+      return value;
+    };
+  });
+  if (!claim.ok || !memberClaimed(react, "useMemo", memoClaimKeys)) {
+    memoTransforms.delete(name);
+    return {
+      ok: false,
+      error: claim.ok ? "React useMemo wrapper could not be installed" : claim.error,
+    };
+  }
+  memoWrapper = react.useMemo;
+  return { ok: true };
+};
+
+// Withdraws one transform, and hands useMemo back once none is left.
+const releaseMemo = (
+  react: Record<string, unknown> | null | undefined,
+  name: string,
+): { ok: boolean; error?: string } => {
+  memoTransforms.delete(name);
+  if (memoTransforms.size || !react) return { ok: true };
+  const released = releaseMember(react, "useMemo", memoClaimKeys);
+  if (released.ok) memoWrapper = null;
+  return released;
+};
+
+const memoIntercepted = (react: Record<string, unknown> | null | undefined, name: string) =>
+  !!react && memoTransforms.has(name) && !!memoWrapper && react.useMemo === memoWrapper;

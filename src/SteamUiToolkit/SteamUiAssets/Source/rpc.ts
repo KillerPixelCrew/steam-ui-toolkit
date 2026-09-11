@@ -18,15 +18,23 @@ const transportReply = (body: object) => ({
 });
 
 // Replacing a stub is only half the job: react-query still holds the answer the stub gave, so the
-// UI keeps rendering the refusal until the query that cached it is invalidated. Live-verified that
-// the query client's invalidateQueries is reachable at module 21371.
+// UI keeps rendering the refusal until the query that cached it is invalidated.
+//
+// The client has one query client, built by the module that provides it with its default options
+// and mounts the devtools beside it. It was module 21371, export L, when first verified; the
+// September 2026 beta renumbered the module, so it is found by that provider's source and by the
+// shape of the client instead.
 //
 // Failure is swallowed on purpose. A client whose query layer moved keeps the stale answer and the
 // row simply does not update — which is a degraded surface, not a broken one, and never a reason to
 // tear down a gate that is otherwise working.
-const invalidateQuery = (req: ((id: string) => any) | null | undefined, queryKey: unknown) => {
+// The same conjunction the storage gate resolves its query client by.
+const QueryClientTokens = ["ReactQueryDevtools", "offlineFirst"];
+const isQueryClient = (value: any) =>
+  typeof value?.invalidateQueries === "function" && typeof value?.getQueryState === "function";
+const invalidateQuery = (req: any, queryKey: unknown) => {
   try {
-    req?.("21371")?.L?.invalidateQueries({ queryKey });
+    req?.exported(QueryClientTokens, isQueryClient).invalidateQueries({ queryKey });
   } catch {
     // Intentionally ignored; see above.
   }

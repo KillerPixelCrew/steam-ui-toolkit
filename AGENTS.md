@@ -37,9 +37,10 @@ generated and ignored. Edit the TypeScript source, never generated prelude outpu
 ## Architecture boundaries
 
 Keep Steam-build-specific facts in the surface and injected-asset layer, not in endpoint discovery,
-transport, bridge, patch-manager, or module-runtime core. A surface may own its literal webpack
-module ids and store fields, while shared asset helpers centralize fingerprints, localization, and
-row-placement vocabulary used by several surfaces.
+transport, bridge, patch-manager, or module-runtime core. A surface owns its source fingerprints,
+export shapes and store fields, while shared asset helpers centralize localization and
+row-placement vocabulary used by several surfaces. Never write down a webpack module id or a
+minified export name: client builds renumber and rename both (the September 2026 beta did).
 
 A complete surface owns its whole vertical slice:
 
@@ -106,8 +107,11 @@ Ownership must survive separate CDP evaluations:
 - Never restore an invented platform value.
 - Reveal one gated surface or getter; never set Steam's global platform identity.
 - Never iterate the webpack registry while constructing arbitrary exports. Capture the runtime by
-  the shared module resolver, then inspect named module ids or source. Features supply fingerprints
-  to `SteamUiModuleResolver`; they do not implement their own registry scans or raw require calls.
+  the shared module resolver, then resolve a module by a unique source fingerprint and an export by
+  its shape (`exported`). Features supply fingerprints to `SteamUiModuleResolver`; they do not
+  implement their own registry scans or raw require calls.
+- React has one `useMemo`. A surface that needs to see what it returns registers a transform on the
+  shared claim (`interceptMemo`/`releaseMemo`); it never wraps `useMemo` itself.
   Keep `module-resolver.ts` valid JavaScript because those exact bytes are also embedded for C#
   probes.
 - A successful patch must remain compatible with its own next probe.

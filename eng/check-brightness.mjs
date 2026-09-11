@@ -29,6 +29,25 @@ function fixture() {
     m_msgSettings: { is_display_brightness_available: false },
     m_flDisplayBrightness: observable,
   };
+  // The store class as the gate finds it: by its module's tokens and by its own body, never by
+  // module id or export name.
+  const DisplayStore = function DisplayStore() {};
+  DisplayStore.Get = () => store;
+  Object.defineProperty(DisplayStore, "toString", {
+    value: () => "class Au{static Get(){}m_msgSettings={};m_flDisplayBrightness=(0,a.Jc)(1)}",
+  });
+  const runtime = () => {
+    const require = () => {
+      throw new Error("the gate must not name a module id");
+    };
+    require.exported = (tokens, predicate) => {
+      assert.ok(tokens.includes("m_flDisplayBrightness"));
+      assert.equal(predicate({ Get: () => store }), false, "a plain object is not the store class");
+      assert.equal(predicate(DisplayStore), true);
+      return DisplayStore;
+    };
+    return require;
+  };
   const create = new Function(
     "window",
     "getWebpackRuntime",
@@ -40,7 +59,7 @@ function fixture() {
       "\nreturn createBrightnessGate;",
   )(
     { SteamClient: { System: { Display: display } } },
-    () => () => ({ mG: { Get: () => store } }),
+    runtime,
     (_id, callback) => {
       publish = callback;
       return () => {

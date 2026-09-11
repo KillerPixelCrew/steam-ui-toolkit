@@ -157,8 +157,11 @@ constructor preserves the default discovery behavior. Hosts still own game-mode 
 
 `SteamUiModuleResolver.CreateExpression(scope)` embeds `module-resolver.ts`, kept valid JavaScript,
 as a standalone expression. The same source is compiled into the bridge. The returned function
-accepts a literal string id and refuses a missing factory before invoking webpack. `resolve(tokens)`
-loads exports only for a unique source match; `count(tokens)` and `findUnique(tokens)` inspect
+refuses a missing factory before invoking webpack. `resolve(tokens)` loads exports only for a unique
+source match. `exported(tokens, predicate)` resolves the same way and returns the one distinct
+export the predicate accepts, counting aliases of a value once and throwing `Steam export absent`
+or `Steam export ambiguous` otherwise; a getter or predicate that throws counts as no fit.
+`count(tokens)` and `findUnique(tokens)` inspect
 source without invoking factories. `findUnique` returns an id/source pair or null. Invalid
 fingerprints, absent/ambiguous resolution and load failures throw diagnostic errors. Fingerprints
 have 1 to 16 nonempty tokens of at most 512 characters; discovery accepts at most 32,768 factories.
@@ -167,7 +170,16 @@ registry or loader. This is not a sandbox for arbitrary page JavaScript, nor pro
 dependencies have initialized; hosts must enforce startup readiness as well.
 
 Probes and gates share this resolver. The network surface instead reads Steam's published
-`window.SystemNetworkStore`, so inspecting availability cannot construct the singleton early.
+`window.SystemNetworkStore`, so inspecting availability cannot construct the singleton early, and
+native surface replay and the side-menu snapshot read Steam's `window.SteamUIStore`.
+
+Nothing in the toolkit names a webpack module id or a minified export name. The September 2026
+client beta renumbered every module; the audio, performance, brightness and Bluetooth probes, which
+named `1409`, `74514`, `59547` and `60517`, refused on its first start, and the Quick Access rows
+refused because the localizer had been chosen by parameter names the new minifier changed. Export
+names mostly survived that build and the route table's did not. A module is found by a fingerprint
+that matches it alone and an export by its shape; WSGM's `eng/check-steam-fingerprints.mjs` counts
+every fingerprint's matches in an installed client's bundle without attaching to Steam.
 `eng/check-startup.mjs` exercises both the standalone source and emitted asset against the loader
 failure shape that leaves empty exports cached after a missing-factory call. Native-component
 installation catches discovery and dependency-resolution exceptions before installing the React
@@ -504,9 +516,18 @@ evaluates them with `new Function`, and runs more than thirty claim, reclaim, re
 and lost-original scenarios. It runs in CI; reintroducing the function-type defect fails four
 checks.
 
+React has one `useMemo`, and more than one surface needs what it returns: the Quick Access tab list
+and the Settings page list. `interceptMemo(react, name, transform)` takes one member claim on it for
+all of them with the first transform, `releaseMemo(react, name)` hands it back with the last, and
+`memoIntercepted(react, name)` says whether a named transform is live on the installed wrapper.
+Transforms run in registration order, each on the previous one's result, and one that throws leaves
+the value as it was. A surface never wraps `useMemo` itself, because two wrappers would hand each
+other's originals back on removal.
+
 `rpc.ts` supplies `transportReply(body)` (the `{BSuccess, BFailed, GetEResult: 1, Body().toObject()}`
-shape a Steam transport RPC answer takes) and `invalidateQuery(queryKey)`, which resolves the one
-literal query-client module and calls `invalidateQueries`, swallowing every failure.
+shape a Steam transport RPC answer takes) and `invalidateQuery(queryKey)`, which finds the client's
+query client in the provider module carrying `ReactQueryDevtools` and `offlineFirst`, by its
+`invalidateQueries` and `getQueryState`, and calls `invalidateQueries`, swallowing every failure.
 
 ## 10. The extension host
 
@@ -615,6 +636,8 @@ The host replaces the placeholder with the configuration, evaluates the whole th
 | `SteamPageTests`, `eng/check-pages.mjs`            | the page probe's separate facts and its rendered-tree search; the emitted gate's route-list discovery by content, an addition losing to Steam's own route and an override winning, path validation, exact restoration, reinstall |
 | `SteamStorageTests`, `eng/check-storage.mjs`       | the storage probe's service and transport facts and every action having a command; the emitted gate's availability answer, Steam's own state field names, action forwarding, unrelated service traffic passing through with its arguments and receiver, and restoration putting Valve's method back |
 | `SteamHomeCarouselTests`, `eng/check-home-carousel.mjs` | the Home probe's separate facts, finding Home by content rather than name, already-claimed compatibility, the published wire shape, the exact report payload; the emitted gate finding Home through the route list, replacing `games` for the carousel and the background, clearing the whole-list overscan, the documented order, disconnected games leaving, uninstalled games greyed, no rebuild or report without a change, the fallback to Steam's list, bounded publications, a mounted wrapper passing through after removal, exact restoration, reinstall |
+| `SteamScreensaverTests`, `eng/check-screensaver.mjs` | the probe's separate facts and that it names no module id or export, the published wire shape, the exact report and choice payloads and their refusals; the emitted gate wrapping only the customization page and only its Screensaver section, appending the rows after Steam's own, reporting on first read, on change and on page open, sending a choice once and disabling the row while pending, refusing a malformed state whole, the bounded first-report retry, keeping the shared `useMemo` claim for another surface on removal and handing it back with the last |
+| `eng/check-startup.mjs` (resolver) | missing factories staying uncached, unique resolution, and `exported` counting aliases once, refusing two distinct fits, no fit, a missing module and an invalid predicate |
 | `SteamLibraryBadgeTests`, `eng/check-library-badge.mjs` | the badge probe's separate structural facts, selection of the tile and the badge by what they are rather than by name, the published wire shape, the exact layout payload; the emitted gate placing the badge left of Valve's in one row, naming the library or the internal label, green for installed and grey otherwise, no badge for a game installed nowhere, an anchorless tile left untouched, Big Art reported once per change, exact restoration, reinstall |
 
 ## 15. Surfaces
@@ -657,6 +680,7 @@ for fixtures and diagnostics.
 | `SteamStorageSurface`      | SteamOS storage management pages              | claims `SendMsg` on the service transport, answers `StorageDeviceManager.*` | `SteamStorageState`     | adopt, unmount, eject, format, trim                                                        |
 | `SteamLibraryBadgeSurface` | a library badge on every library tile         | claims the tile memo's `type`, replaces the Steam Input badge element with a row of two | `SteamLibraryBadgeState` | hears the Home layout (Big Art Mode) report                                          |
 | `SteamHomeCarouselSurface` | Big Picture Home's carousel                    | claims Home's memo `type`, replaces the carousel's `games` array and bounds its overscan | `SteamHomeCarouselState` | hears what the carousel holds after each rebuild                                   |
+| `SteamScreensaverSurface`  | host rows in the Screensaver settings section  | a transform on the shared `useMemo` claim wraps the customization page and its Screensaver section | `SteamScreensaverState` | hears Steam's screensaver timeouts; applies a row's choice                          |
 
 ### SteamOS storage management
 
@@ -791,6 +815,42 @@ wanted, not required, and `report` says whether it resolved. After each rebuild 
 Read from the September 2026 beta's shipped bundle on 2026-09-11: `HomeTabsActive` with
 `#Showcase_RecentGames` occurs in one module, the Home route renders a memo, and mobx-react-lite's
 startup check occurs once. The probe checks each separately and accepts a Home it already claimed.
+
+### Screensaver settings
+
+The September 2026 beta ships Big Picture's screensaver on Windows. Its settings are a section of the
+Customization page, and on a machine Steam believes has no battery the section's last row is the
+idle timeout, `system_idle_screensaver_ac_sec`. Steam keeps per-source timeouts on a Power page it
+shows only with a battery or under gamescope. The surface appends host-owned timeout rows to that
+section and reports Steam's timeouts, so a host can keep a timeout of its own in order with them.
+
+The Settings root builds its page list with `React.useMemo`: `{ visible, title, icon, route, content }`
+per page. A transform on the shared claim (§9) replaces the content of the entry whose `route` is
+the route table's `Settings.Customization()` with a wrapper that renders the page. In what the page
+renders, the one child whose type's source carries `"#Settings_Customization_Screensaver"` and
+`ForceScreensaver` is replaced by a wrapper that renders the section and appends the rows. Both
+wrappers are cached by what they wrap and pass Steam's tree through once the gate is removed; the
+same input list always maps to the same output list. Two customization entries, or a page without
+exactly one such section, is left as Steam drew it and says so in `status.lastOutcome`.
+
+The rows are Valve's `DropDownField`, controlled, one per published row: label, optional
+description, the host's options and the observed value. A choice sends `setTimeout { row, seconds }`
+once and disables the row until the response. The host decides which choices a row offers; the gate
+renders them and nothing else. A publication is validated whole: at most four rows with ids of a
+lowercase letter then up to 31 lowercase letters, digits or hyphens, unique, at most sixteen options
+each, every value 0 to 604,800 seconds and every option labelled. A state that fails keeps the last
+good rows.
+
+The report is `{ acSeconds, batterySeconds, battery }`: the two client settings, the second null when
+unset, and whether Steam's power store has a battery. It is read inside Steam's own mobx-react-lite
+observer, so a change on the page re-renders the rows, and sent when it first becomes readable (a
+bounded retry, 60 attempts two seconds apart, while the settings store is still empty), on every
+change, and each time the page opens.
+
+Read from the September 2026 beta's bundle on 2026-09-11: the section token with `ForceScreensaver`
+occurs in one module, the route table's customization route is `/settings/customization`, and the
+screensaver's own services are `Screensaver.GetActiveState`, `ForceScreensaver`,
+`GetLocalScreensavers` and `NotifyActiveStateChanged`.
 
 ### Custom pages
 

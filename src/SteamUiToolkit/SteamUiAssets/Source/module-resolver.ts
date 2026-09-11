@@ -50,6 +50,26 @@ function createSteamUiModuleResolver(scope) {
       throw new Error(`Steam module ${ids.length ? "ambiguous" : "absent"}: ${tokens.join(", ")}`);
     return requirePresent(ids[0]);
   };
+  // One export of a uniquely fingerprinted module, chosen by what it is. Client builds renumber
+  // modules and rename exports, so neither a module id nor an export name is an identity: the
+  // September 2026 beta did both and took down every gate that had named them. Aliases of one value
+  // count once; no fit or two distinct fits throws, so a moved export says so instead of guessing.
+  requirePresent.exported = (tokens, predicate) => {
+    if (typeof predicate !== "function") throw new Error("Steam export predicate invalid");
+    const exports = requirePresent.resolve(tokens);
+    const fits = new Set();
+    for (const name of Object.keys(exports ?? {})) {
+      try {
+        const value = exports[name];
+        if (predicate(value)) fits.add(value);
+      } catch {
+        // An export whose getter or shape test throws is not the one being looked for.
+      }
+    }
+    if (fits.size !== 1)
+      throw new Error(`Steam export ${fits.size ? "ambiguous" : "absent"}: ${tokens.join(", ")}`);
+    return [...fits][0];
+  };
   return requirePresent;
 }
 // @steam-ui-module-resolver-end

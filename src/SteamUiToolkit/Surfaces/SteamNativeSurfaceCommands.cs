@@ -58,13 +58,16 @@ public static class SteamNativeSurfaceCommands
             ? "OnQuickAccessButtonPressed" : "OnHomeButtonPressed";
         string invoke = action == SteamNativeSurfaceAction.Keyboard ? """
                 const keyboard=target?.VirtualKeyboardManager;
-                const route=require("18057").BV?.GamepadUI?.Keyboard;
                 if(typeof keyboard?.IsShowingVirtualKeyboard?.Value!=='boolean'
                   ||typeof keyboard.SetDismissOnEnterKey!=='function'
                   ||typeof keyboard.SetVirtualKeyboardVisible!=='function'
                   ||typeof target?.MenuStore?.CloseSideMenus!=='function')return false;
                 if(keyboard.IsShowingVirtualKeyboard.Value)return true;
-                if(pid!==0&&(typeof route!=='function'||typeof target.NavigateWithoutChangingFocus!=='function'))return false;
+                // The route table by what it holds, only for an overlay that needs it; module and
+                // export names change between client builds.
+                const route=pid===0?null:require.exported(["GameAPIOSK:","/gameapiosk"],
+                  v=>typeof v?.GamepadUI?.Keyboard==='function').GamepadUI.Keyboard;
+                if(pid!==0&&typeof target.NavigateWithoutChangingFocus!=='function')return false;
                 target.MenuStore.CloseSideMenus();
                 keyboard.SetDismissOnEnterKey(true);
                 if(pid!==0)target.NavigateWithoutChangingFocus(route(),true,true);
@@ -75,7 +78,9 @@ public static class SteamNativeSurfaceCommands
             (()=>{
               try {
                 const require={{SteamUiModuleResolver.CreateExpression("native_surface")}};
-                const ui=require("61236").oy,store=ui?.WindowStore;
+                // Steam publishes its UI store as window.SteamUIStore; the module holding it is
+                // renumbered by client builds.
+                const ui=window.SteamUIStore,store=ui?.WindowStore;
                 const pid={{processId.ToString(CultureInfo.InvariantCulture)}},appid={{appId.ToString(CultureInfo.InvariantCulture)}};
                 if(typeof ui?.BHomeAndQuickAccessButtonsEnabled!=='function'||!ui.BHomeAndQuickAccessButtonsEnabled())return false;
                 let target;

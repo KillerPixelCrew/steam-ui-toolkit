@@ -535,15 +535,16 @@ public static class SteamPerformanceSurface
         gateName: "perf",
         fingerprint: "native-qam-perf-v1:store+absent-namespace+reachable-singleton",
         // The store is counted by the source tokens that make it the perf store, never by module
-        // id; the singleton is reached through the one export exposing a Get() returning a
-        // state-carrying store, because the state is written into a client that is already running.
+        // id; the singleton is reached through the one exported class with a Get() whose body
+        // declares the state, because the state is written into a client that is already running.
+        // Naming module 74514 is what refused this gate on the September 2026 beta.
         probeExpression: $$"""
             {{SteamUiProbeJs.CountingPreamble("steam_ui_performance_probe_")}}
               let singleton=false;
               try{
-                const mod=req('74514');
-                const holder=mod&&Object.values(mod).find(v=>v&&typeof v.Get==='function');
-                const store=holder?holder.Get():null;
+                const holder=req.exported(['SteamClient.System.Perf','RegisterForStateChanges','m_msgState'],
+                  v=>typeof v==='function'&&typeof v.Get==='function'&&String(v).includes('m_msgState'));
+                const store=holder.Get();
                 singleton=!!(store&&'m_msgState' in store);
               }catch{}
               return JSON.stringify({

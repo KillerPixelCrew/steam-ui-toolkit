@@ -73,6 +73,25 @@ for (const source of [
   assert.throws(() => guarded("broken"), /resolution failed/u);
   assert.throws(() => guarded("broken"), /previously failed/u);
   assert.equal(f.calls(), 3);
+  // Exports are chosen by shape: aliases of one value count once, two distinct fits are refused.
+  f.factories.store = (_module, exports) => {
+    /* export-token */
+    const store = { kind: "store" };
+    Object.defineProperty(exports, "a", { enumerable: true, get: () => store });
+    Object.defineProperty(exports, "b", { enumerable: true, get: () => store });
+    exports.hook = () => store;
+    Object.defineProperty(exports, "broken", {
+      enumerable: true,
+      get: () => {
+        throw new Error("getter failed");
+      },
+    });
+  };
+  assert.equal(guarded.exported(["export-token"], (value) => value?.kind === "store").kind, "store");
+  assert.throws(() => guarded.exported(["export-token"], (value) => !!value), /export ambiguous/u);
+  assert.throws(() => guarded.exported(["export-token"], () => false), /export absent/u);
+  assert.throws(() => guarded.exported(["missing-token"], () => true), /module absent/u);
+  assert.throws(() => guarded.exported(["export-token"], null), /predicate invalid/u);
 }
 
 // Exercise the complete emitted host, including failures after React has resolved.
@@ -89,9 +108,16 @@ const iconRelativeEnd = iconStart < 0 ? -1 : asset.slice(iconStart).search(/\n[ 
 assert.ok(iconStart >= 0 && iconRelativeEnd > 0);
 const icons = asset.slice(iconStart, iconStart + iconRelativeEnd);
 assert.match(icons, /const createIconRenderer =/u);
+// The ownership primitives, for the shared useMemo claim the host takes. They end where the RPC
+// helpers begin, which follow them in either composition.
+const ownershipStart = asset.indexOf("const defineHidden");
+const ownershipEnd = asset.indexOf("const transportReply", ownershipStart);
+assert.ok(ownershipStart >= 0 && ownershipEnd > ownershipStart);
+const ownership = asset.slice(ownershipStart, ownershipEnd);
 const createHost = (window) =>
   runInNewContext(
     `${asset.slice(start, end)}
+     ${ownership}
      ${icons}
      const getWebpackRuntime = scope => createSteamUiModuleResolver(scope);
      ${asset.slice(hostStart, hostEnd)}
@@ -125,7 +151,7 @@ function componentFixture() {
     localization(_module, exports) {
       // Attempting to localize token Unable to find localization token LocalizeString
       exports.localize = function () {
-        // LocalizeString(e) void 0===r?e
+        // let r=C.LocalizeString(e);return r===void 0?e:r
       };
     },
     performance(_module, exports) {

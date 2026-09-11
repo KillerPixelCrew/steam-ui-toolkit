@@ -33,8 +33,8 @@
     // patched memo. Null means it has not been seen yet, which the status reports.
     let quickSettingsRoot = null;
     const quickSettingsWrapCache = new Map();
-    let originalUseMemo;
-    let patchedUseMemo;
+    // This host's name on the shared useMemo claim (ownership.ts).
+    const MemoName = "quickAccessTabs";
     let disposedHost = false;
     let lastPatchError = "";
 
@@ -175,6 +175,14 @@
       );
       return matches.length === 1 ? matches[0] : null;
     };
+    const uniqueFunctionWhere = (exports, test) => {
+      const matches = Object.values(exports).filter((value) => {
+        if (typeof value !== "function") return false;
+        const source = String(value);
+        return !source.startsWith("class") && test(source);
+      });
+      return matches.length === 1 ? matches[0] : null;
+    };
     const uniqueObject = (exports, predicate) => {
       const matches = Object.values(exports).filter(
         (value) => value && typeof value === "object" && predicate(value),
@@ -241,7 +249,22 @@
         layout,
         (value) => value.$$typeof && typeof value.render === "function",
       );
-      const localize = uniqueFunction(localization, ["LocalizeString(e)", "void 0===r?e"]);
+      // Valve's localize-with-fallback: it passes the token alone to LocalizeString and returns the
+      // token when no string exists. Chosen by that shape, not by parameter names — the tokens
+      // "LocalizeString(e)" and "void 0===r?e" held until the September 2026 beta's minifier renamed
+      // the parameters and flipped the comparison, and every Quick Access row then refused with
+      // "React, fields, layout or localization runtime was not a unique match". Its siblings differ
+      // in what they do: the quiet variant passes !0, the presence test compares with null, and the
+      // formatting variant builds elements.
+      const localize = uniqueFunctionWhere(
+        localization,
+        (source) =>
+          source.includes(".LocalizeString(") &&
+          source.includes("void 0") &&
+          !source.includes("!0)") &&
+          !source.includes("!=null") &&
+          !source.includes("createElement"),
+      );
       if (!slider || !dropdown || !section || !row || !localize) return null;
       // The toggle and the label field are deliberately not in that guard. They arrived after the
       // other four, so a client where either cannot be found still gets every control that does not
@@ -1910,12 +1933,7 @@
     };
 
     const ensurePatched = () => {
-      if (
-        controlRuntime &&
-        performanceRoot &&
-        patchedUseMemo &&
-        controlRuntime.react.useMemo === patchedUseMemo
-      )
+      if (controlRuntime && performanceRoot && memoIntercepted(controlRuntime.react, MemoName))
         return true;
       try {
         if (!resolveControls()) return false;
@@ -1932,7 +1950,6 @@
         );
         return appendControls(controlRuntime, performanceRoot(props));
       }
-      originalUseMemo = controlRuntime.react.useMemo;
       // One wrapper per wrapped tab, matched by root identity in the same memoized tab array.
       // Each root must match exactly once or it is left alone — the discipline that kept the
       // performance wrap honest, applied per root rather than to the array as a whole.
@@ -1979,8 +1996,8 @@
           fallbackKey: "steam-ui-quick-settings-root",
         },
       ];
-      patchedUseMemo = function SteamUiUseMemo(factory, dependencies) {
-        const value = originalUseMemo(factory, dependencies);
+      // The tab array passes through the one useMemo claim every surface shares (ownership.ts).
+      const transformTabs = (value) => {
         if (!Array.isArray(value)) return value;
         let result = value;
         for (const wrapper of wrappers) {
@@ -2003,9 +2020,9 @@
         }
         return result;
       };
-      controlRuntime.react.useMemo = patchedUseMemo;
-      if (controlRuntime.react.useMemo !== patchedUseMemo) {
-        lastPatchError = "React useMemo wrapper could not be installed";
+      const intercepted = interceptMemo(controlRuntime.react, MemoName, transformTabs);
+      if (!intercepted.ok) {
+        lastPatchError = intercepted.error || "React useMemo wrapper could not be installed";
         return false;
       }
       lastPatchError = "";
@@ -2027,13 +2044,8 @@
       if (!Object.hasOwn(definitions, kind)) return { ok: true, absent: true };
       registrations.delete(kind);
       notify();
-      if (
-        !registrations.size &&
-        controlRuntime &&
-        originalUseMemo &&
-        controlRuntime.react.useMemo === patchedUseMemo
-      ) {
-        controlRuntime.react.useMemo = originalUseMemo;
+      if (!registrations.size && controlRuntime) {
+        releaseMemo(controlRuntime.react, MemoName);
       }
       return { ok: true, kind, registered: false };
     };
@@ -2042,8 +2054,7 @@
       kind,
       registered: registrations.has(kind),
       hostVersion: 1,
-      performanceRootWrapped:
-        !!controlRuntime && !!patchedUseMemo && controlRuntime.react.useMemo === patchedUseMemo,
+      performanceRootWrapped: !!controlRuntime && memoIntercepted(controlRuntime.react, MemoName),
       // Everything above can be true while the panel still shows nothing, because insertion
       // depends on the shape of the tree Steam renders. This is the part that says so.
       lastAppend: appendDiagnostics.perf,
@@ -2059,8 +2070,7 @@
       registrations.clear();
       notify();
       listeners.clear();
-      if (controlRuntime && originalUseMemo && controlRuntime.react.useMemo === patchedUseMemo)
-        controlRuntime.react.useMemo = originalUseMemo;
+      if (controlRuntime) releaseMemo(controlRuntime.react, MemoName);
     };
     return { install, remove, status, dispose: disposeHostResources };
   }

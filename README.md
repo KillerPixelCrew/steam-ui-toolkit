@@ -128,9 +128,11 @@ Each of these cost a debugging session against a live client.
   leaves the client worse than never patching.
 - Reveal the surface, never the platform. Setting Steam's "is this SteamOS" constant gives you the
   row you wanted and changes unrelated client behaviour everywhere.
-- Never iterate the webpack module registry constructing exports. Probes name literal module ids
-  and inspect factory or prototype source. Enumerating and calling everything once restarted the
-  machine and signed Steam out.
+- Never iterate the webpack module registry constructing exports. Probes find a module by a source
+  fingerprint that matches it alone and an export by its shape. Enumerating and calling everything
+  once restarted the machine and signed Steam out.
+- Never name a module id or a minified export name. Client builds renumber modules and rename
+  exports; the September 2026 beta did both and refused every gate that had named them.
 - Every refusal is logged with its reason, because the injected side has nowhere to put an error.
 
 `eng/check-ownership-claims.mjs` runs the claim primitives out of the emitted prelude, the bytes
@@ -150,7 +152,8 @@ Pass the configured opt-in explicitly to
 transport is intentionally held closed.
 
 Use `SteamUiModuleResolver.CreateExpression(scope)` in standalone feature scripts. The returned
-resolver accepts a literal module id, or `resolve(tokens)` for a unique source fingerprint.
+resolver's `resolve(tokens)` loads a module by a unique source fingerprint, and
+`exported(tokens, predicate)` returns the one export of that module that fits the predicate.
 `count(tokens)` and `findUnique(tokens)` inspect source without loading exports. Missing factories
 never enter webpack's loader, and ambiguous or failed resolution is explicit. Feature scripts must
 not implement their own registry scan. The bridge and built-in probes use this same source.
@@ -198,8 +201,8 @@ forms when shutdown, a settings confirmation or an emergency kill switch must kn
 - The API, because one application shaped it. The parts most likely to change are the ones that
   consumer does not stress: the extension host has no second implementer, and the module contract
   has never been built against by anyone who did not also write it.
-- What Steam does, which nothing here controls. Every module id, localization token and class name
-  is coupled to a Steam build. The probe-first design makes a Steam update degrade to Valve's own
+- What Steam does, which nothing here controls. Every fingerprint token, localization token and
+  store field is coupled to a Steam build, though far more loosely than a module id. The probe-first design makes a Steam update degrade to Valve's own
   behaviour rather than break, but compatibility is verified against a running client, not promised
   by a version number.
 

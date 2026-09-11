@@ -49,7 +49,10 @@ public static class SteamSideMenuObserver
         (()=>{
           try {
             const require={{SteamUiModuleResolver.CreateExpression("side_menu")}};
-            const ui=require("61236").oy, side=require("5822").Ez;
+            // Steam publishes its UI store as window.SteamUIStore; the side-menu enum is found by
+            // its values in the menu store's module. Module ids and export names are per build.
+            const ui=window.SteamUIStore, side=require.exported(["m_eLastRequestedSideMenu","GetOpenSideMenu"],
+              v=>!!v&&typeof v==='object'&&v.None===0&&v.Main===1&&v.QuickAccess===2);
             if(side?.None!==0||side?.Main!==1||side?.QuickAccess!==2)return null;
             const store=ui?.WindowStore, main=store?.MainWindowInstance;
             const overlays=store?.OverlayWindows;

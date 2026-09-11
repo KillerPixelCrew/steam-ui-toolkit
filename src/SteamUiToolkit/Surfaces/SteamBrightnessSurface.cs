@@ -51,7 +51,11 @@ public static class SteamBrightnessSurface
         fingerprint: "steam-brightness-v1:hidden-flag+present-backend",
         probeExpression: $$"""
             {{SteamUiProbeJs.Preamble("steam_ui_brightness_probe_")}}
-              const store=req('59547')&&req('59547').mG&&req('59547').mG.Get();
+              // By what it is, never by module id or export name: the September 2026 beta renumbered
+              // module 59547 and this probe refused brightness until it stopped naming it.
+              let store=null;
+              try{store=req.exported(['m_flDisplayBrightness','is_display_brightness_available'],
+                v=>typeof v==='function'&&typeof v.Get==='function'&&String(v).includes('m_flDisplayBrightness')).Get();}catch{}
               const settings=store&&store.m_msgSettings;
               if(!settings)return JSON.stringify({error:'display settings unavailable'});
               const display=window.SteamClient&&SteamClient.System&&SteamClient.System.Display;

@@ -6,8 +6,11 @@
 //
 // The second gate matters here as much as the first: availability is read through react-query
 // with staleTime Infinity, so replacing the methods changes nothing until that cache is
-// invalidated. Live-verified 2026-08-30 that RF's methods are writable and configurable and that
-// the query client's invalidateQueries is reachable.
+// invalidated. Live-verified 2026-08-30 that the stub's methods are writable and configurable and
+// that the query client's invalidateQueries is reachable.
+//
+// The stub was module 60517, export RF, when verified. The September 2026 beta renumbered the
+// module, so it is found by its service method name and by its shape.
 function createBluetoothService() {
   const patchId = "steam-ui.bluetooth";
   const queryKey = ["BluetoothManagerService", "State"];
@@ -26,6 +29,20 @@ function createBluetoothService() {
   } = { is_service_available: false, adapters: [], devices: [] };
 
   const modules = () => getWebpackRuntime("bluetooth-service");
+  const serviceStub = (req) => {
+    try {
+      return req.exported(
+        ["BluetoothManager.GetState#1"],
+        (value) =>
+          !!value &&
+          typeof value === "object" &&
+          typeof value.GetState === "function" &&
+          typeof value.Pair === "function",
+      );
+    } catch {
+      return null;
+    }
+  };
 
   const reply = transportReply;
   const invalidate = (req) => invalidateQuery(req, queryKey);
@@ -72,7 +89,7 @@ function createBluetoothService() {
   const install = () => {
     if (installed) return { ok: true, alreadyInstalled: true };
     const req = modules();
-    const RF = req?.("60517")?.RF;
+    const RF = serviceStub(req);
     if (!RF || typeof RF.GetState !== "function") {
       lastError = "BluetoothManagerService stub unavailable";
       return { ok: false, error: lastError };
@@ -158,7 +175,7 @@ function createBluetoothService() {
     }
 
     const req = modules();
-    const RF = req?.("60517")?.RF;
+    const RF = serviceStub(req);
     if (RF) {
       for (const [name, original] of originals) {
         if (claimed(RF[name], { marker: methodMarker, original: originalMethodField })) {

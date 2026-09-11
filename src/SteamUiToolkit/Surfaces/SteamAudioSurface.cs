@@ -108,7 +108,10 @@ public static class SteamAudioSurface
         probeExpression: $$"""
             {{SteamUiProbeJs.CountingPreamble("steam_ui_audio_probe_")}}
               let singleton=false;
-              try{const mod=req('1409');singleton=!!(mod&&mod.F5&&('m_bAvailable' in mod.F5));}catch{}
+              // The store by what it is, never by module id or export name: the September 2026 beta
+              // renumbered module 1409 and this probe refused audio until it stopped naming it.
+              try{singleton=!!req.exported(['SteamClient.System.Audio','RegisterForDeviceAdded','m_bAvailable'],
+                v=>!!v&&typeof v==='object'&&'m_bAvailable' in v&&typeof v.RegisterOrUpdateDevice==='function');}catch{}
               return JSON.stringify({
                 audioStore:count(['SteamClient.System.Audio','RegisterForDeviceAdded','m_bAvailable']),
                 audioNamespaceAbsent:(()=>{const a=window.SteamClient&&window.SteamClient.System&&window.SteamClient.System.Audio;

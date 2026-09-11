@@ -30,10 +30,18 @@ function createBrightnessGate() {
   let pendingWrite = false;
   let confirmedState: { percent: number; revision: number } | null = null;
 
+  // The display settings store by what it is: the one module holding the brightness observable,
+  // and the one exported class on it with a singleton Get() whose body declares that observable.
+  // It was module 59547, export mG, when verified; the September 2026 beta renumbered the module.
+  const DisplayStoreTokens = ["m_flDisplayBrightness", "is_display_brightness_available"];
+  const isDisplayStoreClass = (value) =>
+    typeof value === "function" &&
+    typeof value.Get === "function" &&
+    String(value).includes("m_flDisplayBrightness");
   const displayStore = () => {
     try {
       const req = getWebpackRuntime("brightness-store");
-      return req?.("59547")?.mG?.Get?.() ?? null;
+      return (req.exported(DisplayStoreTokens, isDisplayStoreClass) as any).Get() ?? null;
     } catch {
       return null;
     }

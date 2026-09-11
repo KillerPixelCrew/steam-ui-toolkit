@@ -157,14 +157,19 @@ public static class SteamBluetoothSurface
         fingerprint: "steam-bluetooth-v1:operations+writable-stub+reachable-cache",
         probeExpression: $$"""
             {{SteamUiProbeJs.Preamble("steam_ui_bluetooth_probe_")}}
-              const RF=req('60517')&&req('60517').RF;
+              // The stub and the query client by what they are: the September 2026 beta renumbered
+              // modules 60517 and 21371, which this probe used to name.
+              let RF=null;
+              try{RF=req.exported(['BluetoothManager.GetState#1'],
+                v=>!!v&&typeof v==='object'&&typeof v.GetState==='function'&&typeof v.Pair==='function');}catch{}
               if(!RF)return JSON.stringify({error:'bluetooth service stub unavailable'});
               const ops=['GetState','SetDiscovering','Pair','CancelPair','Connect','Disconnect',
                 'Forget','SetTrusted','SetWakeAllowed','GetDeviceDetails'];
               const missing=ops.filter(n=>typeof RF[n]!=='function');
               const d=Object.getOwnPropertyDescriptor(RF,'GetState');
               let cache=false;
-              try{cache=typeof req('21371').L.invalidateQueries==='function';}catch{}
+              try{cache=typeof req.exported(['ReactQueryDevtools','offlineFirst'],
+                v=>typeof v?.invalidateQueries==='function'&&typeof v?.getQueryState==='function').invalidateQueries==='function';}catch{}
               return JSON.stringify({
                 operationsPresent:missing.length===0,
                 missing:missing,

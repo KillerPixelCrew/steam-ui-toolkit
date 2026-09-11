@@ -19,8 +19,10 @@ public sealed class SteamNativeSurfaceCommandTests
                 OnHomeButtonPressed(){calls.push('overlay-home');},
                 OnQuickAccessButtonPressed(){calls.push('overlay-qam');}};
               const ui={BHomeAndQuickAccessButtonsEnabled:()=>true,WindowStore:{MainWindowInstance:main,OverlayWindows:[overlay]}};
-              const require=id=>{if(id==='18057')return {BV:{GamepadUI:{Keyboard:()=>'/keyboard'}}};assert.equal(id,'61236');return {oy:ui};};require.m={'61236':()=>{},'18057':()=>{}};
-              const context=vm.createContext({window:{webpackChunksteamui:{push(a){a[2](require);}}}});
+              const routes={P:{GamepadUI:{Keyboard:()=>'/keyboard'}},r:()=>'/routes'};
+              const require=id=>{assert.equal(id,'80344');return routes;};
+              require.m={'80344':function(){/* GameAPIOSK:()=>"/gameapiosk" */},'61236':function(){/* unrelated */}};
+              const context=vm.createContext({window:{SteamUIStore:ui,webpackChunksteamui:{push(a){a[2](require);}}}});
               const run=key=>vm.runInContext(expressions[key],context);
               assert.equal(run('main'),true);assert.equal(run('home'),true);assert.equal(run('qam'),true);
               assert.deepEqual(calls,['main-qam','overlay-home','overlay-qam']);

@@ -92,11 +92,19 @@ function createAudioNamespace() {
   // SteamClient.System.Audio did not exist, so the audio section would stay hidden forever.
   // Live-verified 2026-08-30: the flag is writable and RegisterOrUpdateDevice is the store's own
   // ingestion path, the same verified path the network gate now owns for the network store.
+  //
+  // Found by what it is: the one audio-store module, and the one export on it carrying the store's
+  // availability flag and ingestion method. It was module 1409, export F5, when verified; the
+  // September 2026 beta renumbered the module and the probe refused the gate.
+  const AudioStoreTokens = ["SteamClient.System.Audio", "RegisterForDeviceAdded", "m_bAvailable"];
+  const isAudioStore = (value) =>
+    !!value &&
+    typeof value === "object" &&
+    "m_bAvailable" in value &&
+    typeof value.RegisterOrUpdateDevice === "function";
   const liveStore = () => {
     try {
-      const req = getWebpackRuntime("audio-store");
-      const store = req?.("1409")?.F5;
-      return store && "m_bAvailable" in store ? store : null;
+      return getWebpackRuntime("audio-store").exported(AudioStoreTokens, isAudioStore) as any;
     } catch {
       return null;
     }
