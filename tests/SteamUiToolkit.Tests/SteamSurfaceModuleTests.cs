@@ -31,6 +31,7 @@ public sealed class SteamSurfaceModuleTests
             SteamDeviceControlsRow.Module(Always, () => new(null as SteamDeviceControlsState), backend),
             SteamNavigationPanelSurface.Module(Always, () => new(null as SteamNavigationPanelState), backend),
             SteamLibraryBadgeSurface.Module(Always, () => new(null as SteamLibraryBadgeState), backend),
+            SteamHomeCarouselSurface.Module(Always, () => new(null as SteamHomeCarouselState), backend),
         ]);
 
         Assert.Equal(SteamAudioSurface.Commands, set.AllowedCommands[SteamAudioSurface.PatchId]);
@@ -51,10 +52,13 @@ public sealed class SteamSurfaceModuleTests
         Assert.Equal(
             SteamLibraryBadgeSurface.Commands,
             set.AllowedCommands[SteamLibraryBadgeSurface.PatchId]);
+        Assert.Equal(
+            SteamHomeCarouselSurface.Commands,
+            set.AllowedCommands[SteamHomeCarouselSurface.PatchId]);
 
         // The full set registers together without an identity collision, which is what a consumer
         // declaring every surface at once relies on.
-        Assert.Equal(14, set.Modules.Count);
+        Assert.Equal(15, set.Modules.Count);
     }
 
     [Fact]
@@ -278,7 +282,8 @@ public sealed class SteamSurfaceModuleTests
         ISteamControllerTargetBackend,
         ISteamDeviceControlsBackend,
         ISteamNavigationPanelBackend,
-        ISteamLibraryBadgeBackend
+        ISteamLibraryBadgeBackend,
+        ISteamHomeCarouselBackend
     {
         internal List<string> Calls { get; } = [];
 
@@ -299,6 +304,9 @@ public sealed class SteamSurfaceModuleTests
 
         public Task<SteamUiCommandResult> HomeLayoutAsync(bool bigArt, CancellationToken cancellationToken) =>
             Record($"home layout {(bigArt ? "big art" : "normal")}");
+
+        public Task<SteamUiCommandResult> ReportAsync(SteamHomeCarouselReport report, CancellationToken cancellationToken) =>
+            Record($"home carousel {report.Items}");
 
         public Task<SteamUiCommandResult> StartScanAsync(CancellationToken cancellationToken) => Record("scan on");
 

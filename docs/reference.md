@@ -101,7 +101,7 @@ its patches reach them through `window[namespace].gate(name)`, exactly as the sh
 | Modules    | `ISteamUiModule`, `SteamUiModule`, `SteamUiModuleSet`, `SteamUiStatePublication`, `SteamUiCommandHandler`, `SteamUiCommandDelegate`, `SteamUiCommandResult`, `SteamUiModuleRuntime`                                                                                                                                                                         |
 | Extensions | `SteamUiExtensionHost` (static), `SteamUiExtension`, `SteamUiExtensionManifest`, `SteamUiExtensionRejection`                                                                                                                                                                                                                                                 |
 | Logging    | `ISteamUiLog { Info, Warn, Change(key, message, warning) }`, static `SteamUiLog` with a discarding default                                                                                                                                                                                                                                                   |
-| Surfaces   | `SteamAudioSurface`, `SteamNetworkSurface`, `SteamBluetoothSurface`, `SteamBrightnessSurface`, `SteamPerformanceSurface`, `SteamPowerLimitSurface`, `SteamFrameLimitRow`, `SteamVariableRefreshRow`, `SteamResolutionRow`, `SteamAutoTdpRow`, `SteamControllerTargetRow`, `SteamDeviceControlsRow`, `SteamNavigationPanelSurface`, `SteamPageSurface`, `SteamStorageSurface`, `SteamLibraryBadgeSurface`, each with a state record and `ISteam*Backend` (§15) |
+| Surfaces   | `SteamAudioSurface`, `SteamNetworkSurface`, `SteamBluetoothSurface`, `SteamBrightnessSurface`, `SteamPerformanceSurface`, `SteamPowerLimitSurface`, `SteamFrameLimitRow`, `SteamVariableRefreshRow`, `SteamResolutionRow`, `SteamAutoTdpRow`, `SteamControllerTargetRow`, `SteamDeviceControlsRow`, `SteamNavigationPanelSurface`, `SteamPageSurface`, `SteamStorageSurface`, `SteamLibraryBadgeSurface`, `SteamHomeCarouselSurface`, each with a state record and `ISteam*Backend` (§15) |
 | Patch helpers | `SteamUiBridgePatch`, `SteamGatePatch`, `SteamQuickAccessRowPatch`; readers `SteamUiPayload`, `SteamPerformanceDeltaReader`, `SteamOverlayLevelWire`; `SteamUiProbeJs`, `SteamUiText`, `SteamSettingPersistence`                                                                                                                                         |
 | Assets     | `SteamUiAssets/Source/types.ts`, `bridge.ts`, `ownership.ts`, `rpc.ts`, `icons.ts`, `gates/*.ts`, `components.ts`, `epilogue.ts`; built by `eng/build-prelude.mjs`, checked by `eng/check-ownership-claims.mjs`                                                                                                                                           |
 
@@ -614,6 +614,7 @@ The host replaces the placeholder with the configuration, evaluates the whole th
 | `eng/check-navigation-panel.mjs`                   | the emitted gate against an inert React fixture: descent to the panel root, anchoring by route and by descriptor key, orphan reporting, hiding before insertion, activation, exact restoration, reinstall |
 | `SteamPageTests`, `eng/check-pages.mjs`            | the page probe's separate facts and its rendered-tree search; the emitted gate's route-list discovery by content, an addition losing to Steam's own route and an override winning, path validation, exact restoration, reinstall |
 | `SteamStorageTests`, `eng/check-storage.mjs`       | the storage probe's service and transport facts and every action having a command; the emitted gate's availability answer, Steam's own state field names, action forwarding, unrelated service traffic passing through with its arguments and receiver, and restoration putting Valve's method back |
+| `SteamHomeCarouselTests`, `eng/check-home-carousel.mjs` | the Home probe's separate facts, finding Home by content rather than name, already-claimed compatibility, the published wire shape, the exact report payload; the emitted gate finding Home through the route list, replacing `games` for the carousel and the background, clearing the whole-list overscan, the documented order, disconnected games leaving, uninstalled games greyed, no rebuild or report without a change, the fallback to Steam's list, bounded publications, a mounted wrapper passing through after removal, exact restoration, reinstall |
 | `SteamLibraryBadgeTests`, `eng/check-library-badge.mjs` | the badge probe's separate structural facts, selection of the tile and the badge by what they are rather than by name, the published wire shape, the exact layout payload; the emitted gate placing the badge left of Valve's in one row, naming the library or the internal label, green for installed and grey otherwise, no badge for a game installed nowhere, an anchorless tile left untouched, Big Art reported once per change, exact restoration, reinstall |
 
 ## 15. Surfaces
@@ -655,6 +656,7 @@ for fixtures and diagnostics.
 | `SteamPageSurface`         | custom pages in Steam's router                | claims the router memo's `type`, inserts routes into the route list   | `SteamPageState`             | none: a page is declared, not commanded                                                    |
 | `SteamStorageSurface`      | SteamOS storage management pages              | claims `SendMsg` on the service transport, answers `StorageDeviceManager.*` | `SteamStorageState`     | adopt, unmount, eject, format, trim                                                        |
 | `SteamLibraryBadgeSurface` | a library badge on every library tile         | claims the tile memo's `type`, replaces the Steam Input badge element with a row of two | `SteamLibraryBadgeState` | hears the Home layout (Big Art Mode) report                                          |
+| `SteamHomeCarouselSurface` | Big Picture Home's carousel                    | claims Home's memo `type`, replaces the carousel's `games` array and bounds its overscan | `SteamHomeCarouselState` | hears what the carousel holds after each rebuild                                   |
 
 ### SteamOS storage management
 
@@ -736,6 +738,53 @@ of the 2622 loaded modules, that module has exactly one memo export and exactly 
 export whose source draws the controller-support icon, five modules render the tile through the
 export, and the memo's `type` is a writable and configurable own property. The probe checks each
 of those separately and accepts a tile this gate already claimed.
+
+### The Home carousel
+
+Home's carousel draws one array of app ids, passed as `games` to both the carousel and the hero
+background behind it. Steam builds that array in a module-local hook from four collections
+(`local-played`, `recent-purchased`, `local-install`, `recent`) and caps it at 20. Home, the carousel
+and the hook are all module-local, so the handle is the page element under the `/library/home` route
+in SharedJSContext's React tree — the route list found by content, as the page gate finds it — and
+the gate claims that Home memo's `type`. In what Home renders it finds the carousel memo by its
+source (`#Showcase_RecentGames`, `RecentGamesContainer`) and replaces it with a memo of its own over
+the same inner function and comparison. In what the carousel renders it replaces `games` on the two
+elements that take it, told apart by shape: the background takes `refOnItemFocus`, the carousel
+`onItemFocus`.
+
+The carousel is a react-virtualized grid whose overscan defaults to 3 columns. Home passes
+`overscan: games.length`, which mounts every tile; harmless at 20, a memory flood at a library. The
+gate renders the carousel's own function component and clears that prop so the component default
+applies, which is what the Play Next carousel on the same page already gets.
+
+The order is decided in the gate because its inputs — every installed and owned game with its
+timestamps — do not fit the bridge's 16 KiB payload. The host decides which games are excluded and
+whether uninstalled games appear:
+
+1. Steam's own running-game prefix, when the list has one: the running game and its separator.
+2. The most recently played installed game, pinned first, as Steam pins it.
+3. Installed games by last played (the later of local and account-wide), merged with unplayed
+   purchases from `recent-purchased` by purchase time.
+4. Installed games never played, by install time.
+5. With `includeUninstalled`, owned games from `my-games` that are not installed, by last played
+   then purchase time.
+
+Ties fall back to app id. Steam's own exclusions apply — music albums, and tools never run — plus
+the host's `disconnectedAppIds`. A played shortcut, which Steam's installed collection leaves out,
+is taken from Steam's own list. Anything not installed is greyed by a rendered `<style>` scoped to a
+`display: contents` container around the carousel, keyed on the grid cell's `data-id`. When nothing
+qualifies, Steam's own list stands in, because the carousel renders nothing for an empty array.
+
+The list is rebuilt only when an input changed: the host revision, Steam's own array, or the
+identity of one of the three collections it reads. Those collections are read inside Steam's own
+mobx-react-lite `useObserver`, resolved by that library's startup check, so a recomputed collection
+re-renders the carousel; a publication re-renders it through `useSyncExternalStore`. The hook is
+wanted, not required, and `report` says whether it resolved. After each rebuild the gate sends
+`report` with its counts once per change.
+
+Read from the September 2026 beta's shipped bundle on 2026-09-11: `HomeTabsActive` with
+`#Showcase_RecentGames` occurs in one module, the Home route renders a memo, and mobx-react-lite's
+startup check occurs once. The probe checks each separately and accepts a Home it already claimed.
 
 ### Custom pages
 

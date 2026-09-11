@@ -34,6 +34,8 @@ namespace SteamUiToolkit;
 [JsonSerializable(typeof(SteamNavigationItem))]
 [JsonSerializable(typeof(SteamLibraryBadgeState))]
 [JsonSerializable(typeof(SteamLibraryBadgeLibrary))]
+[JsonSerializable(typeof(SteamHomeCarouselState))]
+[JsonSerializable(typeof(IReadOnlyList<long>))]
 [JsonSerializable(typeof(SteamPageState))]
 [JsonSerializable(typeof(SteamPage))]
 [JsonSerializable(typeof(SteamStorageState))]

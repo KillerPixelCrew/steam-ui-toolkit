@@ -54,6 +54,15 @@ library grid are covered by one claim, and the badge shows exactly when Valve sh
 Implement `ISteamLibraryBadgeBackend` to hear `homeLayout`, which reports Steam's own Big Art Mode
 setting when the gate resolves it and whenever a tile render sees it change.
 
+`SteamHomeCarouselSurface.Module` makes Big Picture Home's carousel list the games on the libraries
+attached right now: the most recently played first, installed games by last played merged with
+unplayed recent purchases by purchase time, never-played installed games after them, and owned
+uninstalled games, greyed, when `SteamHomeCarouselState.IncludeUninstalled` asks for them. Games in
+`DisconnectedAppIds` leave the list. The gate replaces the one app-id array Home hands its carousel
+and background, so Steam's own components draw it, and puts the virtualized carousel's overscan back
+to the component's default; Home otherwise mounts every tile. Implement
+`ISteamHomeCarouselBackend` to hear what the carousel holds after each rebuild.
+
 `SteamPageSurface.Module` registers custom pages with Steam's own router. Publish `SteamPageState`
 with a path, a title and an id; the path is matched by Steam's matcher, so `/wsgm/artwork/:appid`
 takes parameters the way Valve's routes do. Pages are built with Steam's back-stack `Route`, not
