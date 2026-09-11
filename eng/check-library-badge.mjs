@@ -10,7 +10,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const asset = readFileSync(process.argv[2] ?? "dist/prelude.js", "utf8");
-const start = asset.indexOf("function createLibraryBadge()");
+// From the publication helpers the badge shares with the library details stat.
+const start = asset.indexOf("const readLibraryBadgeState");
 assert.ok(start >= 0, "the emitted asset must contain the library badge gate");
 const end = asset.indexOf('registerGate("libraryBadge"', start);
 assert.ok(end > start, "the library badge gate must register itself");

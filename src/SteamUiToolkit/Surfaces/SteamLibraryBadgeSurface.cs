@@ -69,8 +69,49 @@ public static class SteamLibraryBadgeSurface
     /// <summary>The patch id this surface publishes under and answers commands for.</summary>
     public const string PatchId = "steam-ui.library-badge";
 
+    /// <summary>The patch id of the library stat on a game's own page.</summary>
+    /// <remarks>It sends no commands and reads the badge's publication under <see cref="PatchId"/>.</remarks>
+    public const string DetailsPatchId = "steam-ui.library-details";
+
     /// <summary>The exact command vocabulary the injected gate sends.</summary>
     public static IReadOnlyList<string> Commands { get; } = ["homeLayout"];
+
+    /// <summary>The gate that adds the library as a stat beside Last Played and Play Time on a game's page.</summary>
+    /// <remarks>
+    /// The stats row is built inside mobx observer classes, which pin a non-writable render on each
+    /// instance, so the gate adds its stat where Steam creates the row: through the toolkit's shared
+    /// JSX-runtime claim, on the element whose class is the play bar class map's
+    /// <c>GameStatsSection</c>. It shares that claim's resource with every other element transform.
+    /// The localizer is reported but not required; without it the label is the English word.
+    /// <para>
+    /// Read from the Stable client (UI build of 2026-09-06) and the September 2026 beta on
+    /// 2026-09-11: the app-details module is the same in both, the class map carrying
+    /// <c>GameStatsSection</c>, <c>PlayBarDetailLabel</c> and <c>LastPlayedInfo</c> occurs once, and
+    /// the row is created as <c>jsxs("div", { className: GameStatsSection, children })</c>.
+    /// </para>
+    /// </remarks>
+    public static ISteamUiPatch DetailsPatch { get; } = new SteamGatePatch(
+        id: DetailsPatchId,
+        resourceKey: "steam-ui.jsx-runtime",
+        gateName: "libraryDetails",
+        fingerprint: "steam-library-details-v1:unique-jsx-runtime+play-bar-class-map",
+        probeExpression: $$"""
+            {{SteamUiProbeJs.CountingPreamble("steam_ui_library_details_probe_")}}
+              return JSON.stringify({
+                react:count(['react.transitional.element','useState','cloneElement','createElement']),
+                runtime:count(['react.transitional.element','.jsx','.jsxs']),
+                classMap:count(['GameStatsSection:"','PlayBarDetailLabel:"','LastPlayedInfo:"']),
+                localization:count(['Attempting to localize token','Unable to find localization token','LocalizeString'])
+              });
+            }catch(error){return JSON.stringify({error:String(error)}); } })()
+            """,
+        compatible: root =>
+            SteamUiPatchEvaluation.IsOne(root, "react")
+            && SteamUiPatchEvaluation.IsOne(root, "runtime")
+            && SteamUiPatchEvaluation.IsOne(root, "classMap"),
+        verifyOk: "status.installed&&status.resolved&&status.claimed",
+        removeOk: "!status.claimed",
+        subject: "Library details gate");
 
     /// <summary>The gate that claims the tile and draws the badge from the published libraries.</summary>
     /// <remarks>
@@ -170,7 +211,7 @@ public static class SteamLibraryBadgeSurface
         ArgumentNullException.ThrowIfNull(backend);
         return new SteamUiModule(
             id,
-            patches: [Patch],
+            patches: [Patch, DetailsPatch],
             publications:
             [
                 SteamSurfaceModule.Publication(

@@ -524,6 +524,20 @@ Transforms run in registration order, each on the previous one's result, and one
 the value as it was. A surface never wraps `useMemo` itself, because two wrappers would hand each
 other's originals back on removal.
 
+The JSX runtime's `jsx` and `jsxs` are shared the same way, for what is drawn inside mobx observer
+classes that no claim on a type or prototype can reach. `interceptElements(runtime, name, transform)`
+claims both with the first transform, `releaseElements(runtime, name)` hands both back with the last,
+and `elementsIntercepted(runtime, name)` checks a named transform against the installed wrappers. A
+transform receives `(create, type, props, key)` and returns the element to use, or undefined to leave
+the call to the runtime; `create` is the runtime's own function, so a replacement never passes
+through the transforms again. The first transform to answer wins and a throwing one is skipped. Every
+element Steam creates passes through, so a transform tests a cheap property first.
+
+A script outside the bundle cannot reach those functions from its own evaluation. The `elements` gate
+is their front door: `gate("elements").register(name, transform)`, `unregister(name)` and
+`registered(name)`, with names of at most 64 characters. WSGM's download sort registers there rather
+than wrapping the runtime itself, which would put a second wrapper on `jsx`.
+
 `rpc.ts` supplies `transportReply(body)` (the `{BSuccess, BFailed, GetEResult: 1, Body().toObject()}`
 shape a Steam transport RPC answer takes) and `invalidateQuery(queryKey)`, which finds the client's
 query client in the provider module carrying `ReactQueryDevtools` and `offlineFirst`, by its
@@ -638,6 +652,7 @@ The host replaces the placeholder with the configuration, evaluates the whole th
 | `SteamHomeCarouselTests`, `eng/check-home-carousel.mjs` | the Home probe's separate facts, finding Home by content rather than name, already-claimed compatibility, the published wire shape, the exact report payload; the emitted gate finding Home through the route list, replacing `games` for the carousel and the background, clearing the whole-list overscan, the documented order, disconnected games leaving, uninstalled games greyed, no rebuild or report without a change, the fallback to Steam's list, bounded publications, a mounted wrapper passing through after removal, exact restoration, reinstall |
 | `SteamScreensaverTests`, `eng/check-screensaver.mjs` | the probe's separate facts and that it names no module id or export, the published wire shape, the exact report and choice payloads and their refusals; the emitted gate wrapping only the customization page and only its Screensaver section, appending the rows after Steam's own, reporting on first read, on change and on page open, sending a choice once and disabling the row while pending, refusing a malformed state whole, the bounded first-report retry, keeping the shared `useMemo` claim for another surface on removal and handing it back with the last |
 | `eng/check-startup.mjs` (resolver) | missing factories staying uncached, unique resolution, and `exported` counting aliases once, refusing two distinct fits, no fit, a missing module and an invalid predicate |
+| `SteamLibraryBadgeTests`, `eng/check-library-details.mjs` (details) | the stat patch's compatibility, its Valve-named row lookup and shared runtime resource, the module declaring both patches under one publication; the emitted stat only on the stats row, Valve's classes and the localized label, the badge's naming rules and dimming, no duplicate, an `elements` gate transform coexisting on the one claim, a throwing transform skipped, and `jsx` and `jsxs` handed back only with the last transform |
 | `SteamLibraryBadgeTests`, `eng/check-library-badge.mjs` | the badge probe's separate structural facts, selection of the tile and the badge by what they are rather than by name, the published wire shape, the exact layout payload; the emitted gate placing the badge left of Valve's in one row, naming the library or the internal label, green for installed and grey otherwise, no badge for a game installed nowhere, an anchorless tile left untouched, Big Art reported once per change, exact restoration, reinstall |
 
 ## 15. Surfaces
@@ -762,6 +777,34 @@ of the 2622 loaded modules, that module has exactly one memo export and exactly 
 export whose source draws the controller-support icon, five modules render the tile through the
 export, and the memo's `type` is a writable and configurable own property. The probe checks each
 of those separately and accepts a tile this gate already claimed.
+
+### The library on a game's page
+
+The same surface adds the library as a stat in the play bar of a game's own page, after Last Played
+and Play Time, through a second patch, `steam-ui.library-details` (gate `libraryDetails`), which
+reads the badge's publication and sends nothing. The badge and the stat name a game by the same
+rules: the published library, the internal label while installed, nothing when installed nowhere.
+The stat dims a library the game is not installed from.
+
+The stats row cannot be claimed where it is drawn. The play bar, its status-and-stats block and the
+stats section are all mobx observer classes, and mobx-react's class observer replaces `render` on
+the prototype with a function that pins a non-writable, non-configurable `render` on each instance
+the first time it runs; a prototype claim reaches no mounted instance and loses every later render.
+What does reach the row is the JSX runtime: the section creates it as
+`jsxs("div", { className: GameStatsSection, children })`. So the stat is a transform on the shared
+element claim (§9): a `div` whose class is the play bar class map's `GameStatsSection` gets one more
+child, unless it already has one with the stat's key. The app is the overview the row's own children
+are given.
+
+The stat is Valve's markup for Last Played without its tooltip: `GameStat LastPlayed`, then
+`GameStatRight`, then a `PlayBarLabel` and a `PlayBarDetailLabel LastPlayedInfo`, every class read by
+name from the class map carrying `GameStatsSection:"`, `PlayBarDetailLabel:"` and `LastPlayedInfo:"`.
+The label is Steam's `#Settings_Page_Library` through the localizer export chosen as the Quick Access
+host chooses it, and "Library" without one.
+
+Read from the Stable client (UI build of 2026-09-06) and the September 2026 beta on 2026-09-11: the
+app-details module is the same in both, the class map occurs once, the JSX runtime module occurs
+once, and the probe requires the React, runtime and class map matches while reporting the localizer.
 
 ### The Home carousel
 

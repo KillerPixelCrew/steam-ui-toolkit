@@ -508,3 +508,97 @@ const releaseMemo = (
 
 const memoIntercepted = (react: Record<string, unknown> | null | undefined, name: string) =>
   !!react && memoTransforms.has(name) && !!memoWrapper && react.useMemo === memoWrapper;
+
+// Intercepts elements as Steam creates them, for what is built inside a mobx observer class.
+// mobx-react pins a non-writable `render` on each instance of such a class after its first render,
+// so neither its prototype nor an instance can be claimed; the one place its output passes through
+// is the JSX runtime's `jsx` and `jsxs`.
+//
+// One claim on both for every user, as with useMemo: taken with the first transform and released
+// with the last, because two wrappers on the runtime would hand each other's originals back on
+// removal. A transform receives `(create, type, props, key)` and returns the element to use, or
+// undefined to leave the call alone. `create` is the runtime's own function, so a replacement is
+// built without passing through the transforms again. Transforms run in registration order, the
+// first to answer wins, and one that throws is skipped. Every element Steam creates passes through
+// here, so a transform's first test has to be a cheap comparison.
+type ElementTransform = (
+  create: (...args: unknown[]) => unknown,
+  type: unknown,
+  props: any,
+  key: unknown,
+) => unknown;
+const elementClaimKeys = {
+  marker: "__steamUiOwnedElements",
+  original: "__steamUiOriginalElements",
+} as const;
+const elementMembers = ["jsx", "jsxs"] as const;
+const elementTransforms = new Map<string, ElementTransform>();
+let elementWrappers: Record<string, unknown> | null = null;
+
+const interceptElements = (
+  runtime: Record<string, unknown> | null | undefined,
+  name: string,
+  transform: ElementTransform,
+): { ok: boolean; error?: string } => {
+  if (!runtime || elementMembers.some((member) => typeof runtime[member] !== "function")) {
+    return { ok: false, error: "JSX runtime unavailable" };
+  }
+  elementTransforms.set(name, transform);
+  const current = elementWrappers;
+  if (current && elementMembers.every((member) => runtime[member] === current[member])) {
+    return { ok: true };
+  }
+  const wrappers: Record<string, unknown> = {};
+  for (const member of elementMembers) {
+    const claim = claimMember(runtime, member, elementClaimKeys, (original) => {
+      const create = original as (...args: unknown[]) => unknown;
+      return function SteamUiElement(this: unknown, type, props, key) {
+        for (const apply of elementTransforms.values()) {
+          try {
+            const replaced = apply(create, type, props, key);
+            if (replaced !== undefined) return replaced;
+          } catch {
+            // A failing transform leaves the element to the runtime.
+          }
+        }
+        return create.apply(this, arguments as any);
+      };
+    });
+    if (!claim.ok || !memberClaimed(runtime, member, elementClaimKeys)) {
+      for (const done of Object.keys(wrappers)) releaseMember(runtime, done, elementClaimKeys);
+      elementTransforms.delete(name);
+      return {
+        ok: false,
+        error: claim.ok ? "JSX runtime wrapper could not be installed" : claim.error,
+      };
+    }
+    wrappers[member] = runtime[member];
+  }
+  elementWrappers = wrappers;
+  return { ok: true };
+};
+
+// Withdraws one element transform, and hands the runtime back once none is left.
+const releaseElements = (
+  runtime: Record<string, unknown> | null | undefined,
+  name: string,
+): { ok: boolean; error?: string } => {
+  elementTransforms.delete(name);
+  if (elementTransforms.size || !runtime) return { ok: true };
+  for (const member of elementMembers) {
+    const released = releaseMember(runtime, member, elementClaimKeys);
+    if (!released.ok) return released;
+  }
+  elementWrappers = null;
+  return { ok: true };
+};
+
+const elementsIntercepted = (runtime: Record<string, unknown> | null | undefined, name: string) => {
+  const current = elementWrappers;
+  return (
+    !!runtime &&
+    elementTransforms.has(name) &&
+    !!current &&
+    elementMembers.every((member) => runtime[member] === current[member])
+  );
+};

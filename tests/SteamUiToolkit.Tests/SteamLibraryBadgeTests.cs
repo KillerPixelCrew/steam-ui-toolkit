@@ -63,6 +63,44 @@ public sealed class SteamLibraryBadgeTests
         Assert.Equal(expected, CompatibilityOf(SteamLibraryBadgeSurface.Patch, document.RootElement));
     }
 
+    [Theory]
+    [InlineData("""{"react":1,"runtime":1,"classMap":1,"localization":1}""", true)]
+    // The localizer is wanted, not required: the label falls back to the English word.
+    [InlineData("""{"react":1,"runtime":1,"classMap":1,"localization":0}""", true)]
+    [InlineData("""{"react":1,"runtime":2,"classMap":1,"localization":1}""", false)]
+    [InlineData("""{"react":1,"runtime":1,"classMap":0,"localization":1}""", false)]
+    [InlineData("""{"error":"Steam modules unavailable"}""", false)]
+    public void TheDetailsStatRequiresOneRuntimeAndOnePlayBarClassMap(string json, bool expected)
+    {
+        using JsonDocument document = JsonDocument.Parse(json);
+
+        Assert.Equal(expected, CompatibilityOf(SteamLibraryBadgeSurface.DetailsPatch, document.RootElement));
+    }
+
+    [Fact]
+    public void TheDetailsStatFindsItsRowByValveNamesAndSharesTheRuntimeResource()
+    {
+        string probe = ProbeOf(SteamLibraryBadgeSurface.DetailsPatch);
+
+        Assert.Contains("GameStatsSection:\"", probe, StringComparison.Ordinal);
+        Assert.Contains("'.jsx','.jsxs'", probe, StringComparison.Ordinal);
+        Assert.DoesNotContain("_1mDAVT4sTzFRwJtlKCw2Ws", probe, StringComparison.Ordinal);
+        Assert.Equal(SteamLibraryBadgeSurface.DetailsPatchId, SteamLibraryBadgeSurface.DetailsPatch.Id);
+        Assert.Equal("steam-ui.jsx-runtime", SteamLibraryBadgeSurface.DetailsPatch.ResourceKey);
+    }
+
+    [Fact]
+    public void TheModuleDeclaresTheBadgeAndTheStatUnderOnePublication()
+    {
+        ISteamUiModule module = SteamLibraryBadgeSurface.Module(
+            () => true, () => new(null as SteamLibraryBadgeState), new RecordingBackend());
+
+        Assert.Equal(
+            [SteamLibraryBadgeSurface.PatchId, SteamLibraryBadgeSurface.DetailsPatchId],
+            module.Patches.Select(patch => patch.Id));
+        Assert.Equal(SteamLibraryBadgeSurface.PatchId, Assert.Single(module.Publications).PatchId);
+    }
+
     [Fact]
     public void AnAlreadyClaimedTileStaysCompatible()
     {
