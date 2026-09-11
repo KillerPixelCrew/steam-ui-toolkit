@@ -45,6 +45,11 @@ function createLibraryBadge() {
   const TileTokens = ["ControllerSupportIcon", "appportrait_"] as const;
   // The settings store: the one module with the store class's own getter and deferred-settings set.
   const SettingsTokens = ["get clientSettings()", "m_setDeferredSettings"] as const;
+  // The tile stylesheet's class map: Valve's own names for the icon row and the Steam Input badge,
+  // mapped to whatever hashes this build emitted. Read by name, so the hashes are never written
+  // down here. The badge's visibility comes from Valve's rules on the badge class — hidden until
+  // the tile is focused or hovered — and the row wearing that class inherits them.
+  const ClassMapTokens = ['ControllerSupportIcon:"', 'LibraryItemIcons:"', 'LibraryItemBox:"'] as const;
   const BigArtSetting = "library_home_big_art";
 
   const MaximumLibraries = 64;
@@ -58,6 +63,7 @@ function createLibraryBadge() {
   let tile: any = null;
   let badge: any = null;
   let settings: any = null;
+  let classes: { row: string; icon: string } | null = null;
   let installed = false;
   let lastError = "";
   let unsubscribe: (() => void) | null = null;
@@ -137,15 +143,38 @@ function createLibraryBadge() {
   // `space-between` with Valve's badge pushed to its end by an auto margin, so a bare sibling would
   // land at the row's far left; one flex box holding both keeps this badge immediately left of the
   // icon wherever the row puts it.
+  //
+  // The box wears two of Valve's own classes. The badge class carries the visibility rule — opacity
+  // zero until the tile is focused or hovered — and the end-of-row margin, so the pair appears and
+  // disappears with Valve's icon instead of sitting on every tile; its size, padding and pill
+  // background are overridden inline because they are drawn for a 34-pixel glyph. The row class
+  // keeps Valve's icon a direct child of a row, which is what its pill background is written
+  // against. Without the class map the box is plain and always visible, and status says so.
   const withBadge = (element) => {
     const ours = renderBadge(element.props?.overview);
     if (!ours) return element;
+    const style: Record<string, unknown> = {
+      display: "flex",
+      alignItems: "center",
+      gap: "8px",
+      marginInlineStart: "auto",
+    };
+    let className: string | undefined;
+    if (classes) {
+      className = `${classes.row} ${classes.icon}`;
+      Object.assign(style, {
+        justifyContent: "flex-end",
+        width: "auto",
+        maxWidth: "none",
+        maxHeight: "none",
+        padding: 0,
+        borderRadius: 0,
+        backgroundColor: "transparent",
+      });
+    }
     return react.createElement(
       "div",
-      {
-        key: "steam-ui-library-badge-row",
-        style: { display: "flex", alignItems: "center", gap: "8px", marginLeft: "auto" },
-      },
+      { key: "steam-ui-library-badge-row", className, style },
       ours,
       element,
     );
@@ -232,6 +261,21 @@ function createLibraryBadge() {
     }
     tile = exports[tiles[0]];
     badge = exports[badges[0]];
+
+    // The class map is wanted, not required: without it the badge still draws, on every tile
+    // rather than the focused one, and `status.classesResolved` says so. Read as the tile reads
+    // it — the module's export, unwrapped if it is an ES default.
+    classes = null;
+    const classMapFactory = runtime.findUnique([...ClassMapTokens]);
+    if (classMapFactory) {
+      const exported = runtime(classMapFactory[0]);
+      const map = exported && exported.__esModule ? exported.default : exported;
+      const row = map?.LibraryItemIcons;
+      const icon = map?.ControllerSupportIcon;
+      if (typeof row === "string" && row && typeof icon === "string" && icon) {
+        classes = { row, icon };
+      }
+    }
 
     // The settings store is wanted, not required: without it the badge still draws and
     // `status.bigArt` says null rather than guessing.
@@ -328,6 +372,7 @@ function createLibraryBadge() {
     resolved: !!tile && !!badge,
     claimed: memberClaimed(tile, "type", claimKeys),
     settingsResolved: !!settings,
+    classesResolved: !!classes,
     bigArt: readBigArt(),
     libraries: libraryCount,
     apps: libraries.size,

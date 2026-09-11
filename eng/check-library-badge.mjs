@@ -81,17 +81,32 @@ function Tile(props) {
 const memo = { $$typeof: Symbol.for("react.memo"), type: Tile, compare: null };
 const exports = { TK: memo, Kt: SteamInputBadge, aT: 1 };
 const settings = { clientSettings: { library_home_big_art: false } };
+// The tile stylesheet's class map, as css-loader emits it: Valve's names to this build's hashes.
+const classMap = {
+  LibraryItemBox: "box-hash",
+  LibraryItemIcons: "row-hash",
+  ControllerSupportIcon: "icon-hash",
+};
 
 const requests = [];
 const globals = {
   getWebpackRuntime: () => {
-    const require = (id) => (id === "tile" ? exports : id === "settings" ? { rV: settings } : react);
+    const require = (id) =>
+      id === "tile"
+        ? exports
+        : id === "settings"
+          ? { rV: settings }
+          : id === "classes"
+            ? classMap
+            : react;
     require.findUnique = (tokens) =>
       tokens.includes("appportrait_")
         ? ["tile"]
         : tokens.includes("m_setDeferredSettings")
           ? ["settings"]
-          : ["react"];
+          : tokens.includes('LibraryItemIcons:"')
+            ? ["classes"]
+            : ["react"];
     return require;
   },
   request: (patchId, command, payload) => {
@@ -156,6 +171,7 @@ const installed = gate.install();
 assert.ok(installed.ok, `install failed: ${installed.error}`);
 assert.ok(gate.status().claimed, "the memo type must be claimed");
 assert.ok(gate.status().settingsResolved, "the settings store must resolve");
+assert.ok(gate.status().classesResolved, "the tile class map must resolve");
 assert.deepEqual(requests, ["homeLayout false"], "the layout must be reported once on install");
 
 // Nothing published yet: an installed game is on the internal library and says so.
@@ -202,6 +218,16 @@ assert.equal(valve.length, 1, "Valve's badge must be rendered exactly once");
 assert.equal(valve[0].props.overview.appid, 71);
 assert.equal(find(decorated, (node) => node.props?.className === "extra").length, 1);
 assert.equal(find(decorated, (node) => node.props?.className === "outer").length, 1);
+
+// The box wears Valve's row and badge classes, so it fades with the focused tile the way Valve's
+// icon does and keeps that icon a direct child of a row; the glyph-sized geometry is overridden.
+const box = find(decorated, (node) => node.props?.className === "row-hash icon-hash");
+assert.equal(box.length, 1, "the box must wear Valve's row and badge classes");
+assert.equal(box[0].props.style.width, "auto");
+assert.equal(box[0].props.style.maxWidth, "none");
+assert.equal(box[0].props.style.backgroundColor, "transparent");
+assert.equal(box[0].props.style.marginInlineStart, "auto");
+assert.equal(box[0].props.children[1], valve[0], "Valve's badge must be the box's last child");
 
 // A tile without the anchor is handed back untouched and counted, not decorated somewhere else.
 const album = { appid: 74, installed: true, musicAlbum: true };

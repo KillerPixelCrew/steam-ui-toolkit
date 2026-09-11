@@ -701,6 +701,15 @@ export — and replaced by one flex box holding this badge and then Valve's. The
 `space-between` with Valve's badge pushed to its end by an auto margin, so a bare sibling would land
 at the far left; the box keeps the two together wherever the row puts them.
 
+Valve shows the icon row's badge on the focused or hovered tile only, by an opacity rule written
+against the badge's own class, so a plain box beside it would show on every tile. The box therefore
+wears two of Valve's classes, read by name from the tile stylesheet's class map — the module
+carrying `ControllerSupportIcon:"`, `LibraryItemIcons:"` and `LibraryItemBox:"` — with the
+glyph-sized geometry overridden inline: the badge class for the fade and the end-of-row margin,
+the row class so Valve's icon stays a direct child of a row, which its pill background is written
+against. No hash is written down anywhere. Without the map the box is plain and always visible,
+and `status.classesResolved` says so.
+
 The walk is over props alone: the tile's whole icon row is host elements and fragments below its
 Focusable root, so nothing has to be rendered to reach the anchor, and function components on the
 way keep every identity Valve's reconciler holds. It is bounded at twelve levels and sixty-four

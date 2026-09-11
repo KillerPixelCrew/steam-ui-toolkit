@@ -75,9 +75,10 @@ public static class SteamLibraryBadgeSurface
     /// <summary>The gate that claims the tile and draws the badge from the published libraries.</summary>
     /// <remarks>
     /// The probe requires each structural fact the gate resolves on, separately, so an incompatible
-    /// client says which one moved. The settings store is reported but not required: without it
-    /// the badge still draws and Big Art Mode reads as unknown. It accepts a tile this gate has
-    /// already claimed, for the reason every gate does.
+    /// client says which one moved. The settings store and the tile's class map are reported but
+    /// not required: without the first the badge still draws and Big Art Mode reads as unknown,
+    /// without the second it draws on every tile rather than fading with the focused one. It
+    /// accepts a tile this gate has already claimed, for the reason every gate does.
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         id: PatchId,
@@ -111,6 +112,9 @@ public static class SteamLibraryBadgeSurface
                 // Already ours is compatible; see the remarks on this patch.
                 claimed:!!memo&&memo.type.__steamUiLibraryBadgeClaimed===true,
                 settingsModule:count(['get clientSettings()','m_setDeferredSettings']),
+                // The tile stylesheet's class map, read by Valve's names; wanted for focus-only
+                // visibility, not required for the badge to draw.
+                classMap:count(['ControllerSupportIcon:"','LibraryItemIcons:"','LibraryItemBox:"']),
                 react:count(['react.transitional.element','useState','cloneElement','createElement'])
               });
             }catch(error){return JSON.stringify({error:String(error)}); } })()

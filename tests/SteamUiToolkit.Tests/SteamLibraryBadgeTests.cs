@@ -39,7 +39,10 @@ public sealed class SteamLibraryBadgeTests
 
         Assert.DoesNotContain("exports.TK", probe, StringComparison.Ordinal);
         Assert.DoesNotContain("exports.Kt", probe, StringComparison.Ordinal);
-        Assert.DoesNotContain("LibraryItemIcons", probe, StringComparison.Ordinal);
+        // The stylesheet's hashes are read from Valve's class map by name, never written down.
+        Assert.DoesNotContain("_1TaKfLOhWBYEPtvv-WJv0n", probe, StringComparison.Ordinal);
+        Assert.DoesNotContain("_3BPFqWN5T-x8njyrRYM1CX", probe, StringComparison.Ordinal);
+        Assert.Contains("LibraryItemIcons:\"", probe, StringComparison.Ordinal);
     }
 
     [Theory]
