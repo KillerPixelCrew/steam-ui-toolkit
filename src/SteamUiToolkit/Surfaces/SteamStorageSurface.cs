@@ -93,11 +93,23 @@ public sealed record SteamStorageState(
 /// </remarks>
 public interface ISteamStorageBackend
 {
-    /// <summary>Registers a drive as a Steam library.</summary>
+    /// <summary>Makes a drive a Steam library, the way SteamOS's adopt does.</summary>
     /// <param name="driveId">The drive to adopt.</param>
+    /// <param name="label">The name the user gave it in Steam's Format Drive modal, or empty.</param>
+    /// <param name="validate">
+    /// Steam's validate flag from that modal. On this client it is preset from the media type and
+    /// the user can toggle it; the host decides what, if anything, it means for its own format.
+    /// </param>
     /// <param name="cancellationToken">Cancels the operation.</param>
     /// <returns>The outcome.</returns>
-    Task<SteamUiCommandResult> AdoptAsync(uint driveId, CancellationToken cancellationToken);
+    /// <remarks>
+    /// Steam's storage page never sends <c>Format</c>: its Format Drive modal sends Adopt with a
+    /// name. Adopt of a drive that carries no filesystem therefore means erase and register; adopt
+    /// of one that already has a filesystem means register what is there. The host owns that
+    /// distinction, and the destructive half of it stays behind the host's own switch.
+    /// </remarks>
+    Task<SteamUiCommandResult> AdoptAsync(
+        uint driveId, string label, bool validate, CancellationToken cancellationToken);
 
     /// <summary>Safely ejects a volume.</summary>
     /// <param name="blockDeviceId">The volume to eject, or zero when the drive is named instead.</param>
@@ -226,7 +238,8 @@ public static class SteamStorageSurface
             [
                 new(PatchId, "adopt", (request, cancellationToken) =>
                     TryReadId(request, "driveId", out uint drive)
-                        ? backend.AdoptAsync(drive, cancellationToken)
+                        ? backend.AdoptAsync(
+                            drive, ReadLabel(request), ReadValidate(request), cancellationToken)
                         : SteamSurfaceModule.Invalid("The storage adopt payload is invalid.")),
                 // Unmount and eject are the same operation under two of Steam's names.
                 new(PatchId, "unmount", (request, cancellationToken) => Eject(backend, request, cancellationToken)),
@@ -250,6 +263,20 @@ public static class SteamStorageSurface
             ? SteamSurfaceModule.Invalid("The storage eject payload named neither a volume nor a drive.")
             : backend.EjectAsync(device, drive, cancellationToken);
     }
+
+    /// <summary>The name typed into Steam's Format Drive modal, or empty when there was none.</summary>
+    /// <param name="request">The request carrying the payload.</param>
+    /// <returns>The label, bounded to what a volume label can hold.</returns>
+    private static string ReadLabel(SteamUiBridgeRequest request) =>
+        SteamUiPayload.TryReadBoundedString(request.Payload, "label", 64, out string label) ? label : "";
+
+    /// <summary>Steam's validate flag from that modal; false when absent.</summary>
+    /// <param name="request">The request carrying the payload.</param>
+    /// <returns>Whether the flag was set.</returns>
+    private static bool ReadValidate(SteamUiBridgeRequest request) =>
+        request.Payload.ValueKind == JsonValueKind.Object
+        && request.Payload.TryGetProperty("validate", out JsonElement flag)
+        && flag.ValueKind == JsonValueKind.True;
 
     /// <summary>Reads one of Steam's storage identifiers, which are unsigned and never zero.</summary>
     /// <param name="request">The request carrying the payload.</param>

@@ -130,12 +130,18 @@ public sealed class SteamStorageTests
             SteamStorageSurface.Module(Always, () => new(null as SteamStorageState), backend),
         ]);
 
+        // Steam's Format Drive modal sends Adopt with the typed name and its validate flag, so
+        // both have to survive the trip; a bare adopt still works with neither.
+        Assert.True((await Dispatch(
+            set, "adopt", """{"driveId":1,"label":"Games","validate":true}""")).Succeeded);
         Assert.True((await Dispatch(set, "adopt", """{"driveId":1}""")).Succeeded);
         Assert.True((await Dispatch(set, "trimall", """{}""")).Succeeded);
         SteamUiCommandResult refused = await Dispatch(set, "format", """{"driveId":0}""");
 
         Assert.Equal("The storage format payload is invalid.", refused.Error);
-        Assert.Equal(["adopt 1", "trimall"], backend.Calls);
+        Assert.Equal(
+            ["adopt 1 'Games' validate=True", "adopt 1 '' validate=False", "trimall"],
+            backend.Calls);
     }
 
     [Fact]
@@ -189,8 +195,9 @@ public sealed class SteamStorageTests
             return Task.FromResult(SteamUiCommandResult.Applied);
         }
 
-        public Task<SteamUiCommandResult> AdoptAsync(uint driveId, CancellationToken cancellationToken) =>
-            Record($"adopt {driveId}");
+        public Task<SteamUiCommandResult> AdoptAsync(
+            uint driveId, string label, bool validate, CancellationToken cancellationToken) =>
+            Record($"adopt {driveId} '{label}' validate={validate}");
 
         public Task<SteamUiCommandResult> EjectAsync(
             uint blockDeviceId, uint driveId, CancellationToken cancellationToken) =>

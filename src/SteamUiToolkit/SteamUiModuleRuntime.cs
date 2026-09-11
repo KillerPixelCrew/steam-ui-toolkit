@@ -166,10 +166,15 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
         // schedule: the first prints, the repeats are counted.
         if (!outcome.Succeeded)
         {
+            // The payload goes with the reason. A refusal that names a missing field is unreadable
+            // without the payload it was reading: "named neither a volume nor a drive" is the same
+            // line whether the identifier was absent, spelled differently, or of a type the reader
+            // rejected, and those have completely different fixes.
             SteamUiLog.Change(
                 $"steam.ui.request.{request.PatchId}.{request.Command}",
                 $"Steam UI request {request.PatchId}/{request.Command} did nothing: "
-                    + (outcome.Error ?? "no reason reported"),
+                    + (outcome.Error ?? "no reason reported")
+                    + $" Payload: {request.Payload}",
                 warning: true);
         }
 
