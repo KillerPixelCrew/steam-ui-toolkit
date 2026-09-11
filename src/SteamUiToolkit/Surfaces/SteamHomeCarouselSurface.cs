@@ -89,15 +89,12 @@ public static class SteamHomeCarouselSurface
         fingerprint: "steam-home-carousel-v1:unique-home-module+route-home-memo",
         probeExpression: $$"""
             {{SteamUiProbeJs.CountingPreamble("steam_ui_home_carousel_probe_")}}
-              // Home is module-local, so the handle is the page element under the /library/home route.
-              // Big Picture's router renders in the Big Picture popup's own root, not SharedJSContext's
-              // #root, so that window is searched first. Read-only walk, bounded, matching on content.
-              const fiberOf=el=>{if(!el)return null;const k=Object.keys(el).find(n=>n.startsWith('__reactContainer$'));return k?el[k]:null;};
-              const roots=[];
-              const add=doc=>{try{const f=fiberOf(doc&&doc.getElementById('popup_target'))||fiberOf(doc&&doc.getElementById('root'));if(f&&!roots.includes(f))roots.push(f);}catch(e){ } };
-              add(window.SteamUIStore?.WindowStore?.GamepadUIMainWindowInstance?.BrowserWindow?.document);
-              try{for(const p of window.g_PopupManager?.m_mapPopups?.values?.()??[])add(p&&p.window&&p.window.document);}catch(e){}
-              add(document);
+              // Home is module-local, so the handle is the page element under the /library/home route
+              // in SharedJSContext's React tree. Until Big Picture has built that tree there is no Home
+              // to find, and the manager probes again. Read-only walk, bounded, matching on content.
+              const host=document.getElementById('root');
+              const key=host?Object.keys(host).find(n=>n.startsWith('__reactContainer$')):null;
+              const roots=key?[host[key]]:[];
               // Breadth-first: a router sits near the top, and depth-first can spend the bound inside a
               // mounted library grid first. What the walk saw is reported, so a miss says why.
               let home=null,visited=0,homeRoutes=0,page='';

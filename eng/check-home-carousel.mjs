@@ -134,9 +134,8 @@ const Home = withSource(
 );
 const HomeMemo = react.memo(Home);
 
-// Big Picture's React root lives in its popup window's document, not in SharedJSContext's #root:
-// the router switch whose children are the routes is only reachable through that window. The
-// SharedJSContext root holds an unrelated route list, so a gate that searched it alone finds nothing.
+// SharedJSContext's React tree: an unrelated route list first, then the router switch whose children
+// are the routes, so the gate has to match the list by content rather than take the first one.
 const route = (path, page) => element(() => null, { path, children: page }, path);
 const switchFiber = {
   memoizedProps: {
@@ -149,25 +148,13 @@ const switchFiber = {
   child: null,
   sibling: null,
 };
-const popupRoot = { memoizedProps: {}, child: { memoizedProps: {}, child: switchFiber, sibling: null }, sibling: null };
-const desktopRoot = {
+const rootFiber = {
   memoizedProps: { children: [route("/desktop", element(() => null, {})), route("/a", null), route("/b", null)] },
-  child: null,
+  child: { memoizedProps: {}, child: switchFiber, sibling: null },
   sibling: null,
 };
 const documentFixture = {
-  getElementById: (id) => (id === "root" ? { __reactContainer$fixture: desktopRoot } : null),
-};
-windowFixture.SteamUIStore = {
-  WindowStore: {
-    GamepadUIMainWindowInstance: {
-      BrowserWindow: {
-        document: {
-          getElementById: (id) => (id === "popup_target" ? { __reactContainer$popup: popupRoot } : null),
-        },
-      },
-    },
-  },
+  getElementById: (id) => (id === "root" ? { __reactContainer$fixture: rootFiber } : null),
 };
 
 // mobx-react-lite's useObserver: runs the function and returns what it returned.

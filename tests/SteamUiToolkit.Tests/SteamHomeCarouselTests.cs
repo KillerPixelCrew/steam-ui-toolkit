@@ -27,11 +27,6 @@ public sealed class SteamHomeCarouselTests
         Assert.Contains("/library/home", probe, StringComparison.Ordinal);
         Assert.Contains("claimable", probe, StringComparison.Ordinal);
         Assert.Contains("GetAppOverviewByAppID", probe, StringComparison.Ordinal);
-        // Big Picture's router is in its popup window's root; SharedJSContext's #root alone held no
-        // Home on the reference client.
-        Assert.Contains("GamepadUIMainWindowInstance", probe, StringComparison.Ordinal);
-        Assert.Contains("popup_target", probe, StringComparison.Ordinal);
-        Assert.Contains("g_PopupManager", probe, StringComparison.Ordinal);
         // A miss reports what the walk saw, so a new client says which assumption failed.
         Assert.Contains("homeRoutes", probe, StringComparison.Ordinal);
         Assert.Contains("visited", probe, StringComparison.Ordinal);

@@ -745,16 +745,14 @@ Home's carousel draws one array of app ids, passed as `games` to both the carous
 background behind it. Steam builds that array in a module-local hook from four collections
 (`local-played`, `recent-purchased`, `local-install`, `recent`) and caps it at 20. Home, the carousel
 and the hook are all module-local, so the handle is the page element under the `/library/home` route
-— the route list found by content — and the gate claims that Home memo's `type`. Big Picture's router
-does not render under SharedJSContext's `#root`, where the page gate finds the desktop router: the
-Big Picture window is a popup with a `popup_target` root of its own. The gate searches that window
-first, through `SteamUIStore.WindowStore.GamepadUIMainWindowInstance`, then every popup in
-`g_PopupManager`, then `#root`. The first live probe, on 2026-09-11, searched `#root` alone and found
-the Home module, the stores and the observer hook but no Home. The walk is breadth-first over the
-fiber child and sibling links, bounded at 250,000 nodes, because a router sits near the top of its
-tree and a depth-first walk can spend its bound inside a mounted library grid. A miss reports the
-roots searched, the nodes visited, how many route lists held `/library/home` and what that route
-renders, in the probe's diagnostic and in `status.search`. In what Home renders it finds the carousel memo by its
+— the route list found by content in SharedJSContext's React tree — and the gate claims that Home
+memo's `type`. Until Big Picture has built that tree there is no route list to find: on 2026-09-11
+two probes during startup refused with the Home module, both stores and the observer hook resolved
+but no Home, and the manager's next probe verified. The walk is breadth-first over the fiber child
+and sibling links, bounded at 250,000 nodes, because a router sits near the top of its tree and a
+depth-first walk can spend its bound inside a mounted library grid. A miss reports the roots
+searched, the nodes visited, how many route lists held `/library/home` and what that route renders,
+in the probe's diagnostic and in `status.search`. In what Home renders it finds the carousel memo by its
 source (`#Showcase_RecentGames`, `RecentGamesContainer`) and replaces it with a memo of its own over
 the same inner function and comparison. In what the carousel renders it replaces `games` on the two
 elements that take it, told apart by shape: the background takes `refOnItemFocus`, the carousel
