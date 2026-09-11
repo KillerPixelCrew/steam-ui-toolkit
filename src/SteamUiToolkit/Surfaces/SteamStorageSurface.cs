@@ -23,9 +23,9 @@ namespace SteamUiToolkit;
 /// <param name="Unformatted">Whether it currently carries no usable filesystem.</param>
 /// <param name="MediaAvailable">Whether media is present in the reader.</param>
 /// <remarks>
-/// <see cref="SteamStorageAdoptStage.Idle"/> is published for every drive. Steam renders a
-/// spinner for any other stage, so a drive with no stage at all spins forever — which is exactly
-/// what an omitted field does, since undefined compares unequal to the idle value.
+/// The gate publishes Steam's idle adopt stage (1, not 0 — 0 is its Invalid member) for every
+/// drive. Steam renders a spinner for any other stage, and an omitted field compares unequal to
+/// the idle value too, so a drive without it spins forever.
 /// </remarks>
 public sealed record SteamStorageDrive(
     uint Id,
@@ -36,20 +36,6 @@ public sealed record SteamStorageDrive(
     bool Formattable,
     bool Unformatted,
     bool MediaAvailable = true);
-
-/// <summary>How far a drive is through being adopted as a Steam library.</summary>
-/// <remarks>
-/// Steam's own enum. Only <see cref="Idle"/> renders the drive's icon; everything else renders a
-/// spinner, which is the whole reason the value has to be published rather than left out.
-/// </remarks>
-public enum SteamStorageAdoptStage
-{
-    /// <summary>Steam's first enum member, which it treats as no valid stage at all.</summary>
-    Invalid = 0,
-
-    /// <summary>Nothing in progress. The only stage that renders a drive rather than a spinner.</summary>
-    Idle = 1,
-}
 
 /// <summary>One mounted volume on a drive.</summary>
 /// <param name="Id">The volume's identifier, numeric for the same reason the drive's is.</param>
@@ -150,11 +136,22 @@ public interface ISteamStorageBackend
 /// </para>
 /// <para>
 /// The message vocabulary is read from the client's own generated classes rather than guessed:
-/// <c>IsServiceAvailable</c>, <c>GetState</c>, <c>Eject</c>, <c>Adopt</c>, <c>Format</c>,
-/// <c>Unmount</c>, <c>TrimAll</c>, over <c>CStorageDeviceManagerDrive</c>
-/// (<c>id</c>, <c>is_formattable</c>, <c>is_unformatted</c>) and
-/// <c>CStorageDeviceManagerBlockDevice</c> (<c>block_device_id</c>, <c>drive_id</c>,
-/// <c>mount_paths</c>, <c>has_steam_library</c>).
+/// <c>IsServiceAvailable</c>, <c>GetState</c>, <c>Adopt</c>, <c>Unmount</c>, <c>Eject</c>,
+/// <c>Format</c>, <c>TrimAll</c>. <c>CStorageDeviceManagerDrive</c> carries <c>id</c>,
+/// <c>model</c>, <c>vendor</c>, <c>serial</c>, <c>is_ejectable</c>, <c>size_bytes</c>,
+/// <c>media_type</c>, <c>is_unformatted</c>, <c>adopt_stage</c>, <c>is_formattable</c> and
+/// <c>is_media_available</c>; <c>CStorageDeviceManagerBlockDevice</c> carries <c>id</c>,
+/// <c>drive_id</c>, <c>path</c>, <c>friendly_path</c>, <c>label</c>, <c>size_bytes</c>,
+/// <c>mount_paths</c>, <c>has_steam_library</c> and a few flags. Identifiers are <c>uint32</c>.
+/// </para>
+/// <para>
+/// Three things about the client that this surface exists to get right, each found by driving it:
+/// Steam asks <c>IsServiceAvailable</c> and <c>GetState</c> once and caches them forever, so the
+/// gate invalidates its query keys on install and on every changed publication; the library-folder
+/// row finds its volume by an exact match against <c>mount_paths</c>, so the library path has to
+/// be published beside the volume root; and the page never sends <c>Format</c> — its Format Drive
+/// modal sends <c>Adopt</c> with a label, because on SteamOS adopting a blank drive is what erases
+/// it. Requests arrive as an envelope whose <c>Body()</c> holds the message.
 /// </para>
 /// </remarks>
 public static class SteamStorageSurface
