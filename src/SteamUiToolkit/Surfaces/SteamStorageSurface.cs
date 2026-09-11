@@ -7,19 +7,61 @@ using System.Threading.Tasks;
 namespace SteamUiToolkit;
 
 /// <summary>One physical drive as Steam's storage manager understands it.</summary>
-/// <param name="Id">Stable identifier the actions come back with.</param>
+/// <param name="Id">
+/// The drive's identifier. A number, not a string: Steam declares it <c>uint32</c> and renders it
+/// through comparisons against a selected row id, so a string never matches and the row can never
+/// be selected.
+/// </param>
+/// <param name="Model">The drive's model, which Steam shows as the row's name.</param>
+/// <param name="Vendor">The drive's vendor, shown beside the model.</param>
+/// <param name="SizeBytes">
+/// The drive's capacity. Omitting it is what renders the row as "NaN B of NaN B" — Steam formats
+/// the number it is given without checking that it got one.
+/// </param>
+/// <param name="Ejectable">Whether the drive can be removed, which also picks its icon.</param>
 /// <param name="Formattable">Whether Steam may offer to format it.</param>
 /// <param name="Unformatted">Whether it currently carries no usable filesystem.</param>
-public sealed record SteamStorageDrive(string Id, bool Formattable, bool Unformatted);
+/// <param name="MediaAvailable">Whether media is present in the reader.</param>
+/// <remarks>
+/// <see cref="SteamStorageAdoptStage.Idle"/> is published for every drive. Steam renders a
+/// spinner for any other stage, so a drive with no stage at all spins forever — which is exactly
+/// what an omitted field does, since undefined compares unequal to the idle value.
+/// </remarks>
+public sealed record SteamStorageDrive(
+    uint Id,
+    string Model,
+    string Vendor,
+    long SizeBytes,
+    bool Ejectable,
+    bool Formattable,
+    bool Unformatted,
+    bool MediaAvailable = true);
+
+/// <summary>How far a drive is through being adopted as a Steam library.</summary>
+/// <remarks>
+/// Steam's own enum. Only <see cref="Idle"/> renders the drive's icon; everything else renders a
+/// spinner, which is the whole reason the value has to be published rather than left out.
+/// </remarks>
+public enum SteamStorageAdoptStage
+{
+    /// <summary>Nothing in progress. The only stage that renders a drive rather than a spinner.</summary>
+    Idle = 0,
+}
 
 /// <summary>One mounted volume on a drive.</summary>
-/// <param name="Id">Stable identifier the actions come back with.</param>
+/// <param name="Id">The volume's identifier, numeric for the same reason the drive's is.</param>
 /// <param name="DriveId">The <see cref="SteamStorageDrive.Id"/> this volume sits on.</param>
-/// <param name="MountPaths">Where it is mounted, as the user would recognise it.</param>
+/// <param name="Label">The volume label, which Steam shows as the row's name.</param>
+/// <param name="FriendlyPath">The path as the user would recognise it, for example <c>D:\</c>.</param>
+/// <param name="SizeBytes">The volume's size.</param>
+/// <param name="MountPaths">Where it is mounted.</param>
 /// <param name="HasSteamLibrary">Whether a Steam library is registered on it.</param>
 public sealed record SteamStorageBlockDevice(
-    string Id,
-    string DriveId,
+    uint Id,
+    uint DriveId,
+    string Label,
+    string FriendlyPath,
+    long SizeBytes,
     IReadOnlyList<string> MountPaths,
     bool HasSteamLibrary);
 
@@ -52,21 +94,21 @@ public interface ISteamStorageBackend
     /// <param name="driveId">The drive to adopt.</param>
     /// <param name="cancellationToken">Cancels the operation.</param>
     /// <returns>The outcome.</returns>
-    Task<SteamUiCommandResult> AdoptAsync(string driveId, CancellationToken cancellationToken);
+    Task<SteamUiCommandResult> AdoptAsync(uint driveId, CancellationToken cancellationToken);
 
     /// <summary>Safely ejects a volume.</summary>
-    /// <param name="blockDeviceId">The volume to eject, or empty when the drive is named instead.</param>
-    /// <param name="driveId">The drive to eject.</param>
+    /// <param name="blockDeviceId">The volume to eject, or zero when the drive is named instead.</param>
+    /// <param name="driveId">The drive to eject, or zero when the volume is named instead.</param>
     /// <param name="cancellationToken">Cancels the operation.</param>
     /// <returns>The outcome.</returns>
     Task<SteamUiCommandResult> EjectAsync(
-        string blockDeviceId, string driveId, CancellationToken cancellationToken);
+        uint blockDeviceId, uint driveId, CancellationToken cancellationToken);
 
     /// <summary>Formats a drive.</summary>
     /// <param name="driveId">The drive to format.</param>
     /// <param name="cancellationToken">Cancels the operation.</param>
     /// <returns>The outcome.</returns>
-    Task<SteamUiCommandResult> FormatAsync(string driveId, CancellationToken cancellationToken);
+    Task<SteamUiCommandResult> FormatAsync(uint driveId, CancellationToken cancellationToken);
 
     /// <summary>Trims every drive that supports it.</summary>
     /// <param name="cancellationToken">Cancels the operation.</param>
@@ -180,14 +222,14 @@ public static class SteamStorageSurface
             commands:
             [
                 new(PatchId, "adopt", (request, cancellationToken) =>
-                    SteamUiPayload.TryReadBoundedString(request.Payload, "driveId", 256, out string drive)
+                    TryReadId(request, "driveId", out uint drive)
                         ? backend.AdoptAsync(drive, cancellationToken)
                         : SteamSurfaceModule.Invalid("The storage adopt payload is invalid.")),
                 // Unmount and eject are the same operation under two of Steam's names.
                 new(PatchId, "unmount", (request, cancellationToken) => Eject(backend, request, cancellationToken)),
                 new(PatchId, "eject", (request, cancellationToken) => Eject(backend, request, cancellationToken)),
                 new(PatchId, "format", (request, cancellationToken) =>
-                    SteamUiPayload.TryReadBoundedString(request.Payload, "driveId", 256, out string drive)
+                    TryReadId(request, "driveId", out uint drive)
                         ? backend.FormatAsync(drive, cancellationToken)
                         : SteamSurfaceModule.Invalid("The storage format payload is invalid.")),
                 new(PatchId, "trimall", (_, cancellationToken) => backend.TrimAllAsync(cancellationToken)),
@@ -198,11 +240,33 @@ public static class SteamStorageSurface
         ISteamStorageBackend backend, SteamUiBridgeRequest request, CancellationToken cancellationToken)
     {
         // Steam names one or the other depending on which row the user pressed, so neither alone is
-        // required and both being empty is the only refusal.
-        _ = SteamUiPayload.TryReadBoundedString(request.Payload, "blockDeviceId", 256, out string device);
-        _ = SteamUiPayload.TryReadBoundedString(request.Payload, "driveId", 256, out string drive);
-        return device.Length == 0 && drive.Length == 0
+        // required and both being absent is the only refusal.
+        _ = TryReadId(request, "blockDeviceId", out uint device);
+        _ = TryReadId(request, "driveId", out uint drive);
+        return device == 0 && drive == 0
             ? SteamSurfaceModule.Invalid("The storage eject payload named neither a volume nor a drive.")
             : backend.EjectAsync(device, drive, cancellationToken);
+    }
+
+    /// <summary>Reads one of Steam's storage identifiers, which are unsigned and never zero.</summary>
+    /// <param name="request">The request carrying the payload.</param>
+    /// <param name="propertyName">Which identifier to read.</param>
+    /// <param name="id">The identifier, or zero when absent.</param>
+    /// <returns>Whether a usable identifier was present.</returns>
+    /// <remarks>
+    /// Zero is treated as absent rather than as a drive. Steam numbers these from one, so nothing
+    /// answers to zero, and reading a missing property as a valid id would send the host looking
+    /// for a drive that was never named.
+    /// </remarks>
+    private static bool TryReadId(SteamUiBridgeRequest request, string propertyName, out uint id)
+    {
+        id = 0;
+        if (!SteamUiPayload.TryReadInt(request.Payload, propertyName, 1, int.MaxValue, out int value))
+        {
+            return false;
+        }
+
+        id = (uint)value;
+        return true;
     }
 }
