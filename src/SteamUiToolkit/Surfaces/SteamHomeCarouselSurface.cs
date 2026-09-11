@@ -89,12 +89,17 @@ public static class SteamHomeCarouselSurface
         fingerprint: "steam-home-carousel-v1:unique-home-module+route-home-memo",
         probeExpression: $$"""
             {{SteamUiProbeJs.CountingPreamble("steam_ui_home_carousel_probe_")}}
-              // Home is module-local, so the handle is the page element under the /library/home route
-              // in SharedJSContext's React tree. Read-only walk, bounded, matching on content.
-              const host=document.getElementById('root');
-              const key=host?Object.keys(host).find(n=>n.startsWith('__reactContainer$')):null;
+              // Home is module-local, so the handle is the page element under the /library/home route.
+              // Big Picture's router renders in the Big Picture popup's own root, not SharedJSContext's
+              // #root, so that window is searched first. Read-only walk, bounded, matching on content.
+              const fiberOf=el=>{if(!el)return null;const k=Object.keys(el).find(n=>n.startsWith('__reactContainer$'));return k?el[k]:null;};
+              const roots=[];
+              const add=doc=>{try{const f=fiberOf(doc&&doc.getElementById('popup_target'))||fiberOf(doc&&doc.getElementById('root'));if(f&&!roots.includes(f))roots.push(f);}catch(e){ } };
+              add(window.SteamUIStore?.WindowStore?.GamepadUIMainWindowInstance?.BrowserWindow?.document);
+              try{for(const p of window.g_PopupManager?.m_mapPopups?.values?.()??[])add(p&&p.window&&p.window.document);}catch(e){}
+              add(document);
               let home=null,visited=0;
-              const stack=key?[host[key]]:[];
+              const stack=roots.slice();
               while(stack.length&&!home&&visited<60000){
                 const node=stack.pop();
                 if(!node)continue;
