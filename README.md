@@ -208,7 +208,7 @@ forms when shutdown, a settings confirmation or an emergency kill switch must kn
 
 The second will not go away at 1.0. The first should.
 
-Extracted from [WSGM](https://github.com/NightHammer1000/WSGM), which reconstructs SteamOS Game Mode
+Extracted from [WSGM](https://github.com/KillerPixelCrew/WSGM), which reconstructs SteamOS Game Mode
 on Windows handhelds and is where all of this was found. Its `_plan/steam-ui-toolkit.md` records
 what has been done and what has not.
 
