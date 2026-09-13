@@ -966,8 +966,9 @@ emitted echo hook with an inert React fixture.
 `powerProfile`, and command `setPowerProfile`. Payloads are exactly `{ target: "id" }`, validated
 with `TryReadTarget`. `SteamPowerProfileState` carries up to 64 unique id/label options, observed
 `Current`, `Available` and `StatusText`. Unknown current ids select nothing. Labels are bounded to
-240 characters by the shared text normalizer. Unavailable state stays
-visible but disabled; selection is also disabled while its request is pending. The host owns
+240 characters by the shared text normalizer. Unavailable state with options stays
+visible but disabled; a state with no options hides the row and records its status text in
+`renderOutcomes`. Selection is also disabled while its request is pending. The host owns
 validation, OS writes, persistence and readback. `SteamPowerProfileTests` covers serialization and
 module vocabulary; `eng/check-power-profile.mjs` checks the emitted dropdown, rejected choices,
 malformed states and Performance placement with inert React/bridge fixtures.
@@ -977,7 +978,8 @@ kind `hybridCores`, and command `setHybridCores`. `SteamHybridCoreState` is the 
 power-profile state and reuses `SteamPowerProfileOption`, because it is the same control: host-named
 choices, the one observed, and a status line. The host owns what a choice means, whether the machine
 supports any, and the OS write. An empty `Current` is the honest answer for a machine set to
-something the host does not offer, and selects nothing.
+something the host does not offer, and selects nothing. A machine without a choice publishes no
+options, which hides the row like the power-profile dropdown.
 
 The two rows are written out separately rather than sharing one factory. Each control's glyph is
 read from the string literal at its own `icon()` call, so a factory taking the name as an argument
@@ -999,8 +1001,12 @@ profile scope, power profiles, display/frame rate, power limits, controller and 
 Settings places its Display section before Valve's common controls, with Charging and RGB lighting
 sections after them. RGB brightness stays visible; an Edit color toggle reveals the zone and HSV controls.
 If Valve's toggle component is unavailable, the color editor is omitted while charging and brightness remain usable.
-Empty groups are omitted. Each control retains the existing bridge and patch
-ownership.
+A group with no registered row is omitted. A group whose host rows all render nothing, such as
+Power limits and Controller without a device, stays mounted inside a `display: none` wrapper so its
+rows keep their subscriptions; a shown group's wrapper is `display: contents`. Rows report drawing
+through `drew` and not drawing through `note`, and a change queues one re-render of the panel roots.
+Valve's own rows report nothing and count as drawn. Each control retains the existing bridge and
+patch ownership.
 
 Rows and section headers carry a glyph. `icons.ts` holds the drawings — the toolkit's own, on a
 24x24 grid, filled with `currentColor` and cut with `fill-rule="evenodd"`, because the client's

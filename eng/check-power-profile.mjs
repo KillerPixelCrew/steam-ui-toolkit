@@ -13,13 +13,14 @@ let state;
 const requests = [];
 const pending = [];
 const api = new Function("normalizeText", "useSemanticState", "note", "definitions",
-  "renderOutcomes", "request", "nextActionGeneration",
-  asset.slice(start, end) + "\nreturn { normalizePowerProfileState, createPowerProfileControl, normalizePowerPresetState, createPowerPresetControl };")(
+  "renderOutcomes", "request", "nextActionGeneration", "drew",
+  asset.slice(start, end) + "\nreturn { normalizePowerProfileState, createPowerProfileControl, createHybridCoreControl, normalizePowerPresetState, createPowerPresetControl };")(
   normalizeText,
   (_runtime, _kind, normalize) => normalize(state), () => null,
   { powerProfile: { patchId: "steam-ui.power-profile", command: "setPowerProfile" },
+    hybridCores: { patchId: "steam-ui.hybrid-cores", command: "setHybridCores" },
     powerPreset: { patchId: "steam-ui.power-preset", acCommand: "setAcPowerPreset", batteryCommand: "setBatteryPowerPreset" } }, {},
-  (...args) => { requests.push(args); return Promise.resolve(); }, () => 1);
+  (...args) => { requests.push(args); return Promise.resolve(); }, () => 1, () => {});
 const options = [{ id: "a", label: "Balanced" }, { id: "b", label: "Balanced" }];
 const longLabel = api.normalizePowerProfileState({ available: true,
   options: [{ id: "a", label: "x".repeat(10000) }], current: "a" });
@@ -47,6 +48,19 @@ assert.equal(control().selectedOption, undefined);
 state = { ...state, available: false, statusText: "Readback failed" };
 assert.equal(control().disabled, true);
 assert.equal(control().description, "Readback failed");
+// No options is nothing to choose: a processor with one kind of core publishes exactly that, and
+// neither dropdown may stand there empty and disabled.
+{
+  const previous = state;
+  state = { available: false, options: [], current: "", statusText: "One kind of core" };
+  const reactFixture = { dropdown: "dropdown", icon: name => name, react: {
+    useState: () => [false, () => {}], createElement: (_type, props) => props } };
+  assert.equal(control(), null);
+  assert.equal(api.createHybridCoreControl(reactFixture)(), null);
+  state = { ...previous, available: true };
+  assert.equal(api.createHybridCoreControl(reactFixture)().label, "Processor cores");
+  state = previous;
+}
 for (const badOptions of [[...options, options[0]], [{ id: 123, label: "Bad" }],
   [{ id: "a", label: "" }], Array.from({ length: 65 }, (_, i) => ({ id: String(i), label: "x" }))]) {
   assert.equal(api.normalizePowerProfileState({ ...state, options: badOptions }), null);
@@ -197,12 +211,12 @@ const deviceState = {
 };
 const createDeviceControl = new Function("useSemanticState", "normalizeDeviceControlsState",
   "definitions", "request", "nextActionGeneration", "useTrailingCommit", "useEchoedValue",
-  "note", "renderOutcomes", "isBusy", "localizeOr", "sectionTitle",
+  "note", "renderOutcomes", "isBusy", "localizeOr", "sectionTitle", "drew",
   asset.slice(deviceStart, deviceEnd) + "\nreturn createDeviceControlsControl;")(
   () => deviceState, value => value, { deviceControls: {} },
   () => { throw new Error("Rendering must not dispatch hardware writes"); }, () => 1,
   () => () => {}, (_runtime, value) => ({ value }), () => null, {}, () => false,
-  (_runtime, _token, fallback) => fallback, sectionTitle);
+  (_runtime, _token, fallback) => fallback, sectionTitle, () => {});
 for (const toggle of [undefined, "toggle"]) {
   for (const expanded of [false, true]) {
     const render = createDeviceControl({ toggle, row: "row", section: "section",
@@ -235,6 +249,51 @@ for (const toggle of [undefined, "toggle"]) {
   }
 }
 console.log("Device controls retain charging and brightness without the optional color toggle.");
+
+// A section whose rows all drew nothing leaves layout but stays mounted, so its rows keep their
+// subscriptions and can bring it back. Valve's rows report nothing and keep theirs shown.
+{
+  const appendStart = asset.indexOf("const SectionIcons =");
+  const appendEnd = asset.indexOf("const resolveControls =", appendStart);
+  assert.ok(appendStart >= 0 && appendEnd > appendStart);
+  const controlNames = ["valveProfileHeaderControl", "valveProfileToggleControl",
+    "valveOverlayLevelControl", "frameLimitControl", "powerProfileControl", "hybridCoreControl",
+    "powerPresetControl", "vrrControl", "powerLimitControl", "autoTdpControl", "resolutionControl",
+    "valveRefreshRateControl", "controllerControl", "valveResetControl", "deviceControlsControl"];
+  const registrations = new Map();
+  const drawnKinds = new Set();
+  const appendControls = new Function("registrations", "drawnKinds", "appendDiagnostics",
+    "withNativeRowsHidden", ...controlNames,
+    asset.slice(appendStart, appendEnd) + "\nreturn appendControls;")(
+    registrations, drawnKinds, {}, (_runtime, tree) => tree,
+    ...controlNames.map(name => name === "deviceControlsControl" ? undefined : name));
+  const runtime = { section: "section", row: "row", icon: () => null, react: {
+    Fragment: "fragment", isValidElement: () => false,
+    createElement: (type, props, ...children) => ({ type, props, children }) } };
+  const layout = (placement) => {
+    const tree = appendControls(runtime, "native", placement);
+    const sections = placement === "perf" ? tree.children[1].children : [tree.children[0]];
+    return Object.fromEntries(sections.map(wrapper => {
+      assert.equal(wrapper.type, "div");
+      assert.equal(wrapper.children[0].type, "section");
+      assert.ok(wrapper.children[0].children.length > 0, "a hidden section keeps its rows mounted");
+      return [wrapper.children[0].props.title, wrapper.props.style.display];
+    }));
+  };
+  for (const kind of ["valveProfileHeader", "powerProfile", "hybridCores", "powerLimit",
+    "controllerTarget", "valveReset", "resolution"]) registrations.set(kind, kind);
+  drawnKinds.add("powerProfile");
+  assert.deepEqual(layout("perf"), { "Profile scope": "contents", "Power profiles": "contents",
+    "Power limits": "none", Controller: "none", Reset: "contents" });
+  drawnKinds.add("powerLimit");
+  assert.equal(layout("perf")["Power limits"], "contents");
+  drawnKinds.delete("powerProfile");
+  assert.equal(layout("perf")["Power profiles"], "none", "no drawn row, no section");
+  assert.deepEqual(layout("quickSettings"), { Display: "none" });
+  registrations.set("valveRefreshRate", "valveRefreshRate");
+  assert.deepEqual(layout("quickSettings"), { Display: "contents" });
+}
+console.log("Host sections leave layout while every row under them draws nothing.");
 
 // Hardware observations, not Steam's saved TDP setting, drive both power sliders.
 {
@@ -289,6 +348,7 @@ console.log("Device controls retain charging and brightness without the optional
     "nextActionGeneration",
     "isBusy",
     "note",
+    "drew",
     asset.slice(echoFirst, echoLast) +
       asset.slice(first, last) +
       "\nreturn { createPowerLimitControl, normalizePowerLimitState };",
@@ -309,6 +369,7 @@ console.log("Device controls retain charging and brightness without the optional
     () => 1,
     (progress) => ["queued", "applying", "replacing"].includes(progress),
     () => null,
+    () => {},
   );
   const control = powerApi.createPowerLimitControl(runtime);
   const render = () => {
