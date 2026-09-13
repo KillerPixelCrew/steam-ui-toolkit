@@ -20,6 +20,11 @@ itself, and says why when it does not work.
 
 ## What it gives you
 
+`SteamGameWindowActivation.RaiseAsync` requests Steam activation for exactly one existing overlay
+process. Hosts retain responsibility for focusing their selected native window because Steam can
+raise a launcher console. Completion does not establish overlay recovery. The call borrows the
+existing transport, has a one-second budget and never launches or retries a game.
+
 `SteamNativeSurfaceCommands.ReplayAsync` invokes Steam's native Home or Quick Access handler on an
 exact process/app window identity and CEF generation. It does not retry or fall back to another window.
 The `Keyboard` action shows the native keyboard through the exact window's keyboard manager and

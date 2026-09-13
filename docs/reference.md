@@ -7,6 +7,21 @@ documentation on each member is the authoritative wording; this document reads t
 whole, in the order a consumer meets it. How WSGM uses it (Steam discovery, gating the transport on
 Big Picture, which surfaces it registers) is on the WSGM side in `docs/steam-cef-system.md`.
 
+`SteamGameWindowActivation.RaiseAsync` borrows an already subscribed transport and requires a ready
+SharedJSContext. It resolves exactly one `OverlayWindows` entry with the requested nonzero PID,
+requires a gamepad overlay, valid nonzero AppID and decimal 64-bit GameID string, then awaits
+`SteamClient.Apps.RaiseWindowForGame` with that GameID. It never converts shortcut GameIDs to Number.
+The one-second request budget includes an in-page expiry check before dispatch. A replaced generation,
+missing method, missing/ambiguous overlay or JavaScript failure reports false. There is no launch,
+retry, main-window fallback or DLL injection. True means the call completed, regardless of Steam's
+native result code; it does not establish focus or overlay recovery. The host must select and
+verify its exact native HWND because Steam may raise a launcher console. Cancellation cannot recall
+a native operation already dispatched. Tests execute the expression in isolated Node fixtures and
+cover generation replacement and cancellation with a fake transport. Live Windows overlay recovery
+after task switching remains unverified. Offline inspection of the installed Windows Steam bundle
+on 2026-09-13 confirmed that its own return-to-game path passes `gameid`, and its overlay browser
+information maps `gameID` into `m_gameID`.
+
 | Fact                | Value                                                                                                       |
 | ------------------- | ----------------------------------------------------------------------------------------------------------- |
 | Package             | `SteamUiToolkit` 0.1.0, pre-1.0 on purpose                                                                  |
