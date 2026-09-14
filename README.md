@@ -1,99 +1,33 @@
 # SteamUiToolkit
 
-Add, hide and revive elements in Steam's Big Picture front-end, from .NET. This README is the
-orientation and the how-to; the contract, with every limit, state and log key, is in
+Add, hide and revive elements in Steam's Big Picture front end, from .NET. This README is the
+orientation and the how-to. The contract, with every limit, state and log key, is in
 [`docs/reference.md`](docs/reference.md).
 
-> **Very early. Expect it to change under you.** This was extracted from one application and has
-> one consumer. Names, shapes and whole types are still moving, and the API will break without
+> **Very early. Expect it to change under you.** This was extracted from one application and has one
+> consumer. Names, shapes and whole types are still moving, and the API will break without
 > deprecation cycles. Pin an exact version, read the commit log before bumping, and expect to fix
-> call sites. Issues and pull requests are welcome; a stability promise is not something this can
-> honestly offer yet.
+> call sites. Issues and pull requests are welcome, but I cannot honestly offer a stability promise
+> yet.
 
 ```
 dotnet add package SteamUiToolkit
 ```
 
-Steam's client UI is a Chromium application that talks to a CDP client on loopback. This library
-is about everything after that: doing it in a way that survives a Steam update, cleans up after
-itself, and says why when it does not work.
+Steam's client UI is a Chromium application that talks to a CDP client on loopback. This library is
+about everything after that: doing it in a way that survives a Steam update, cleans up after itself,
+and tells you why when it does not work.
 
-## What it gives you
+## The machinery
 
-`SteamGameWindowActivation.RaiseAsync` requests Steam activation for exactly one existing overlay
-process. Hosts retain responsibility for focusing their selected native window because Steam can
-raise a launcher console. Completion does not establish overlay recovery. The call borrows the
-existing transport, has a one-second budget and never launches or retries a game.
+**A persistent CDP transport** that owns one connection per target, tracks execution-context and
+document generations, and verifies the debug port belongs to Steam before connecting.
 
-`SteamNativeSurfaceCommands.ReplayAsync` invokes Steam's native Home or Quick Access handler on an
-exact process/app window identity and CEF generation. It does not retry or fall back to another window.
-The `Keyboard` action shows the native keyboard through the exact window's keyboard manager and
-game-overlay route. An already visible keyboard stays open. Snapshots include nullable keyboard visibility.
+**A patch lifecycle** of probe, apply, verify and remove, where each patch declares what it owns,
+proves it found its target before touching anything, and is removed and re-probed when it cannot be
+verified.
 
-`SteamSideMenuObserver.ReadAsync` reads main-window and overlay-window menu state through the
-host's subscribed transport. Register `SteamOverlayActivationPatch` with the patch manager to
-observe overlay activation as well. Unknown activation remains unknown after attachment or
-reconnect; a closed QAM alone does not prove that an in-game overlay is closed.
-
-`SteamPowerProfileRow.Module` adds a Windows power-profile dropdown to QAM Performance. Supply stable ids,
-display labels and observed state through `SteamPowerProfileState`; implement
-`ISteamPowerProfileBackend` to validate and apply selections. `SteamPowerPresetRow.Module` adds
-independent AC and battery assignments with `SteamPowerPresetState` and `ISteamPowerPresetBackend`.
-The active preset is read-only, including Custom. A host may also publish `custom` as a saved
-source assignment; it is displayed only for that source and never sent as a selection command.
-Empty preset options hide those controls.
-`SteamNavigationPanelSurface.Module` makes Steam's left slideout navigation panel an extension
-surface. Publish `SteamNavigationPanelState` to add entries and hide Steam's own; implement
-`ISteamNavigationPanelBackend` to answer an added entry's activation. Entries are placed relative to
-Steam's by route (`/library`) or by Valve's descriptor key (`power`), not by index, because routes
-and keys are stable across client builds and languages while the labels are localized. Hiding is
-applied before insertion. An entry whose anchor is not in the panel goes to the end and is reported
-as orphaned rather than dropped. The claim is on the one exported handle and is restored on removal.
-
-`SteamLibraryBadgeSurface.Module` draws a library badge on every library tile, immediately left of
-Valve's Steam Input badge in the tile's icon row: the name of the library that holds the game,
-green when the game is installed and grey when it is not. Publish `SteamLibraryBadgeState` with the
-libraries worth naming and their app ids; a game in none of them is on the internal library and is
-labelled with `InternalLabel`. The claim is on the tile memo's `type`, so Home's carousel and the
-library grid are covered by one claim, and the badge shows exactly when Valve shows the icon row.
-Implement `ISteamLibraryBadgeBackend` to hear `homeLayout`, which reports Steam's own Big Art Mode
-setting when the gate resolves it and whenever a tile render sees it change.
-
-`SteamHomeCarouselSurface.Module` makes Big Picture Home's carousel list the games on the libraries
-attached right now: the most recently played first, installed games by last played merged with
-unplayed recent purchases by purchase time, never-played installed games after them, and owned
-uninstalled games, greyed, when `SteamHomeCarouselState.IncludeUninstalled` asks for them. Games in
-`DisconnectedAppIds` leave the list. The gate replaces the one app-id array Home hands its carousel
-and background, so Steam's own components draw it, and puts the virtualized carousel's overscan back
-to the component's default; Home otherwise mounts every tile. Implement
-`ISteamHomeCarouselBackend` to hear what the carousel holds after each rebuild.
-
-`SteamPageSurface.Module` registers custom pages with Steam's own router. Publish `SteamPageState`
-with a path, a title and an id; the path is matched by Steam's matcher, so `/wsgm/artwork/:appid`
-takes parameters the way Valve's routes do. Pages are built with Steam's back-stack `Route`, not
-react-router's, so they push and pop the back stack like a native page instead of rendering
-correctly and losing B. `Override` decides whether a page replaces a Steam route of the same path or
-adds a new one: Steam's switch takes the first match, so an override is inserted ahead of Valve's
-routes and an addition behind them. Adding is the default.
-
-`SteamStorageSurface.Module` revives Steam's own SteamOS storage management on Windows. The whole UI
-is gated on one unanswered service question, so the gate claims `SendMsg` on the service transport
-and answers `StorageDeviceManager.*` from `SteamStorageState`; implement `ISteamStorageBackend` to
-adopt, eject, format and trim. Every other service message Steam sends passes straight through with
-its own arguments and receiver, and removal deletes the claim so Valve's method shows through again.
-The injected half performs no storage operation itself, which keeps one Windows implementation
-behind both Steam's pages and WSGM's own.
-
-Performance controls use titled native sections. Quick Settings places display controls before
-Steam's common settings, then separate Charging and RGB lighting sections. The toolkit does not
-change OS power settings itself.
-
-- A persistent CDP transport that owns one connection per target, tracks execution-context and
-  document generations, and verifies the debug port belongs to Steam before connecting.
-- A patch lifecycle (probe, apply, verify, remove) where each patch declares what it owns, proves it
-  found its target before touching anything, and is removed and re-probed when it cannot be
-  verified.
-- Three ways to change the client, which between them cover every surface below:
+**Three ways to change the client,** which between them cover every surface below:
 
 | Way                     | What it does                                                             | What removal owes                    |
 | ----------------------- | ------------------------------------------------------------------------ | ------------------------------------ |
@@ -101,72 +35,158 @@ change OS power settings itself.
 | Answer an RPC           | overlay a method the client already has                                  | restore what was displaced           |
 | Reveal what is gated    | flip the one flag or getter hiding a surface the client can already serve | restore the original, never the platform constant |
 
-- The revived surfaces themselves. Valve's audio page, Internet page, Bluetooth page, brightness
-  slider, Performance tab and TDP rows ship in the Windows client and are inert only because
-  nothing answers behind them. Each is a `Steam*Surface`: the injected gate that supplies or
-  reveals it, the patch that probes and verifies it, a typed state record you fill, and a backend
-  interface you implement. Quick Access rows built on Valve's own field primitives (frame limit,
-  variable refresh, resolution, automatic power limit, controller target, charge and lighting) are
-  `Steam*Row`s of the same shape. You say "this is our data, and it maps to that feature"; the CEF
-  work stays here.
-- An extension host, so a consumer can let third parties add surfaces of their own.
+**An extension host,** so a consumer can let third parties add surfaces of their own.
+
+## The revived surfaces
+
+Valve's audio page, Internet page, Bluetooth page, brightness slider, Performance tab and TDP rows
+all ship in the Windows client and are inert only because nothing answers behind them. Each one is a
+`Steam*Surface`: the injected gate that supplies or reveals it, the patch that probes and verifies
+it, a typed state record you fill in, and a backend interface you implement. Quick Access rows built
+on Valve's own field primitives (frame limit, variable refresh, resolution, automatic power limit,
+controller target, charge and lighting) are `Steam*Row`s of the same shape. You say "this is our
+data, and it maps to that feature", and the CEF work stays in here.
+
+**`SteamNavigationPanelSurface.Module`** makes Steam's left slideout navigation panel an extension
+surface. Publish `SteamNavigationPanelState` to add entries and hide Steam's own, and implement
+`ISteamNavigationPanelBackend` to answer an added entry's activation. Entries are placed relative to
+Steam's by route (`/library`) or by Valve's descriptor key (`power`) rather than by index, because
+routes and keys are stable across client builds and languages while the labels are localized. Hiding
+is applied before insertion. An entry whose anchor is not in the panel goes to the end and is
+reported as orphaned rather than dropped. The claim is on the one exported handle and is restored on
+removal.
+
+**`SteamPageSurface.Module`** registers custom pages with Steam's own router. Publish
+`SteamPageState` with a path, a title and an id. The path goes to Steam's matcher, so
+`/wsgm/artwork/:appid` takes parameters the way Valve's routes do. Pages are built with Steam's
+back-stack `Route` rather than react-router's, so they push and pop the back stack like a native
+page instead of rendering correctly and losing B. `Override` decides whether a page replaces a Steam
+route of the same path or adds a new one: Steam's switch takes the first match, so an override is
+inserted ahead of Valve's routes and an addition behind them. Adding is the default.
+
+**`SteamLibraryBadgeSurface.Module`** draws a library badge on every library tile, immediately left
+of Valve's Steam Input badge in the tile's icon row: the name of the library holding the game, green
+when the game is installed and grey when it is not. Publish `SteamLibraryBadgeState` with the
+libraries worth naming and their app ids; a game in none of them is on the internal library and gets
+`InternalLabel`. The claim is on the tile memo's `type`, so Home's carousel and the library grid are
+covered by one claim, and the badge shows exactly when Valve shows the icon row. Implement
+`ISteamLibraryBadgeBackend` to hear `homeLayout`, which reports Steam's own Big Art Mode setting
+when the gate resolves it and whenever a tile render sees it change.
+
+**`SteamHomeCarouselSurface.Module`** makes Big Picture Home's carousel list the games on the
+libraries attached right now: the most recently played first, installed games by last played merged
+with unplayed recent purchases by purchase time, never-played installed games after those, and owned
+uninstalled games greyed out when `SteamHomeCarouselState.IncludeUninstalled` asks for them. Games
+in `DisconnectedAppIds` leave the list. The gate replaces the one app-id array Home hands its
+carousel and background, so Steam's own components draw it, and puts the virtualized carousel's
+overscan back to the component's default, since Home otherwise mounts every tile. Implement
+`ISteamHomeCarouselBackend` to hear what the carousel holds after each rebuild.
+
+**`SteamStorageSurface.Module`** revives Steam's own SteamOS storage management on Windows. The
+whole UI hangs off one unanswered service question, so the gate claims `SendMsg` on the service
+transport and answers `StorageDeviceManager.*` from `SteamStorageState`. Implement
+`ISteamStorageBackend` to adopt, eject, format and trim. Every other service message Steam sends
+passes straight through with its own arguments and receiver, and removal deletes the claim so
+Valve's method shows through again. The injected half performs no storage operation itself, which
+keeps one Windows implementation behind both Steam's pages and your own.
+
+**`SteamPowerProfileRow.Module`** adds a Windows power-profile dropdown to QAM Performance. Supply
+stable ids, display labels and observed state through `SteamPowerProfileState`, and implement
+`ISteamPowerProfileBackend` to validate and apply selections. **`SteamPowerPresetRow.Module`** adds
+independent AC and battery assignments with `SteamPowerPresetState` and `ISteamPowerPresetBackend`.
+The active preset is read-only, Custom included. A host may also publish `custom` as a saved source
+assignment, which is displayed only for that source and never sent as a selection command. Empty
+preset options hide those controls. The toolkit does not change OS power settings itself.
+
+Performance controls use titled native sections. Quick Settings places display controls before
+Steam's common settings, then separate Charging and RGB lighting sections.
+
+## Windows, keyboards and menu state
+
+**`SteamGameWindowActivation.RaiseAsync`** requests Steam activation for exactly one existing
+overlay process. Your host still has to focus its own selected native window, because Steam can
+raise a launcher console, and completion does not mean the overlay recovered. The call borrows the
+existing transport, has a one-second budget, and never launches or retries a game.
+
+**`SteamNativeSurfaceCommands.ReplayAsync`** invokes Steam's native Home or Quick Access handler on
+an exact process, app window identity and CEF generation. It does not retry and does not fall back
+to another window. The `Keyboard` action shows the native keyboard through that exact window's
+keyboard manager and game-overlay route, and an already visible keyboard stays open. Snapshots
+include nullable keyboard visibility.
+
+**`SteamSideMenuObserver.ReadAsync`** reads main-window and overlay-window menu state through the
+host's subscribed transport. Register `SteamOverlayActivationPatch` with the patch manager to
+observe overlay activation too. Unknown activation stays unknown after attachment or reconnect, and
+a closed QAM alone does not prove an in-game overlay is closed.
+
+## Behaviour worth knowing
 
 Bluetooth state includes optional operation progress for Steam's spinner. Failed backend commands
 return failed transport replies, and device detail queries preserve the semantic device identity.
 
 State callbacks are isolated during both cached replay and later publications, so a failing
-subscriber cannot interrupt another subscriber or prevent installation cleanup from being registered.
-Power controls use two Valve slider primitives for sustained (PL1) and boost (PL2) power. Both
-follow hardware observations, including profile changes, and write only on completed user edits.
-Steam's saved TDP setting is not applied or polled.
+subscriber cannot interrupt another subscriber or stop installation cleanup being registered.
 
-## The rules it enforces
-
-Each of these cost a debugging session against a live client.
-
-- Every patch carries an ownership marker and accepts "already ours". A patch that cannot
-  recognise its own work either refuses forever or overwrites something that was never its to
-  change, and a probe that requires the pre-patch condition its own apply invalidates tears itself
-  down on every poll.
-- Removal restores exactly what was displaced, read from the object rather than from the closure
-  that installed it. A bridge replaced in place has no closure left, and restoring `undefined`
-  leaves the client worse than never patching.
-- Reveal the surface, never the platform. Setting Steam's "is this SteamOS" constant gives you the
-  row you wanted and changes unrelated client behaviour everywhere.
-- Never iterate the webpack module registry constructing exports. Probes find a module by a source
-  fingerprint that matches it alone and an export by its shape. Enumerating and calling everything
-  once restarted the machine and signed Steam out.
-- Never name a module id or a minified export name. Client builds renumber modules and rename
-  exports; the September 2026 beta did both and refused every gate that had named them.
-- Every refusal is logged with its reason, because the injected side has nowhere to put an error.
-
-`eng/check-ownership-claims.mjs` runs the claim primitives out of the emitted prelude, the bytes
-that get injected, against those scenarios in CI. It caught a real defect the day it was written.
-
-## Using it
-
-Brightness hosts publish confirmed percentages with increasing observation revisions and return
-readback in successful command responses. The native slider consumes that state without sending
-programmatic refreshes back as hardware writes; see `SteamBrightnessSurface` in the reference.
-
-For a host that must leave Steam's cold startup untouched, construct
-`new PersistentSteamUiTransport(requireMainWindow: true)`. Discovery waits for one validated main
-window before attaching to any role; the default constructor retains unrestricted target discovery.
-Pass the configured opt-in explicitly to
-`SteamCef.EnsureRemoteDebuggingEnabled(directory, enabled)`; the flag must be writable while the
-transport is intentionally held closed.
-
-Use `SteamUiModuleResolver.CreateExpression(scope)` in standalone feature scripts. The returned
-resolver's `resolve(tokens)` loads a module by a unique source fingerprint, and
-`exported(tokens, predicate)` returns the one export of that module that fits the predicate.
-`count(tokens)` and `findUnique(tokens)` inspect source without loading exports. Missing factories
-never enter webpack's loader, and ambiguous or failed resolution is explicit. Feature scripts must
-not implement their own registry scan. The bridge and built-in probes use this same source.
+Power controls use two Valve slider primitives, for sustained (PL1) and boost (PL2) power. Both
+follow hardware observations, profile changes included, and write only on a completed user edit.
+Steam's own saved TDP setting is never applied or polled. A consumer can also publish `Unified` and
+`CanSelectMode` and implement `SetUnifiedModeAsync`, which renders one TDP slider with both limit
+readbacks; its toggle saves policy only.
 
 Semantic sliders render hardware observations and suppress unchanged completion echoes, so a live
 power-limit update does not dispatch a manual write back to its owner.
 
-The library is the machinery and the surfaces; the data behind them is yours. You supply:
+Brightness hosts publish confirmed percentages with increasing observation revisions and return
+readback in successful command responses. The native slider consumes that state without sending
+programmatic refreshes back as hardware writes. See `SteamBrightnessSurface` in the reference.
+
+## The rules it enforces
+
+Each of these cost me a debugging session against a live client.
+
+**Every patch carries an ownership marker and accepts "already ours".** A patch that cannot
+recognise its own work either refuses forever or overwrites something that was never its to change,
+and a probe that requires the pre-patch condition its own apply invalidates tears itself down on
+every poll.
+
+**Removal restores exactly what was displaced,** read from the object rather than from the closure
+that installed it. A bridge replaced in place has no closure left, and restoring `undefined` leaves
+the client worse than never patching.
+
+**Reveal the surface, never the platform.** Setting Steam's "is this SteamOS" constant gives you the
+row you wanted and changes unrelated client behaviour everywhere.
+
+**Never iterate the webpack module registry constructing exports.** Probes find a module by a source
+fingerprint that matches it alone, and an export by its shape. Enumerating and calling everything
+once restarted the machine and signed Steam out.
+
+**Never name a module id or a minified export name.** Client builds renumber modules and rename
+exports. The September 2026 beta did both and refused every gate that had named them.
+
+**Every refusal is logged with its reason,** because the injected side has nowhere else to put an
+error.
+
+`eng/check-ownership-claims.mjs` runs the claim primitives out of the emitted prelude, the actual
+bytes that get injected, against those scenarios in CI. It caught a real defect the day it was
+written.
+
+## Using it
+
+For a host that must leave Steam's cold startup untouched, construct
+`new PersistentSteamUiTransport(requireMainWindow: true)`. Discovery then waits for one validated
+main window before attaching to any role, while the default constructor keeps unrestricted target
+discovery. Pass the configured opt-in explicitly to
+`SteamCef.EnsureRemoteDebuggingEnabled(directory, enabled)`; the flag has to be writable while the
+transport is intentionally held closed.
+
+In standalone feature scripts, use `SteamUiModuleResolver.CreateExpression(scope)`. The returned
+resolver's `resolve(tokens)` loads a module by a unique source fingerprint, and
+`exported(tokens, predicate)` returns the one export of that module fitting the predicate.
+`count(tokens)` and `findUnique(tokens)` inspect source without loading exports. Missing factories
+never enter webpack's loader, and ambiguous or failed resolution is explicit. Feature scripts must
+not implement their own registry scan; the bridge and the built-in probes use this same source.
+
+The library is the machinery and the surfaces, and the data behind them is yours. You supply:
 
 - a logger (`ISteamUiLog`), so diagnostics land wherever your application's do;
 - the script you inject (`SteamUiInjectedAsset`): `dist/steam-ui.js` as built by
@@ -174,9 +194,9 @@ The library is the machinery and the surfaces; the data behind them is yours. Yo
   thing is evaluated in one CDP call and is therefore one script;
 - a backend per surface you want, and a reading of its state.
 
-Each surface's `Module(...)` turns those into an `ISteamUiModule`. Register `SteamUiBridgePatch`
-and the modules' patches in the same manager; synchronization uses stable patch-id order and retries
-unmet conditions, so registration call order is not significant.
+Each surface's `Module(...)` turns those into an `ISteamUiModule`. Register `SteamUiBridgePatch` and
+the modules' patches in the same manager. Synchronization uses stable patch-id order and retries
+unmet conditions, so registration call order does not matter.
 
 ```csharp
 ISteamUiModule audio = SteamAudioSurface.Module(
@@ -186,40 +206,39 @@ ISteamUiModule audio = SteamAudioSurface.Module(
 ```
 
 A surface's patch id and command vocabulary are constants on it (`PatchId`, `Commands`), and the
-module set derives the bridge's exact state/command vocabulary from every module you register; pass
-`SteamUiModuleSet.AllowedCommands` to `SteamUiBridgeHost`. A surface you do not register installs
-nothing, and its Valve UI stays exactly as the client ships it.
+module set derives the bridge's exact state and command vocabulary from every module you register,
+so pass `SteamUiModuleSet.AllowedCommands` to `SteamUiBridgeHost`. A surface you do not register
+installs nothing, and its Valve UI stays exactly as the client ships it.
 
-A surface of your own is a fragment that calls `registerGate(name, gate)` and a patch that reaches
+A surface of your own is a fragment that calls `registerGate(name, gate)` plus a patch that reaches
 it through `window[namespace].gate(name)`, declared in a module like any other.
 `SteamUiModuleRuntime` runs the two traffic directions between your modules and the client.
 
-Which patches are on when stays yours; that is application policy and every host's rules differ.
-`SteamUiPatchManager.SetGlobalEnabled` and `SetPatchEnabled` start synchronization immediately;
-their `Async` counterparts wait until retraction or reapplication has finished. Use the awaited
-forms when shutdown, a settings confirmation or an emergency kill switch must know cleanup is done.
+Which patches are on when stays yours, because that is application policy and every host's rules
+differ. `SteamUiPatchManager.SetGlobalEnabled` and `SetPatchEnabled` start synchronization
+immediately, and their `Async` counterparts wait until retraction or reapplication has finished. Use
+the awaited forms when shutdown, a settings confirmation or an emergency kill switch has to know
+cleanup is done.
 
 ## Status
 
-0.1.0, single-consumer, moving. Two different things are unstable:
+0.1.0, single consumer, moving. Two different things are unstable.
 
-- The API, because one application shaped it. The parts most likely to change are the ones that
-  consumer does not stress: the extension host has no second implementer, and the module contract
-  has never been built against by anyone who did not also write it.
-- What Steam does, which nothing here controls. Every fingerprint token, localization token and
-  store field is coupled to a Steam build, though far more loosely than a module id. The probe-first design makes a Steam update degrade to Valve's own
-  behaviour rather than break, but compatibility is verified against a running client, not promised
-  by a version number.
+**The API,** because one application shaped it. The parts most likely to change are the ones that
+consumer does not stress: the extension host has no second implementer, and nobody has built against
+the module contract who did not also write it.
+
+**What Steam does,** which nothing here controls. Every fingerprint token, localization token and
+store field is coupled to a Steam build, though far more loosely than a module id would be. The
+probe-first design makes a Steam update degrade to Valve's own behaviour rather than break, but
+compatibility is checked against a running client rather than promised by a version number.
 
 The second will not go away at 1.0. The first should.
 
-Extracted from [WSGM](https://github.com/KillerPixelCrew/WSGM), which reconstructs SteamOS Game Mode
-on Windows handhelds and is where all of this was found. Its `_plan/steam-ui-toolkit.md` records
-what has been done and what has not.
+Extracted from [WSGM](https://github.com/KillerPixelCrew/WSGM), which rebuilds SteamOS Game Mode on
+Windows handhelds and is where all of this was found. Its `_plan/steam-ui-toolkit.md` records what
+has been done and what has not.
 
 ## Licence
 
-MIT. See `LICENSE`.
-
-Power-limit consumers can publish Unified and CanSelectMode and implement SetUnifiedModeAsync.
-Unified mode renders one TDP slider with both limit readbacks; its toggle saves policy only.
+MIT, see `LICENSE`.
