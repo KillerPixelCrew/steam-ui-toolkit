@@ -191,7 +191,14 @@
       listeners.add(listener);
       return () => listeners.delete(listener);
     };
-    const uniqueFactory = (requiredTokens) => runtime.findUnique(requiredTokens);
+    // Every row command carries a fresh action generation, so its echo can be matched to the write.
+    const sendCommand = (definition, command, payload) =>
+      request(definition.patchId, command, payload, nextActionGeneration(definition.patchId));
+    // A controlled switch's change: a boolean that differs from what the device reports is sent.
+    const toggleCommand = (definition, state) => (enabled) => {
+      if (typeof enabled !== "boolean" || enabled === state.enabled) return;
+      void sendCommand(definition, definition.command, { enabled }).catch(() => {});
+    };
     const uniqueFunction = (exports, requiredTokens) => {
       const matches = Object.values(exports).filter(
         (value) =>
@@ -215,23 +222,10 @@
       return matches.length === 1 ? matches[0] : null;
     };
     const createControlRuntime = () => {
-      const reactFactory = uniqueFactory([
-        "react.transitional.element",
-        "useState",
-        "cloneElement",
-        "createElement",
-      ]);
-      const fieldsFactory = uniqueFactory([
-        "DialogSlider_Container",
-        "DropDownField",
-        "SliderField",
-      ]);
-      const layoutFactory = uniqueFactory(["PanelSectionTitle", "PanelSectionRow", "spinner"]);
-      const localizationFactory = uniqueFactory([
-        "Attempting to localize token",
-        "Unable to find localization token",
-        "LocalizeString",
-      ]);
+      const reactFactory = runtime.findUnique(ReactTokens);
+      const fieldsFactory = runtime.findUnique(FieldTokens);
+      const layoutFactory = runtime.findUnique(["PanelSectionTitle", "PanelSectionRow", "spinner"]);
+      const localizationFactory = runtime.findUnique(LocalizationTokens);
       if (!reactFactory || !fieldsFactory || !layoutFactory || !localizationFactory) return null;
 
       const react = runtime(reactFactory[0]);
@@ -244,11 +238,7 @@
         "valueSuffix",
         "explainerTitle",
       ]);
-      const dropdown = uniqueFunction(fields, [
-        "contextMenuPositionOptions",
-        "childrenContainerWidth",
-        "menuLabel",
-      ]);
+      const dropdown = uniqueFunction(fields, DropdownMarkers);
       // Steam's own ToggleField, from the same module as the slider and dropdown above. Selected by
       // the two markers of its class body rather than by its export name, which is minified and
       // changes with every client build. Live-verified 2026-08-29: exactly one export matches, and
@@ -259,7 +249,7 @@
       // look like. Without it that line was a bare div with none of Steam's type, spacing or
       // separator, which is exactly how it read. `#Field_MoreInfo_Action` occurs once in the whole
       // client bundle, so the module is unambiguous, and only this export draws LabelFieldValue.
-      const labelFieldFactory = uniqueFactory([
+      const labelFieldFactory = runtime.findUnique([
         "#Field_MoreInfo_Action",
         "spacingBetweenLabelAndChild",
       ]);
@@ -274,22 +264,10 @@
         layout,
         (value) => value.$$typeof && typeof value.render === "function",
       );
-      // Valve's localize-with-fallback: it passes the token alone to LocalizeString and returns the
-      // token when no string exists. Chosen by that shape, not by parameter names — the tokens
-      // "LocalizeString(e)" and "void 0===r?e" held until the September 2026 beta's minifier renamed
-      // the parameters and flipped the comparison, and every Quick Access row then refused with
-      // "React, fields, layout or localization runtime was not a unique match". Its siblings differ
-      // in what they do: the quiet variant passes !0, the presence test compares with null, and the
-      // formatting variant builds elements.
-      const localize = uniqueFunctionWhere(
-        localization,
-        (source) =>
-          source.includes(".LocalizeString(") &&
-          source.includes("void 0") &&
-          !source.includes("!0)") &&
-          !source.includes("!=null") &&
-          !source.includes("createElement"),
-      );
+      // Valve's localize-with-fallback, by its shape (isLocalizer). When the minifier broke the older
+      // name-based match, every Quick Access row refused with "React, fields, layout or localization
+      // runtime was not a unique match".
+      const localize = uniqueFunctionWhere(localization, isLocalizer);
       if (!slider || !dropdown || !section || !row || !localize) return null;
       // The toggle and the label field are deliberately not in that guard. They arrived after the
       // other four, so a client where either cannot be found still gets every control that does not
@@ -765,15 +743,7 @@
           // leaves it where the hardware actually is rather than where it was clicked.
           controlled: true,
           disabled: isBusy(state.progress),
-          onChange: (enabled) => {
-            if (typeof enabled !== "boolean" || enabled === state.enabled) return;
-            void request(
-              definition.patchId,
-              definition.command,
-              { enabled },
-              nextActionGeneration(definition.patchId),
-            ).catch(() => {});
-          },
+          onChange: toggleCommand(definition, state),
         });
       };
     const createAutoTdpControl = (controlRuntime) =>
@@ -787,15 +757,6 @@
         if (!controlRuntime.toggle) return note("autoTdp", "Steam ToggleField was not resolved");
         drew("autoTdp");
         const definition = definitions.autoTdp;
-        const setEnabled = (enabled) => {
-          if (typeof enabled !== "boolean" || enabled === state.enabled) return;
-          void request(
-            definition.patchId,
-            definition.command,
-            { enabled },
-            nextActionGeneration(definition.patchId),
-          ).catch(() => {});
-        };
         // While controlling, the watts AutoTDP settled on go in the description: a user watching the
         // slider move needs to see that something is driving it, and what it decided.
         const description =
@@ -813,7 +774,7 @@
           // change that did not happen.
           controlled: true,
           disabled: isBusy(state.progress),
-          onChange: setEnabled,
+          onChange: toggleCommand(definition, state),
         });
       };
     const normalizePowerProfileState = (value) => {
@@ -831,67 +792,46 @@
       return { available: value.available, options,
         current: normalizeText(value.current), statusText: normalizeText(value.statusText) };
     };
+    // The Windows power profile and processor core rows: one dropdown over the same state shape,
+    // differing in kind, label and glyph. No options is nothing to choose, so the reason goes to
+    // renderOutcomes rather than onto an empty, disabled dropdown. The component keeps the name it
+    // is created under, and the glyph is built by the caller so each row's `icon("…")` stays a literal
+    // the glyph ownership check can read.
+    const createChoiceControl = (controlRuntime, kind, label, name, icon) =>
+      ({
+        [name]: function () {
+          const state = useSemanticState(controlRuntime, kind, normalizePowerProfileState);
+          const [pending, setPending] = controlRuntime.react.useState(false);
+          if (!state) return note(kind, "no state");
+          if (!state.options.length) return note(kind, "no options: " + (state.statusText || "no reason"));
+          const options = state.options.map(option => ({ data: option.id, label: option.label }));
+          const definition = definitions[kind];
+          drew(kind);
+          return controlRuntime.react.createElement(controlRuntime.dropdown, {
+            label,
+            icon: icon(),
+            rgOptions: options,
+            selectedOption: options.some(option => option.data === state.current) ? state.current : undefined,
+            disabled: pending || !state.available || options.length < 2,
+            description: state.statusText || undefined,
+            layout: "below",
+            onChange: (option) => {
+              if (pending || !state.available || !option || option.data === state.current
+                  || !options.some(candidate => candidate.data === option.data)) return;
+              setPending(true);
+              void sendCommand(definition, definition.command, { target: option.data })
+                .catch(() => {}).finally(() => setPending(false));
+            },
+          });
+        },
+      })[name];
     const createPowerProfileControl = (controlRuntime) =>
-      function SteamUiPowerProfileControl() {
-        const kind = "powerProfile";
-        const state = useSemanticState(controlRuntime, kind, normalizePowerProfileState);
-        const [pending, setPending] = controlRuntime.react.useState(false);
-        if (!state) return note(kind, "no state");
-        // No options is nothing to choose. The reason goes to renderOutcomes rather than onto an
-        // empty, disabled dropdown.
-        if (!state.options.length) return note(kind, "no options: " + (state.statusText || "no reason"));
-        const options = state.options.map(option => ({ data: option.id, label: option.label }));
-        const definition = definitions[kind];
-        drew(kind);
-        return controlRuntime.react.createElement(controlRuntime.dropdown, {
-          label: "Windows power profile",
-          icon: controlRuntime.icon("power"),
-          rgOptions: options,
-          selectedOption: options.some(option => option.data === state.current) ? state.current : undefined,
-          disabled: pending || !state.available || options.length < 2,
-          description: state.statusText || undefined,
-          layout: "below",
-          onChange: (option) => {
-            if (pending || !state.available || !option || option.data === state.current
-                || !options.some(candidate => candidate.data === option.data)) return;
-            setPending(true);
-            void request(definition.patchId, definition.command, { target: option.data },
-              nextActionGeneration(definition.patchId)).catch(() => {}).finally(() => setPending(false));
-          },
-        });
-      };
-    // The same dropdown as the row above, published from the same state shape. It is written out
-    // rather than shared with it because each control's glyph is read from the literal at its own
-    // icon() call: a factory taking the name as an argument makes both rows invisible to the
-    // ownership check that proves every glyph is placed exactly once.
+      createChoiceControl(controlRuntime, "powerProfile", "Windows power profile",
+        "SteamUiPowerProfileControl", () => controlRuntime.icon("power"));
+    // A processor with one kind of core publishes no options, and has nothing to show here.
     const createHybridCoreControl = (controlRuntime) =>
-      function SteamUiHybridCoreControl() {
-        const kind = "hybridCores";
-        const state = useSemanticState(controlRuntime, kind, normalizePowerProfileState);
-        const [pending, setPending] = controlRuntime.react.useState(false);
-        if (!state) return note(kind, "no state");
-        // A processor with one kind of core publishes no options, and has nothing to show here.
-        if (!state.options.length) return note(kind, "no options: " + (state.statusText || "no reason"));
-        const options = state.options.map(option => ({ data: option.id, label: option.label }));
-        const definition = definitions[kind];
-        drew(kind);
-        return controlRuntime.react.createElement(controlRuntime.dropdown, {
-          label: "Processor cores",
-          icon: controlRuntime.icon("cores"),
-          rgOptions: options,
-          selectedOption: options.some(option => option.data === state.current) ? state.current : undefined,
-          disabled: pending || !state.available || options.length < 2,
-          description: state.statusText || undefined,
-          layout: "below",
-          onChange: (option) => {
-            if (pending || !state.available || !option || option.data === state.current
-                || !options.some(candidate => candidate.data === option.data)) return;
-            setPending(true);
-            void request(definition.patchId, definition.command, { target: option.data },
-              nextActionGeneration(definition.patchId)).catch(() => {}).finally(() => setPending(false));
-          },
-        });
-      };
+      createChoiceControl(controlRuntime, "hybridCores", "Processor cores",
+        "SteamUiHybridCoreControl", () => controlRuntime.icon("cores"));
     const normalizePowerPresetState = (value) => {
       const state = normalizePowerProfileState(value);
       if (!state || typeof value.ac !== "string" || typeof value.battery !== "string") return null;
@@ -917,7 +857,7 @@
           onChange: option => {
             if (pending || !state.available || !option || option.data === "custom" || !options.some(item => item.data === option.data)) return;
             setPending(true);
-            void request(definition.patchId, command, { target: option.data || null }, nextActionGeneration(definition.patchId))
+            void sendCommand(definition, command, { target: option.data || null })
               .catch(() => {}).finally(() => setPending(false));
           },
         });
@@ -969,12 +909,7 @@
         const definition = definitions.controllerTarget;
         const setTarget = (option) => {
           if (!option || !options.some((candidate) => candidate.data === option.data)) return;
-          void request(
-            definition.patchId,
-            definition.command,
-            { target: option.data },
-            nextActionGeneration(definition.patchId),
-          ).catch(() => {});
+          void sendCommand(definition, definition.command, { target: option.data }).catch(() => {});
         };
         const restart = state.applicationRestartRequired
           ? " Restart the application to rebind."
@@ -1012,12 +947,7 @@
           if (!option || !state.options.includes(option.data)) return;
           // "target" rather than "value": that is the payload shape every dropdown here uses, and
           // the host's reader rejects an object carrying anything else.
-          void request(
-            definition.patchId,
-            definition.command,
-            { target: option.data },
-            nextActionGeneration(definition.patchId),
-          ).catch(() => {});
+          void sendCommand(definition, definition.command, { target: option.data }).catch(() => {});
         };
         return controlRuntime.react.createElement(controlRuntime.dropdown, {
           // Not localized, deliberately. The client has no token meaning "display resolution":
@@ -1065,12 +995,9 @@
         drew("frameLimit");
         const definition = definitions.frameLimit;
         const send = (command, nextValue) =>
-          void request(
-            definition.patchId,
-            command,
-            { value: nextValue, persistence: "automatic" },
-            nextActionGeneration(definition.patchId),
-          ).catch(() => {});
+          void sendCommand(definition, command, { value: nextValue, persistence: "automatic" }).catch(
+            () => {},
+          );
         const setCap = (nextValue) => {
           if (
             !Number.isInteger(nextValue) ||
@@ -1285,7 +1212,7 @@
               pending.current = true;
               setSending(true);
               setError("");
-              void request(definition.patchId, definition.modeCommand, { unified }, nextActionGeneration(definition.patchId))
+              void sendCommand(definition, definition.modeCommand, { unified })
                 .catch((reason) => setError(normalizeText(String(reason))))
                 .finally(() => { pending.current = false; setSending(false); });
             },
@@ -1311,12 +1238,7 @@
             pending.current = true;
             setSending(true);
             setError("");
-            void request(
-              definition.patchId,
-              command,
-              { watts },
-              nextActionGeneration(definition.patchId),
-            )
+            void sendCommand(definition, command, { watts })
               .catch((reason) => setError(normalizeText(String(reason))))
               .finally(() => {
                 pending.current = false;
@@ -1362,12 +1284,7 @@
         );
         const definition = definitions.deviceControls;
         const send = (command, payload) =>
-          void request(
-            definition.patchId,
-            command,
-            payload,
-            nextActionGeneration(definition.patchId),
-          ).catch(() => {});
+          void sendCommand(definition, command, payload).catch(() => {});
         const queueColorCommit = useTrailingCommit(controlRuntime, 350, ({ zone, color }) =>
           send(definition.colorCommand, { zone, color }),
         );
@@ -1599,6 +1516,9 @@
       "#QuickAccess_Tab_Perf_FPS_Contrast",
     ];
     let filteredNative: { inner: unknown; component: unknown } | null = null;
+    // Localized once the runtime answers for at least one token. An empty answer is asked again on
+    // the next render, because the localization table can arrive after the panel first draws.
+    let nativeFpsLabels: { runtime: unknown; labels: string[] } | null = null;
     let lastHidden = 0;
 
     // Wrappers that carry the filter into a component's own render output, cached against the
@@ -1624,38 +1544,18 @@
         return null;
       }
 
-      const type: any = element.type;
-      if (typeof type === "function" && !type.prototype?.isReactComponent) {
-        // A plain function component: render it through a wrapper so its output is filtered too.
-        // Class components, memo and forwardRef objects are left alone — they cannot be called
-        // directly, and wrapping them would change identity for refs.
-        let wrapper = descendCache.get(type);
-        if (!wrapper) {
-          wrapper = function SteamUiDescend(props) {
+      // A plain function component renders through a wrapper so its output is filtered too; any
+      // other element is filtered through its children, dropping the rows that matched.
+      return (
+        descendInto(controlRuntime.react, element, descendCache, (type) =>
+          function SteamUiDescend(props) {
             return hideNativeRows(controlRuntime, type(props), labels, 0);
-          };
-          descendCache.set(type, wrapper);
-        }
-
-        // The key rides along explicitly: it lives on the element, not in props, and dropping it
-        // would re-key this node inside its parent's child list on every render.
-        return controlRuntime.react.createElement(
-          wrapper,
-          element.key === null ? element.props : { ...element.props, key: element.key },
-        );
-      }
-
-      const kids = controlRuntime.react.Children.toArray(element.props?.children);
-      if (!kids.length) return element;
-      let changed = false;
-      const next: unknown[] = [];
-      for (const kid of kids) {
-        const replacement = hideNativeRows(controlRuntime, kid, labels, depth + 1);
-        changed ||= replacement !== kid;
-        if (replacement !== null) next.push(replacement);
-      }
-
-      return changed ? controlRuntime.react.cloneElement(element, {}, ...next) : element;
+          },
+        ) ??
+        mapChildren(controlRuntime.react, element, (kid) =>
+          hideNativeRows(controlRuntime, kid, labels, depth + 1),
+        )
+      );
     };
 
     /// Wraps Steam's performance root so its OUTPUT can be filtered.
@@ -1667,10 +1567,14 @@
     const withNativeRowsHidden = (controlRuntime, tree) => {
       const inner: any = tree && tree.type;
       if (typeof inner !== "function") return tree;
-      const labels = NativeFpsTokens.map((token) => textOf(controlRuntime.localize(token))).filter(
-        (text) => typeof text === "string" && text.length > 0 && text[0] !== "#",
-      );
-      if (!labels.length) return tree;
+      if (nativeFpsLabels?.runtime !== controlRuntime) {
+        const localized = NativeFpsTokens.map((token) => textOf(controlRuntime.localize(token))).filter(
+          (text) => typeof text === "string" && text.length > 0 && text[0] !== "#",
+        );
+        if (!localized.length) return tree;
+        nativeFpsLabels = { runtime: controlRuntime, labels: localized };
+      }
+      const labels = nativeFpsLabels!.labels;
       if (!filteredNative || filteredNative.inner !== inner) {
         filteredNative = {
           inner,
@@ -1756,10 +1660,33 @@
     // section a direct flex item of Valve's panel, as it was before it had a wrapper.
     const SectionShown = Object.freeze({ display: "contents" });
     const SectionHidden = Object.freeze({ display: "none" });
+    // The section each kind is drawn under; anything unlisted is a Display row.
+    const RowGroups = Object.freeze({
+      valveProfileHeader: "Profile scope", powerPreset: "Power profiles", powerProfile: "Power profiles",
+      hybridCores: "Power profiles",
+      valveOverlayLevel: "Display and frame rate", frameLimit: "Display and frame rate", vrr: "Display and frame rate",
+      powerLimit: "Power limits", autoTdp: "Power limits", controllerTarget: "Controller", valveReset: "Reset",
+    });
     const hostSection = (controlRuntime, key, title, shown, rows) =>
       controlRuntime.react.createElement("div", { key, style: shown ? SectionShown : SectionHidden },
         controlRuntime.react.createElement(controlRuntime.section,
           { title: sectionTitle(controlRuntime, title) }, ...rows));
+
+    // Built once the controls resolve, rather than on every render of the panel.
+    let controlRows: any[][] = [];
+
+    // Shape of what Steam's performance root returned, so the rows it renders can be identified
+    // without guessing. Needed to suppress Steam's own FPS counter rows in favour of the host's
+    // RTSS overlay: their DOM classes are hashed per client build and unusable as selectors.
+    const describe = (controlRuntime, element, depth) => {
+      if (!controlRuntime.react.isValidElement(element)) return typeof element;
+      const t: any = element.type;
+      const name = typeof t === "string" ? t : t?.displayName || t?.name || "anonymous";
+      const kids = controlRuntime.react.Children.toArray(element.props?.children);
+      return depth >= 2 || !kids.length
+        ? name
+        : { [name]: kids.map((k) => describe(controlRuntime, k, depth + 1)) };
+    };
 
     const appendControls = (controlRuntime, tree, placement = "perf") => {
       // Rendered React elements from Steam's own untyped runtime.
@@ -1767,51 +1694,7 @@
       const groups = new Map<string, unknown[]>();
       // Groups with at least one row that drew. Valve's components report nothing, so theirs count.
       const drawnGroups = new Set<string>();
-      const groupFor = (kind) => ({
-        valveProfileHeader: "Profile scope", powerPreset: "Power profiles", powerProfile: "Power profiles",
-        hybridCores: "Power profiles",
-        valveOverlayLevel: "Display and frame rate", frameLimit: "Display and frame rate", vrr: "Display and frame rate",
-        powerLimit: "Power limits", autoTdp: "Power limits", controllerTarget: "Controller", valveReset: "Reset",
-      }[kind] || "Display");
-      // Registration, component and placement share one table. The group order below determines
-      // section placement; this table determines the order of controls within each group.
-      const rows = [
-        [
-          "valveProfileHeader",
-          "steam-ui-valve-profile-header",
-          valveProfileHeaderControl,
-          "perf",
-        ],
-        [
-          "valveProfileHeader",
-          "steam-ui-valve-profile-toggle",
-          valveProfileToggleControl,
-          "perf",
-        ],
-        [
-          "valveOverlayLevel",
-          "steam-ui-valve-overlay-level",
-          valveOverlayLevelControl,
-          "perf",
-        ],
-        ["frameLimit", "steam-ui-frame-limit", frameLimitControl, "perf"],
-        ["powerProfile", "steam-ui-power-profile", powerProfileControl, "perf"],
-        ["hybridCores", "steam-ui-hybrid-cores", hybridCoreControl, "perf"],
-        ["powerPreset", "steam-ui-power-preset", powerPresetControl, "perf"],
-        ["vrr", "steam-ui-vrr", vrrControl, "perf"],
-        ["powerLimit", "steam-ui-power-limits", powerLimitControl, "perf"],
-        ["autoTdp", "steam-ui-auto-tdp", autoTdpControl, "perf"],
-        ["resolution", "steam-ui-resolution", resolutionControl, "quickSettings"],
-        [
-          "valveRefreshRate",
-          "steam-ui-valve-refresh-rate",
-          valveRefreshRateControl,
-          "quickSettings",
-        ],
-        ["controllerTarget", "steam-ui-controller-target", controllerControl, "perf"],
-        ["valveReset", "steam-ui-valve-reset", valveResetControl, "perf"],
-      ];
-      for (const [kind, key, component, rowPlacement] of rows) {
+      for (const [kind, key, component, rowPlacement] of controlRows) {
         if (rowPlacement !== placement || !registrations.has(kind) || !component) continue;
         const element = controlRuntime.react.createElement(
           controlRuntime.row,
@@ -1819,7 +1702,7 @@
           controlRuntime.react.createElement(component),
         );
         controls.push(element);
-        const group = groupFor(kind);
+        const group = RowGroups[kind] || "Display";
         if (!groups.has(group)) groups.set(group, []);
         groups.get(group)!.push(element);
         if (kind.startsWith("valve") || drawnKinds.has(kind)) drawnGroups.add(group);
@@ -1886,26 +1769,18 @@
           .filter(title => groups.has(title))
           .map(title => hostSection(controlRuntime, title, title, drawnGroups.has(title), groups.get(title)!)));
 
-      // Shape of what Steam's performance root returned, so the rows it renders can be identified
-      // without guessing. Needed to suppress Steam's own FPS counter rows in favour of the host's
-      // RTSS overlay: their DOM classes are hashed per client build and unusable as selectors.
-      const describe = (element, depth) => {
-        if (!controlRuntime.react.isValidElement(element)) return typeof element;
-        const t: any = element.type;
-        const name = typeof t === "string" ? t : t?.displayName || t?.name || "anonymous";
-        const kids = controlRuntime.react.Children.toArray(element.props?.children);
-        return depth >= 2 || !kids.length
-          ? name
-          : { [name]: kids.map((k) => describe(k, depth + 1)) };
-      };
       // Steam's FPS rows are suppressed only on this path, which runs when the host has rows of its own
       // to put in their place. Hiding them and then rendering nothing would leave the user neither.
       const native = withNativeRowsHidden(controlRuntime, tree);
+      // Described when status asks rather than on every render of the panel.
+      let description: string | undefined;
       appendDiagnostics.perf = {
         controls: controls.length,
         inserted: true,
         ownSection: true,
-        tree: JSON.stringify(describe(tree, 0)).slice(0, 600),
+        get tree() {
+          return (description ??= JSON.stringify(describe(controlRuntime, tree, 0)).slice(0, 600));
+        },
         nativeFiltered: native !== tree,
       };
       return controlRuntime.react.createElement(controlRuntime.react.Fragment, null, native, own);
@@ -1913,7 +1788,7 @@
     // Resolve every dependency before changing React or registering a component.
     const resolveControls = () => {
       runtime = getWebpackRuntime("native-components");
-      const performanceFactory = uniqueFactory([
+      const performanceFactory = runtime.findUnique([
         "#QuickAccess_Tab_Perf_Common_Settings",
         "#QuickAccess_Tab_Perf_BatteryTimeRemaining",
         "TS.ON_FRAME",
@@ -1946,7 +1821,7 @@
       // Selected by the localization token it draws, never by a minified export name: the names are
       // right for today's build and are not guaranteed for the next. Live-probed 2026-08-30 that
       // this token matches exactly one export of the components module.
-      const perfComponents = uniqueFactory([
+      const perfComponents = runtime.findUnique([
         "#QuickAccess_Tab_Perf_EnableVRR",
         "#QuickAccess_Tab_Perf_LimitFrameRate",
       ]);
@@ -1972,6 +1847,45 @@
       valveOverlayLevelControl = valveOverlayLevel
         ? withIcon(controlRuntime, valveOverlayLevel, controlRuntime.icon("layers"))
         : null;
+
+      // Registration, component and placement share one table. The group order below determines
+      // section placement; this table determines the order of controls within each group.
+      controlRows = [
+        [
+          "valveProfileHeader",
+          "steam-ui-valve-profile-header",
+          valveProfileHeaderControl,
+          "perf",
+        ],
+        [
+          "valveProfileHeader",
+          "steam-ui-valve-profile-toggle",
+          valveProfileToggleControl,
+          "perf",
+        ],
+        [
+          "valveOverlayLevel",
+          "steam-ui-valve-overlay-level",
+          valveOverlayLevelControl,
+          "perf",
+        ],
+        ["frameLimit", "steam-ui-frame-limit", frameLimitControl, "perf"],
+        ["powerProfile", "steam-ui-power-profile", powerProfileControl, "perf"],
+        ["hybridCores", "steam-ui-hybrid-cores", hybridCoreControl, "perf"],
+        ["powerPreset", "steam-ui-power-preset", powerPresetControl, "perf"],
+        ["vrr", "steam-ui-vrr", vrrControl, "perf"],
+        ["powerLimit", "steam-ui-power-limits", powerLimitControl, "perf"],
+        ["autoTdp", "steam-ui-auto-tdp", autoTdpControl, "perf"],
+        ["resolution", "steam-ui-resolution", resolutionControl, "quickSettings"],
+        [
+          "valveRefreshRate",
+          "steam-ui-valve-refresh-rate",
+          valveRefreshRateControl,
+          "quickSettings",
+        ],
+        ["controllerTarget", "steam-ui-controller-target", controllerControl, "perf"],
+        ["valveReset", "steam-ui-valve-reset", valveResetControl, "perf"],
+      ];
 
       return true;
     };
@@ -2042,7 +1956,10 @@
       ];
       // The tab array passes through the one useMemo claim every surface shares (ownership.ts).
       const transformTabs = (value) => {
-        if (!Array.isArray(value)) return value;
+        // Every useMemo result in the client passes through here. A tab list holds tab objects, so an
+        // empty array, or one that starts with a string or number, is answered before any filtering.
+        if (!Array.isArray(value) || !value.length) return value;
+        if (typeof value[0] === "string" || typeof value[0] === "number") return value;
         let result = value;
         for (const wrapper of wrappers) {
           const matches = result.filter(
