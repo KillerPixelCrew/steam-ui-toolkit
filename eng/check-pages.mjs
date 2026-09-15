@@ -6,35 +6,17 @@
 // behave differently under a first-match switch), that pages are built with Steam's own Route, and
 // that removal hands the router back untouched.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import {
+  createReact,
+  element,
+  gateSource,
+  instantiate,
+  loadAsset,
+  sharedFragments,
+} from "./check-harness.mjs";
 
-const asset = readFileSync(process.argv[2] ?? "dist/prelude.js", "utf8");
-const start = asset.indexOf("function createPageHost()");
-assert.ok(start >= 0, "the emitted asset must contain the page gate");
-const end = asset.indexOf('registerGate("pages"', start);
-assert.ok(end > start, "the page gate must register itself");
-
-const ElementMarker = Symbol("element");
-const element = (type, props, key = null) => ({ [ElementMarker]: true, type, props: props ?? {}, key });
-const react = {
-  createElement(type, props, ...children) {
-    const { key = null, ...rest } = props ?? {};
-    return element(type, children.length ? { ...rest, children } : rest, key);
-  },
-  cloneElement: (source, props, ...children) =>
-    element(
-      source.type,
-      children.length ? { ...source.props, ...props, children } : { ...source.props, ...props },
-      source.key,
-    ),
-  isValidElement: (value) => !!value && typeof value === "object" && value[ElementMarker] === true,
-  Children: {
-    toArray: (children) =>
-      (Array.isArray(children) ? children : children === undefined ? [] : [children]).filter(
-        (child) => child !== null && child !== undefined && child !== false,
-      ),
-  },
-};
+const asset = loadAsset();
+const react = createReact();
 
 // Steam's back-stack Route, matched by the fingerprint the gate uses.
 const SteamRoute = function () {
@@ -92,19 +74,6 @@ const globals = {
   },
   createIconRenderer: () => () => null,
   request: () => Promise.resolve(),
-  claimMember: (host, member, keys, replacement) => {
-    const original = host[member];
-    const next = replacement(original);
-    Object.defineProperty(next, keys.marker, { value: true });
-    Object.defineProperty(next, keys.original, { value: original });
-    host[member] = next;
-    return { ok: true, reclaimed: false };
-  },
-  releaseMember: (host, member, keys) => {
-    if (host[member]?.[keys.marker]) host[member] = host[member][keys.original];
-    return { ok: true };
-  },
-  memberClaimed: (host, member, keys) => host?.[member]?.[keys.marker] === true,
   subscribe: (patchId, listener) => {
     globals.publish = listener;
     return () => {
@@ -114,10 +83,11 @@ const globals = {
   publish: null,
 };
 
-const gate = new Function(
-  ...Object.keys(globals),
-  asset.slice(start, end) + "\nreturn createPageHost();",
-)(...Object.values(globals));
+const gate = instantiate(
+  globals,
+  `${sharedFragments(asset)}\n${gateSource(asset, "createPageHost", "pages")}`,
+  "createPageHost()",
+);
 
 // Resolves a location through the claimed router the way React would, stopping at the Route the
 // switch selected — a Route renders its own page content, which is not what is being asserted here.

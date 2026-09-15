@@ -8,46 +8,26 @@
 // games are greyed, that the list is not rebuilt when nothing changed, and that removal hands Home
 // back.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import {
+  createReact,
+  element,
+  find as findIn,
+  gateSource,
+  instantiate,
+  loadAsset,
+  named,
+  sharedFragments,
+  withSource,
+} from "./check-harness.mjs";
 
-const asset = readFileSync(process.argv[2] ?? "dist/prelude.js", "utf8");
-const start = asset.indexOf("function createHomeCarousel()");
-assert.ok(start >= 0, "the emitted asset must contain the home carousel gate");
-const end = asset.indexOf('registerGate("homeCarousel"', start);
-assert.ok(end > start, "the home carousel gate must register itself");
-
-const ElementMarker = Symbol("element");
-const MemoType = Symbol.for("react.memo");
-const element = (type, props, key = null) => ({ [ElementMarker]: true, type, props: props ?? {}, key });
+const asset = loadAsset();
 const subscriptions = [];
-const react = {
-  createElement(type, props, ...children) {
-    const { key = null, ...rest } = props ?? {};
-    return element(type, children.length ? { ...rest, children } : rest, key);
-  },
-  cloneElement: (source, props, ...children) =>
-    element(
-      source.type,
-      children.length ? { ...source.props, ...props, children } : { ...source.props, ...props },
-      source.key,
-    ),
-  isValidElement: (value) => !!value && typeof value === "object" && value[ElementMarker] === true,
-  Children: {
-    toArray: (children) =>
-      (Array.isArray(children) ? children : children === undefined ? [] : [children]).filter(
-        (child) => child !== null && child !== undefined && child !== false,
-      ),
-  },
-  memo: (type, compare) => ({ $$typeof: MemoType, type, compare: compare ?? null }),
+const react = createReact({
   useSyncExternalStore: (subscribe, snapshot) => {
     subscriptions.push(subscribe);
     return snapshot();
   },
-};
-const withSource = (fn, source) => {
-  Object.defineProperty(fn, "toString", { value: () => source });
-  return fn;
-};
+});
 
 // Steam's data. Timestamps are small numbers; only their order matters.
 const overviews = new Map();
@@ -186,19 +166,6 @@ const globals = {
     requests.push({ command, payload });
     return Promise.resolve();
   },
-  claimMember: (host, member, keys, replacement) => {
-    const original = host[member];
-    const next = replacement(original);
-    Object.defineProperty(next, keys.marker, { value: true });
-    Object.defineProperty(next, keys.original, { value: original });
-    host[member] = next;
-    return { ok: true, reclaimed: false };
-  },
-  releaseMember: (host, member, keys) => {
-    if (host[member]?.[keys.marker]) host[member] = host[member][keys.original];
-    return { ok: true };
-  },
-  memberClaimed: (host, member, keys) => host?.[member]?.[keys.marker] === true,
   subscribe: (patchId, listener) => {
     globals.publish = listener;
     return () => {
@@ -208,20 +175,13 @@ const globals = {
   publish: null,
 };
 
-const gate = new Function(
-  ...Object.keys(globals),
-  asset.slice(start, end) + "\nreturn createHomeCarousel();",
-)(...Object.values(globals));
+const gate = instantiate(
+  globals,
+  `${sharedFragments(asset)}\n${gateSource(asset, "createHomeCarousel", "homeCarousel")}`,
+  "createHomeCarousel()",
+);
 
-const find = (node, predicate, found = []) => {
-  if (!react.isValidElement(node)) return found;
-  if (predicate(node)) found.push(node);
-  react.Children.toArray(node.props?.children).forEach((child) => find(child, predicate, found));
-  return found;
-};
-const named = (name) => (node) =>
-  (typeof node.type === "function" && node.type.name === name) ||
-  (node.type?.$$typeof === MemoType && node.type.type?.name === name);
+const find = (node, predicate) => findIn(react, node, predicate);
 
 // Renders Home through its (claimed) memo, then the carousel it holds, then the box carousel.
 const renderCarousel = () => {

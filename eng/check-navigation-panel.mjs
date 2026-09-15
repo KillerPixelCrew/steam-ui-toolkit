@@ -5,38 +5,20 @@
 // not the TypeScript source, so it proves the shipped bytes descend to the panel root, place
 // entries against Valve's anchors, hide by route and by key, and hand the panel back on removal.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import {
+  createReact,
+  element,
+  gateSource,
+  instantiate,
+  loadAsset,
+  sharedFragments,
+} from "./check-harness.mjs";
 
-const asset = readFileSync(process.argv[2] ?? "dist/prelude.js", "utf8");
-const start = asset.indexOf("function createNavigationPanel()");
-assert.ok(start >= 0, "the emitted asset must contain the navigation gate");
-const end = asset.indexOf('registerGate("navigationPanel"', start);
-assert.ok(end > start, "the navigation gate must register itself");
+const asset = loadAsset();
 
-// A React stand-in with exactly the four APIs the gate uses. Elements are plain objects, so a
-// "render" here is a call and nothing more; nothing in the gate needs a reconciler.
-const ElementMarker = Symbol("element");
-const element = (type, props, key = null) => ({
-  [ElementMarker]: true,
-  type,
-  props: props ?? {},
-  key,
-});
-const react = {
-  createElement(type, props, ...children) {
-    const { key = null, ...rest } = props ?? {};
-    return element(type, children.length ? { ...rest, children } : rest, key);
-  },
-  cloneElement: (source, props, ...children) =>
-    element(source.type, { ...source.props, ...props, children }, source.key),
-  isValidElement: (value) => !!value && typeof value === "object" && value[ElementMarker] === true,
-  Children: {
-    toArray: (children) =>
-      (Array.isArray(children) ? children : children === undefined ? [] : [children]).filter(
-        (child) => child !== null && child !== undefined && child !== false,
-      ),
-  },
-};
+// A React stand-in with the APIs the gate uses. A clone given no children gets an empty child list,
+// which is what this fixture was written against; nothing in the gate needs a reconciler.
+const react = createReact({ cloneReplacesChildren: true });
 
 // Valve's panel, reduced to the two facts the gate matches on: the root's source carries both
 // tokens, and its children are entry elements keyed by descriptor key and carrying a route.
@@ -66,8 +48,10 @@ Object.defineProperty(Outer, "toString", { value: () => 'function(){ "MainNavMen
 
 const requests = [];
 const globals = {
+  // The react module the gate resolves is the fixture above, so createElement, cloneElement and
+  // Children come from one place.
   getWebpackRuntime: () => {
-    const require = (id) => (id === "menu" ? exports : { createElement: react.createElement });
+    const require = (id) => (id === "menu" ? exports : react);
     require.findUnique = (tokens) =>
       tokens.includes("MainNavMenuContainer") ? ["menu"] : ["react"];
     return require;
@@ -77,19 +61,6 @@ const globals = {
     requests.push(`${command} ${payload.id}`);
     return Promise.resolve();
   },
-  claimMember: (host, member, keys, replacement) => {
-    const original = host[member];
-    const next = replacement(original);
-    Object.defineProperty(next, keys.marker, { value: true });
-    Object.defineProperty(next, keys.original, { value: original });
-    host[member] = next;
-    return { ok: true, reclaimed: false };
-  },
-  releaseMember: (host, member, keys) => {
-    if (host[member]?.[keys.marker]) host[member] = host[member][keys.original];
-    return { ok: true };
-  },
-  memberClaimed: (host, member, keys) => host?.[member]?.[keys.marker] === true,
   subscribe: (patchId, listener) => {
     globals.publish = listener;
     return () => {
@@ -98,18 +69,12 @@ const globals = {
   },
   publish: null,
 };
-// The react module the gate resolves is the fixture above, not the stub the resolver returns for
-// anything else, so createElement/cloneElement/Children come from one place.
-globals.getWebpackRuntime = () => {
-  const require = (id) => (id === "menu" ? exports : react);
-  require.findUnique = (tokens) => (tokens.includes("MainNavMenuContainer") ? ["menu"] : ["react"]);
-  return require;
-};
 
-const gate = new Function(
-  ...Object.keys(globals),
-  asset.slice(start, end) + "\nreturn createNavigationPanel();",
-)(...Object.values(globals));
+const gate = instantiate(
+  globals,
+  `${sharedFragments(asset)}\n${gateSource(asset, "createNavigationPanel", "navigationPanel")}`,
+  "createNavigationPanel()",
+);
 
 // Renders the claimed memo the way React would — call the type, then keep going into what it
 // returns — collecting each element's label on the way down. The label has to be read before the

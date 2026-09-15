@@ -8,46 +8,29 @@
 // disabled while it is pending, that a malformed publication is refused whole, that another surface
 // holding the same claim keeps it when this gate is removed, and that removal hands everything back.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import {
+  createReact,
+  element,
+  Fragment,
+  gateSource,
+  instantiate,
+  loadAsset,
+  named,
+  sharedFragments,
+  withSource,
+} from "./check-harness.mjs";
 
-const asset = readFileSync(process.argv[2] ?? "dist/prelude.js", "utf8");
-const start = asset.indexOf("function createScreensaverSettings()");
-assert.ok(start >= 0, "the emitted asset must contain the screensaver settings gate");
-const end = asset.indexOf('registerGate("screensaver"', start);
-assert.ok(end > start, "the screensaver settings gate must register itself");
-const ownershipStart = asset.indexOf("const defineHidden");
-const ownershipEnd = asset.indexOf("const transportReply", ownershipStart);
-assert.ok(ownershipStart >= 0 && ownershipEnd > ownershipStart, "the ownership primitives must be emitted");
-
-const ElementMarker = Symbol("element");
-const Fragment = Symbol.for("react.fragment");
-const element = (type, props, key = null) => ({ [ElementMarker]: true, type, props: props ?? {}, key });
-const withSource = (fn, source) => {
-  Object.defineProperty(fn, "toString", { value: () => source });
-  return fn;
-};
+const asset = loadAsset();
 
 let effects = [];
 function originalUseMemo(factory) {
   return factory();
 }
-const react = {
-  Fragment,
+const react = createReact({
   useMemo: originalUseMemo,
-  createElement(type, props, ...children) {
-    const { key = null, ...rest } = props ?? {};
-    return element(type, children.length ? { ...rest, children } : rest, key);
-  },
-  cloneElement: (source, props, ...children) =>
-    element(
-      source.type,
-      children.length ? { ...source.props, ...props, children } : { ...source.props, ...props },
-      source.key,
-    ),
-  isValidElement: (value) => !!value && typeof value === "object" && value[ElementMarker] === true,
   useSyncExternalStore: (_subscribe, snapshot) => snapshot(),
   useEffect: (effect) => effects.push(effect),
-};
+});
 const runEffects = () => effects.splice(0).forEach((effect) => effect());
 
 // Valve's modules, reduced to what the gate resolves on.
@@ -143,13 +126,12 @@ const globals = {
   publish: null,
 };
 
-const gate = new Function(
-  ...Object.keys(globals),
-  asset.slice(ownershipStart, ownershipEnd) +
-    "\n" +
-    asset.slice(start, end) +
-    "\nreturn { gate: createScreensaverSettings(), interceptMemo, releaseMemo };",
-)(...Object.values(globals));
+// The shared useMemo claim is the asset's own, so another surface on it is exercised for real.
+const gate = instantiate(
+  globals,
+  `${sharedFragments(asset)}\n${gateSource(asset, "createScreensaverSettings", "screensaver")}`,
+  "{ gate: createScreensaverSettings(), interceptMemo, releaseMemo }",
+);
 const { interceptMemo, releaseMemo } = gate;
 const screensaver = gate.gate;
 
@@ -158,7 +140,6 @@ const system = { visible: true, title: "System", route: "/settings/system", cont
 const pages = [system, customization];
 const pageList = () => react.useMemo(() => pages, []);
 
-const named = (name) => (node) => react.isValidElement(node) && typeof node.type === "function" && node.type.name === name;
 const renderPage = () => {
   const list = pageList();
   const content = list.find((item) => item.route === "/settings/customization").content;

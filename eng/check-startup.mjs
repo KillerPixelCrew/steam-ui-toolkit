@@ -1,15 +1,18 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
+import {
+  gateSource,
+  loadAsset,
+  readSource,
+  sharedFragments,
+  slice,
+  sliceToGate,
+} from "./check-harness.mjs";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const read = (path) => readFileSync(resolve(root, path), "utf8");
-const asset = readFileSync(process.argv[2] ?? resolve(root, "dist/prelude.js"), "utf8");
-const probeSource = read("src/SteamUiToolkit/Surfaces/SteamUiProbeJs.cs");
+const asset = loadAsset();
+const probeSource = readSource("src/SteamUiToolkit/Surfaces/SteamUiProbeJs.cs");
 const probeClose = probeSource.match(/Close = "([^"]*)";/u)[1];
-const resolver = read("src/SteamUiToolkit/SteamUiAssets/Source/module-resolver.ts");
+const resolver = readSource("src/SteamUiToolkit/SteamUiAssets/Source/module-resolver.ts");
 const preamble = probeSource
   .match(/=> \$\$"""\s*([\s\S]*?)\s*""";/u)[1]
   .replace("{{SteamUiModuleResolver.CreateExpression(chunkLabel)}}", `(${resolver})("test")`);
@@ -96,32 +99,23 @@ for (const source of [
 }
 
 // Exercise the complete emitted host, including failures after React has resolved.
-const hostStart = asset.indexOf("function createNativeComponentHost()");
-const hostEnd = asset.indexOf('registerGate("nativeComponents"', hostStart);
-assert.ok(hostStart >= 0 && hostEnd > hostStart);
+const host = gateSource(asset, "createNativeComponentHost", "nativeComponents");
 // The row glyphs, which the host builds a renderer from before it resolves anything else. Taken from
 // the asset rather than stubbed, so a fragment that stopped being emitted fails here instead of
 // silently leaving every row without an icon. It ends at the first hoisted `function create…` after
-// it, which is the next fragment in either composition — the toolkit's gates or a consumer's
-// resolver.
-const iconStart = asset.indexOf("const SteamUiIconShapes =");
-const iconRelativeEnd = iconStart < 0 ? -1 : asset.slice(iconStart).search(/\n[ \t]*function create/u);
-assert.ok(iconStart >= 0 && iconRelativeEnd > 0);
-const icons = asset.slice(iconStart, iconStart + iconRelativeEnd);
+// it, which is the module resolver in either composition.
+const icons = sliceToGate(asset, "const SteamUiIconShapes =");
 assert.match(icons, /const createIconRenderer =/u);
-// The ownership primitives, for the shared useMemo claim the host takes. They end where the RPC
-// helpers begin, which follow them in either composition.
-const ownershipStart = asset.indexOf("const defineHidden");
-const ownershipEnd = asset.indexOf("const transportReply", ownershipStart);
-assert.ok(ownershipStart >= 0 && ownershipEnd > ownershipStart);
-const ownership = asset.slice(ownershipStart, ownershipEnd);
+// The ownership primitives for the shared useMemo claim the host takes, and the gate helpers it
+// walks Steam's tree and resolves its fields with.
+const shared = sharedFragments(asset);
 const createHost = (window) =>
   runInNewContext(
     `${asset.slice(start, end)}
-     ${ownership}
+     ${shared}
      ${icons}
      const getWebpackRuntime = scope => createSteamUiModuleResolver(scope);
-     ${asset.slice(hostStart, hostEnd)}
+     ${host}
      createNativeComponentHost();`,
     { window },
     { timeout: 1000 },
@@ -200,7 +194,7 @@ for (const broken of ["react", "performance"]) {
   assert.equal(f.cache.react.exports.useMemo.name, "originalUseMemo");
 }
 
-const network = read("src/SteamUiToolkit/Surfaces/SteamNetworkSurface.cs")
+const network = readSource("src/SteamUiToolkit/Surfaces/SteamNetworkSurface.cs")
   .match(/probeExpression: \$\$"""\s*([\s\S]*?)\s*"""/u)[1]
   .replace("{{SteamUiProbeJs.Close}}", probeClose);
 const window = {
@@ -223,15 +217,21 @@ console.log(
 );
 
 // Exercise the shared bridge, so cached replay cannot interrupt any module's installation.
-const subscribeStart = asset.indexOf("const subscribe =");
-const subscribeEnd = asset.indexOf("const dispose =", subscribeStart);
-assert.ok(subscribeStart >= 0 && subscribeEnd > subscribeStart);
-const ids = ["steam-ui.power-limit", ...new Set([...asset.matchAll(/const patchId = "([^"]+)"/gu)].map(m => m[1]))];
+const subscription = slice(asset, "const subscribe =", "const dispose =");
+// Every identity the asset names: a gate's own patch id, a publication it reads under another
+// gate's id, and each row definition's patch id.
+const ids = [
+  ...new Set(
+    [...asset.matchAll(/(?:const (?:patchId|publicationId) = |\bpatchId: )"([^"]+)"/gu)].map(
+      (m) => m[1],
+    ),
+  ),
+];
 assert.ok(ids.includes("steam-ui.power-limit") && ids.length >= 6);
 const bridgeConfig = { version: 1, contextGeneration: 1, documentGeneration: 1,
   allowed: Object.fromEntries(ids.map(id => [id, []])) };
 const bridge = runInNewContext(
-  `${asset.slice(subscribeStart, subscribeEnd)} ({subscribe, deliver});`,
+  `${subscription} ({subscribe, deliver});`,
   { config: bridgeConfig, subscribers: new Map(), latestStates: new Map(), pending: new Map() },
   { timeout: 1000 },
 );

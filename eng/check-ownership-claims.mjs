@@ -11,33 +11,13 @@
 // Node built-ins only, so it runs in an offline release build with no node_modules.
 //
 //   node eng/check-ownership-claims.mjs [asset path]
-import { readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { loadAsset, sharedFragments } from "./check-harness.mjs";
 
-const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const assetPath =
-  process.argv[2] ??
-  join(repositoryRoot, "dist", "prelude.js");
-const asset = readFileSync(assetPath, "utf8");
-// From the first primitive to the first gate, or the end of the file when there is none. The
+// The primitives with the RPC replies and gate helpers that follow them, up to the row glyphs. The
 // upper bound matters when this is pointed at a consumer's composed asset rather than the prelude:
 // gates register themselves with a top-level call, and evaluating one here would fail on a
 // `registerGate` that only exists inside the real bridge.
-const start = asset.indexOf("const defineHidden");
-// The first gate, at whatever indentation the emitting step chose: the prelude comes out of tsc
-// as-is, a consumer's composed asset is run through Prettier, and the two indent it differently.
-const gate = start < 0 ? -1 : asset.slice(start).search(/\n[ \t]*function create/u);
-const end = gate < 0 ? asset.length : start + gate;
-if (start < 0) {
-  console.error(
-    "Could not locate the ownership primitives in the asset. They are expected from " +
-      "`const defineHidden` up to the first `function create…` gate; if the asset was " +
-      "reordered, update this check rather than deleting it.",
-  );
-  process.exit(1);
-}
-const primitives = asset.slice(start, end);
+const primitives = sharedFragments(loadAsset());
 
 const harness = `
 ${primitives}

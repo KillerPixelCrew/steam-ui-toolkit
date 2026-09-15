@@ -6,13 +6,9 @@
 // storage answers have the shape Steam's own hooks destructure, and removal puts Valve's method
 // back so nothing is left in the path.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { gateSource, instantiate, loadAsset, sharedFragments } from "./check-harness.mjs";
 
-const asset = readFileSync(process.argv[2] ?? "dist/prelude.js", "utf8");
-const start = asset.indexOf("function createStorageService()");
-assert.ok(start >= 0, "the emitted asset must contain the storage gate");
-const end = asset.indexOf('registerGate("storage"', start);
-assert.ok(end > start, "the storage gate must register itself");
+const asset = loadAsset();
 
 // Valve's transport: SendMsg lives on the prototype, as it does on the live client.
 const forwarded = [];
@@ -43,21 +39,6 @@ const globals = {
     requests.push({ command, payload });
     return Promise.resolve();
   },
-  claimMember: (host, member, keys, replacement) => {
-    const original = host[member];
-    const next = replacement(original);
-    Object.defineProperty(next, keys.marker, { value: true, configurable: true });
-    Object.defineProperty(next, keys.original, { value: original, configurable: true });
-    Object.defineProperty(host, member, { value: next, writable: true, configurable: true });
-    return { ok: true, reclaimed: false };
-  },
-  releaseMember: (host, member, keys) => {
-    if (Object.prototype.hasOwnProperty.call(host, member) && host[member]?.[keys.marker]) {
-      delete host[member];
-    }
-    return { ok: true };
-  },
-  memberClaimed: (host, member, keys) => host?.[member]?.[keys.marker] === true,
   subscribe: (patchId, listener) => {
     globals.publish = listener;
     return () => {
@@ -67,10 +48,13 @@ const globals = {
   publish: null,
 };
 
-const gate = new Function(
-  ...Object.keys(globals),
-  asset.slice(start, end) + "\nreturn createStorageService();",
-)(...Object.values(globals));
+// The gate claims SendMsg with the asset's own ownership primitives, so restoration below is the
+// shipped release rather than a stand-in's.
+const gate = instantiate(
+  globals,
+  `${sharedFragments(asset)}\n${gateSource(asset, "createStorageService", "storage")}`,
+  "createStorageService()",
+);
 
 assert.ok(!Object.prototype.hasOwnProperty.call(transport, "SendMsg"), "fixture must start unclaimed");
 
