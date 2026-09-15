@@ -20,20 +20,12 @@ function createNetworkGate() {
   let target: object | null = null;
   let lastError = "";
   let scanWrapped = false;
-  let originalStart: ((...args: unknown[]) => unknown) | null = null;
-  let originalStop: ((...args: unknown[]) => unknown) | null = null;
   let unsubscribe: (() => void) | null = null;
   let syntheticKeys: string[] = [];
 
-  const store = () => {
-    try {
-      // Steam publishes this singleton after its own module initialization. Requiring the
-      // module before its chunk arrives leaves empty exports cached for the whole session.
-      return window.SystemNetworkStore ?? null;
-    } catch {
-      return null;
-    }
-  };
+  // Steam publishes this singleton after its own module initialization. Requiring the module
+  // before its chunk arrives leaves empty exports cached for the whole session.
+  const store = () => window.SystemNetworkStore ?? null;
 
   const removeNetworkState = (refresh: boolean) => {
     const instance = store();
@@ -88,10 +80,7 @@ function createNetworkGate() {
         is_hidden: false,
       }));
       const keys = accessPoints.map((accessPoint) => `${device.id}:${accessPoint.id}`);
-      for (const key of syntheticKeys) {
-        if (!keys.includes(key)) instance.m_mapNetworkAccessPoints.delete(key);
-      }
-      for (const key of keys) instance.m_mapNetworkAccessPoints.delete(key);
+      for (const key of [...syntheticKeys, ...keys]) instance.m_mapNetworkAccessPoints.delete(key);
       device.estate = networks.some((network) => network.connected === true) ? 5 : device.estate;
       device.wireless.aps = accessPoints;
       accessPoints.forEach((accessPoint) => {
@@ -153,7 +142,7 @@ function createNetworkGate() {
       // method at all.
       const current = net[name];
       const existing = claimed(current, scan) ? storedOriginal(current, scan) : current;
-      if (typeof existing !== "function") return null;
+      if (typeof existing !== "function") return false;
 
       let inner: ((...a: unknown[]) => unknown) | null = null;
       const claim = claimMember(net, name, scan, (original) => {
@@ -166,12 +155,12 @@ function createNetworkGate() {
           return inner!.apply(this, args);
         };
       });
-      return claim.ok ? inner : null;
+      return claim.ok;
     };
 
-    originalStart = wrap("StartScanningForNetworks", "startScan");
-    originalStop = wrap("StopScanningForNetworks", "stopScan");
-    scanWrapped = !!(originalStart || originalStop);
+    const started = wrap("StartScanningForNetworks", "startScan");
+    const stopped = wrap("StopScanningForNetworks", "stopScan");
+    scanWrapped = started || stopped;
   };
 
   const unwrapScanning = () => {
@@ -179,8 +168,6 @@ function createNetworkGate() {
     if (!net || !scanWrapped) return;
     releaseMember(net, "StartScanningForNetworks", scan);
     releaseMember(net, "StopScanningForNetworks", scan);
-    originalStart = null;
-    originalStop = null;
     scanWrapped = false;
   };
 
