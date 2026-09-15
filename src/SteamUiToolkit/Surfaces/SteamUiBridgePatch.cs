@@ -124,13 +124,13 @@ public sealed class SteamUiBridgePatch : ISteamUiPatch
     // each conjunction identifies exactly one module. Module ids are intentionally
     // not retained because they are build output, not compatibility evidence.
     private static string ProbeExpression => $$"""
-        {{SteamUiProbeJs.CountingPreamble("steam_ui_bridge_probe_")}}
+        {{SteamUiProbeJs.Preamble("steam_ui_bridge_probe_")}}
           return JSON.stringify({
             tdpAvailability:count(['is_tdp_limit_available','steamos_tdp_limit_enabled','tdp_limit_min','tdp_limit_max']),
-            tdpComponent:count(['#QuickAccess_Tab_Perf_TDPLimitEnabled','steamos_tdp_limit','showBookendLabels']),
-            performanceActions:count(['SetFPSLimitEnabled','SetFPSLimit','SetPerfOverlayLevel','SteamClient.System.Perf']),
+            tdpComponent:count({{SteamUiProbeJs.Tokens(SteamUiProbeJs.TdpPresentationTokens)}}),
+            performanceActions:count({{SteamUiProbeJs.Tokens(SteamUiProbeJs.PerformanceActionTokens)}}),
             profileProjection:count(['#PlatformPerformanceProfile_Label','steamos_platform_performance_profile','rgOptions'])
           });
-        }catch(error){return JSON.stringify({error:String(error)}); } })()
+        {{SteamUiProbeJs.Close}}
         """;
 }

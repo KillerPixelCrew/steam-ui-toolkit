@@ -106,7 +106,7 @@ public static class SteamAudioSurface
         gateName: "audio",
         fingerprint: "native-qam-audio-v1:store+absent-namespace+reachable-singleton",
         probeExpression: $$"""
-            {{SteamUiProbeJs.CountingPreamble("steam_ui_audio_probe_")}}
+            {{SteamUiProbeJs.Preamble("steam_ui_audio_probe_")}}
               let singleton=false;
               // The store by what it is, never by module id or export name: the September 2026 beta
               // renumbered module 1409 and this probe refused audio until it stopped naming it.
@@ -114,17 +114,10 @@ public static class SteamAudioSurface
                 v=>!!v&&typeof v==='object'&&'m_bAvailable' in v&&typeof v.RegisterOrUpdateDevice==='function');}catch{}
               return JSON.stringify({
                 audioStore:count(['SteamClient.System.Audio','RegisterForDeviceAdded','m_bAvailable']),
-                audioNamespaceAbsent:(()=>{const a=window.SteamClient&&window.SteamClient.System&&window.SteamClient.System.Audio;
-                  // Absent, or present and OURS. A namespace this gate installed is not evidence of a
-                  // native backend, and treating it as one made this patch declare itself incompatible
-                  // five seconds after a successful install, tear down, and orphan the namespace it had
-                  // just defined — leaving Steam's audio page empty until Steam itself restarted.
-                  return !a||a.__steamUiOwnedNamespace===true||a.__wsgmOwnedNamespace===true;})(),
-                  // The __wsgm* spellings are the markers a build before the rename wrote; read as ours so
-                  // that upgrade needs no Steam restart. Never written.
+                audioNamespaceAbsent:{{SteamUiProbeJs.OwnedOrAbsentNamespace("Audio")}},
                 storeSingletonReachable:singleton
               });
-            }catch(error){return JSON.stringify({error:String(error)}); } })()
+            {{SteamUiProbeJs.Close}}
             """,
         compatible: root =>
             SteamUiPatchEvaluation.IsOne(root, "audioStore")

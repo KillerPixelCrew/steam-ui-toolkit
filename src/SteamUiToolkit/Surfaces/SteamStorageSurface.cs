@@ -169,7 +169,7 @@ public static class SteamStorageSurface
         gateName: "storage",
         fingerprint: "steam-storage-v1:unique-service+claimable-transport",
         probeExpression: $$"""
-            {{SteamUiProbeJs.CountingPreamble("steam_ui_storage_probe_")}}
+            {{SteamUiProbeJs.Preamble("steam_ui_storage_probe_")}}
               const service=count(['StorageDeviceManager.IsServiceAvailable#1']);
               const transportModule=req.findUnique(['GetDefaultTransport','m_transport']);
               if(!transportModule)return JSON.stringify({service,transportModule:0});
@@ -189,11 +189,11 @@ public static class SteamStorageSurface
                 transportModule:1,
                 transportResolved:transport?1:0,
                 // Writable and configurable, or the claim could neither replace nor restore it.
-                claimable:!!proto&&proto.writable===true&&proto.configurable===true,
+                claimable:{{SteamUiProbeJs.Replaceable("proto")}},
                 // Already ours is compatible; a successful apply must not fail its own next probe.
                 claimed:!!transport&&transport.SendMsg.__steamUiStorageClaimed===true
               });
-            }catch(error){return JSON.stringify({error:String(error)}); } })()
+            {{SteamUiProbeJs.Close}}
             """,
         compatible: root =>
             SteamUiPatchEvaluation.IsOne(root, "service")

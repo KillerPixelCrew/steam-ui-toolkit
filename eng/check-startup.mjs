@@ -8,6 +8,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (path) => readFileSync(resolve(root, path), "utf8");
 const asset = readFileSync(process.argv[2] ?? resolve(root, "dist/prelude.js"), "utf8");
 const probeSource = read("src/SteamUiToolkit/Surfaces/SteamUiProbeJs.cs");
+const probeClose = probeSource.match(/Close = "([^"]*)";/u)[1];
 const resolver = read("src/SteamUiToolkit/SteamUiAssets/Source/module-resolver.ts");
 const preamble = probeSource
   .match(/=> \$\$"""\s*([\s\S]*?)\s*""";/u)[1]
@@ -199,9 +200,9 @@ for (const broken of ["react", "performance"]) {
   assert.equal(f.cache.react.exports.useMemo.name, "originalUseMemo");
 }
 
-const network = read("src/SteamUiToolkit/Surfaces/SteamNetworkSurface.cs").match(
-  /probeExpression: \$\$"""\s*([\s\S]*?)\s*"""/u,
-)[1];
+const network = read("src/SteamUiToolkit/Surfaces/SteamNetworkSurface.cs")
+  .match(/probeExpression: \$\$"""\s*([\s\S]*?)\s*"""/u)[1]
+  .replace("{{SteamUiProbeJs.Close}}", probeClose);
 const window = {
   webpackChunksteamui: {
     push() {

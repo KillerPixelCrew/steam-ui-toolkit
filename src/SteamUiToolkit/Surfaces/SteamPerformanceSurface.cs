@@ -539,7 +539,7 @@ public static class SteamPerformanceSurface
         // declares the state, because the state is written into a client that is already running.
         // Naming module 74514 is what refused this gate on the September 2026 beta.
         probeExpression: $$"""
-            {{SteamUiProbeJs.CountingPreamble("steam_ui_performance_probe_")}}
+            {{SteamUiProbeJs.Preamble("steam_ui_performance_probe_")}}
               let singleton=false;
               try{
                 const holder=req.exported(['SteamClient.System.Perf','RegisterForStateChanges','m_msgState'],
@@ -549,16 +549,10 @@ public static class SteamPerformanceSurface
               }catch{}
               return JSON.stringify({
                 perfStore:count(['SteamClient.System.Perf','RegisterForStateChanges','m_msgState']),
-                perfNamespaceAbsent:(()=>{const p=window.SteamClient&&window.SteamClient.System&&window.SteamClient.System.Perf;
-                  // Absent, or present and ours — see the audio probe. An orphaned Perf namespace
-                  // is the worse case: it leaves SystemPerfStore holding half-written state, which
-                  // is what crashed the whole Performance tab.
-                  return !p||p.__steamUiOwnedNamespace===true||p.__wsgmOwnedNamespace===true;})(),
-                  // The __wsgm* spellings are the markers a build before the rename wrote; read as ours so
-                  // that upgrade needs no Steam restart. Never written.
+                perfNamespaceAbsent:{{SteamUiProbeJs.OwnedOrAbsentNamespace("Perf")}},
                 storeSingletonReachable:singleton
               });
-            }catch(error){return JSON.stringify({error:String(error)}); } })()
+            {{SteamUiProbeJs.Close}}
             """,
         compatible: root =>
             SteamUiPatchEvaluation.IsOne(root, "perfStore")

@@ -96,14 +96,14 @@ public static class SteamLibraryBadgeSurface
         gateName: "libraryDetails",
         fingerprint: "steam-library-details-v1:unique-jsx-runtime+play-bar-class-map",
         probeExpression: $$"""
-            {{SteamUiProbeJs.CountingPreamble("steam_ui_library_details_probe_")}}
+            {{SteamUiProbeJs.Preamble("steam_ui_library_details_probe_")}}
               return JSON.stringify({
-                react:count(['react.transitional.element','useState','cloneElement','createElement']),
+                react:count({{SteamUiProbeJs.ReactTokens}}),
                 runtime:count(['react.transitional.element','.jsx','.jsxs']),
                 classMap:count(['GameStatsSection:"','PlayBarDetailLabel:"','LastPlayedInfo:"']),
-                localization:count(['Attempting to localize token','Unable to find localization token','LocalizeString'])
+                localization:count({{SteamUiProbeJs.LocalizationTokens}})
               });
-            }catch(error){return JSON.stringify({error:String(error)}); } })()
+            {{SteamUiProbeJs.Close}}
             """,
         compatible: root =>
             SteamUiPatchEvaluation.IsOne(root, "react")
@@ -127,7 +127,7 @@ public static class SteamLibraryBadgeSurface
         gateName: "libraryBadge",
         fingerprint: "steam-library-badge-v1:unique-tile-module+single-memo-export+single-badge-export",
         probeExpression: $$"""
-            {{SteamUiProbeJs.CountingPreamble("steam_ui_library_badge_probe_")}}
+            {{SteamUiProbeJs.Preamble("steam_ui_library_badge_probe_")}}
               const tile=req.findUnique(['ControllerSupportIcon','appportrait_']);
               if(!tile)return JSON.stringify({tileModule:0});
               const exports=req(tile[0]);
@@ -149,16 +149,16 @@ public static class SteamLibraryBadgeSurface
                 tileExports:tiles.length,
                 badgeExports:badges.length,
                 // Writable and configurable, or the claim could neither replace nor restore it.
-                claimable:!!descriptor&&descriptor.writable===true&&descriptor.configurable===true,
+                claimable:{{SteamUiProbeJs.Replaceable("descriptor")}},
                 // Already ours is compatible; see the remarks on this patch.
                 claimed:!!memo&&memo.type.__steamUiLibraryBadgeClaimed===true,
-                settingsModule:count(['get clientSettings()','m_setDeferredSettings']),
+                settingsModule:count({{SteamUiProbeJs.SettingsStoreTokens}}),
                 // The tile stylesheet's class map, read by Valve's names; wanted for focus-only
                 // visibility, not required for the badge to draw.
                 classMap:count(['ControllerSupportIcon:"','LibraryItemIcons:"','LibraryItemBox:"']),
-                react:count(['react.transitional.element','useState','cloneElement','createElement'])
+                react:count({{SteamUiProbeJs.ReactTokens}})
               });
-            }catch(error){return JSON.stringify({error:String(error)}); } })()
+            {{SteamUiProbeJs.Close}}
             """,
         compatible: root =>
             SteamUiPatchEvaluation.IsOne(root, "tileModule")

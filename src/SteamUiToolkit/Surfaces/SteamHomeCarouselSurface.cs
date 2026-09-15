@@ -88,7 +88,7 @@ public static class SteamHomeCarouselSurface
         gateName: "homeCarousel",
         fingerprint: "steam-home-carousel-v1:unique-home-module+route-home-memo",
         probeExpression: $$"""
-            {{SteamUiProbeJs.CountingPreamble("steam_ui_home_carousel_probe_")}}
+            {{SteamUiProbeJs.Preamble("steam_ui_home_carousel_probe_")}}
               // Home is module-local, so the handle is the page element under the /library/home route
               // in SharedJSContext's React tree. Until Big Picture has built that tree there is no Home
               // to find, and the manager probes again. Read-only walk, bounded, matching on content.
@@ -129,15 +129,15 @@ public static class SteamHomeCarouselSurface
                 visited:visited,
                 homeRoutes:homeRoutes,
                 page:page,
-                claimable:!!descriptor&&descriptor.writable===true&&descriptor.configurable===true,
+                claimable:{{SteamUiProbeJs.Replaceable("descriptor")}},
                 // Already ours is compatible; see the remarks on this patch.
                 claimed:!!home&&home.type.__steamUiHomeCarouselClaimed===true,
                 stores:typeof window.collectionStore?.GetCollection==='function'
                   &&typeof window.appStore?.GetAppOverviewByAppID==='function',
-                observer:count(['mobx-react-lite requires React with Hooks support']),
-                react:count(['react.transitional.element','useState','cloneElement','createElement'])
+                observer:count({{SteamUiProbeJs.ObserverTokens}}),
+                react:count({{SteamUiProbeJs.ReactTokens}})
               });
-            }catch(error){return JSON.stringify({error:String(error)}); } })()
+            {{SteamUiProbeJs.Close}}
             """,
         compatible: root =>
             SteamUiPatchEvaluation.IsOne(root, "homeModule")

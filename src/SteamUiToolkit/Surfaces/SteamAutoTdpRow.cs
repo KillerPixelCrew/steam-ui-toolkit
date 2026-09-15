@@ -60,11 +60,7 @@ public static class SteamAutoTdpRow
         "native-qam-auto-tdp-v1:presentation+performance-root+valve-toggle",
         "steam_ui_auto_tdp_probe_",
         "tdpPresentation",
-        [
-            "#QuickAccess_Tab_Perf_TDPLimitEnabled",
-            "steamos_tdp_limit",
-            "showBookendLabels",
-        ]);
+        SteamUiProbeJs.TdpPresentationTokens);
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
     /// <param name="state">The state to serialize.</param>

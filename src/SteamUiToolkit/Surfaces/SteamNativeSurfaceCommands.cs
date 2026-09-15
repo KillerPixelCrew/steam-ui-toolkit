@@ -56,7 +56,7 @@ public static class SteamNativeSurfaceCommands
         }
         string method = action == SteamNativeSurfaceAction.QuickAccess
             ? "OnQuickAccessButtonPressed" : "OnHomeButtonPressed";
-        string invoke = action == SteamNativeSurfaceAction.Keyboard ? """
+        string invoke = action == SteamNativeSurfaceAction.Keyboard ? $$"""
                 const keyboard=target?.VirtualKeyboardManager;
                 if(typeof keyboard?.IsShowingVirtualKeyboard?.Value!=='boolean'
                   ||typeof keyboard.SetDismissOnEnterKey!=='function'
@@ -65,7 +65,7 @@ public static class SteamNativeSurfaceCommands
                 if(keyboard.IsShowingVirtualKeyboard.Value)return true;
                 // The route table by what it holds, only for an overlay that needs it; module and
                 // export names change between client builds.
-                const route=pid===0?null:require.exported(["GameAPIOSK:","/gameapiosk"],
+                const route=pid===0?null:require.exported({{SteamUiProbeJs.RouteTableTokens}},
                   v=>typeof v?.GamepadUI?.Keyboard==='function').GamepadUI.Keyboard;
                 if(pid!==0&&typeof target.NavigateWithoutChangingFocus!=='function')return false;
                 target.MenuStore.CloseSideMenus();

@@ -86,7 +86,7 @@ public static class SteamNetworkSurface
                   // that upgrade needs no Steam restart. Never written.
                 hasWirelessDevice:store.hasWirelessDevice===true
               });
-            }catch(error){return JSON.stringify({error:String(error)}); } })()
+            {{SteamUiProbeJs.Close}}
             """,
         compatible: root =>
             SteamGatePatch.Flag(root, "getterConfigurable")

@@ -93,7 +93,7 @@ public static class SteamNavigationPanelSurface
         gateName: "navigationPanel",
         fingerprint: "steam-navigation-panel-v1:unique-menu-module+single-memo-export",
         probeExpression: $$"""
-            {{SteamUiProbeJs.CountingPreamble("steam_ui_navigation_probe_")}}
+            {{SteamUiProbeJs.Preamble("steam_ui_navigation_probe_")}}
               const menu=req.findUnique(['#MainMenu_Title','MainNavMenuContainer']);
               if(!menu)return JSON.stringify({menuModule:0});
               const exports=req(menu[0]);
@@ -111,12 +111,12 @@ public static class SteamNavigationPanelSurface
                 panelRoot:count(['#MainMenu_Title','RunnningAppSeparator']),
                 memoExports:memos.length,
                 // Writable and configurable, or the claim could neither replace nor restore it.
-                claimable:!!descriptor&&descriptor.writable===true&&descriptor.configurable===true,
+                claimable:{{SteamUiProbeJs.Replaceable("descriptor")}},
                 // Already ours is compatible; see the remarks on this patch.
                 claimed:!!memo&&memo.type.__steamUiNavigationPanelClaimed===true,
-                react:count(['react.transitional.element','useState','cloneElement','createElement'])
+                react:count({{SteamUiProbeJs.ReactTokens}})
               });
-            }catch(error){return JSON.stringify({error:String(error)}); } })()
+            {{SteamUiProbeJs.Close}}
             """,
         compatible: root =>
             SteamUiPatchEvaluation.IsOne(root, "menuModule")

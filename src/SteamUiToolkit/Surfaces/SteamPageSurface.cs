@@ -64,7 +64,7 @@ public static class SteamPageSurface
         gateName: "pages",
         fingerprint: "steam-pages-v1:unique-router-module+backstack-route",
         probeExpression: $$"""
-            {{SteamUiProbeJs.CountingPreamble("steam_ui_pages_probe_")}}
+            {{SteamUiProbeJs.Preamble("steam_ui_pages_probe_")}}
               const router=req.findUnique(['Settings.Root()','TopLevelTransition']);
               const backstack=req.findUnique(['router-backstack']);
               if(!router||!backstack)return JSON.stringify({
@@ -95,13 +95,13 @@ public static class SteamPageSurface
                 backstackModule:1,
                 steamRoute:routes.length,
                 routerFound:memo?1:0,
-                claimable:!!descriptor&&descriptor.writable===true&&descriptor.configurable===true,
+                claimable:{{SteamUiProbeJs.Replaceable("descriptor")}},
                 claimed:!!memo&&memo.type.__steamUiPageHostClaimed===true,
                 // The switch itself, matched the way the gate matches the list it renders.
                 routeSwitch:count(['computedMatch','TopLevelTransition']),
-                react:count(['react.transitional.element','useState','cloneElement','createElement'])
+                react:count({{SteamUiProbeJs.ReactTokens}})
               });
-            }catch(error){return JSON.stringify({error:String(error)}); } })()
+            {{SteamUiProbeJs.Close}}
             """,
         compatible: root =>
             SteamUiPatchEvaluation.IsOne(root, "routerModule")

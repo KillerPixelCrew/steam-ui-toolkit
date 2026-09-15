@@ -72,7 +72,7 @@ public static class SteamBrightnessSurface
                 backendPresent:!!display&&typeof display.SetBrightness==='function'
                   &&typeof display.RegisterForBrightnessChanges==='function'
               });
-            }catch(error){return JSON.stringify({error:String(error)}); } })()
+            {{SteamUiProbeJs.Close}}
             """,
         compatible: root =>
             SteamGatePatch.Flag(root, "fieldPresent")

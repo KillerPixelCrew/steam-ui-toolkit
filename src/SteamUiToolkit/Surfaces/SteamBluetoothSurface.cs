@@ -173,10 +173,10 @@ public static class SteamBluetoothSurface
               return JSON.stringify({
                 operationsPresent:missing.length===0,
                 missing:missing,
-                methodsWritable:!!d&&d.writable===true&&d.configurable===true,
+                methodsWritable:{{SteamUiProbeJs.Replaceable("d")}},
                 queryCacheReachable:cache
               });
-            }catch(error){return JSON.stringify({error:String(error)}); } })()
+            {{SteamUiProbeJs.Close}}
             """,
         compatible: root =>
             SteamGatePatch.Flag(root, "operationsPresent")

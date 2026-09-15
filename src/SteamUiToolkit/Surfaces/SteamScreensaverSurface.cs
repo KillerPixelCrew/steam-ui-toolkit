@@ -115,22 +115,22 @@ public static class SteamScreensaverSurface
         gateName: "screensaver",
         fingerprint: "steam-screensaver-v1:unique-section-module+customization-route+settings-store",
         probeExpression: $$"""
-            {{SteamUiProbeJs.CountingPreamble("steam_ui_screensaver_probe_")}}
+            {{SteamUiProbeJs.Preamble("steam_ui_screensaver_probe_")}}
               let route='';
-              try{route=req.exported(['GameAPIOSK:','/gameapiosk'],
+              try{route=req.exported({{SteamUiProbeJs.RouteTableTokens}},
                 v=>typeof v?.Settings?.Customization==='function').Settings.Customization();}catch{}
               let settings=false;
-              try{settings=!!req.exported(['get clientSettings()','m_setDeferredSettings'],
+              try{settings=!!req.exported({{SteamUiProbeJs.SettingsStoreTokens}},
                 v=>!!v&&typeof v==='object'&&typeof v.clientSettings==='object');}catch{}
               return JSON.stringify({
-                react:count(['react.transitional.element','useState','cloneElement','createElement']),
-                fields:count(['DialogSlider_Container','DropDownField','SliderField']),
+                react:count({{SteamUiProbeJs.ReactTokens}}),
+                fields:count({{SteamUiProbeJs.NativeFieldTokens}}),
                 section:count(['"#Settings_Customization_Screensaver"','ForceScreensaver']),
                 route:typeof route==='string'&&route.startsWith('/')?route:'',
                 settings:settings,
-                observer:count(['mobx-react-lite requires React with Hooks support'])
+                observer:count({{SteamUiProbeJs.ObserverTokens}})
               });
-            }catch(error){return JSON.stringify({error:String(error)}); } })()
+            {{SteamUiProbeJs.Close}}
             """,
         compatible: root =>
             SteamUiPatchEvaluation.IsOne(root, "react")

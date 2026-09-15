@@ -29,13 +29,6 @@ public sealed class SteamQuickAccessRowPatch : ISteamUiPatch
         "localization",
         "react",
     ];
-    private static readonly string[] PerformanceActionTokens =
-    [
-        "SetFPSLimitEnabled",
-        "SetFPSLimit",
-        "SetPerfOverlayLevel",
-        "SteamClient.System.Perf",
-    ];
 
     private readonly string _componentKind;
     private readonly string _fingerprint;
@@ -68,7 +61,7 @@ public sealed class SteamQuickAccessRowPatch : ISteamUiPatch
         _fingerprint = fingerprint;
         _chunkLabel = chunkLabel;
         _primaryCountName = primaryCountName;
-        _primaryTokens = primaryTokens ?? PerformanceActionTokens;
+        _primaryTokens = primaryTokens ?? SteamUiProbeJs.PerformanceActionTokens;
     }
 
     /// <inheritdoc />
@@ -91,16 +84,16 @@ public sealed class SteamQuickAccessRowPatch : ISteamUiPatch
 
     /// <summary>Read-only structural probe shared by every row.</summary>
     private string ProbeExpression => $$"""
-        {{SteamUiProbeJs.CountingPreamble(_chunkLabel)}}
+        {{SteamUiProbeJs.Preamble(_chunkLabel)}}
           return JSON.stringify({
-            {{_primaryCountName}}:count({{JsonSerializer.Serialize(_primaryTokens, SteamSurfaceJsonContext.Default.IReadOnlyListString)}}),
+            {{_primaryCountName}}:count({{SteamUiProbeJs.Tokens(_primaryTokens)}}),
             performanceRoot:count(['#QuickAccess_Tab_Perf_Common_Settings','#QuickAccess_Tab_Perf_BatteryTimeRemaining','TS.ON_FRAME']),
-            nativeFields:count(['DialogSlider_Container','DropDownField','SliderField']),
+            nativeFields:count({{SteamUiProbeJs.NativeFieldTokens}}),
             nativeLayout:count(['PanelSectionTitle','PanelSectionRow','spinner']),
-            localization:count(['Attempting to localize token','Unable to find localization token','LocalizeString']),
-            react:count(['react.transitional.element','useState','cloneElement','createElement'])
+            localization:count({{SteamUiProbeJs.LocalizationTokens}}),
+            react:count({{SteamUiProbeJs.ReactTokens}})
           });
-        }catch(error){return JSON.stringify({error:String(error)}); } })()
+        {{SteamUiProbeJs.Close}}
         """;
 
     /// <inheritdoc />
