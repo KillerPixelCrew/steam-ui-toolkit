@@ -58,11 +58,12 @@ public static class SteamUiLog
         }
     }
 
-    private static ISteamUiLog _sink = new Discard();
+    private static readonly ISteamUiLog Discarding = new Discard();
+    private static ISteamUiLog _sink = Discarding;
 
     /// <summary>Directs the machinery's diagnostics at the host's logger.</summary>
     /// <param name="sink">The host's sink, or <see langword="null"/> to discard.</param>
-    public static void Use(ISteamUiLog? sink) => _sink = sink ?? new Discard();
+    public static void Use(ISteamUiLog? sink) => _sink = sink ?? Discarding;
 
     /// <summary>Records something that happened.</summary>
     /// <param name="message">The line to write.</param>

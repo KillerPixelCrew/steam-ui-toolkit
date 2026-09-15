@@ -43,29 +43,18 @@ public interface ISteamUiEndpointDiscovery
 
 internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDisposable
 {
-    private const int DebugPort = 8080;
     private const int MaximumDiscoveryBytes = 1024 * 1024;
-    private static readonly Uri VersionUri = new($"http://127.0.0.1:{DebugPort}/json/version");
-    private static readonly Uri TargetsUri = new($"http://127.0.0.1:{DebugPort}/json/list");
+    private static readonly Uri VersionUri =
+        new($"http://127.0.0.1:{SteamCef.DebugPort}/json/version");
+    private static readonly Uri TargetsUri =
+        new($"http://127.0.0.1:{SteamCef.DebugPort}/json/list");
     private readonly HttpClient _httpClient;
-    private readonly bool _ownsHttpClient;
     private readonly bool _requireMainWindow;
     private int _disposed;
 
     internal SteamUiEndpointDiscovery(bool requireMainWindow = false)
-        : this(new HttpClient { Timeout = TimeSpan.FromSeconds(5) }, ownsHttpClient: true, requireMainWindow)
     {
-    }
-
-    internal SteamUiEndpointDiscovery(HttpClient httpClient)
-        : this(httpClient, ownsHttpClient: false)
-    {
-    }
-
-    private SteamUiEndpointDiscovery(HttpClient httpClient, bool ownsHttpClient, bool requireMainWindow = false)
-    {
-        _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
-        _ownsHttpClient = ownsHttpClient;
+        _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
         _requireMainWindow = requireMainWindow;
     }
 
@@ -117,11 +106,25 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDis
         int mainWindows = 0;
         foreach (var target in targets.EnumerateArray())
         {
-            if (TryReadTarget(target, SteamUiTargetRole.MainWindow, browserId, out _))
+            // Read each target once; it is then matched against the main window and the role.
+            var id = ReadString(target, "id");
+            var type = ReadString(target, "type");
+            var title = ReadString(target, "title");
+            var url = ReadString(target, "url");
+            var socketUrl = ReadString(target, "webSocketDebuggerUrl");
+            if (string.IsNullOrEmpty(id)
+                || type is null
+                || title is null
+                || url is null
+                || !SteamCef.IsAllowedDebuggerUrl(socketUrl))
+            {
+                continue;
+            }
+            if (MatchesTarget(SteamUiTargetRole.MainWindow, type, title, url))
             {
                 mainWindows++;
             }
-            if (!TryReadTarget(target, role, browserId, out var candidate))
+            if (!MatchesTarget(role, type, title, url))
             {
                 continue;
             }
@@ -130,7 +133,8 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDis
             {
                 throw new InvalidDataException($"Steam UI reported multiple {role} targets.");
             }
-            match = candidate;
+            match = new SteamUiEndpoint(
+                browserId, id, role, new Uri(socketUrl!, UriKind.Absolute), type, title, url);
         }
         return requireMainWindow && mainWindows != 1 ? null : match;
     }
@@ -163,33 +167,6 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDis
                 && !url.Contains("openerid", StringComparison.Ordinal),
             _ => false,
         };
-
-    private static bool TryReadTarget(
-        JsonElement target,
-        SteamUiTargetRole role,
-        string browserId,
-        out SteamUiEndpoint? endpoint)
-    {
-        endpoint = null;
-        var id = ReadString(target, "id");
-        var type = ReadString(target, "type");
-        var title = ReadString(target, "title");
-        var url = ReadString(target, "url");
-        var socketUrl = ReadString(target, "webSocketDebuggerUrl");
-        if (string.IsNullOrEmpty(id)
-            || type is null
-            || title is null
-            || url is null
-            || !MatchesTarget(role, type, title, url)
-            || !SteamCef.IsAllowedDebuggerUrl(socketUrl))
-        {
-            return false;
-        }
-
-        endpoint = new SteamUiEndpoint(
-            browserId, id, role, new Uri(socketUrl!, UriKind.Absolute), type, title, url);
-        return true;
-    }
 
     private static string? ReadString(JsonElement value, string property) =>
         value.TryGetProperty(property, out var item) && item.ValueKind == JsonValueKind.String
@@ -248,7 +225,7 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDis
 
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) == 0 && _ownsHttpClient)
+        if (Interlocked.Exchange(ref _disposed, 1) == 0)
         {
             _httpClient.Dispose();
         }

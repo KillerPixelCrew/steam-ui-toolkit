@@ -11,7 +11,8 @@ namespace SteamUiToolkit;
 /// </summary>
 public static class SteamCef
 {
-    private const int DebugPort = 8080;
+    /// <summary>The loopback port Steam opens its remote-debugging endpoint on.</summary>
+    internal const int DebugPort = 8080;
     private const string FlagFileName = ".cef-enable-remote-debugging";
 
     /// <summary>Writes the CEF remote-debugging flag into the Steam directory when
