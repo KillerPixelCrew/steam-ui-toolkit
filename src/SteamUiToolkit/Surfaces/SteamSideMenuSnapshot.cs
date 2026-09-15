@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -35,17 +36,17 @@ public sealed record SteamSideMenuSnapshot(
     /// <summary>Gets whether every reported window has a confirmed closed side menu.</summary>
     /// <remarks>This does not establish that an in-game overlay itself is closed.</remarks>
     public bool AllSideMenusClosed => Windows is { Count: > 0 }
-        && System.Linq.Enumerable.All(Windows, window => window.Menu == SteamSideMenu.None);
+        && Windows.All(window => window.Menu == SteamSideMenu.None);
 
     /// <summary>Gets whether menus and overlay activation are both confirmed closed.</summary>
     public bool AllSteamSurfacesClosed => AllSideMenusClosed
-        && System.Linq.Enumerable.All(Windows!, window => window.OverlayActive == false && window.KeyboardOpen == false);
+        && Windows!.All(window => window.OverlayActive == false && window.KeyboardOpen == false);
 }
 
 /// <summary>Reads Steam's known menu stores through an existing transport.</summary>
 public static class SteamSideMenuObserver
 {
-    internal static string ReadExpression => $$"""
+    internal static string ReadExpression { get; } = $$"""
         (()=>{
           try {
             const require={{SteamUiModuleResolver.CreateExpression("side_menu")}};
@@ -82,10 +83,7 @@ public static class SteamSideMenuObserver
         ArgumentNullException.ThrowIfNull(transport);
         var result = await transport.EvaluateAsync(SteamUiTargetRole.SharedJsContext,
             ReadExpression, TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
-        bool current = System.Linq.Enumerable.Any(transport.GetSnapshots(), snapshot =>
-            snapshot.Role == SteamUiTargetRole.SharedJsContext
-            && snapshot.Health == SteamUiTransportHealth.Ready
-            && snapshot.Generations == result.Generations);
+        bool current = SteamSharedContext.IsReadyAt(transport, result.Generations);
         return new(result.Generations, result.Reachable && current ? Parse(result.Value) : null);
     }
 

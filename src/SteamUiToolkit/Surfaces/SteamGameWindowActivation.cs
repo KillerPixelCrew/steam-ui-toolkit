@@ -29,8 +29,7 @@ public static class SteamGameWindowActivation
             TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
         return !cancellationToken.IsCancellationRequested && result.Reachable && result.Value == "true"
             && result.Generations == before.Generations
-            && transport.GetSnapshots().Any(snapshot => snapshot.Role == SteamUiTargetRole.SharedJsContext
-                && snapshot.Health == SteamUiTransportHealth.Ready && snapshot.Generations == before.Generations);
+            && SteamSharedContext.IsReadyAt(transport, before.Generations);
     }
 
     internal static string CreateExpression(uint processId, long expiresAt) => $$"""

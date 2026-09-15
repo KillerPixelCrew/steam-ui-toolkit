@@ -1,6 +1,5 @@
 using System;
 using System.Globalization;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -34,19 +33,16 @@ public static class SteamNativeSurfaceCommands
     {
         ArgumentNullException.ThrowIfNull(transport);
         string expression = CreateExpression(action, processId, appId);
-        if (!Current(transport, generations))
+        if (!SteamSharedContext.IsReadyAt(transport, generations))
         {
             return false;
         }
         var result = await transport.EvaluateAsync(SteamUiTargetRole.SharedJsContext, expression,
             TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
-        return result.Reachable && result.Generations == generations && Current(transport, generations)
+        return result.Reachable && result.Generations == generations
+            && SteamSharedContext.IsReadyAt(transport, generations)
             && result.Value == "true";
     }
-
-    private static bool Current(ISteamUiTransport transport, SteamUiGenerations generations) =>
-        transport.GetSnapshots().Any(snapshot => snapshot.Role == SteamUiTargetRole.SharedJsContext
-            && snapshot.Health == SteamUiTransportHealth.Ready && snapshot.Generations == generations);
 
     internal static string CreateExpression(SteamNativeSurfaceAction action, uint processId, uint appId)
     {

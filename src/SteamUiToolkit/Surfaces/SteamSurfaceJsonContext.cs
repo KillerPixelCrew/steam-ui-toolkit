@@ -6,15 +6,14 @@ namespace SteamUiToolkit;
 /// <summary>The wire shapes every surface publishes, serialized without reflection.</summary>
 /// <remarks>
 /// CamelCase because that is what the injected validators read; the performance state's inner
-/// objects override it with Valve's snake_case field names explicitly.
+/// objects override it with Valve's snake_case field names explicitly. Element and nested record
+/// types are generated from the roots listed here; only the token list the probes serialize directly
+/// is named on its own.
 /// </remarks>
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(SteamAudioState))]
-[JsonSerializable(typeof(SteamAudioDevice))]
 [JsonSerializable(typeof(SteamNetworkState))]
-[JsonSerializable(typeof(SteamNetworkAccessPoint))]
 [JsonSerializable(typeof(SteamBluetoothState))]
-[JsonSerializable(typeof(SteamBluetoothDevice))]
 [JsonSerializable(typeof(SteamBrightnessState))]
 [JsonSerializable(typeof(SteamPowerLimitState))]
 [JsonSerializable(typeof(SteamPerformanceState))]
@@ -26,23 +25,12 @@ namespace SteamUiToolkit;
 [JsonSerializable(typeof(SteamPowerPresetState))]
 [JsonSerializable(typeof(SteamAutoTdpState))]
 [JsonSerializable(typeof(SteamControllerTargetState))]
-[JsonSerializable(typeof(SteamControllerTargetOption))]
 [JsonSerializable(typeof(SteamDeviceControlsState))]
-[JsonSerializable(typeof(SteamDeviceRangeState))]
-[JsonSerializable(typeof(SteamLightingZoneState))]
 [JsonSerializable(typeof(SteamNavigationPanelState))]
-[JsonSerializable(typeof(SteamNavigationItem))]
 [JsonSerializable(typeof(SteamLibraryBadgeState))]
-[JsonSerializable(typeof(SteamLibraryBadgeLibrary))]
 [JsonSerializable(typeof(SteamHomeCarouselState))]
-[JsonSerializable(typeof(IReadOnlyList<long>))]
 [JsonSerializable(typeof(SteamPageState))]
-[JsonSerializable(typeof(SteamPage))]
 [JsonSerializable(typeof(SteamStorageState))]
-[JsonSerializable(typeof(SteamStorageDrive))]
-[JsonSerializable(typeof(SteamStorageBlockDevice))]
 [JsonSerializable(typeof(SteamScreensaverState))]
-[JsonSerializable(typeof(SteamTimeoutRow))]
-[JsonSerializable(typeof(SteamTimeoutOption))]
 [JsonSerializable(typeof(IReadOnlyList<string>))]
 internal sealed partial class SteamSurfaceJsonContext : JsonSerializerContext;
