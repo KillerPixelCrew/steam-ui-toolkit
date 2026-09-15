@@ -102,12 +102,19 @@ function createAudioNamespace() {
     typeof value === "object" &&
     "m_bAvailable" in value &&
     typeof value.RegisterOrUpdateDevice === "function";
+  // One resolver and one store for the gate's life: the store is a singleton, and every publication
+  // asks for it, so looking it up again only pushed another chunk each time.
+  let resolver;
+  let cachedStore: any = null;
   const liveStore = () => {
+    if (cachedStore) return cachedStore;
     try {
-      return getWebpackRuntime("audio-store").exported(AudioStoreTokens, isAudioStore) as any;
+      resolver ??= getWebpackRuntime("audio-store");
+      cachedStore = resolver.exported(AudioStoreTokens, isAudioStore) as any;
     } catch {
       return null;
     }
+    return cachedStore;
   };
 
   const flVolumeOf = (value) => {

@@ -38,13 +38,19 @@ function createBrightnessGate() {
     typeof value === "function" &&
     typeof value.Get === "function" &&
     String(value).includes("m_flDisplayBrightness");
+  // One resolver and one store for the gate's life: the store is a singleton, and every publication
+  // and status read asks for it, so looking it up again only pushed another chunk each time.
+  let resolver;
+  let cachedStore: any = null;
   const displayStore = () => {
+    if (cachedStore) return cachedStore;
     try {
-      const req = getWebpackRuntime("brightness-store");
-      return (req.exported(DisplayStoreTokens, isDisplayStoreClass) as any).Get() ?? null;
+      resolver ??= getWebpackRuntime("brightness-store");
+      cachedStore = (resolver.exported(DisplayStoreTokens, isDisplayStoreClass) as any).Get() ?? null;
     } catch {
       return null;
     }
+    return cachedStore;
   };
 
   const settings = () => displayStore()?.m_msgSettings ?? null;

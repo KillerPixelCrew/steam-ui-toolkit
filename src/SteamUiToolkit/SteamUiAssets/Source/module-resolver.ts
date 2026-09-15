@@ -11,6 +11,16 @@ function createSteamUiModuleResolver(scope) {
   ]);
   if (!runtime?.m) throw new Error("Steam modules unavailable");
   const failed = new Set();
+  // A factory's source never changes once registered, and every fingerprint match reads all of them.
+  const sources = new WeakMap();
+  const sourceOf = (factory) => {
+    let source = sources.get(factory);
+    if (source === undefined) {
+      source = Function.prototype.toString.call(factory);
+      sources.set(factory, source);
+    }
+    return source;
+  };
   const requirePresent = (id) => {
     if (typeof id !== "string" || typeof runtime.m[id] !== "function")
       throw new Error(`Steam module absent: ${id}`);
@@ -35,14 +45,14 @@ function createSteamUiModuleResolver(scope) {
     return ids.filter((id) => {
       const factory = runtime.m[id];
       if (typeof factory !== "function") return false;
-      const source = Function.prototype.toString.call(factory);
+      const source = sourceOf(factory);
       return tokens.every((token) => source.includes(token));
     });
   };
   requirePresent.count = (tokens) => matches(tokens).length;
   requirePresent.findUnique = (tokens) => {
     const ids = matches(tokens);
-    return ids.length === 1 ? [ids[0], Function.prototype.toString.call(runtime.m[ids[0]])] : null;
+    return ids.length === 1 ? [ids[0], sourceOf(runtime.m[ids[0]])] : null;
   };
   requirePresent.resolve = (tokens) => {
     const ids = matches(tokens);

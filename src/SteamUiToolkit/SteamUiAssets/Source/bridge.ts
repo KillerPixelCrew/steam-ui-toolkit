@@ -211,14 +211,6 @@
   // a separate CDP call, where a Symbol from this scope is not reachable.
   const ownedMarker = "__steamUiOwnedNamespace";
 
-  // The same idea one level down: a method the host overlaid rather than a namespace it defined. The
-  // second key carries the method that was replaced, so an overlay outliving the closure that made
-  // it can still be unwound back to the client's own.
-  const getState = {
-    marker: "__steamUiOwnedGetState",
-    original: "__steamUiOriginalGetState",
-  };
-
   // Gates register themselves rather than being named here. The bridge used to construct each one
   // by name and publish it under a fixed property, which meant this file had to list every surface
   // its consumer happened to have — the one thing a reusable bridge cannot do.

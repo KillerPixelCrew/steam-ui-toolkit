@@ -9,7 +9,9 @@ function createElementsGate() {
   const RuntimeTokens = ["react.transitional.element", ".jsx", ".jsxs"] as const;
   const MaximumNameLength = 64;
 
-  const runtime = () => getWebpackRuntime("elements").resolve([...RuntimeTokens]);
+  // One resolver for the gate's life rather than a chunk pushed on every registration and check.
+  let resolver;
+  const runtime = () => (resolver ??= getWebpackRuntime("elements")).resolve([...RuntimeTokens]);
   const validName = (name) =>
     typeof name === "string" && name.length > 0 && name.length <= MaximumNameLength;
 

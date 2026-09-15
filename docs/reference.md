@@ -180,6 +180,9 @@ or `Steam export ambiguous` otherwise; a getter or predicate that throws counts 
 source without invoking factories. `findUnique` returns an id/source pair or null. Invalid
 fingerprints, absent/ambiguous resolution and load failures throw diagnostic errors. Fingerprints
 have 1 to 16 nonempty tokens of at most 512 characters; discovery accepts at most 32,768 factories.
+A resolver reads each factory's source once and remembers it, and a gate that looks a module up
+after installation (a store singleton, the JSX runtime) keeps one resolver for its lifetime rather
+than pushing a new chunk on every publication.
 A resolver does not repeat a factory call that threw through that resolver. It exposes no raw
 registry or loader. This is not a sandbox for arbitrary page JavaScript, nor proof that a factory's
 dependencies have initialized; hosts must enforce startup readiness as well.
