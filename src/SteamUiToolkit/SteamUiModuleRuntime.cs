@@ -91,7 +91,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
 
         foreach (CancellationTokenSource cancellation in inflight)
         {
-            CancelSafely(cancellation);
+            SteamUiShared.CancelSafely(cancellation);
         }
     }
 
@@ -135,22 +135,14 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
                 RemoveInflight(request.Sequence);
                 return;
             }
-            if (!_commandsEnabled())
-            {
-                outcome = SteamUiCommandResult.Refused;
-            }
-            else if (!_modules.TryGetCommand(
-                request.PatchId,
-                request.Command,
-                out SteamUiCommandDelegate? handler)
-                || handler is null)
-            {
-                outcome = SteamUiCommandResult.Refused;
-            }
-            else
-            {
-                outcome = await handler(request, requestCancellation.Token).ConfigureAwait(false);
-            }
+            outcome = !_commandsEnabled()
+                || !_modules.TryGetCommand(
+                    request.PatchId,
+                    request.Command,
+                    out SteamUiCommandDelegate? handler)
+                || handler is null
+                    ? SteamUiCommandResult.Refused
+                    : await handler(request, requestCancellation.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (requestCancellation.IsCancellationRequested)
         {
@@ -289,19 +281,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
             _inflight.TryGetValue(sequence, out cancellation);
         }
 
-        CancelSafely(cancellation);
-    }
-
-    private static void CancelSafely(CancellationTokenSource? cancellation)
-    {
-        try
-        {
-            cancellation?.Cancel();
-        }
-        catch (ObjectDisposedException)
-        {
-            // The request completed between the bounded lookup and cancellation.
-        }
+        SteamUiShared.CancelSafely(cancellation);
     }
 
     private void RemoveInflight(long sequence)
