@@ -18,7 +18,7 @@ public sealed class SteamUiBridgeHostTests
     [Fact]
     public async Task CurrentRequestIsDeliveredOnceAndReplayIsRejected()
     {
-        await using var transport = new BridgeTransport();
+        await using var transport = new FakeSteamUiTransport();
         await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
         var received = new List<SteamUiBridgeRequest>();
         host.RequestReceived += (_, request) => received.Add(request);
@@ -32,14 +32,14 @@ public sealed class SteamUiBridgeHostTests
             sequence: 2,
             actionGeneration: 2));
 
-        await WaitUntilAsync(() => received.Count == 2);
+        await TestJson.WaitUntilAsync(() => received.Count == 2);
         Assert.Equal([1L, 2L], received.Select(item => item.Sequence));
     }
 
     [Fact]
     public async Task MalformedAndNonBindingNotificationsNeverReachTheRouter()
     {
-        await using var transport = new BridgeTransport();
+        await using var transport = new FakeSteamUiTransport();
         await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
         var received = 0;
         host.RequestReceived += (_, _) => received++;
@@ -57,7 +57,7 @@ public sealed class SteamUiBridgeHostTests
     [Fact]
     public async Task GenerationReplacementSuppressesTrafficUntilTheBridgeIsBootstrappedAgain()
     {
-        await using var transport = new BridgeTransport();
+        await using var transport = new FakeSteamUiTransport();
         await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
         var received = 0;
         host.RequestReceived += (_, _) => received++;
@@ -70,7 +70,7 @@ public sealed class SteamUiBridgeHostTests
         Assert.False(host.IsReady);
         Assert.False(await host.PublishStateAsync(
             "example.performance",
-            Json("{\"watts\":15}")));
+            TestJson.Parse("{\"watts\":15}")));
         Assert.False(await host.RespondAsync(
             Request(previous, sequence: 1, actionGeneration: 1),
             ok: true,
@@ -95,36 +95,36 @@ public sealed class SteamUiBridgeHostTests
             sequence: 1,
             actionGeneration: 1));
 
-        await WaitUntilAsync(() => received == 1);
+        await TestJson.WaitUntilAsync(() => received == 1);
         Assert.Equal(1, received);
     }
 
     [Fact]
     public async Task StateAndResponsesRequireAReadyBridgeAndAnAllowlistedStateIdentity()
     {
-        await using var transport = new BridgeTransport();
+        await using var transport = new FakeSteamUiTransport();
         await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
         SteamUiBridgeRequest request = Request(
             transport.Generations,
             sequence: 1,
             actionGeneration: 1);
 
-        Assert.False(await host.PublishStateAsync("example.performance", Json("{}")));
+        Assert.False(await host.PublishStateAsync("example.performance", TestJson.Parse("{}")));
         Assert.False(await host.RespondAsync(request, true, null, null));
         Assert.Empty(transport.Expressions);
 
         Assert.True(await host.BootstrapAsync());
         int afterBootstrap = transport.Expressions.Count;
-        Assert.False(await host.PublishStateAsync("not.allowlisted", Json("{}")));
+        Assert.False(await host.PublishStateAsync("not.allowlisted", TestJson.Parse("{}")));
         Assert.False(await host.PublishStateAsync(
             "example.performance",
-            Json("{\"value\":\"" + new string('x', SteamUiBridgeHost.MaximumPayloadCharacters)
+            TestJson.Parse("{\"value\":\"" + new string('x', SteamUiBridgeHost.MaximumPayloadCharacters)
                 + "\"}")));
         Assert.Equal(afterBootstrap, transport.Expressions.Count);
 
         Assert.True(await host.PublishStateAsync(
             "example.performance",
-            Json("{\"watts\":15}")));
+            TestJson.Parse("{\"watts\":15}")));
         Assert.True(await host.RespondAsync(request, false, null, "refused"));
         Assert.Equal(afterBootstrap + 2, transport.Expressions.Count);
         Assert.All(
@@ -135,25 +135,25 @@ public sealed class SteamUiBridgeHostTests
     [Fact]
     public async Task DeliveryAcknowledgementMustBeStructuredJson()
     {
-        await using var transport = new BridgeTransport();
+        await using var transport = new FakeSteamUiTransport();
         await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
         Assert.True(await host.BootstrapAsync());
         transport.EvaluationValue = "{\"message\":\"\\\"ok\\\":true\"}";
 
-        Assert.False(await host.PublishStateAsync("example.performance", Json("{}")));
+        Assert.False(await host.PublishStateAsync("example.performance", TestJson.Parse("{}")));
 
         transport.EvaluationValue = "not json";
-        Assert.False(await host.PublishStateAsync("example.performance", Json("{}")));
+        Assert.False(await host.PublishStateAsync("example.performance", TestJson.Parse("{}")));
     }
 
     [Fact]
     public async Task ResponsePayloadUsesTheSameBoundAsPublishedState()
     {
-        await using var transport = new BridgeTransport();
+        await using var transport = new FakeSteamUiTransport();
         await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
         Assert.True(await host.BootstrapAsync());
         int afterBootstrap = transport.Expressions.Count;
-        JsonElement oversized = Json(
+        JsonElement oversized = TestJson.Parse(
             "{\"value\":\"" + new string('x', SteamUiBridgeHost.MaximumPayloadCharacters)
                 + "\"}");
 
@@ -165,7 +165,7 @@ public sealed class SteamUiBridgeHostTests
     [Fact]
     public async Task HandlerFailureDoesNotBlockTheNextBridgeSubscriber()
     {
-        await using var transport = new BridgeTransport();
+        await using var transport = new FakeSteamUiTransport();
         await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
         var received = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         host.RequestReceived += (_, _) => throw new InvalidOperationException("fixture failure");
@@ -181,15 +181,29 @@ public sealed class SteamUiBridgeHostTests
     [Fact]
     public async Task DisposalWaitsForAnInProgressBootstrapBeforeRetracting()
     {
-        await using var transport = new BridgeTransport { BlockNextEvaluation = true };
+        await using var transport = new FakeSteamUiTransport();
+        var evaluationStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseEvaluation = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        transport.OnEvaluate = async call =>
+        {
+            // Only the first evaluation, the bootstrap, is held.
+            if (!evaluationStarted.Task.IsCompleted)
+            {
+                evaluationStarted.TrySetResult();
+                await releaseEvaluation.Task.WaitAsync(call.CancellationToken);
+            }
+            return transport.Reply(transport.EvaluationValue);
+        };
         var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
 
         Task<bool> bootstrap = host.BootstrapAsync();
-        await transport.EvaluationStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await evaluationStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
         Task dispose = host.DisposeAsync().AsTask();
         Assert.False(dispose.IsCompleted);
 
-        transport.ReleaseEvaluation.TrySetResult();
+        releaseEvaluation.TrySetResult();
         _ = await bootstrap;
         await dispose;
 
@@ -200,7 +214,7 @@ public sealed class SteamUiBridgeHostTests
     [Fact]
     public async Task ConnectionGenerationRaisedDuringBindingInstallBecomesBootstrapBaseline()
     {
-        await using var transport = new BridgeTransport { AdvanceGenerationOnInstall = true };
+        await using var transport = new FakeSteamUiTransport { AdvanceGenerationOnInstall = true };
         await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
 
         Assert.True(await host.BootstrapAsync());
@@ -210,7 +224,7 @@ public sealed class SteamUiBridgeHostTests
     [Fact]
     public async Task DisposalRetractsTheBindingAndDetachesNotifications()
     {
-        await using var transport = new BridgeTransport();
+        await using var transport = new FakeSteamUiTransport();
         var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
         var received = 0;
         host.RequestReceived += (_, _) => received++;
@@ -240,7 +254,7 @@ public sealed class SteamUiBridgeHostTests
             actionGeneration,
             generations.ExecutionContext,
             generations.Document,
-            Json("{\"watts\":15,\"enabled\":true}"));
+            TestJson.Parse("{\"watts\":15,\"enabled\":true}"));
 
     private static string RequestJson(
         SteamUiGenerations generations,
@@ -257,147 +271,4 @@ public sealed class SteamUiBridgeHostTests
             documentGeneration = generations.Document,
             payload = new { watts = 15, enabled = true },
         });
-
-    private static JsonElement Json(string json)
-    {
-        using JsonDocument document = JsonDocument.Parse(json);
-        return document.RootElement.Clone();
-    }
-
-    private static async Task WaitUntilAsync(Func<bool> predicate)
-    {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
-        while (!predicate())
-        {
-            await Task.Delay(10, timeout.Token);
-        }
-    }
-
-    private sealed class BridgeTransport : ISteamUiTransport
-    {
-        private EventHandler<SteamUiNotification>? _notificationReceived;
-        private EventHandler<SteamUiTransportSnapshot>? _generationChanged;
-
-        internal SteamUiGenerations Generations { get; private set; } = new(1, 1, 1, 1, 1, 1);
-
-        internal List<string> Expressions { get; } = [];
-
-        internal List<bool> BindingStates { get; } = [];
-
-        internal string EvaluationValue { get; set; } = "{\"ok\":true}";
-
-        internal bool BlockNextEvaluation { get; init; }
-
-        internal bool AdvanceGenerationOnInstall { get; init; }
-
-        internal TaskCompletionSource EvaluationStarted { get; } = new(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-
-        internal TaskCompletionSource ReleaseEvaluation { get; } = new(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public event EventHandler<SteamUiNotification>? NotificationReceived
-        {
-            add => _notificationReceived += value;
-            remove => _notificationReceived -= value;
-        }
-
-        public event EventHandler<SteamUiTransportSnapshot>? GenerationChanged
-        {
-            add => _generationChanged += value;
-            remove => _generationChanged -= value;
-        }
-
-        public ValueTask<IAsyncDisposable> SubscribeAsync(
-            SteamUiTargetRole role,
-            CancellationToken cancellationToken = default)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return ValueTask.FromResult<IAsyncDisposable>(new Lease());
-        }
-
-        public async Task<SteamUiEvaluationResult> EvaluateAsync(
-            SteamUiTargetRole role,
-            string expression,
-            TimeSpan timeout,
-            CancellationToken cancellationToken = default)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            Expressions.Add(expression);
-            if (BlockNextEvaluation && !EvaluationStarted.Task.IsCompleted)
-            {
-                EvaluationStarted.TrySetResult();
-                await ReleaseEvaluation.Task.WaitAsync(cancellationToken);
-            }
-            return new SteamUiEvaluationResult(
-                true,
-                EvaluationValue,
-                null,
-                Generations);
-        }
-
-        public Task SetRuntimeBindingAsync(
-            SteamUiTargetRole role,
-            string bindingName,
-            bool installed,
-            TimeSpan timeout,
-            CancellationToken cancellationToken = default)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            BindingStates.Add(installed);
-            if (installed && AdvanceGenerationOnInstall)
-            {
-                AdvanceDocumentGeneration();
-            }
-            return Task.CompletedTask;
-        }
-
-        public IReadOnlyList<SteamUiTransportSnapshot> GetSnapshots() => [Snapshot()];
-
-        internal void AdvanceDocumentGeneration()
-        {
-            Generations = Generations with
-            {
-                ExecutionContext = Generations.ExecutionContext + 1,
-                Document = Generations.Document + 1,
-            };
-            _generationChanged?.Invoke(this, Snapshot());
-        }
-
-        internal void EmitBindingPayload(
-            string payload,
-            SteamUiGenerations? generations = null) => EmitRawParameters(
-                JsonSerializer.Serialize(new
-                {
-                    name = "__steamUiBridge_v1_7b24d11c",
-                    payload,
-                }),
-                generations);
-
-        internal void EmitRawParameters(
-            string parameters,
-            SteamUiGenerations? generations = null) => _notificationReceived?.Invoke(
-                this,
-                new SteamUiNotification(
-                    SteamUiTargetRole.SharedJsContext,
-                    "Runtime.bindingCalled",
-                    parameters,
-                    generations ?? Generations));
-
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-
-        private SteamUiTransportSnapshot Snapshot() => new(
-            SteamUiTargetRole.SharedJsContext,
-            SteamUiTransportHealth.Ready,
-            Generations,
-            "fixture-shared",
-            null,
-            0,
-            1);
-
-        private sealed class Lease : IAsyncDisposable
-        {
-            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-        }
-    }
 }

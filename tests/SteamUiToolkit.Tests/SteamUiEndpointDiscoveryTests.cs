@@ -4,7 +4,7 @@ namespace SteamUiToolkit.Tests;
 
 /// <summary>Which Steam CDP target is which. Every URL here is verbatim from /json/list on a
 /// real client in game mode.</summary>
-public sealed class SteamUiTargetMatchingTests
+public sealed class SteamUiEndpointDiscoveryTests
 {
     [Theory]
     [InlineData(null, false)]
@@ -119,5 +119,4 @@ public sealed class SteamUiTargetMatchingTests
             "SharedJSContext",
             "https://steamloopback.host/routes/app/489830/controllerconfigurator/summary"));
     }
-
 }

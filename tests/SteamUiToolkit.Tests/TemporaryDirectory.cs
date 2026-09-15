@@ -13,17 +13,6 @@ internal sealed class TemporaryDirectory : IDisposable
 
     public string Root { get; }
 
-    public string GetPath(params string[] segments)
-    {
-        string path = Root;
-        foreach (string segment in segments)
-        {
-            path = Path.Combine(path, segment);
-        }
-
-        return path;
-    }
-
     public void Dispose()
     {
         for (int attempt = 0; attempt < 5 && Directory.Exists(Root); attempt++)
@@ -36,8 +25,7 @@ internal sealed class TemporaryDirectory : IDisposable
                 attempt < 4
                 && exception is IOException or UnauthorizedAccessException)
             {
-                // Collectible plugin load contexts release their mapped package files only after
-                // collection. Test cleanup waits for that documented unload boundary.
+                // A handle released late, by an indexer or antivirus, gets a short grace period.
                 GC.Collect();
                 GC.WaitForPendingFinalizers();
                 GC.Collect();

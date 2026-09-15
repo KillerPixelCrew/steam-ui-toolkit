@@ -1,182 +1,6 @@
-using System.Text;
 using System.Text.Json;
 
 namespace SteamUiToolkit.Tests;
-
-public sealed class SteamUiCdpConnectionTests
-{
-    [Fact]
-    public async Task EvaluationIgnoresOrphanAndCompletesMatchingRequest()
-    {
-        var wire = new FakeWire();
-        wire.Sent = request =>
-        {
-            using var document = JsonDocument.Parse(request);
-            var id = document.RootElement.GetProperty("id").GetInt32();
-            wire.Enqueue("{\"id\":999,\"result\":{}}"u8.ToArray());
-            wire.Enqueue(Encoding.UTF8.GetBytes(
-                $"{{\"id\":{id},\"result\":{{\"result\":{{\"type\":\"string\",\"value\":\"ok\"}}}}}}"));
-        };
-        await using var connection = new SteamUiCdpConnection(
-            wire, (_, _) => { }, (_, _) => { });
-        connection.Start();
-
-        var value = await connection.EvaluateAsync(
-            "JSON.stringify({ok:true})", TimeSpan.FromSeconds(1), CancellationToken.None);
-
-        Assert.Equal("ok", value);
-    }
-
-    [Fact]
-    public async Task MalformedFrameFaultsPendingRequestAndChannel()
-    {
-        var wire = new FakeWire();
-        wire.Sent = _ => wire.Enqueue("[]"u8.ToArray());
-        Exception? closed = null;
-        await using var connection = new SteamUiCdpConnection(
-            wire, (_, _) => { }, (_, error) => closed = error);
-        connection.Start();
-
-        await Assert.ThrowsAnyAsync<Exception>(() => connection.EvaluateAsync(
-            "'x'", TimeSpan.FromSeconds(1), CancellationToken.None));
-        await connection.Completion.WaitAsync(TimeSpan.FromSeconds(1));
-
-        Assert.IsType<InvalidDataException>(closed);
-    }
-
-    [Fact]
-    public async Task CallerCancellationDoesNotPoisonPersistentChannel()
-    {
-        var wire = new FakeWire();
-        var sends = 0;
-        wire.Sent = request =>
-        {
-            sends++;
-            if (sends == 1)
-            {
-                return;
-            }
-            using var document = JsonDocument.Parse(request);
-            var id = document.RootElement.GetProperty("id").GetInt32();
-            wire.Enqueue(Encoding.UTF8.GetBytes(
-                $"{{\"id\":{id},\"result\":{{\"result\":{{\"type\":\"string\",\"value\":\"second\"}}}}}}"));
-        };
-        await using var connection = new SteamUiCdpConnection(
-            wire, (_, _) => { }, (_, _) => { });
-        connection.Start();
-        using var cancellation = new CancellationTokenSource();
-        cancellation.CancelAfter(TimeSpan.FromMilliseconds(50));
-
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => connection.EvaluateAsync(
-            "'first'", TimeSpan.FromSeconds(1), cancellation.Token));
-        var second = await connection.EvaluateAsync(
-            "'second'", TimeSpan.FromSeconds(1), CancellationToken.None);
-
-        Assert.Equal("second", second);
-    }
-
-    [Fact]
-    public async Task SlowNotificationHandlerDoesNotBlockResponseReader()
-    {
-        var wire = new FakeWire();
-        var handlerStarted = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var releaseHandler = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        wire.Sent = request =>
-        {
-            using var document = JsonDocument.Parse(request);
-            int id = document.RootElement.GetProperty("id").GetInt32();
-            wire.Enqueue("{\"method\":\"Runtime.consoleAPICalled\",\"params\":{}}"u8.ToArray());
-            wire.Enqueue(Encoding.UTF8.GetBytes(
-                $"{{\"id\":{id},\"result\":{{\"result\":{{\"type\":\"string\",\"value\":\"ok\"}}}}}}"));
-        };
-        await using var connection = new SteamUiCdpConnection(
-            wire,
-            (_, _) =>
-            {
-                handlerStarted.TrySetResult();
-                releaseHandler.Task.GetAwaiter().GetResult();
-            },
-            (_, _) => { });
-        connection.Start();
-
-        Task<string?> evaluation = connection.EvaluateAsync(
-            "'ok'", TimeSpan.FromSeconds(1), CancellationToken.None);
-        await handlerStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
-        try
-        {
-            Assert.Equal("ok", await evaluation.WaitAsync(TimeSpan.FromSeconds(1)));
-        }
-        finally
-        {
-            releaseHandler.TrySetResult();
-        }
-    }
-
-    [Fact]
-    public async Task NotificationHandlerFailureDoesNotPoisonChannel()
-    {
-        var wire = new FakeWire();
-        wire.Sent = request =>
-        {
-            using var document = JsonDocument.Parse(request);
-            int id = document.RootElement.GetProperty("id").GetInt32();
-            wire.Enqueue("{\"method\":\"Runtime.consoleAPICalled\",\"params\":{}}"u8.ToArray());
-            wire.Enqueue(Encoding.UTF8.GetBytes(
-                $"{{\"id\":{id},\"result\":{{\"result\":{{\"type\":\"string\",\"value\":\"ok\"}}}}}}"));
-        };
-        await using var connection = new SteamUiCdpConnection(
-            wire,
-            (_, _) => throw new InvalidOperationException("fixture failure"),
-            (_, _) => { });
-        connection.Start();
-
-        string? value = await connection.EvaluateAsync(
-            "'ok'", TimeSpan.FromSeconds(1), CancellationToken.None);
-
-        Assert.Equal("ok", value);
-    }
-
-    private sealed class FakeWire : ISteamUiCdpWire
-    {
-        private readonly Queue<byte[]> _messages = new();
-        private readonly SemaphoreSlim _available = new(0);
-
-        internal Action<byte[]>? Sent { get; set; }
-
-        internal void Enqueue(byte[] message)
-        {
-            lock (_messages)
-            {
-                _messages.Enqueue(message);
-            }
-            _available.Release();
-        }
-
-        public Task SendAsync(ReadOnlyMemory<byte> message, CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            Sent?.Invoke(message.ToArray());
-            return Task.CompletedTask;
-        }
-
-        public async Task<byte[]?> ReceiveAsync(CancellationToken cancellationToken)
-        {
-            await _available.WaitAsync(cancellationToken);
-            lock (_messages)
-            {
-                return _messages.Dequeue();
-            }
-        }
-
-        public ValueTask DisposeAsync()
-        {
-            _available.Dispose();
-            return ValueTask.CompletedTask;
-        }
-    }
-}
 
 public sealed class PersistentSteamUiTransportTests
 {
@@ -601,22 +425,18 @@ public sealed class PersistentSteamUiTransportTests
         }
     }
 
+    /// <summary>Answers every CDP call the transport makes, optionally holding or failing one.</summary>
     private sealed class ResponsiveWire(
         bool blockPageEnable,
         bool failFirstEvaluation,
         TaskCompletionSource pageEnableStarted,
-        TaskCompletionSource releasePageEnable) : ISteamUiCdpWire
+        TaskCompletionSource releasePageEnable) : QueueWire
     {
-        private readonly Queue<byte[]> _messages = new();
-        private readonly SemaphoreSlim _available = new(0);
         private int _evaluations;
 
         internal List<string> Methods { get; } = [];
 
-        internal TaskCompletionSource Disposed { get; } = new(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public async Task SendAsync(
+        public override async Task SendAsync(
             ReadOnlyMemory<byte> message,
             CancellationToken cancellationToken)
         {
@@ -644,35 +464,7 @@ public sealed class PersistentSteamUiTransportTests
                     ? "{\"result\":{\"type\":\"string\",\"value\":\"ok\"}}"
                     : "{}";
             }
-            Enqueue(Encoding.UTF8.GetBytes($"{{\"id\":{id},\"result\":{result}}}"));
-        }
-
-        public async Task<byte[]?> ReceiveAsync(CancellationToken cancellationToken)
-        {
-            await _available.WaitAsync(cancellationToken);
-            lock (_messages)
-            {
-                return _messages.Dequeue();
-            }
-        }
-
-        internal void Notify(string method, string parameters) =>
-            Enqueue(Encoding.UTF8.GetBytes(
-                $"{{\"method\":{JsonSerializer.Serialize(method)},\"params\":{parameters}}}"));
-
-        private void Enqueue(byte[] message)
-        {
-            lock (_messages)
-            {
-                _messages.Enqueue(message);
-            }
-            _available.Release();
-        }
-
-        public ValueTask DisposeAsync()
-        {
-            Disposed.TrySetResult();
-            return ValueTask.CompletedTask;
+            Enqueue($"{{\"id\":{id},\"result\":{result}}}");
         }
     }
 }

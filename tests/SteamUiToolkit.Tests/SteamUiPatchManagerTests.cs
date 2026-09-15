@@ -2,6 +2,8 @@ namespace SteamUiToolkit.Tests;
 
 public sealed class SteamUiPatchManagerTests
 {
+    private static readonly SteamUiPatchBounds FixtureBounds = new(TimeSpan.FromSeconds(1), 1024, 1024);
+
     [Fact]
     public void PatchBoundsPreservePublishedNamedArguments()
     {
@@ -36,12 +38,31 @@ public sealed class SteamUiPatchManagerTests
             64 * 1024 + 1));
     }
 
+    [Theory]
+    [InlineData("""{"ok":true,"rowClass":true,"logoClass":true}""", true)]
+    [InlineData("""{"ok":true,"rowClass":false,"logoClass":true}""", false)]
+    [InlineData("""{"ok":true,"rowClass":true,"logoClass":false}""", false)]
+    [InlineData("""{"ok":true}""", false)]
+    [InlineData("""{"ok":false,"rowClass":true,"logoClass":true}""", false)]
+    public void ARequiredStructuralFlagIsPartOfCompatibilityRatherThanDecoration(
+        string probe,
+        bool expected)
+    {
+        // A probe that reports its own structural findings has to have them read. The glyph-style
+        // probe returned whether each build-coupled selector class still exists while only "ok" —
+        // which is !!document.head — decided compatibility, so a Steam build that renamed one was
+        // still called compatible and the patch installed rules matching nothing.
+        Assert.Equal(
+            expected,
+            SteamUiPatchEvaluation.IsSuccessful(probe, "rowClass", "logoClass"));
+    }
+
     [Fact]
     public async Task SynchronousKillSwitchPromptlyRetractsAndReleasesSubscription()
     {
-        await using var transport = new PatchTransport();
+        await using var transport = new FakeSteamUiTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        var patch = new FixturePatch();
+        var patch = new FakePatch { Bounds = FixtureBounds };
         manager.Register(patch);
         await manager.SynchronizeAsync();
         Assert.Equal(SteamUiPatchState.Verified, Assert.Single(manager.GetSnapshots()).State);
@@ -49,7 +70,7 @@ public sealed class SteamUiPatchManagerTests
         manager.SetPatchEnabled(patch.Id, false);
 
         await patch.RemoveStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
-        await WaitUntilAsync(
+        await TestJson.WaitUntilAsync(
             () => Assert.Single(manager.GetSnapshots()).State == SteamUiPatchState.Disabled);
         Assert.Equal(1, transport.ReleasedSubscriptions);
     }
@@ -57,9 +78,9 @@ public sealed class SteamUiPatchManagerTests
     [Fact]
     public async Task KillSwitchCancelsAnInProgressPatchPhaseBeforeRetracting()
     {
-        await using var transport = new PatchTransport();
+        await using var transport = new FakeSteamUiTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        var patch = new FixturePatch { BlockVerification = true };
+        var patch = new FakePatch { Bounds = FixtureBounds, BlockVerification = true };
         manager.Register(patch);
         Task applying = manager.SynchronizeAsync();
         await patch.VerifyStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
@@ -68,16 +89,16 @@ public sealed class SteamUiPatchManagerTests
 
         await patch.RemoveStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
         await applying;
-        await WaitUntilAsync(
+        await TestJson.WaitUntilAsync(
             () => Assert.Single(manager.GetSnapshots()).State == SteamUiPatchState.Disabled);
     }
 
     [Fact]
     public async Task IncompatibleProbeRetractsPreviouslyAppliedPatch()
     {
-        await using var transport = new PatchTransport();
+        await using var transport = new FakeSteamUiTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        var patch = new FixturePatch();
+        var patch = new FakePatch { Bounds = FixtureBounds };
         manager.Register(patch);
         await manager.SynchronizeAsync();
         patch.Compatible = false;
@@ -92,9 +113,9 @@ public sealed class SteamUiPatchManagerTests
     [Fact]
     public async Task RepeatedSynchronizationVerifiesHealthyPatchWithoutReapplyingIt()
     {
-        await using var transport = new PatchTransport();
+        await using var transport = new FakeSteamUiTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        var patch = new FixturePatch();
+        var patch = new FakePatch { Bounds = FixtureBounds };
         manager.Register(patch);
 
         await manager.SynchronizeAsync();
@@ -108,14 +129,14 @@ public sealed class SteamUiPatchManagerTests
     [Fact]
     public async Task GenerationChangeDuringVerificationCannotPublishStaleVerifiedState()
     {
-        await using var transport = new PatchTransport();
+        await using var transport = new FakeSteamUiTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        var patch = new FixturePatch { BlockVerification = true };
+        var patch = new FakePatch { Bounds = FixtureBounds, BlockVerification = true };
         manager.Register(patch);
 
         Task synchronization = manager.SynchronizeAsync();
         await patch.VerifyStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
-        transport.AdvanceGeneration();
+        transport.AdvanceDocumentGeneration();
         patch.ReleaseVerification.TrySetResult();
         await synchronization;
 
@@ -125,9 +146,9 @@ public sealed class SteamUiPatchManagerTests
     [Fact]
     public async Task DelayedEventForTheVerifiedGenerationDoesNotInvalidateIt()
     {
-        await using var transport = new PatchTransport();
+        await using var transport = new FakeSteamUiTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        var patch = new FixturePatch();
+        var patch = new FakePatch { Bounds = FixtureBounds };
         manager.Register(patch);
         await manager.SynchronizeAsync();
 
@@ -139,9 +160,9 @@ public sealed class SteamUiPatchManagerTests
     [Fact]
     public async Task SynchronizationDetectsGenerationBeforeItsDelayedEvent()
     {
-        await using var transport = new PatchTransport();
+        await using var transport = new FakeSteamUiTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        var patch = new FixturePatch();
+        var patch = new FakePatch { Bounds = FixtureBounds };
         manager.Register(patch);
         await manager.SynchronizeAsync();
 
@@ -152,15 +173,15 @@ public sealed class SteamUiPatchManagerTests
         SteamUiPatchSnapshot snapshot = Assert.Single(manager.GetSnapshots());
         Assert.Equal(SteamUiPatchState.Verified, snapshot.State);
         Assert.Equal(2, patch.ApplyCalls);
-        Assert.Equal(transport.CurrentGenerations, snapshot.Generations);
+        Assert.Equal(transport.Generations, snapshot.Generations);
     }
 
     [Fact]
     public async Task AwaitedGlobalKillSwitchCompletesOnlyAfterRemoval()
     {
-        await using var transport = new PatchTransport();
+        await using var transport = new FakeSteamUiTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        var patch = new FixturePatch();
+        var patch = new FakePatch { Bounds = FixtureBounds };
         manager.Register(patch);
         await manager.SynchronizeAsync();
 
@@ -170,177 +191,92 @@ public sealed class SteamUiPatchManagerTests
         Assert.Equal(1, patch.RemoveCalls);
     }
 
-    private static async Task WaitUntilAsync(Func<bool> predicate)
+    [Fact]
+    public async Task PatchFailureDoesNotBlockIndependentPatch()
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
-        while (!predicate())
-        {
-            await Task.Delay(10, timeout.Token);
-        }
+        await using var transport = new FakeSteamUiTransport();
+        await using var manager = new SteamUiPatchManager(transport);
+        var broken = new FakePatch("broken", "dom-a") { ThrowOnApply = true };
+        var healthy = new FakePatch("healthy", "dom-b");
+        manager.Register(broken);
+        manager.Register(healthy);
+
+        await manager.SynchronizeAsync();
+        var snapshots = manager.GetSnapshots().ToDictionary(snapshot => snapshot.Id);
+
+        Assert.Equal(SteamUiPatchState.Degraded, snapshots["broken"].State);
+        Assert.Equal(SteamUiPatchState.Verified, snapshots["healthy"].State);
     }
 
-    private sealed class FixturePatch : ISteamUiPatch
+    [Fact]
+    public async Task IndividualKillSwitchRemovesOnlyOwnedPatch()
     {
-        internal bool Compatible { get; set; } = true;
+        await using var transport = new FakeSteamUiTransport();
+        await using var manager = new SteamUiPatchManager(transport);
+        var first = new FakePatch("first", "dom-a");
+        var second = new FakePatch("second", "dom-b");
+        manager.Register(first);
+        manager.Register(second);
+        await manager.SynchronizeAsync();
 
-        internal bool BlockVerification { get; init; }
+        manager.SetPatchEnabled("first", false);
+        await manager.SynchronizeAsync();
 
-        internal int ApplyCalls { get; private set; }
-
-        internal int VerifyCalls { get; private set; }
-
-        internal int RemoveCalls { get; private set; }
-
-        internal TaskCompletionSource VerifyStarted { get; } = new(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-
-        internal TaskCompletionSource ReleaseVerification { get; } = new(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-
-        internal TaskCompletionSource RemoveStarted { get; } = new(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public string Id => "fixture.patch";
-
-        public int Version => 1;
-
-        public SteamUiTargetRole TargetRole => SteamUiTargetRole.SharedJsContext;
-
-        public string ResourceKey => "fixture.resource";
-
-        public SteamUiPatchBounds Bounds { get; } = new(
-            TimeSpan.FromSeconds(1),
-            1024,
-            1024);
-
-        public Task<SteamUiPatchProbeResult> ProbeAsync(
-            SteamUiPatchContext context,
-            CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return Task.FromResult(new SteamUiPatchProbeResult(
-                true,
-                Compatible,
-                Compatible,
-                Compatible ? "fixture-fingerprint" : null,
-                Compatible ? null : "fixture incompatible"));
-        }
-
-        public Task<SteamUiPatchOperationResult> ApplyAsync(
-            SteamUiPatchContext context,
-            CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            ApplyCalls++;
-            return Task.FromResult(new SteamUiPatchOperationResult(true, null));
-        }
-
-        public async Task<SteamUiPatchOperationResult> VerifyAsync(
-            SteamUiPatchContext context,
-            CancellationToken cancellationToken)
-        {
-            VerifyCalls++;
-            VerifyStarted.TrySetResult();
-            if (BlockVerification)
-            {
-                await ReleaseVerification.Task.WaitAsync(cancellationToken);
-            }
-            return new SteamUiPatchOperationResult(true, null);
-        }
-
-        public Task<SteamUiPatchOperationResult> RemoveAsync(
-            SteamUiPatchContext context,
-            CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            RemoveCalls++;
-            RemoveStarted.TrySetResult();
-            return Task.FromResult(new SteamUiPatchOperationResult(true, null));
-        }
+        Assert.Equal(1, first.RemoveCalls);
+        Assert.Equal(0, second.RemoveCalls);
+        Assert.Equal(SteamUiPatchState.Disabled,
+            manager.GetSnapshots().Single(snapshot => snapshot.Id == "first").State);
+        Assert.Equal(SteamUiPatchState.Verified,
+            manager.GetSnapshots().Single(snapshot => snapshot.Id == "second").State);
     }
 
-    private sealed class PatchTransport : ISteamUiTransport
+    [Fact]
+    public async Task AnAppliedPatchThatDoesNotVerifyIsRemovedRatherThanLeftInTheClient()
     {
-        private SteamUiGenerations _generations = new(1, 1, 1, 1, 1, 1);
+        await using var transport = new FakeSteamUiTransport();
+        await using SteamUiPatchManager manager = new(transport);
+        FakePatch patch = new() { VerifySucceeds = false };
+        manager.Register(patch);
 
-        internal int ReleasedSubscriptions { get; private set; }
+        await manager.SynchronizeAsync();
 
-        internal SteamUiGenerations CurrentGenerations => _generations;
+        SteamUiPatchSnapshot snapshot = Assert.Single(manager.GetSnapshots());
+        Assert.Equal(SteamUiPatchState.Degraded, snapshot.State);
+        Assert.Equal(1, patch.RemoveCalls);
+    }
 
-        public event EventHandler<SteamUiNotification>? NotificationReceived
+    [Fact]
+    public async Task APatchWhoseRemovalAlsoFailsReportsRemoveFailed()
+    {
+        await using var transport = new FakeSteamUiTransport();
+        await using SteamUiPatchManager manager = new(transport);
+        FakePatch patch = new() { VerifySucceeds = false, RemoveSucceeds = false };
+        manager.Register(patch);
+
+        await manager.SynchronizeAsync();
+
+        SteamUiPatchSnapshot snapshot = Assert.Single(manager.GetSnapshots());
+        Assert.Equal(SteamUiPatchState.RemoveFailed, snapshot.State);
+    }
+
+    [Fact]
+    public async Task EveryPhaseGetsItsOwnDeclaredBudget()
+    {
+        // The bound is documented as the maximum duration of one phase. Sharing one source across
+        // probe, apply and verify let a slow client spend most of it probing and have its otherwise
+        // in-budget apply cancelled underneath it.
+        await using var transport = new FakeSteamUiTransport();
+        await using SteamUiPatchManager manager = new(transport);
+        FakePatch patch = new()
         {
-            add { }
-            remove { }
-        }
+            Bounds = new SteamUiPatchBounds(TimeSpan.FromMilliseconds(400), 4096, 512),
+            PhaseDelay = TimeSpan.FromMilliseconds(250),
+        };
+        manager.Register(patch);
 
-        public event EventHandler<SteamUiTransportSnapshot>? GenerationChanged;
+        await manager.SynchronizeAsync();
 
-        public ValueTask<IAsyncDisposable> SubscribeAsync(
-            SteamUiTargetRole role,
-            CancellationToken cancellationToken = default)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return ValueTask.FromResult<IAsyncDisposable>(new Lease(this));
-        }
-
-        public Task<SteamUiEvaluationResult> EvaluateAsync(
-            SteamUiTargetRole role,
-            string expression,
-            TimeSpan timeout,
-            CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
-
-        public Task SetRuntimeBindingAsync(
-            SteamUiTargetRole role,
-            string bindingName,
-            bool installed,
-            TimeSpan timeout,
-            CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
-
-        public IReadOnlyList<SteamUiTransportSnapshot> GetSnapshots() =>
-            [Snapshot()];
-
-        internal void AdvanceGeneration()
-        {
-            AdvanceGenerationWithoutEvent();
-            GenerationChanged?.Invoke(this, Snapshot());
-        }
-
-        internal void AdvanceGenerationWithoutEvent()
-        {
-            _generations = _generations with
-            {
-                ExecutionContext = _generations.ExecutionContext + 1,
-                Document = _generations.Document + 1,
-            };
-        }
-
-        internal void EmitCurrentGeneration() => GenerationChanged?.Invoke(this, Snapshot());
-
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-
-        private SteamUiTransportSnapshot Snapshot() => new(
-            SteamUiTargetRole.SharedJsContext,
-            SteamUiTransportHealth.Ready,
-            _generations,
-            "fixture",
-            null,
-            0,
-            1);
-
-        private sealed class Lease(PatchTransport owner) : IAsyncDisposable
-        {
-            private int _disposed;
-
-            public ValueTask DisposeAsync()
-            {
-                if (Interlocked.Exchange(ref _disposed, 1) == 0)
-                {
-                    owner.ReleasedSubscriptions++;
-                }
-                return ValueTask.CompletedTask;
-            }
-        }
+        SteamUiPatchSnapshot snapshot = Assert.Single(manager.GetSnapshots());
+        Assert.Equal(SteamUiPatchState.Verified, snapshot.State);
     }
 }

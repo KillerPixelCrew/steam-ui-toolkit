@@ -4,6 +4,10 @@ namespace SteamUiToolkit.Tests;
 
 public sealed class SteamUiModuleTests
 {
+    private static readonly SteamUiInjectedAsset Asset = new(
+        "(()=>__STEAM_UI_CONFIGURATION_JSON__)()",
+        "FIXTUREHASH");
+
     [Fact]
     public void ModulesFlattenIntoThePatchPublicationAndCommandLookups()
     {
@@ -110,40 +114,102 @@ public sealed class SteamUiModuleTests
         Assert.True(SteamUiCommandResult.Applied.Succeeded);
     }
 
-    private static ISteamUiPatch Patch(string id) => new StubPatch(id);
+    [Fact]
+    public async Task FailingPublicationDoesNotPreventIndependentPublication()
+    {
+        await using var transport = new FakeSteamUiTransport();
+        SteamUiModuleSet modules = new(
+        [
+            new SteamUiModule(
+                "fixture",
+                publications:
+                [
+                    new SteamUiStatePublication(
+                        "fixture.bad",
+                        () => true,
+                        () => throw new InvalidOperationException("fixture failure")),
+                    new SteamUiStatePublication(
+                        "fixture.good",
+                        () => true,
+                        () => ValueTask.FromResult<JsonElement?>(TestJson.Parse("{\"value\":1}"))),
+                ]),
+        ]);
+        await using var bridge = new SteamUiBridgeHost(
+            transport,
+            Asset,
+            modules.AllowedCommands);
+        Assert.True(await bridge.BootstrapAsync());
+        await using var runtime = new SteamUiModuleRuntime(
+            bridge,
+            modules,
+            () => true,
+            () => true);
+
+        runtime.QueuePublication();
+
+        await TestJson.WaitUntilAsync(() => Deliveries(transport).Count == 1);
+        Assert.Contains("fixture.good", Deliveries(transport)[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RejectedPublicationDoesNotPreventTheNextPublication()
+    {
+        await using var transport = new FakeSteamUiTransport();
+        Queue<string> acknowledgements = new(["{\"ok\":false}", "{\"ok\":true}"]);
+        transport.OnEvaluate = call =>
+        {
+            string acknowledgement = "{\"ok\":true}";
+            lock (acknowledgements)
+            {
+                if (call.Expression.Contains("deliver", StringComparison.Ordinal)
+                    && acknowledgements.Count > 0)
+                {
+                    acknowledgement = acknowledgements.Dequeue();
+                }
+            }
+            return Task.FromResult(transport.Reply(acknowledgement));
+        };
+        SteamUiModuleSet modules = new(
+        [
+            new SteamUiModule(
+                "fixture",
+                publications:
+                [
+                    Publication("fixture.first", 1),
+                    Publication("fixture.second", 2),
+                ]),
+        ]);
+        await using var bridge = new SteamUiBridgeHost(
+            transport,
+            Asset,
+            modules.AllowedCommands);
+        Assert.True(await bridge.BootstrapAsync());
+        await using var runtime = new SteamUiModuleRuntime(
+            bridge,
+            modules,
+            () => true,
+            () => true);
+
+        runtime.QueuePublication();
+
+        await TestJson.WaitUntilAsync(() => Deliveries(transport).Count == 2);
+        Assert.Contains("fixture.first", Deliveries(transport)[0], StringComparison.Ordinal);
+        Assert.Contains("fixture.second", Deliveries(transport)[1], StringComparison.Ordinal);
+    }
+
+    private static List<string> Deliveries(FakeSteamUiTransport transport) =>
+        [.. transport.Expressions.Where(expression => expression.Contains("deliver", StringComparison.Ordinal))];
+
+    private static ISteamUiPatch Patch(string id) => new FakePatch(id, id);
 
     private static SteamUiStatePublication Publication(string patchId) =>
         new(patchId, () => true, () => ValueTask.FromResult<JsonElement?>(null));
 
+    private static SteamUiStatePublication Publication(string patchId, int value) => new(
+        patchId,
+        () => true,
+        () => ValueTask.FromResult<JsonElement?>(TestJson.Parse($"{{\"value\":{value}}}")));
+
     private static SteamUiCommandHandler Command(string patchId, string command) =>
         new(patchId, command, (_, _) => Task.FromResult(SteamUiCommandResult.Applied));
-
-    private sealed class StubPatch(string id) : ISteamUiPatch
-    {
-        public string Id => id;
-
-        public int Version => 1;
-
-        public SteamUiTargetRole TargetRole => SteamUiTargetRole.SharedJsContext;
-
-        public string ResourceKey => id;
-
-        public SteamUiPatchBounds Bounds => SteamUiPatchBounds.Default;
-
-        public Task<SteamUiPatchProbeResult> ProbeAsync(
-            SteamUiPatchContext context, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<SteamUiPatchOperationResult> ApplyAsync(
-            SteamUiPatchContext context, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<SteamUiPatchOperationResult> VerifyAsync(
-            SteamUiPatchContext context, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<SteamUiPatchOperationResult> RemoveAsync(
-            SteamUiPatchContext context, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-    }
 }
