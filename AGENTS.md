@@ -29,7 +29,15 @@ enabled; this repository supplies mechanisms and truthful state.
 - `SteamUiAssets/Source`: TypeScript bridge, ownership helpers, RPC support, shared gate helpers,
   gates, and component host.
 - `eng/build-prelude.mjs`: deterministic source composition and TypeScript validation.
-- `eng/check-ownership-claims.mjs`: tests ownership behavior against the emitted JavaScript.
+- `eng/run-checks.mjs`: builds the prelude and runs every emitted-asset check, stopping at the first
+  failure; `eng/check-harness.mjs` is what the checks share (asset loading, marker slices, gate
+  instantiation over the real ownership primitives and gate helpers, and a React stand-in).
+- `eng/check-*.mjs`: the emitted-asset checks. `check-ownership-claims` (claim primitives),
+  `check-startup` (module resolver, component host, network probe, bridge replay),
+  `check-power-profile` (row dropdowns, glyphs, device controls, sections, power sliders and the
+  slider echo), `check-service-gates` (Bluetooth and brightness), `check-navigation-panel`,
+  `check-pages`, `check-storage`, `check-library` (library badge, details stat and the JSX claim),
+  `check-home-carousel` and `check-screensaver`.
 - `tests/SteamUiToolkit.Tests`: transport, bridge, lifecycle, extension, and surface contracts.
 
 Paths without a leading directory in the map above are relative to `src/SteamUiToolkit`. `dist/` is
@@ -163,7 +171,9 @@ npm ci --ignore-scripts --no-audit --no-fund
 npm run prelude:claims
 ```
 
-CI uses .NET 10 and Node 22. `prelude:claims` also builds the prelude.
+CI uses .NET 10 and Node 22. `prelude:claims` runs `eng/run-checks.mjs`, which builds the prelude
+and runs every emitted-asset check against it. Given an asset path, the runner checks that asset
+without building, which is how a consumer can check its own composed asset.
 
 Run focused tests during iteration, but retain the full gate for code or asset changes. A change to
 Steam module matching, localization, layout, or runtime behavior also needs explicit validation

@@ -168,7 +168,7 @@ error.
 
 `eng/check-ownership-claims.mjs` runs the claim primitives out of the emitted prelude, the actual
 bytes that get injected, against those scenarios in CI. It caught a real defect the day it was
-written.
+written. `npm run prelude:claims` runs it with the other emitted-asset checks.
 
 ## Using it
 

@@ -533,7 +533,9 @@ The accessor rule in `claimValue` comes from a MobX crash in the Quick Access Me
 `eng/check-ownership-claims.mjs` slices the ownership primitives out of the emitted prelude,
 evaluates them with `new Function`, and runs more than thirty claim, reclaim, release, stand-aside
 and lost-original scenarios. It runs in CI; reintroducing the function-type defect fails four
-checks.
+checks. The other emitted-asset checks share `eng/check-harness.mjs`, which instantiates each gate
+over these same emitted primitives and the shared gate helpers rather than stand-ins, and
+`eng/run-checks.mjs` runs them all.
 
 React has one `useMemo`, and more than one surface needs what it returns: the Quick Access tab list
 and the Settings page list. `interceptMemo(react, name, transform)` takes one member claim on it for
@@ -686,8 +688,8 @@ evaluated and its place among the discovered fragments does not matter.
 | `SteamHomeCarouselTests`, `eng/check-home-carousel.mjs` | the Home probe's separate facts, finding Home by content rather than name, already-claimed compatibility, the published wire shape, the exact report payload; the emitted gate finding Home through the route list, replacing `games` for the carousel and the background, clearing the whole-list overscan, the documented order, disconnected games leaving, uninstalled games greyed, no rebuild or report without a change, the fallback to Steam's list, bounded publications, a mounted wrapper passing through after removal, exact restoration, reinstall |
 | `SteamScreensaverTests`, `eng/check-screensaver.mjs` | the probe's separate facts and that it names no module id or export, the published wire shape, the exact report and choice payloads and their refusals; the emitted gate wrapping only the customization page and only its Screensaver section, appending the rows after Steam's own, reporting on first read, on change and on page open, sending a choice once and disabling the row while pending, refusing a malformed state whole, the bounded first-report retry, keeping the shared `useMemo` claim for another surface on removal and handing it back with the last |
 | `eng/check-startup.mjs` (resolver) | missing factories staying uncached, unique resolution, and `exported` counting aliases once, refusing two distinct fits, no fit, a missing module and an invalid predicate |
-| `SteamLibraryBadgeTests`, `eng/check-library-details.mjs` (details) | the stat patch's compatibility, its Valve-named row lookup and shared runtime resource, the module declaring both patches under one publication; the emitted stat only on the stats row, Valve's classes and the localized label, the badge's naming rules and dimming, no duplicate, an `elements` gate transform coexisting on the one claim, a throwing transform skipped, and `jsx` and `jsxs` handed back only with the last transform |
-| `SteamLibraryBadgeTests`, `eng/check-library-badge.mjs` | the badge probe's separate structural facts, selection of the tile and the badge by what they are rather than by name, the published wire shape, the exact layout payload; the emitted gate placing the badge left of Valve's in one row, naming the library or the internal label, green for installed and grey otherwise, no badge for a game installed nowhere, an anchorless tile left untouched, Big Art reported once per change, exact restoration, reinstall |
+| `SteamLibraryBadgeTests`, `eng/check-library.mjs` (details) | the stat patch's compatibility, its Valve-named row lookup and shared runtime resource, the module declaring both patches under one publication; the emitted stat only on the stats row, Valve's classes and the localized label, the badge's naming rules and dimming, no duplicate, an `elements` gate transform coexisting on the one claim, a throwing transform skipped, and `jsx` and `jsxs` handed back only with the last transform |
+| `SteamLibraryBadgeTests`, `eng/check-library.mjs` (badge) | the badge probe's separate structural facts, selection of the tile and the badge by what they are rather than by name, the published wire shape, the exact layout payload; the emitted gate placing the badge left of Valve's in one row, naming the library or the internal label, green for installed and grey otherwise, no badge for a game installed nowhere, an anchorless tile left untouched, Big Art reported once per change, exact restoration, reinstall |
 
 ## 15. Surfaces
 
@@ -991,11 +993,11 @@ client says which one moved, and accepts a panel this gate already claimed.
 revision sequence for responses and publications. The gate holds confirmed state separately from
 pending requests, rejects old revisions and suppresses observable-update feedback into the setter.
 Failures keep the last confirmed level and expose `lastError`; they never retry automatically.
-`eng/check-brightness.mjs` exercises focused-slider echoes, stale readback, overlapping requests,
+`eng/check-service-gates.mjs` exercises focused-slider echoes, stale readback, overlapping requests,
 failures and reinstall against the emitted JavaScript without a live Steam session.
 
 Semantic slider completion also suppresses an unchanged observed value. Programmatic refresh and
-command acknowledgments cannot become new user writes. `eng/check-slider-readback.mjs` checks the
+command acknowledgments cannot become new user writes. `eng/check-power-profile.mjs` checks the
 emitted echo hook with an inert React fixture.
 
 `SteamPowerProfileRow` adds a dropdown on Performance through patch `steam-ui.power-profile`, kind
