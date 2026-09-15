@@ -16,9 +16,9 @@ namespace SteamUiToolkit;
 /// nodes carry their own marker class and never touch CSSLoader's.
 /// </para>
 /// <para>
-/// Held as constants rather than injected because the host is currently the only host. When the toolkit
-/// is extracted these become a value the host supplies once — the shape is already right for that,
-/// which is why callers reference this type rather than a literal.
+/// Held as constants rather than injected because one host uses them today. If a host ever needs its
+/// own names, these become a value it supplies once. The shape is already right for that, which is
+/// why callers reference this type rather than a literal.
 /// </para>
 /// </remarks>
 public static class SteamUiBridgeIdentity

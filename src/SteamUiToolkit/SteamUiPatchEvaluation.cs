@@ -9,7 +9,7 @@ namespace SteamUiToolkit;
 /// The one place a patch turns an injected expression into a patch result.
 /// </summary>
 /// <remarks>
-/// Every the host patch injects a self-contained expression that returns
+/// Every host patch injects a self-contained expression that returns
 /// <c>JSON.stringify({ok:…,error:…})</c>, so the parse is the same everywhere. It lived in three
 /// copies that had already drifted: two returned only the caller's fallback text when the page
 /// answered with a shape that had no <c>error</c> string, which is exactly the case a remote log
@@ -69,24 +69,6 @@ public static class SteamUiPatchEvaluation
         }
     }
 
-    /// <summary>Whether an injected expression reported success.</summary>
-    /// <param name="value">The raw JSON the expression returned.</param>
-    /// <returns><see langword="true"/> when the page reported <c>ok</c>.</returns>
-    /// <remarks>Unparseable output is a failure, never an optimistic success.</remarks>
-    public static bool IsSuccessful(string value)
-    {
-        try
-        {
-            using JsonDocument document = JsonDocument.Parse(value);
-            return document.RootElement.TryGetProperty("ok", out JsonElement ok)
-                && ok.ValueKind == JsonValueKind.True;
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-    }
-
     /// <summary>Whether a probe counted exactly one match for a required structural token set.</summary>
     /// <param name="root">The parsed probe result.</param>
     /// <param name="property">The count property to check.</param>
@@ -103,14 +85,18 @@ public static class SteamUiPatchEvaluation
 
     /// <summary>Whether a probe reported success and every named boolean was true.</summary>
     /// <param name="value">The raw probe result.</param>
-    /// <param name="requiredFlags">Boolean properties that must all be present and true.</param>
+    /// <param name="requiredFlags">Boolean properties that must all be present and true. With none,
+    /// this is simply whether the page reported <c>ok</c>.</param>
     /// <returns><see langword="true"/> when the target is genuinely compatible.</returns>
     /// <remarks>
+    /// Unparseable output is a failure, never an optimistic success.
+    /// <para>
     /// A probe that reports its own structural findings alongside <c>ok</c> has to have them read.
     /// The glyph-style probe returned whether each build-coupled selector class still exists while
     /// only <c>ok</c> — which is <c>!!document.head</c> — decided compatibility, so a Steam build
     /// that renamed one of them was still called compatible and the patch installed rules that
     /// could no longer match anything, instead of falling back to Valve's native rendering.
+    /// </para>
     /// </remarks>
     public static bool IsSuccessful(string value, params string[] requiredFlags)
     {

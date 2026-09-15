@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -104,7 +105,7 @@ public sealed class SteamUiBridgeAuthorizer
             return Reject("sequence or action generation is invalid");
         }
         if (request.Payload.ValueKind == JsonValueKind.Undefined
-            || request.Payload.GetRawText().Length > SteamUiBridgeHost.MaximumPayloadCharacters)
+            || SteamUiBridgeHost.ExceedsPayloadLimit(request.Payload))
         {
             return Reject("payload exceeded its limit");
         }
@@ -139,7 +140,7 @@ public sealed class SteamUiBridgeAuthorizer
         }
     }
 
-    private static bool Contains(IReadOnlyList<string> commands, string command)
+    internal static bool Contains(IReadOnlyList<string> commands, string command)
     {
         for (int index = 0; index < commands.Count; index++)
         {
@@ -194,17 +195,22 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
     private const string Namespace = SteamUiBridgeIdentity.Namespace;
     private const string BindingName = SteamUiBridgeIdentity.BindingName;
     private static readonly TimeSpan OperationTimeout = TimeSpan.FromSeconds(5);
+
+    // Handed to the injected side, which refuses a request beyond this many pending ones and
+    // answers a request the host has not settled within the timeout itself.
+    private const int MaximumPendingRequests = 32;
+    private const int RequestTimeoutMilliseconds = 5000;
     private readonly ISteamUiTransport _transport;
     private readonly SteamUiInjectedAsset _asset;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<string>> _allowedCommands;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _stateSync = new();
     private readonly SteamUiBridgeAuthorizer _authorizer;
-    // The injected side permits 32 pending requests; reserve matching room for each one's
-    // cancellation so a saturated request burst cannot strand its own cleanup message.
+    // The injected side permits MaximumPendingRequests pending requests; reserve matching room for
+    // each one's cancellation so a saturated request burst cannot strand its own cleanup message.
     private readonly Channel<SteamUiBridgeRequest> _requests =
         Channel.CreateBounded<SteamUiBridgeRequest>(
-            new BoundedChannelOptions(64)
+            new BoundedChannelOptions(2 * MaximumPendingRequests)
             {
                 SingleReader = true,
                 SingleWriter = false,
@@ -254,11 +260,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-            lock (_stateSync)
-            {
-                _ready = false;
-            }
-            var snapshot = FindSharedSnapshot();
+            MarkNotReady();
             await _transport.SetRuntimeBindingAsync(
                 SteamUiTargetRole.SharedJsContext,
                 BindingName,
@@ -266,7 +268,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
                 OperationTimeout,
                 cancellationToken).ConfigureAwait(false);
 
-            snapshot = FindSharedSnapshot();
+            var snapshot = FindSharedSnapshot();
             long bootstrapEpoch;
             lock (_stateSync)
             {
@@ -284,11 +286,14 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             {
                 return false;
             }
-            using var handshake = JsonDocument.Parse(result.Value);
-            bool ready = handshake.RootElement.TryGetProperty("ok", out var ok)
-                && ok.ValueKind == JsonValueKind.True
-                && result.Generations.ExecutionContext == snapshot.Generations.ExecutionContext
-                && result.Generations.Document == snapshot.Generations.Document;
+            bool ready = IsPositiveAcknowledgement(
+                result, snapshot.Generations, out string? malformed);
+            if (malformed is not null)
+            {
+                MarkNotReady();
+                SteamUiLog.Warn($"Steam UI bridge bootstrap failed: {malformed}");
+                return false;
+            }
             lock (_stateSync)
             {
                 if (ready && bootstrapEpoch == _generationEpoch)
@@ -306,10 +311,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            lock (_stateSync)
-            {
-                _ready = false;
-            }
+            MarkNotReady();
             SteamUiLog.Warn($"Steam UI bridge bootstrap failed: {ex.Message}");
             return false;
         }
@@ -333,35 +335,21 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         string? error,
         CancellationToken cancellationToken = default)
     {
-        SteamUiGenerations generations;
-        lock (_stateSync)
-        {
-            if (!_ready)
-            {
-                return false;
-            }
-            generations = _generations;
-        }
-        if (request.Version != SchemaVersion
+        if (!TryGetReadyGenerations(out SteamUiGenerations generations)
+            || request.Version != SchemaVersion
             || request.ContextGeneration != generations.ExecutionContext
             || request.DocumentGeneration != generations.Document
             || !_allowedCommands.TryGetValue(request.PatchId, out var commands)
-            || !ContainsCommand(commands, request.Command)
-            || (payload.HasValue
-                && payload.Value.GetRawText().Length > MaximumPayloadCharacters))
+            || !SteamUiBridgeAuthorizer.Contains(commands, request.Command)
+            || (payload.HasValue && ExceedsPayloadLimit(payload.Value)))
         {
             return false;
         }
-        var json = BuildResponse(request, ok, payload, error);
-        var expression = "(()=>{const b=window[" + SteamCef.JsString(Namespace)
-            + "];return JSON.stringify({ok:!!(b&&b.deliver(JSON.parse("
-            + SteamCef.JsString(json) + ")))});})()";
-        var result = await _transport.EvaluateAsync(
-            SteamUiTargetRole.SharedJsContext,
-            expression,
-            OperationTimeout,
-            cancellationToken).ConfigureAwait(false);
-        return IsPositiveAcknowledgement(result, generations);
+        return await DeliverAsync(
+                BuildResponse(request, ok, payload, error),
+                generations,
+                cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <summary>Publishes immutable semantic state to subscribers of one allowlisted patch.</summary>
@@ -374,31 +362,38 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         JsonElement payload,
         CancellationToken cancellationToken = default)
     {
-        SteamUiGenerations generations;
-        lock (_stateSync)
-        {
-            if (!_ready)
-            {
-                return false;
-            }
-            generations = _generations;
-        }
-        if (!_allowedCommands.ContainsKey(patchId)
-            || payload.GetRawText().Length > MaximumPayloadCharacters)
+        if (!TryGetReadyGenerations(out SteamUiGenerations generations)
+            || !_allowedCommands.ContainsKey(patchId)
+            || ExceedsPayloadLimit(payload))
         {
             return false;
         }
+        return await DeliverAsync(
+                BuildState(patchId, payload, generations),
+                generations,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
 
-        var json = BuildState(patchId, payload, generations);
+    /// <summary>Hands one envelope to the injected bridge of the expected generation.</summary>
+    /// <param name="envelope">The serialized response or state envelope.</param>
+    /// <param name="generations">The generations the envelope was built for.</param>
+    /// <param name="cancellationToken">Cancels delivery.</param>
+    /// <returns>True when that document accepted the envelope.</returns>
+    private async Task<bool> DeliverAsync(
+        string envelope,
+        SteamUiGenerations generations,
+        CancellationToken cancellationToken)
+    {
         var expression = "(()=>{const b=window[" + SteamCef.JsString(Namespace)
             + "];return JSON.stringify({ok:!!(b&&b.deliver(JSON.parse("
-            + SteamCef.JsString(json) + ")))});})()";
+            + SteamCef.JsString(envelope) + ")))});})()";
         var result = await _transport.EvaluateAsync(
             SteamUiTargetRole.SharedJsContext,
             expression,
             OperationTimeout,
             cancellationToken).ConfigureAwait(false);
-        return IsPositiveAcknowledgement(result, generations);
+        return IsPositiveAcknowledgement(result, generations, out _);
     }
 
     /// <summary>Removes only the host-owned bridge namespace and Runtime binding.</summary>
@@ -420,10 +415,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
 
     private async Task RemoveCoreAsync(CancellationToken cancellationToken)
     {
-        lock (_stateSync)
-        {
-            _ready = false;
-        }
+        MarkNotReady();
         try
         {
             await _transport.SetRuntimeBindingAsync(
@@ -456,17 +448,9 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
 
     private void OnNotificationReceived(object? sender, SteamUiNotification notification)
     {
-        SteamUiGenerations generations;
-        lock (_stateSync)
-        {
-            if (!_ready)
-            {
-                return;
-            }
-            generations = _generations;
-        }
         if (notification.Role != SteamUiTargetRole.SharedJsContext
             || notification.Method != "Runtime.bindingCalled"
+            || !TryGetReadyGenerations(out SteamUiGenerations generations)
             || notification.Generations.ExecutionContext != generations.ExecutionContext
             || notification.Generations.Document != generations.Document)
         {
@@ -592,67 +576,104 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         throw new InvalidOperationException("SharedJSContext channel is not registered.");
     }
 
-    private static bool ContainsCommand(IReadOnlyList<string> commands, string command)
+    private void MarkNotReady()
     {
-        for (int index = 0; index < commands.Count; index++)
+        lock (_stateSync)
         {
-            if (string.Equals(commands[index], command, StringComparison.Ordinal))
-            {
-                return true;
-            }
+            _ready = false;
         }
-        return false;
     }
 
+    private bool TryGetReadyGenerations(out SteamUiGenerations generations)
+    {
+        lock (_stateSync)
+        {
+            generations = _generations;
+            return _ready;
+        }
+    }
+
+    /// <summary>Whether a payload's raw JSON exceeds <see cref="MaximumPayloadCharacters"/>.</summary>
+    /// <param name="payload">The payload to measure.</param>
+    /// <returns>True when its raw text is longer than the limit in UTF-16 characters.</returns>
+    /// <remarks>
+    /// UTF-8 never takes fewer bytes than UTF-16 takes characters, so a raw value within the limit in
+    /// bytes is within it in characters, and only a longer one is decoded to count. Neither
+    /// materializes the text the way measuring <see cref="JsonElement.GetRawText"/> did.
+    /// </remarks>
+    internal static bool ExceedsPayloadLimit(JsonElement payload)
+    {
+        ReadOnlySpan<byte> raw = JsonMarshal.GetRawUtf8Value(payload);
+        return raw.Length > MaximumPayloadCharacters
+            && Encoding.UTF8.GetCharCount(raw) > MaximumPayloadCharacters;
+    }
+
+    /// <summary>Reads an injected expression's <c>{ok:true}</c> answer for the expected generation.</summary>
+    /// <param name="result">The evaluation result.</param>
+    /// <param name="expectedGenerations">The generations the expression was sent to.</param>
+    /// <param name="malformed">Why the answer could not be read, when it was not an object.</param>
+    /// <returns>True for a structured positive answer from the expected generation.</returns>
     private static bool IsPositiveAcknowledgement(
         SteamUiEvaluationResult result,
-        SteamUiGenerations expectedGenerations)
+        SteamUiGenerations expectedGenerations,
+        out string? malformed)
     {
-        if (!result.Reachable
-            || result.Generations.ExecutionContext != expectedGenerations.ExecutionContext
-            || result.Generations.Document != expectedGenerations.Document
-            || string.IsNullOrWhiteSpace(result.Value))
+        malformed = null;
+        if (!result.Reachable || result.Value is null)
         {
             return false;
         }
+        bool ok;
         try
         {
             using JsonDocument acknowledgement = JsonDocument.Parse(result.Value);
-            JsonElement root = acknowledgement.RootElement;
-            return root.ValueKind == JsonValueKind.Object
-                && root.TryGetProperty("ok", out JsonElement ok)
-                && ok.ValueKind == JsonValueKind.True;
+            ok = acknowledgement.RootElement.TryGetProperty("ok", out JsonElement value)
+                && value.ValueKind == JsonValueKind.True;
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
         {
+            // Unparseable text, or JSON whose root is not an object.
+            malformed = ex.Message;
             return false;
         }
+        return ok
+            && result.Generations.ExecutionContext == expectedGenerations.ExecutionContext
+            && result.Generations.Document == expectedGenerations.Document;
     }
 
-    private string BuildConfiguration(SteamUiGenerations generations)
+    private static string WriteJson<TState>(TState state, Action<Utf8JsonWriter, TState> write)
     {
         var buffer = new ArrayBufferWriter<byte>();
         using (var writer = new Utf8JsonWriter(buffer))
         {
             writer.WriteStartObject();
             writer.WriteNumber("version", SchemaVersion);
+            write(writer, state);
+            writer.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
+    }
+
+    private string BuildConfiguration(SteamUiGenerations generations) =>
+        WriteJson((Host: this, Generations: generations), static (writer, state) =>
+        {
             writer.WriteString("namespace", Namespace);
             writer.WriteString("binding", BindingName);
 
             // The bootstrap reuses an already-installed bridge when the version and both Steam
-            // generations match, and neither of those changes when the host is updated. So a new the host
+            // generations match, and neither of those changes when the host is updated. So a new host
             // build kept running the PREVIOUS build's injected script until Steam itself restarted:
             // a fix to the bootstrap appeared to have no effect, and the only clue was a diagnostic
             // field that was missing from output the new code would have produced. Pinning the
             // asset's own hash makes a changed script replace the bridge on the next
             // synchronization, which is what "the bootstrap was updated" has to mean.
-            writer.WriteString("assetHash", _asset.Sha256);
-            writer.WriteNumber("contextGeneration", generations.ExecutionContext);
-            writer.WriteNumber("documentGeneration", generations.Document);
-            writer.WriteNumber("maximumPending", 32);
-            writer.WriteNumber("timeoutMilliseconds", 5000);
+            writer.WriteString("assetHash", state.Host._asset.Sha256);
+            writer.WriteNumber("contextGeneration", state.Generations.ExecutionContext);
+            writer.WriteNumber("documentGeneration", state.Generations.Document);
+            writer.WriteNumber("maximumPending", MaximumPendingRequests);
+            writer.WriteNumber("timeoutMilliseconds", RequestTimeoutMilliseconds);
             writer.WriteStartObject("allowed");
-            foreach (var pair in _allowedCommands)
+            foreach (var pair in state.Host._allowedCommands)
             {
                 writer.WriteStartArray(pair.Key);
                 foreach (var command in pair.Value)
@@ -662,64 +683,48 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
                 writer.WriteEndArray();
             }
             writer.WriteEndObject();
-            writer.WriteEndObject();
-        }
-        return Encoding.UTF8.GetString(buffer.WrittenSpan);
-    }
+        });
 
     private static string BuildResponse(
-        SteamUiBridgeRequest request, bool ok, JsonElement? payload, string? error)
-    {
-        var buffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer))
+        SteamUiBridgeRequest request, bool ok, JsonElement? payload, string? error) =>
+        WriteJson((Request: request, Ok: ok, Payload: payload, Error: error), static (writer, state) =>
         {
-            writer.WriteStartObject();
-            writer.WriteNumber("version", SchemaVersion);
             writer.WriteString("type", "response");
-            writer.WriteString("patchId", request.PatchId);
-            writer.WriteString("command", request.Command);
-            writer.WriteNumber("sequence", request.Sequence);
-            writer.WriteNumber("contextGeneration", request.ContextGeneration);
-            writer.WriteNumber("documentGeneration", request.DocumentGeneration);
-            writer.WriteBoolean("ok", ok);
+            writer.WriteString("patchId", state.Request.PatchId);
+            writer.WriteString("command", state.Request.Command);
+            writer.WriteNumber("sequence", state.Request.Sequence);
+            writer.WriteNumber("contextGeneration", state.Request.ContextGeneration);
+            writer.WriteNumber("documentGeneration", state.Request.DocumentGeneration);
+            writer.WriteBoolean("ok", state.Ok);
             writer.WritePropertyName("payload");
-            if (payload.HasValue)
+            if (state.Payload.HasValue)
             {
-                payload.Value.WriteTo(writer);
+                state.Payload.Value.WriteTo(writer);
             }
             else
             {
                 writer.WriteNullValue();
             }
-            if (!string.IsNullOrEmpty(error))
+            if (!string.IsNullOrEmpty(state.Error))
             {
-                writer.WriteString("error", error.Length <= 1024 ? error : error[..1024]);
+                writer.WriteString(
+                    "error", state.Error.Length <= 1024 ? state.Error : state.Error[..1024]);
             }
-            writer.WriteEndObject();
-        }
-        return Encoding.UTF8.GetString(buffer.WrittenSpan);
-    }
+        });
 
     private static string BuildState(
         string patchId,
         JsonElement payload,
-        SteamUiGenerations generations)
-    {
-        var buffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer))
+        SteamUiGenerations generations) =>
+        WriteJson((PatchId: patchId, Payload: payload, Generations: generations), static (writer, state) =>
         {
-            writer.WriteStartObject();
-            writer.WriteNumber("version", SchemaVersion);
             writer.WriteString("type", "state");
-            writer.WriteString("patchId", patchId);
-            writer.WriteNumber("contextGeneration", generations.ExecutionContext);
-            writer.WriteNumber("documentGeneration", generations.Document);
+            writer.WriteString("patchId", state.PatchId);
+            writer.WriteNumber("contextGeneration", state.Generations.ExecutionContext);
+            writer.WriteNumber("documentGeneration", state.Generations.Document);
             writer.WritePropertyName("payload");
-            payload.WriteTo(writer);
-            writer.WriteEndObject();
-        }
-        return Encoding.UTF8.GetString(buffer.WrittenSpan);
-    }
+            state.Payload.WriteTo(writer);
+        });
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
@@ -730,10 +735,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         }
         _transport.NotificationReceived -= OnNotificationReceived;
         _transport.GenerationChanged -= OnGenerationChanged;
-        lock (_stateSync)
-        {
-            _ready = false;
-        }
+        MarkNotReady();
         _requests.Writer.TryComplete();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         var gateHeld = false;

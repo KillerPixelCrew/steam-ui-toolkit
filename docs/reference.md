@@ -388,9 +388,9 @@ unless the state is `Applying`, `Applied`, `Verified` or `Disabled`.
 
 `EvaluateOutcomeAsync` parses the page's `JSON.stringify({ok, error})`: unreachable is a failure
 with the transport's error or the fallback; `ok: true` succeeds; otherwise the page's error, the
-bounded raw value, or the fallback. `IsSuccessful(value)` treats an unparseable value as failure,
-never as an optimistic success; the overload with flag names additionally requires each named
-boolean true. `IsOne` demands exactly one structural match, because a second match means the Steam
+bounded raw value, or the fallback. `IsSuccessful(value, requiredFlags)` treats an unparseable
+value as failure, never as an optimistic success, and requires each named boolean, if any, to be
+true. `IsOne` demands exactly one structural match, because a second match means the Steam
 build has two candidate components and the patch cannot tell which it would modify.
 
 ## 7. Modules and the runtime
