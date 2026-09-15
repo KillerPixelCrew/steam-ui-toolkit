@@ -549,7 +549,9 @@ and `elementsIntercepted(runtime, name)` checks a named transform against the in
 transform receives `(create, type, props, key)` and returns the element to use, or undefined to leave
 the call to the runtime; `create` is the runtime's own function, so a replacement never passes
 through the transforms again. The first transform to answer wins and a throwing one is skipped. Every
-element Steam creates passes through, so a transform tests a cheap property first.
+element Steam creates passes through, so a transform tests a cheap property first. Both are instances
+of one `createSharedClaim(keys, members, …)`, which owns the transform map, the installed wrappers and
+the take-with-first, release-with-last rule.
 
 A script outside the bundle cannot reach those functions from its own evaluation. The `elements` gate
 is their front door: `gate("elements").register(name, transform)`, `unregister(name)` and

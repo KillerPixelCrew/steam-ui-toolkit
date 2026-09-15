@@ -443,37 +443,83 @@ const releaseAccessor = (
   }
 };
 
-// Intercepts what React.useMemo returns, for every surface that needs to see an array Steam builds
-// through it: the Quick Access tab list, the Settings page list.
-//
-// React has one useMemo. Two gates each wrapping it would stack wrappers, and whichever was removed
-// first would hand back the other's wrapper or the original from under it. So there is one member
-// claim on it for all of them: taken with the first transform and released with the last. Transforms
-// run in registration order, each seeing the result of the one before, and one that throws leaves
-// the value as it found it. The claim's marker and original live on the wrapper, so a bridge
-// replaced in place reclaims rather than wraps its predecessor.
-const memoClaimKeys = {
-  marker: "__steamUiOwnedUseMemo",
-  original: "__steamUiOriginalUseMemo",
-} as const;
-const memoTransforms = new Map<string, (value: unknown) => unknown>();
-let memoWrapper: unknown = null;
+// One claim on a set of function members that several surfaces transform: taken with the first
+// transform and released with the last, because two wrappers on one member would each hand back the
+// other's wrapper or the original from under it on removal. `wrap` builds the replacement around the
+// displaced original and reads the live transforms at call time. The claim's marker and original
+// live on the wrapper, so a bridge replaced in place reclaims rather than wraps its predecessor.
+const createSharedClaim = <Transform>(
+  keys: ClaimKeys,
+  members: readonly string[],
+  unavailable: string,
+  uninstallable: string,
+  wrap: (original: any, transforms: Map<string, Transform>) => unknown,
+) => {
+  const transforms = new Map<string, Transform>();
+  let wrappers: Record<string, unknown> | null = null;
+  const holds = (host: Record<string, unknown>) => {
+    const current = wrappers;
+    return !!current && members.every((member) => host[member] === current[member]);
+  };
 
-const interceptMemo = (
-  react: Record<string, unknown> | null | undefined,
-  name: string,
-  transform: (value: unknown) => unknown,
-): { ok: boolean; error?: string } => {
-  if (!react || typeof react.useMemo !== "function") {
-    return { ok: false, error: "React useMemo unavailable" };
-  }
-  memoTransforms.set(name, transform);
-  if (memoWrapper && react.useMemo === memoWrapper) return { ok: true };
-  const claim = claimMember(react, "useMemo", memoClaimKeys, (original) => {
-    const useMemo = original as (factory: unknown, dependencies: unknown) => unknown;
-    return function SteamUiUseMemo(factory, dependencies) {
-      let value = useMemo(factory, dependencies);
-      for (const apply of memoTransforms.values()) {
+  const intercept = (
+    host: Record<string, unknown> | null | undefined,
+    name: string,
+    transform: Transform,
+  ): { ok: boolean; error?: string } => {
+    if (!host || members.some((member) => typeof host[member] !== "function")) {
+      return { ok: false, error: unavailable };
+    }
+    transforms.set(name, transform);
+    if (holds(host)) return { ok: true };
+    const installed: Record<string, unknown> = {};
+    for (const member of members) {
+      const claim = claimMember(host, member, keys, (original) => wrap(original, transforms));
+      if (!claim.ok || !memberClaimed(host, member, keys)) {
+        for (const done of Object.keys(installed)) releaseMember(host, done, keys);
+        transforms.delete(name);
+        return { ok: false, error: claim.ok ? uninstallable : claim.error };
+      }
+      installed[member] = host[member];
+    }
+    wrappers = installed;
+    return { ok: true };
+  };
+
+  // Withdraws one transform, and hands the members back once none is left.
+  const release = (
+    host: Record<string, unknown> | null | undefined,
+    name: string,
+  ): { ok: boolean; error?: string } => {
+    transforms.delete(name);
+    if (transforms.size || !host) return { ok: true };
+    for (const member of members) {
+      const released = releaseMember(host, member, keys);
+      if (!released.ok) return released;
+    }
+    wrappers = null;
+    return { ok: true };
+  };
+
+  const intercepted = (host: Record<string, unknown> | null | undefined, name: string) =>
+    !!host && transforms.has(name) && holds(host);
+
+  return { intercept, release, intercepted };
+};
+
+// Intercepts what React.useMemo returns, for every surface that needs to see an array Steam builds
+// through it: the Quick Access tab list, the Settings page list. React has one useMemo, so this is
+// one shared claim. Transforms run in registration order, each seeing the result of the one before,
+// and one that throws leaves the value as it found it.
+const memoClaim = createSharedClaim<(value: unknown) => unknown>(
+  { marker: "__steamUiOwnedUseMemo", original: "__steamUiOriginalUseMemo" },
+  ["useMemo"],
+  "React useMemo unavailable",
+  "React useMemo wrapper could not be installed",
+  (original, transforms) =>
+    function SteamUiUseMemo(factory, dependencies) {
+      let value = original(factory, dependencies);
+      for (const apply of transforms.values()) {
         try {
           value = apply(value);
         } catch {
@@ -481,124 +527,46 @@ const interceptMemo = (
         }
       }
       return value;
-    };
-  });
-  if (!claim.ok || !memberClaimed(react, "useMemo", memoClaimKeys)) {
-    memoTransforms.delete(name);
-    return {
-      ok: false,
-      error: claim.ok ? "React useMemo wrapper could not be installed" : claim.error,
-    };
-  }
-  memoWrapper = react.useMemo;
-  return { ok: true };
-};
-
-// Withdraws one transform, and hands useMemo back once none is left.
-const releaseMemo = (
-  react: Record<string, unknown> | null | undefined,
-  name: string,
-): { ok: boolean; error?: string } => {
-  memoTransforms.delete(name);
-  if (memoTransforms.size || !react) return { ok: true };
-  const released = releaseMember(react, "useMemo", memoClaimKeys);
-  if (released.ok) memoWrapper = null;
-  return released;
-};
-
-const memoIntercepted = (react: Record<string, unknown> | null | undefined, name: string) =>
-  !!react && memoTransforms.has(name) && !!memoWrapper && react.useMemo === memoWrapper;
+    },
+);
+const interceptMemo = memoClaim.intercept;
+const releaseMemo = memoClaim.release;
+const memoIntercepted = memoClaim.intercepted;
 
 // Intercepts elements as Steam creates them, for what is built inside a mobx observer class.
 // mobx-react pins a non-writable `render` on each instance of such a class after its first render,
 // so neither its prototype nor an instance can be claimed; the one place its output passes through
-// is the JSX runtime's `jsx` and `jsxs`.
+// is the JSX runtime's `jsx` and `jsxs`, which share one claim for the same reason useMemo does.
 //
-// One claim on both for every user, as with useMemo: taken with the first transform and released
-// with the last, because two wrappers on the runtime would hand each other's originals back on
-// removal. A transform receives `(create, type, props, key)` and returns the element to use, or
-// undefined to leave the call alone. `create` is the runtime's own function, so a replacement is
-// built without passing through the transforms again. Transforms run in registration order, the
-// first to answer wins, and one that throws is skipped. Every element Steam creates passes through
-// here, so a transform's first test has to be a cheap comparison.
+// A transform receives `(create, type, props, key)` and returns the element to use, or undefined to
+// leave the call alone. `create` is the runtime's own function, so a replacement is built without
+// passing through the transforms again. Transforms run in registration order, the first to answer
+// wins, and one that throws is skipped. Every element Steam creates passes through here, so a
+// transform's first test has to be a cheap comparison.
 type ElementTransform = (
   create: (...args: unknown[]) => unknown,
   type: unknown,
   props: any,
   key: unknown,
 ) => unknown;
-const elementClaimKeys = {
-  marker: "__steamUiOwnedElements",
-  original: "__steamUiOriginalElements",
-} as const;
-const elementMembers = ["jsx", "jsxs"] as const;
-const elementTransforms = new Map<string, ElementTransform>();
-let elementWrappers: Record<string, unknown> | null = null;
-
-const interceptElements = (
-  runtime: Record<string, unknown> | null | undefined,
-  name: string,
-  transform: ElementTransform,
-): { ok: boolean; error?: string } => {
-  if (!runtime || elementMembers.some((member) => typeof runtime[member] !== "function")) {
-    return { ok: false, error: "JSX runtime unavailable" };
-  }
-  elementTransforms.set(name, transform);
-  const current = elementWrappers;
-  if (current && elementMembers.every((member) => runtime[member] === current[member])) {
-    return { ok: true };
-  }
-  const wrappers: Record<string, unknown> = {};
-  for (const member of elementMembers) {
-    const claim = claimMember(runtime, member, elementClaimKeys, (original) => {
-      const create = original as (...args: unknown[]) => unknown;
-      return function SteamUiElement(this: unknown, type, props, key) {
-        for (const apply of elementTransforms.values()) {
-          try {
-            const replaced = apply(create, type, props, key);
-            if (replaced !== undefined) return replaced;
-          } catch {
-            // A failing transform leaves the element to the runtime.
-          }
+const elementClaim = createSharedClaim<ElementTransform>(
+  { marker: "__steamUiOwnedElements", original: "__steamUiOriginalElements" },
+  ["jsx", "jsxs"],
+  "JSX runtime unavailable",
+  "JSX runtime wrapper could not be installed",
+  (original, transforms) =>
+    function SteamUiElement(this: unknown, type, props, key) {
+      for (const apply of transforms.values()) {
+        try {
+          const replaced = apply(original, type, props, key);
+          if (replaced !== undefined) return replaced;
+        } catch {
+          // A failing transform leaves the element to the runtime.
         }
-        return create.apply(this, arguments as any);
-      };
-    });
-    if (!claim.ok || !memberClaimed(runtime, member, elementClaimKeys)) {
-      for (const done of Object.keys(wrappers)) releaseMember(runtime, done, elementClaimKeys);
-      elementTransforms.delete(name);
-      return {
-        ok: false,
-        error: claim.ok ? "JSX runtime wrapper could not be installed" : claim.error,
-      };
-    }
-    wrappers[member] = runtime[member];
-  }
-  elementWrappers = wrappers;
-  return { ok: true };
-};
-
-// Withdraws one element transform, and hands the runtime back once none is left.
-const releaseElements = (
-  runtime: Record<string, unknown> | null | undefined,
-  name: string,
-): { ok: boolean; error?: string } => {
-  elementTransforms.delete(name);
-  if (elementTransforms.size || !runtime) return { ok: true };
-  for (const member of elementMembers) {
-    const released = releaseMember(runtime, member, elementClaimKeys);
-    if (!released.ok) return released;
-  }
-  elementWrappers = null;
-  return { ok: true };
-};
-
-const elementsIntercepted = (runtime: Record<string, unknown> | null | undefined, name: string) => {
-  const current = elementWrappers;
-  return (
-    !!runtime &&
-    elementTransforms.has(name) &&
-    !!current &&
-    elementMembers.every((member) => runtime[member] === current[member])
-  );
-};
+      }
+      return original.apply(this, arguments as any);
+    },
+);
+const interceptElements = elementClaim.intercept;
+const releaseElements = elementClaim.release;
+const elementsIntercepted = elementClaim.intercepted;
