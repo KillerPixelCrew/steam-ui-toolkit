@@ -1,26 +1,57 @@
-// Exercise the emitted dropdown with inert React and bridge fixtures, never a live Steam session.
+// Exercise the emitted Quick Access rows with inert React and bridge fixtures, never a live Steam
+// session: the power-profile and assignment dropdowns, the section headers and their glyphs, the
+// device controls, section layout, the power sliders and the slider echo they share.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-const asset = readFileSync(process.argv[2] ?? "dist/prelude.js", "utf8");
-const start = asset.indexOf("const normalizePowerProfileState =");
-const end = asset.indexOf("const createControllerControl =", start);
-assert.ok(start >= 0 && end > start);
-const textStart = asset.indexOf("const normalizeText =");
-const textEnd = asset.indexOf(";", textStart);
-assert.ok(textStart >= 0 && textEnd > textStart);
-const normalizeText = new Function(asset.slice(textStart, textEnd + 1) + "return normalizeText;")();
+import {
+  createHooks,
+  instantiate,
+  loadAsset,
+  slice,
+  sliceToGate,
+  tick,
+} from "./check-harness.mjs";
+
+const asset = loadAsset();
+const normalizeText = instantiate(
+  {},
+  `${slice(asset, "const normalizeText =", ";")};`,
+  "normalizeText",
+);
+// The host's own command sender over a fixture request, so a row's write carries the action
+// generation exactly as the shipped host attaches it.
+const createSender = (request) =>
+  instantiate(
+    { request, nextActionGeneration: () => 1 },
+    slice(asset, "const sendCommand =", "const toggleCommand ="),
+    "sendCommand",
+  );
 let state;
 const requests = [];
 const pending = [];
-const api = new Function("normalizeText", "useSemanticState", "note", "definitions",
-  "renderOutcomes", "request", "nextActionGeneration", "drew",
-  asset.slice(start, end) + "\nreturn { normalizePowerProfileState, createPowerProfileControl, createHybridCoreControl, normalizePowerPresetState, createPowerPresetControl };")(
-  normalizeText,
-  (_runtime, _kind, normalize) => normalize(state), () => null,
-  { powerProfile: { patchId: "steam-ui.power-profile", command: "setPowerProfile" },
-    hybridCores: { patchId: "steam-ui.hybrid-cores", command: "setHybridCores" },
-    powerPreset: { patchId: "steam-ui.power-preset", acCommand: "setAcPowerPreset", batteryCommand: "setBatteryPowerPreset" } }, {},
-  (...args) => { requests.push(args); return Promise.resolve(); }, () => 1, () => {});
+const api = instantiate(
+  {
+    normalizeText,
+    useSemanticState: (_runtime, _kind, normalize) => normalize(state),
+    note: () => null,
+    definitions: {
+      powerProfile: { patchId: "steam-ui.power-profile", command: "setPowerProfile" },
+      hybridCores: { patchId: "steam-ui.hybrid-cores", command: "setHybridCores" },
+      powerPreset: {
+        patchId: "steam-ui.power-preset",
+        acCommand: "setAcPowerPreset",
+        batteryCommand: "setBatteryPowerPreset",
+      },
+    },
+    renderOutcomes: {},
+    sendCommand: createSender((...args) => {
+      requests.push(args);
+      return Promise.resolve();
+    }),
+    drew: () => {},
+  },
+  slice(asset, "const normalizePowerProfileState =", "const createControllerControl ="),
+  "{ normalizePowerProfileState, createPowerProfileControl, createHybridCoreControl, normalizePowerPresetState, createPowerPresetControl }",
+);
 const options = [{ id: "a", label: "Balanced" }, { id: "b", label: "Balanced" }];
 const longLabel = api.normalizePowerProfileState({ available: true,
   options: [{ id: "a", label: "x".repeat(10000) }], current: "a" });
@@ -40,7 +71,7 @@ row.onChange({ data: "unknown" });
 row.onChange({ data: "a" });
 assert.equal(requests.length, 0);
 row.onChange({ data: "b" });
-await new Promise(resolve => setImmediate(resolve));
+await tick();
 assert.deepEqual(requests[0], ["steam-ui.power-profile", "setPowerProfile", { target: "b" }, 1]);
 assert.deepEqual(pending, [true, false]);
 state = { ...state, current: "missing" };
@@ -111,10 +142,10 @@ assert.deepEqual(rows.map(row => row.props.icon), ["plug", "battery"]);
 }
 assert.deepEqual(rows.map(row => row.props.selectedOption), ["a", "b"]);
 rows[0].props.onChange({ data: "b" });
-await new Promise(resolve => setImmediate(resolve));
+await tick();
 assert.deepEqual(requests.at(-1), ["steam-ui.power-preset", "setAcPowerPreset", { target: "b" }, 1]);
 rows[1].props.onChange({ data: "" });
-await new Promise(resolve => setImmediate(resolve));
+await tick();
 assert.deepEqual(requests.at(-1), ["steam-ui.power-preset", "setBatteryPowerPreset", { target: null }, 1]);
 const before = requests.length;
 rows[0].props.onChange({ data: "missing" });
@@ -145,12 +176,11 @@ console.log("Power-profile and assignment emitted dropdown checks passed.");
 // The real section header composer, so the device sections are checked against the titles the panel
 // actually receives rather than a stand-in. It reads its glyph off the runtime, so it needs nothing
 // from the icon table itself.
-const headerStart = asset.indexOf("const SectionIcons =");
-const headerEnd = asset.indexOf("const appendControls =", headerStart);
-assert.ok(headerStart >= 0 && headerEnd > headerStart);
-const sectionTitle = new Function(
-  asset.slice(headerStart, headerEnd) + "\nreturn sectionTitle;",
-)();
+const sectionTitle = instantiate(
+  {},
+  slice(asset, "const SectionIcons =", "const appendControls ="),
+  "sectionTitle",
+);
 // A header is an icon and its text in a row; a section with no glyph keeps the bare string.
 const titleText = (title) => (typeof title === "string" ? title : title.children.at(-1));
 const titleGlyph = (title) => (typeof title === "string" ? null : title.children[0]?.glyph);
@@ -166,10 +196,7 @@ const titleGlyph = (title) => (typeof title === "string" ? null : title.children
 // name would be invisible to it. The set comparison below is what makes that survivable — a new
 // placement that this cannot see also fails to account for one of the declared glyphs.
 {
-  const table = asset.indexOf("const SteamUiIconShapes =");
-  const tableEnd = table + asset.slice(table).search(/\n[ \t]*function create/u);
-  assert.ok(table >= 0 && tableEnd > table);
-  const drawings = asset.slice(table, tableEnd);
+  const drawings = sliceToGate(asset, "const SteamUiIconShapes =");
   // Comments are emitted verbatim, and a commented-out call site is not a placement.
   const code = asset.replace(/^[ \t]*\/\/.*$/gmu, "");
   const sectionTable = code.slice(
@@ -201,22 +228,31 @@ const titleGlyph = (title) => (typeof title === "string" ? null : title.children
 }
 
 // Optional native fields must not take down the remaining device controls.
-const deviceStart = asset.indexOf("const rgbToHsv =");
-const deviceEnd = asset.indexOf("// Steam's own FPS counter rows", deviceStart);
-assert.ok(deviceStart >= 0 && deviceEnd > deviceStart);
 const deviceState = {
   chargeLimit: { available: true, observed: 80, minimum: 60, maximum: 100, step: 1 },
   lightingBrightness: { available: true, observed: 100, minimum: 0, maximum: 100, step: 1 },
   lightingZones: [{ available: true, id: "buttons", label: "Buttons", observedColor: 0xffffff }],
 };
-const createDeviceControl = new Function("useSemanticState", "normalizeDeviceControlsState",
-  "definitions", "request", "nextActionGeneration", "useTrailingCommit", "useEchoedValue",
-  "note", "renderOutcomes", "isBusy", "localizeOr", "sectionTitle", "drew",
-  asset.slice(deviceStart, deviceEnd) + "\nreturn createDeviceControlsControl;")(
-  () => deviceState, value => value, { deviceControls: {} },
-  () => { throw new Error("Rendering must not dispatch hardware writes"); }, () => 1,
-  () => () => {}, (_runtime, value) => ({ value }), () => null, {}, () => false,
-  (_runtime, _token, fallback) => fallback, sectionTitle, () => {});
+const createDeviceControl = instantiate(
+  {
+    useSemanticState: () => deviceState,
+    normalizeDeviceControlsState: (value) => value,
+    definitions: { deviceControls: {} },
+    sendCommand: createSender(() => {
+      throw new Error("Rendering must not dispatch hardware writes");
+    }),
+    useTrailingCommit: () => () => {},
+    useEchoedValue: (_runtime, value) => ({ value }),
+    note: () => null,
+    renderOutcomes: {},
+    isBusy: () => false,
+    localizeOr: (_runtime, _token, fallback) => fallback,
+    sectionTitle,
+    drew: () => {},
+  },
+  slice(asset, "const rgbToHsv =", "// Steam's own FPS counter rows"),
+  "createDeviceControlsControl",
+);
 for (const toggle of [undefined, "toggle"]) {
   for (const expanded of [false, true]) {
     const render = createDeviceControl({ toggle, row: "row", section: "section",
@@ -253,20 +289,37 @@ console.log("Device controls retain charging and brightness without the optional
 // A section whose rows all drew nothing leaves layout but stays mounted, so its rows keep their
 // subscriptions and can bring it back. Valve's rows report nothing and keep theirs shown.
 {
-  const appendStart = asset.indexOf("const SectionIcons =");
-  const appendEnd = asset.indexOf("const resolveControls =", appendStart);
-  assert.ok(appendStart >= 0 && appendEnd > appendStart);
   const controlNames = ["valveProfileHeaderControl", "valveProfileToggleControl",
     "valveOverlayLevelControl", "frameLimitControl", "powerProfileControl", "hybridCoreControl",
     "powerPresetControl", "vrrControl", "powerLimitControl", "autoTdpControl", "resolutionControl",
-    "valveRefreshRateControl", "controllerControl", "valveResetControl", "deviceControlsControl"];
+    "valveRefreshRateControl", "controllerControl", "valveResetControl"];
   const registrations = new Map();
   const drawnKinds = new Set();
-  const appendControls = new Function("registrations", "drawnKinds", "appendDiagnostics",
-    "withNativeRowsHidden", ...controlNames,
-    asset.slice(appendStart, appendEnd) + "\nreturn appendControls;")(
-    registrations, drawnKinds, {}, (_runtime, tree) => tree,
-    ...controlNames.map(name => name === "deviceControlsControl" ? undefined : name));
+  const { appendControls, useRows } = instantiate(
+    {
+      registrations,
+      drawnKinds,
+      appendDiagnostics: {},
+      withNativeRowsHidden: (_runtime, tree) => tree,
+      deviceControlsControl: undefined,
+    },
+    slice(asset, "const SectionIcons =", "const resolveControls ="),
+    "{ appendControls, useRows: (rows) => { controlRows = rows; } }",
+  );
+  // The row table resolveControls builds once the controls resolve, read from the asset with each
+  // control standing in as its own name.
+  const table = slice(
+    slice(asset, "const resolveControls =", "const install ="),
+    "controlRows = [",
+    "];",
+  );
+  useRows(
+    instantiate(
+      Object.fromEntries(controlNames.map((name) => [name, name])),
+      "",
+      `${table.slice("controlRows = ".length)}]`,
+    ),
+  );
   const runtime = { section: "section", row: "row", icon: () => null, react: {
     Fragment: "fragment", isValidElement: () => false,
     createElement: (type, props, ...children) => ({ type, props, children }) } };
@@ -297,13 +350,7 @@ console.log("Host sections leave layout while every row under them draws nothing
 
 // Hardware observations, not Steam's saved TDP setting, drive both power sliders.
 {
-  const first = asset.indexOf("const normalizePowerLimitRange =");
-  const last = asset.indexOf("const createDeviceControlsControl =", first);
-  const echoFirst = asset.indexOf("const useEchoedValue =");
-  const echoLast = asset.indexOf("const useTrailingCommit =", echoFirst);
-  assert.ok(first >= 0 && last > first && echoFirst >= 0 && echoLast > echoFirst);
-  const slots = [];
-  let cursor = 0;
+  const hooks = createHooks();
   const writes = [];
   const replies = [];
   const range = (watts) => ({
@@ -322,61 +369,39 @@ console.log("Host sections leave layout while every row under them draws nothing
     icon: (name) => name,
     react: {
       Fragment: "fragment",
-      useState(initial) {
-        const index = cursor++;
-        if (!(index in slots)) slots[index] = initial;
-        return [
-          slots[index],
-          (value) => {
-            slots[index] = value;
-          },
-        ];
-      },
-      useRef(initial) {
-        const index = cursor++;
-        if (!(index in slots)) slots[index] = { current: initial };
-        return slots[index];
-      },
+      useState: hooks.useState,
+      useRef: hooks.useRef,
       createElement: (type, props, ...children) => ({ type, props, children }),
     },
   };
-  const powerApi = new Function(
-    "normalizeText",
-    "useSemanticState",
-    "definitions",
-    "request",
-    "nextActionGeneration",
-    "isBusy",
-    "note",
-    "drew",
-    asset.slice(echoFirst, echoLast) +
-      asset.slice(first, last) +
-      "\nreturn { createPowerLimitControl, normalizePowerLimitState };",
-  )(
-    normalizeText,
-    (_runtime, _kind, normalize) => normalize(powerState),
+  const powerApi = instantiate(
     {
-      powerLimit: {
-        patchId: "steam-ui.power-limit",
-        primaryCommand: "setPrimaryLimit",
-        boostCommand: "setBoostLimit",
+      normalizeText,
+      useSemanticState: (_runtime, _kind, normalize) => normalize(powerState),
+      definitions: {
+        powerLimit: {
+          patchId: "steam-ui.power-limit",
+          primaryCommand: "setPrimaryLimit",
+          boostCommand: "setBoostLimit",
+        },
       },
+      sendCommand: createSender((...args) => {
+        writes.push(args);
+        return new Promise((resolve, reject) => replies.push({ resolve, reject }));
+      }),
+      isBusy: (progress) => ["queued", "applying", "replacing"].includes(progress),
+      note: () => null,
+      drew: () => {},
     },
-    (...args) => {
-      writes.push(args);
-      return new Promise((resolve, reject) => replies.push({ resolve, reject }));
-    },
-    () => 1,
-    (progress) => ["queued", "applying", "replacing"].includes(progress),
-    () => null,
-    () => {},
+    slice(asset, "const useEchoedValue =", "const useTrailingCommit =") +
+      slice(asset, "const normalizePowerLimitRange =", "const createDeviceControlsControl ="),
+    "{ createPowerLimitControl, normalizePowerLimitState }",
   );
   const control = powerApi.createPowerLimitControl(runtime);
   const render = () => {
-    cursor = 0;
+    hooks.reset();
     return control()?.children.map((row) => row.children[0].props) ?? [];
   };
-  const flush = () => new Promise((resolve) => setImmediate(resolve));
   let sliders = render();
   assert.deepEqual(
     sliders.map((slider) => slider.label),
@@ -411,7 +436,7 @@ console.log("Host sections leave layout while every row under them draws nothing
   assert.deepEqual(writes[0], ["steam-ui.power-limit", "setBoostLimit", { watts: 28 }, 1]);
   assert.ok(render().every((slider) => slider.disabled));
   replies.shift().resolve();
-  await flush();
+  await tick();
   powerState.boost = range(28);
   render();
   sliders = render();
@@ -422,7 +447,7 @@ console.log("Host sections leave layout while every row under them draws nothing
   sliders[0].onChangeComplete(20);
   assert.deepEqual(writes[1], ["steam-ui.power-limit", "setPrimaryLimit", { watts: 20 }, 1]);
   replies.shift().reject(new Error("Hardware outcome uncertain"));
-  await flush();
+  await tick();
   sliders = render();
   assert.equal(sliders[0].value, 37);
   assert.match(sliders[0].description, /uncertain/);
@@ -443,3 +468,39 @@ console.log("Host sections leave layout while every row under them draws nothing
 console.log(
   "Power sliders: independent PL1/PL2 edits, profile readback, pending commands and refusal checks passed.",
 );
+
+// The slider echo on its own: readback and acknowledgments never become a user's write.
+{
+  const hooks = createHooks();
+  const useEcho = instantiate(
+    {},
+    slice(asset, "const useEchoedValue =", "const useTrailingCommit ="),
+    "useEchoedValue",
+  );
+  const runtime = { react: { useState: hooks.useState } };
+  const render = (observed) => {
+    hooks.reset();
+    return useEcho(runtime, observed);
+  };
+  const writes = [];
+  const commit = (value) => writes.push(value);
+
+  let slider = render(30);
+  slider.onChange(30);
+  slider.onChangeComplete(30, commit);
+  assert.deepEqual(writes, [], "a programmatic refresh must not dispatch a write");
+  slider = render(17);
+  slider.onChangeComplete(17, commit);
+  assert.equal(render(17).value, 17);
+  assert.deepEqual(writes, [], "AutoTDP readback must not become manual intent");
+  slider.onChange(19);
+  assert.equal(render(17).value, 19);
+  slider.onChangeComplete(19, commit);
+  assert.deepEqual(writes, [19]);
+  slider = render(19);
+  slider.onChangeComplete(19, commit);
+  slider.onChangeComplete(Number.NaN, commit);
+  slider.onChangeComplete(Number.POSITIVE_INFINITY, commit);
+  assert.deepEqual(writes, [19], "acknowledgments and invalid values must not repeat a write");
+  console.log("Slider readback stays separate from user writes.");
+}
