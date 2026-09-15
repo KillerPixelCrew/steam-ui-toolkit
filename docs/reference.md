@@ -583,9 +583,12 @@ one look conflicting. Log keys: `steam.ui.extensions.root`, `steam.ui.extension.
 
 ## 11. The prelude build and the composition contract
 
-`eng/build-prelude.mjs` concatenates `types.ts`, `bridge.ts`, `ownership.ts`, `rpc.ts`, `icons.ts`,
-appends the IIFE close only for the compile, type-checks with TypeScript 7 under a strict, ES2022,
-type-stripping-only configuration, and emits `dist/prelude.js` from the `// @steam-ui-bundle-start`
+`eng/build-prelude.mjs` concatenates `types.ts`, `bridge.ts`, `ownership.ts` and `rpc.ts`, then every
+other top-level fragment sorted by name (`icons.ts`, `module-resolver.ts`, …), then `gates/*.ts`
+sorted, then `components.ts` and `epilogue.ts`. That is the order WSGM's `build-steam-assets.mjs`
+discovers, so the checks run against the prelude see the shipped layout. The build appends the IIFE
+close only for the compile, type-checks with TypeScript 7 under a strict, ES2022, type-stripping-only
+configuration, and emits `dist/prelude.js` from the `// @steam-ui-bundle-start`
 marker onward with the IIFE left open. `types.ts` sits above the marker so it types the compile and
 ships nothing. Compiling the prelude alone is what proves it stands on its own: it stopped compiling
 the moment the bridge still named a consumer's gates.
@@ -595,7 +598,8 @@ A consumer composes one script:
 ```text
 (() => { "use strict"; let installResult; const config = __STEAM_UI_CONFIGURATION_JSON__;
   …bridge.ts…            reuse check, request/subscribe/deliver/dispose, registerGate, window[ns]
-  …ownership.ts, rpc.ts, icons.ts…
+  …ownership.ts, rpc.ts…   then the other top-level fragments, sorted
+  …gates/*.ts, components.ts…
   …consumer fragments…   hoisted function create…() + top-level registerGate(name, create…())
   …epilogue.ts…          return installResult;
 })();

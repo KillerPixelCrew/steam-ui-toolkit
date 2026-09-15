@@ -126,8 +126,11 @@ fragments; the complete asset appends `epilogue.ts` and closes it. `types.ts` is
 and must not emit runtime code.
 
 The emitted asset is intentionally readable, type-stripped ES2022 JavaScript. Do not bundle, minify,
-downlevel, or add helpers. New files under `gates/` are discovered in sorted order; changes to
-fragment roles or ordering belong in the builder and reference documentation.
+downlevel, or add helpers. `types.ts`, `bridge.ts`, `ownership.ts` and `rpc.ts` come first; every
+other top-level fragment and every file under `gates/` is discovered in sorted order, matching
+WSGM's `build-steam-assets.mjs`. A new shared fragment therefore needs no builder change in either
+repository, but it must not be read during bundle evaluation before its own definition. Changes to
+fragment roles or ordering belong in both builders and the reference documentation.
 
 A change to `ownership.ts` must be exercised against the emitted output through the ownership claims
 gate, not only reasoned about from TypeScript source.

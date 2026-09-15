@@ -31,20 +31,23 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sourceDirectory = join(repositoryRoot, "src", "SteamUiToolkit", "SteamUiAssets", "Source");
 
 // types.ts is declarations only and sits above the marker, so it types the compile and ships
-// nothing. bridge.ts opens the IIFE; the shared helpers follow it, icons.ts among them because the
-// glyphs it holds are data the row host reads rather than behaviour of its own. Gates are
-// discovered from their directory and sorted, so adding one is a new file and nothing else;
-// components.ts is the row host and comes last so the asset reads as helpers, then gates, then the
-// rows they render.
-const gates = (await readdir(join(sourceDirectory, "gates"), { withFileTypes: true }))
-  .filter((entry) => entry.isFile() && entry.name.endsWith(".ts"))
-  .map((entry) => join(sourceDirectory, "gates", entry.name))
-  .sort();
+// nothing. bridge.ts opens the IIFE, and ownership.ts and rpc.ts follow it. Every other top-level
+// fragment is discovered and sorted, and so are the gates, so adding one is a new file and nothing
+// else; components.ts is the row host and comes last so the asset reads as helpers, then gates, then
+// the rows they render. This is the order WSGM's build-steam-assets.mjs composes, so every check run
+// against the prelude sees the fragments where the shipped asset has them.
+const fixed = ["types.ts", "bridge.ts", "ownership.ts", "rpc.ts"];
+const discover = async (directory, exclude = []) =>
+  (await readdir(directory, { withFileTypes: true }))
+    .filter(
+      (entry) => entry.isFile() && entry.name.endsWith(".ts") && !exclude.includes(entry.name),
+    )
+    .map((entry) => join(directory, entry.name))
+    .sort();
 const fragments = [
-  ...["types.ts", "bridge.ts", "module-resolver.ts", "ownership.ts", "rpc.ts", "icons.ts"].map(
-    (name) => join(sourceDirectory, name),
-  ),
-  ...gates,
+  ...fixed.map((name) => join(sourceDirectory, name)),
+  ...(await discover(sourceDirectory, [...fixed, "components.ts", "epilogue.ts"])),
+  ...(await discover(join(sourceDirectory, "gates"))),
   join(sourceDirectory, "components.ts"),
 ];
 const epiloguePath = join(sourceDirectory, "epilogue.ts");
