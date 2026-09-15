@@ -5,36 +5,36 @@ public sealed class SteamQuickAccessRowPatchTests
     [Fact]
     public async Task PowerLimitRowRequiresEveryUniqueStructuralMatchBeforeInstall()
     {
-        await using var transport = new RowTransport { PerformanceActionsCount = 2 };
-        await using var manager = new SteamUiPatchManager(transport);
+        RowClient client = new(performanceActions: 2);
+        await using var manager = new SteamUiPatchManager(client.Transport);
         manager.Register(SteamPowerLimitSurface.Patch);
 
         await manager.SynchronizeAsync();
 
         SteamUiPatchSnapshot snapshot = Assert.Single(manager.GetSnapshots());
         Assert.Equal(SteamUiPatchState.Incompatible, snapshot.State);
-        Assert.Equal(0, transport.InstallCount);
+        Assert.Equal(0, client.InstallCount);
     }
 
     [Fact]
     public async Task OverlayLevelRowRequiresUniqueNativeActionModuleBeforeInstall()
     {
-        await using var transport = new RowTransport { PerformanceActionsCount = 2 };
-        await using var manager = new SteamUiPatchManager(transport);
+        RowClient client = new(performanceActions: 2);
+        await using var manager = new SteamUiPatchManager(client.Transport);
         manager.Register(SteamPerformanceSurface.OverlayLevelRow);
 
         await manager.SynchronizeAsync();
 
         SteamUiPatchSnapshot snapshot = Assert.Single(manager.GetSnapshots());
         Assert.Equal(SteamUiPatchState.Incompatible, snapshot.State);
-        Assert.Equal(0, transport.InstallCount);
+        Assert.Equal(0, client.InstallCount);
     }
 
     [Fact]
     public async Task RowsHaveIndependentVerifiedIdentities()
     {
-        await using var transport = new RowTransport();
-        await using var manager = new SteamUiPatchManager(transport);
+        RowClient client = new();
+        await using var manager = new SteamUiPatchManager(client.Transport);
         manager.Register(SteamPowerLimitSurface.Patch);
         manager.Register(SteamFrameLimitRow.Patch);
         manager.Register(SteamPerformanceSurface.OverlayLevelRow);
@@ -56,15 +56,15 @@ public sealed class SteamQuickAccessRowPatchTests
         Assert.Equal(
             SteamUiPatchState.Verified,
             snapshots["steam-ui.device-controls"].State);
-        Assert.Equal(5, transport.InstallCount);
+        Assert.Equal(5, client.InstallCount);
         Assert.Equal(5, snapshots.Values.Select(snapshot => snapshot.Fingerprint).Distinct().Count());
     }
 
     [Fact]
     public async Task DisablingTdpLeavesControllerTargetRegistered()
     {
-        await using var transport = new RowTransport();
-        await using var manager = new SteamUiPatchManager(transport);
+        RowClient client = new();
+        await using var manager = new SteamUiPatchManager(client.Transport);
         manager.Register(SteamPowerLimitSurface.Patch);
         manager.Register(SteamControllerTargetRow.Patch);
         await manager.SynchronizeAsync();
@@ -78,15 +78,15 @@ public sealed class SteamQuickAccessRowPatchTests
         Assert.Equal(
             SteamUiPatchState.Verified,
             snapshots["steam-ui.controller-target"].State);
-        Assert.Contains("powerLimit", transport.RemovedKinds);
-        Assert.DoesNotContain("controllerTarget", transport.RemovedKinds);
+        Assert.Contains("powerLimit", client.RemovedKinds);
+        Assert.DoesNotContain("controllerTarget", client.RemovedKinds);
     }
 
     [Fact]
     public async Task DisablingFrameLimitLeavesValveOverlayLevelRegistered()
     {
-        await using var transport = new RowTransport();
-        await using var manager = new SteamUiPatchManager(transport);
+        RowClient client = new();
+        await using var manager = new SteamUiPatchManager(client.Transport);
         manager.Register(SteamFrameLimitRow.Patch);
         manager.Register(SteamPerformanceSurface.OverlayLevelRow);
         await manager.SynchronizeAsync();
@@ -100,8 +100,8 @@ public sealed class SteamQuickAccessRowPatchTests
         Assert.Equal(
             SteamUiPatchState.Verified,
             snapshots["steam-ui.valve-overlay-level"].State);
-        Assert.Contains("frameLimit", transport.RemovedKinds);
-        Assert.DoesNotContain("valveOverlayLevel", transport.RemovedKinds);
+        Assert.Contains("frameLimit", client.RemovedKinds);
+        Assert.DoesNotContain("valveOverlayLevel", client.RemovedKinds);
     }
 
     [Fact]
@@ -129,107 +129,57 @@ public sealed class SteamQuickAccessRowPatchTests
         Assert.Single(rows.Select(row => row.ResourceKey).Distinct());
     }
 
-    private sealed class RowTransport : ISteamUiTransport
+    /// <summary>
+    /// A client whose performance panel answers every row probe, counts installs through the
+    /// component host, and records which row kind each removal named.
+    /// </summary>
+    private sealed class RowClient
     {
-        public event EventHandler<SteamUiNotification>? NotificationReceived
+        private readonly int _performanceActions;
+
+        internal RowClient(int performanceActions = 1)
         {
-            add { }
-            remove { }
+            _performanceActions = performanceActions;
+            Transport = new FakeSteamUiTransport();
+            Transport.OnEvaluate = call => Task.FromResult(Transport.Reply(Answer(call.Expression)));
         }
 
-        public event EventHandler<SteamUiTransportSnapshot>? GenerationChanged
-        {
-            add { }
-            remove { }
-        }
-
-        internal int PerformanceActionsCount { get; init; } = 1;
+        internal FakeSteamUiTransport Transport { get; }
 
         internal int InstallCount { get; private set; }
 
         internal List<string> RemovedKinds { get; } = [];
 
-        public ValueTask<IAsyncDisposable> SubscribeAsync(
-            SteamUiTargetRole role,
-            CancellationToken cancellationToken = default) =>
-            ValueTask.FromResult<IAsyncDisposable>(new Lease());
-
-        public Task<SteamUiEvaluationResult> EvaluateAsync(
-            SteamUiTargetRole role,
-            string expression,
-            TimeSpan timeout,
-            CancellationToken cancellationToken = default)
+        private string Answer(string expression)
         {
-            string value;
             if (expression.Contains("steam_ui_controller_target_probe_", StringComparison.Ordinal))
             {
-                value = """
+                return """
                     {"controllerPresentation":1,"performanceRoot":1,"nativeFields":1,"nativeLayout":1,"localization":1,"react":1}
                     """;
             }
-            else if (expression.Contains("_probe_", StringComparison.Ordinal))
+            if (expression.Contains("_probe_", StringComparison.Ordinal))
             {
-                value = $$"""
-                    {"performanceActions":{{PerformanceActionsCount}},"performanceRoot":1,"nativeFields":1,"nativeLayout":1,"localization":1,"react":1}
+                return $$"""
+                    {"performanceActions":{{_performanceActions}},"performanceRoot":1,"nativeFields":1,"nativeLayout":1,"localization":1,"react":1}
                     """;
             }
-            else if (expression.Contains("gate('nativeComponents')", StringComparison.Ordinal)
+            if (expression.Contains("gate('nativeComponents')", StringComparison.Ordinal)
                 && expression.Contains("bridge.install(", StringComparison.Ordinal))
             {
                 InstallCount++;
-                value = "{\"ok\":true}";
             }
             else if (expression.Contains("gate('nativeComponents')", StringComparison.Ordinal)
                 && expression.Contains("bridge.remove(", StringComparison.Ordinal))
             {
-                string kind = expression.Contains("controllerTarget", StringComparison.Ordinal)
-                    ? "controllerTarget"
-                    : expression.Contains("deviceControls", StringComparison.Ordinal)
-                        ? "deviceControls"
-                        : expression.Contains("frameLimit", StringComparison.Ordinal)
-                            ? "frameLimit"
-                            : expression.Contains("valveOverlayLevel", StringComparison.Ordinal)
-                                ? "valveOverlayLevel"
-                                : "powerLimit";
-                RemovedKinds.Add(kind);
-                value = "{\"ok\":true}";
+                RemovedKinds.Add(
+                    expression.Contains("controllerTarget", StringComparison.Ordinal) ? "controllerTarget"
+                    : expression.Contains("deviceControls", StringComparison.Ordinal) ? "deviceControls"
+                    : expression.Contains("frameLimit", StringComparison.Ordinal) ? "frameLimit"
+                    : expression.Contains("valveOverlayLevel", StringComparison.Ordinal) ? "valveOverlayLevel"
+                    : "powerLimit");
             }
-            else
-            {
-                value = "{\"ok\":true}";
-            }
-
-            return Task.FromResult(new SteamUiEvaluationResult(
-                true,
-                value,
-                null,
-                new(1, 1, 1, 1, 1, 1)));
-        }
-
-        public Task SetRuntimeBindingAsync(
-            SteamUiTargetRole role,
-            string bindingName,
-            bool installed,
-            TimeSpan timeout,
-            CancellationToken cancellationToken = default) => Task.CompletedTask;
-
-        public IReadOnlyList<SteamUiTransportSnapshot> GetSnapshots() =>
-        [
-            new(
-                SteamUiTargetRole.SharedJsContext,
-                SteamUiTransportHealth.Ready,
-                new(1, 1, 1, 1, 1, 1),
-                "fixture-target",
-                null,
-                0,
-                1),
-        ];
-
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-
-        private sealed class Lease : IAsyncDisposable
-        {
-            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+            return "{\"ok\":true}";
         }
     }
 }

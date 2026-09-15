@@ -2,16 +2,14 @@ using System.Text.Json;
 
 namespace SteamUiToolkit.Tests;
 
-public sealed class SteamPerformanceDeltaTests
+/// <summary>The performance surface: settings deltas, the overlay-level wire, and published state.</summary>
+public sealed class SteamPerformanceTests
 {
-    private static JsonElement Payload(string json) =>
-        JsonDocument.Parse(json).RootElement.Clone();
-
     [Fact]
     public void APerAppFrameLimitChangeIsRecognized()
     {
         bool read = SteamPerformanceDeltaReader.TryRead(
-            Payload("""{"delta":{"gameid":42,"settings_delta":{"per_app":{"fps_limit":60}}}}"""),
+            TestJson.Parse("""{"delta":{"gameid":42,"settings_delta":{"per_app":{"fps_limit":60}}}}"""),
             out SteamPerformanceDelta delta,
             out string? error);
 
@@ -30,7 +28,7 @@ public sealed class SteamPerformanceDeltaTests
         // field as a change would make one slider write every other control's value back on every
         // drag.
         SteamPerformanceDeltaReader.TryRead(
-            Payload(
+            TestJson.Parse(
                 """
                 {"delta":{"settings_delta":{"per_app":{"fps_limit":60,"is_vrr_enabled":null,
                 "display_refresh_manual_hz":null}}}}
@@ -47,7 +45,7 @@ public sealed class SteamPerformanceDeltaTests
     public void BooleansBecomeFlags()
     {
         SteamPerformanceDeltaReader.TryRead(
-            Payload(
+            TestJson.Parse(
                 """
                 {"delta":{"settings_delta":{"per_app":{"is_vrr_enabled":true,
                 "is_fps_limit_enabled":false}}}}
@@ -67,7 +65,7 @@ public sealed class SteamPerformanceDeltaTests
     public void GlobalAndPerAppSettingsBothArrive()
     {
         SteamPerformanceDeltaReader.TryRead(
-            Payload(
+            TestJson.Parse(
                 """
                 {"delta":{"settings_delta":{"global":{"perf_overlay_level":3},
                 "per_app":{"fps_limit":30}}}}
@@ -84,7 +82,7 @@ public sealed class SteamPerformanceDeltaTests
         // A control that appears to work and does nothing is worse than one that is not there, so
         // an unsupported field has to reach the log.
         SteamPerformanceDeltaReader.TryRead(
-            Payload("""{"delta":{"settings_delta":{"per_app":{"cpu_governor":2}}}}"""),
+            TestJson.Parse("""{"delta":{"settings_delta":{"per_app":{"cpu_governor":2}}}}"""),
             out SteamPerformanceDelta delta,
             out _);
 
@@ -96,7 +94,7 @@ public sealed class SteamPerformanceDeltaTests
     public void ResetToDefaultIsCarried()
     {
         SteamPerformanceDeltaReader.TryRead(
-            Payload("""{"delta":{"reset_to_default":true}}"""),
+            TestJson.Parse("""{"delta":{"reset_to_default":true}}"""),
             out SteamPerformanceDelta delta,
             out _);
 
@@ -115,7 +113,7 @@ public sealed class SteamPerformanceDeltaTests
         // game id is not an AppID and must not be truncated into one, and 769 — the Steam client's
         // own pseudo-app — is how every store setter addresses the global profile.
         SteamPerformanceDeltaReader.TryRead(
-            Payload($$$"""{"delta":{"gameid":{{{gameId}}}}}"""),
+            TestJson.Parse($$$"""{"delta":{"gameid":{{{gameId}}}}}"""),
             out SteamPerformanceDelta delta,
             out _);
 
@@ -126,7 +124,7 @@ public sealed class SteamPerformanceDeltaTests
     public void AGameIdSentAsAStringStillResolves()
     {
         SteamPerformanceDeltaReader.TryRead(
-            Payload("""{"delta":{"gameid":"570"}}"""),
+            TestJson.Parse("""{"delta":{"gameid":"570"}}"""),
             out SteamPerformanceDelta delta,
             out _);
 
@@ -140,7 +138,7 @@ public sealed class SteamPerformanceDeltaTests
     public void APayloadWithoutADeltaObjectIsRefusedWithAReason(string json)
     {
         bool read = SteamPerformanceDeltaReader.TryRead(
-            Payload(json),
+            TestJson.Parse(json),
             out _,
             out string? error);
 
@@ -154,17 +152,14 @@ public sealed class SteamPerformanceDeltaTests
         // Every store setter calls UpdateSettings with serializeBase64String(); a string here means
         // the gate stopped decoding and every performance control silently stopped working.
         bool read = SteamPerformanceDeltaReader.TryRead(
-            Payload("""{"delta":"CgQIAxAB"}"""),
+            TestJson.Parse("""{"delta":"CgQIAxAB"}"""),
             out _,
             out string? error);
 
         Assert.False(read);
         Assert.Contains("undecoded", error);
     }
-}
 
-public sealed class SteamOverlayLevelWireTests
-{
     // Valve's EGraphicsPerfOverlayLevel: Hidden=0, Basic=1, Medium=2, Full=3, Minimal=4 — while
     // the selector presents OFF, Minimal, Basic, Medium, Full.
     [Theory]
@@ -173,7 +168,7 @@ public sealed class SteamOverlayLevelWireTests
     [InlineData(1, 2)]
     [InlineData(2, 3)]
     [InlineData(3, 4)]
-    public void WireAndNotchTranslateBothWays(int steamValue, int notch)
+    public void OverlayLevelWireAndNotchTranslateBothWays(int steamValue, int notch)
     {
         Assert.Equal(notch, SteamOverlayLevelWire.ToNotch(steamValue));
         Assert.Equal(steamValue, SteamOverlayLevelWire.ToSteam(notch));
@@ -183,15 +178,12 @@ public sealed class SteamOverlayLevelWireTests
     [InlineData(-1)]
     [InlineData(5)]
     [InlineData(99)]
-    public void UnknownValuesReadAsOff(int value)
+    public void UnknownOverlayLevelsReadAsOff(int value)
     {
         Assert.Equal(0, SteamOverlayLevelWire.ToNotch(value));
         Assert.Equal(0, SteamOverlayLevelWire.ToSteam(value));
     }
-}
 
-public sealed class SteamPerformanceStateTests
-{
     [Fact]
     public void UnsuppliedFieldsAreOmittedSoValveHidesTheirControls()
     {

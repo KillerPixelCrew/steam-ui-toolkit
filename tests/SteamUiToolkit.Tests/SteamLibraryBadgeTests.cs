@@ -1,5 +1,5 @@
-using System.Reflection;
 using System.Text.Json;
+using static SteamUiToolkit.Tests.Fakes.SurfaceDispatch;
 
 namespace SteamUiToolkit.Tests;
 
@@ -15,12 +15,14 @@ namespace SteamUiToolkit.Tests;
 /// </remarks>
 public sealed class SteamLibraryBadgeTests
 {
-    private static readonly Func<bool> Always = () => true;
+    private static SteamGatePatch Badge => (SteamGatePatch)SteamLibraryBadgeSurface.Patch;
+
+    private static SteamGatePatch Details => (SteamGatePatch)SteamLibraryBadgeSurface.DetailsPatch;
 
     [Fact]
     public void TheProbeNamesEveryStructuralFactTheGateResolvesOn()
     {
-        string probe = ProbeOf(SteamLibraryBadgeSurface.Patch);
+        string probe = Badge.ProbeExpression;
 
         Assert.Contains("ControllerSupportIcon", probe, StringComparison.Ordinal);
         Assert.Contains("appportrait_", probe, StringComparison.Ordinal);
@@ -35,7 +37,7 @@ public sealed class SteamLibraryBadgeTests
     {
         // The live tile export is called TK and the badge Kt today. Neither name is anywhere in
         // the probe, because both are right for exactly one client build.
-        string probe = ProbeOf(SteamLibraryBadgeSurface.Patch);
+        string probe = Badge.ProbeExpression;
 
         Assert.DoesNotContain("exports.TK", probe, StringComparison.Ordinal);
         Assert.DoesNotContain("exports.Kt", probe, StringComparison.Ordinal);
@@ -60,7 +62,7 @@ public sealed class SteamLibraryBadgeTests
     {
         using JsonDocument document = JsonDocument.Parse(json);
 
-        Assert.Equal(expected, CompatibilityOf(SteamLibraryBadgeSurface.Patch, document.RootElement));
+        Assert.Equal(expected, Badge.Compatible(document.RootElement));
     }
 
     [Theory]
@@ -74,13 +76,13 @@ public sealed class SteamLibraryBadgeTests
     {
         using JsonDocument document = JsonDocument.Parse(json);
 
-        Assert.Equal(expected, CompatibilityOf(SteamLibraryBadgeSurface.DetailsPatch, document.RootElement));
+        Assert.Equal(expected, Details.Compatible(document.RootElement));
     }
 
     [Fact]
     public void TheDetailsStatFindsItsRowByValveNamesAndSharesTheRuntimeResource()
     {
-        string probe = ProbeOf(SteamLibraryBadgeSurface.DetailsPatch);
+        string probe = Details.ProbeExpression;
 
         Assert.Contains("GameStatsSection:\"", probe, StringComparison.Ordinal);
         Assert.Contains("'.jsx','.jsxs'", probe, StringComparison.Ordinal);
@@ -93,27 +95,12 @@ public sealed class SteamLibraryBadgeTests
     public void TheModuleDeclaresTheBadgeAndTheStatUnderOnePublication()
     {
         ISteamUiModule module = SteamLibraryBadgeSurface.Module(
-            () => true, () => new(null as SteamLibraryBadgeState), new RecordingBackend());
+            Always, () => new(null as SteamLibraryBadgeState), new RecordingBackend());
 
         Assert.Equal(
             [SteamLibraryBadgeSurface.PatchId, SteamLibraryBadgeSurface.DetailsPatchId],
             module.Patches.Select(patch => patch.Id));
         Assert.Equal(SteamLibraryBadgeSurface.PatchId, Assert.Single(module.Publications).PatchId);
-    }
-
-    [Fact]
-    public void AnAlreadyClaimedTileStaysCompatible()
-    {
-        string probe = ProbeOf(SteamLibraryBadgeSurface.Patch);
-
-        Assert.Contains("__steamUiLibraryBadgeClaimed", probe, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void VerificationRequiresTheClaimAndRemovalRequiresItsAbsence()
-    {
-        Assert.Equal("status.installed&&status.resolved&&status.claimed", FieldOf("_verifyOk"));
-        Assert.Equal("!status.claimed", FieldOf("_removeOk"));
     }
 
     [Fact]
@@ -155,75 +142,13 @@ public sealed class SteamLibraryBadgeTests
             SteamLibraryBadgeSurface.Module(Always, () => new(null as SteamLibraryBadgeState), backend),
         ]);
 
-        SteamUiCommandResult applied = await Dispatch(set, "homeLayout", """{"bigArt":true}""");
-        SteamUiCommandResult refused = await Dispatch(set, "homeLayout", """{"bigArt":1}""");
+        SteamUiCommandResult applied = await DispatchAsync(
+            set, SteamLibraryBadgeSurface.PatchId, "homeLayout", """{"bigArt":true}""");
+        SteamUiCommandResult refused = await DispatchAsync(
+            set, SteamLibraryBadgeSurface.PatchId, "homeLayout", """{"bigArt":1}""");
 
         Assert.True(applied.Succeeded);
         Assert.Equal("The home layout payload is invalid.", refused.Error);
-        Assert.Equal(["big art"], backend.Calls);
-    }
-
-    [Fact]
-    public async Task ANullReadingPublishesNothingRatherThanAnEmptyLibraryList()
-    {
-        // An empty list is a real instruction — every installed game is internal — and not the
-        // same as having nothing to say yet.
-        SteamLibraryBadgeState? state = null;
-        SteamUiModuleSet set = new(
-        [
-            SteamLibraryBadgeSurface.Module(Always, () => new(state), new RecordingBackend()),
-        ]);
-        SteamUiStatePublication publication = Assert.Single(set.Publications);
-
-        Assert.Null(await publication.Read());
-        state = new SteamLibraryBadgeState([]);
-
-        Assert.Equal(0, (await publication.Read())!.Value.GetProperty("libraries").GetArrayLength());
-    }
-
-    private static string ProbeOf(ISteamUiPatch patch) =>
-        (string)patch.GetType().GetField("_probeExpression", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .GetValue(patch)!;
-
-    private static string FieldOf(string name) =>
-        (string)SteamLibraryBadgeSurface.Patch.GetType()
-            .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!
-            .GetValue(SteamLibraryBadgeSurface.Patch)!;
-
-    private static bool CompatibilityOf(ISteamUiPatch patch, JsonElement root) =>
-        ((Func<JsonElement, bool>)patch.GetType()
-            .GetField("_compatible", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .GetValue(patch)!)(root);
-
-    private static async Task<SteamUiCommandResult> Dispatch(
-        SteamUiModuleSet set,
-        string command,
-        string payloadJson)
-    {
-        Assert.True(set.TryGetCommand(
-            SteamLibraryBadgeSurface.PatchId, command, out SteamUiCommandDelegate? handler));
-        using JsonDocument payload = JsonDocument.Parse(payloadJson);
-        SteamUiBridgeRequest request = new(
-            SteamUiBridgeHost.SchemaVersion,
-            "request",
-            SteamLibraryBadgeSurface.PatchId,
-            command,
-            1,
-            1,
-            0,
-            0,
-            payload.RootElement.Clone());
-        return await handler!(request, CancellationToken.None);
-    }
-
-    private sealed class RecordingBackend : ISteamLibraryBadgeBackend
-    {
-        internal List<string> Calls { get; } = [];
-
-        public Task<SteamUiCommandResult> HomeLayoutAsync(bool bigArt, CancellationToken cancellationToken)
-        {
-            Calls.Add(bigArt ? "big art" : "normal");
-            return Task.FromResult(SteamUiCommandResult.Applied);
-        }
+        Assert.Equal(["home layout big art"], backend.Calls);
     }
 }

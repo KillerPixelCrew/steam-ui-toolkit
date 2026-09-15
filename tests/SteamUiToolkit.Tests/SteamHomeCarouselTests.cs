@@ -1,5 +1,5 @@
-using System.Reflection;
 using System.Text.Json;
+using static SteamUiToolkit.Tests.Fakes.SurfaceDispatch;
 
 namespace SteamUiToolkit.Tests;
 
@@ -15,12 +15,12 @@ namespace SteamUiToolkit.Tests;
 /// </remarks>
 public sealed class SteamHomeCarouselTests
 {
-    private static readonly Func<bool> Always = () => true;
+    private static SteamGatePatch Gate => (SteamGatePatch)SteamHomeCarouselSurface.Patch;
 
     [Fact]
     public void TheProbeNamesEveryStructuralFactTheGateResolvesOn()
     {
-        string probe = FieldOf<string>("_probeExpression");
+        string probe = Gate.ProbeExpression;
 
         Assert.Contains("HomeTabsActive", probe, StringComparison.Ordinal);
         Assert.Contains("#Showcase_RecentGames", probe, StringComparison.Ordinal);
@@ -38,7 +38,7 @@ public sealed class SteamHomeCarouselTests
     {
         // Home is `r5` and the carousel `hi` in today's build. The probe matches the route by its
         // path and the page by its source, and names neither.
-        string probe = FieldOf<string>("_probeExpression");
+        string probe = Gate.ProbeExpression;
 
         Assert.DoesNotContain("r5", probe, StringComparison.Ordinal);
         Assert.DoesNotContain("46307", probe, StringComparison.Ordinal);
@@ -58,21 +58,7 @@ public sealed class SteamHomeCarouselTests
     {
         using JsonDocument document = JsonDocument.Parse(json);
 
-        Assert.Equal(expected, FieldOf<Func<JsonElement, bool>>("_compatible")(document.RootElement));
-    }
-
-    [Fact]
-    public void AnAlreadyClaimedHomeStaysCompatible()
-        => Assert.Contains(
-            "__steamUiHomeCarouselClaimed",
-            FieldOf<string>("_probeExpression"),
-            StringComparison.Ordinal);
-
-    [Fact]
-    public void VerificationRequiresTheClaimAndRemovalRequiresItsAbsence()
-    {
-        Assert.Equal("status.installed&&status.resolved&&status.claimed", FieldOf<string>("_verifyOk"));
-        Assert.Equal("!status.claimed", FieldOf<string>("_removeOk"));
+        Assert.Equal(expected, Gate.Compatible(document.RootElement));
     }
 
     [Fact]
@@ -114,67 +100,16 @@ public sealed class SteamHomeCarouselTests
             SteamHomeCarouselSurface.Module(Always, () => new(null as SteamHomeCarouselState), backend),
         ]);
 
-        SteamUiCommandResult applied = await Dispatch(
+        SteamUiCommandResult applied = await DispatchAsync(
             set,
+            SteamHomeCarouselSurface.PatchId,
+            "report",
             """{"items":3,"purchases":0,"installed":3,"uninstalled":0,"excluded":0,"tracking":true,"fallback":false}""");
-        SteamUiCommandResult refused = await Dispatch(set, """{"items":3}""");
+        SteamUiCommandResult refused = await DispatchAsync(
+            set, SteamHomeCarouselSurface.PatchId, "report", """{"items":3}""");
 
         Assert.True(applied.Succeeded);
         Assert.Equal("The home carousel report is invalid.", refused.Error);
-        Assert.Equal(3, Assert.Single(backend.Reports).Items);
-    }
-
-    [Fact]
-    public async Task ANullReadingPublishesNothingRatherThanAnEmptyInstruction()
-    {
-        // An empty instruction is a real one — nothing is disconnected — and not the same as having
-        // nothing to say yet.
-        SteamHomeCarouselState? state = null;
-        SteamUiModuleSet set = new(
-        [
-            SteamHomeCarouselSurface.Module(Always, () => new(state), new RecordingBackend()),
-        ]);
-        SteamUiStatePublication publication = Assert.Single(set.Publications);
-
-        Assert.Null(await publication.Read());
-        state = new SteamHomeCarouselState(false, []);
-
-        Assert.Equal(0, (await publication.Read())!.Value.GetProperty("disconnectedAppIds").GetArrayLength());
-    }
-
-    private static T FieldOf<T>(string name) =>
-        (T)SteamHomeCarouselSurface.Patch.GetType()
-            .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!
-            .GetValue(SteamHomeCarouselSurface.Patch)!;
-
-    private static async Task<SteamUiCommandResult> Dispatch(SteamUiModuleSet set, string payloadJson)
-    {
-        Assert.True(set.TryGetCommand(
-            SteamHomeCarouselSurface.PatchId, "report", out SteamUiCommandDelegate? handler));
-        using JsonDocument payload = JsonDocument.Parse(payloadJson);
-        SteamUiBridgeRequest request = new(
-            SteamUiBridgeHost.SchemaVersion,
-            "request",
-            SteamHomeCarouselSurface.PatchId,
-            "report",
-            1,
-            1,
-            0,
-            0,
-            payload.RootElement.Clone());
-        return await handler!(request, CancellationToken.None);
-    }
-
-    private sealed class RecordingBackend : ISteamHomeCarouselBackend
-    {
-        internal List<SteamHomeCarouselReport> Reports { get; } = [];
-
-        public Task<SteamUiCommandResult> ReportAsync(
-            SteamHomeCarouselReport report,
-            CancellationToken cancellationToken)
-        {
-            Reports.Add(report);
-            return Task.FromResult(SteamUiCommandResult.Applied);
-        }
+        Assert.Equal(["home carousel 3"], backend.Calls);
     }
 }

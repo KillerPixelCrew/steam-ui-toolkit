@@ -1,4 +1,3 @@
-using System.Reflection;
 using System.Text.Json;
 
 namespace SteamUiToolkit.Tests;
@@ -16,7 +15,7 @@ namespace SteamUiToolkit.Tests;
 /// </remarks>
 public sealed class SteamPageTests
 {
-    private static readonly Func<bool> Always = () => true;
+    private static SteamGatePatch Gate => (SteamGatePatch)SteamPageSurface.Patch;
 
     [Fact]
     public void PagesAreDeclaredRatherThanCommanded()
@@ -29,7 +28,7 @@ public sealed class SteamPageTests
     [Fact]
     public void TheProbeChecksTheRouterAndTheBackStackRouteSeparately()
     {
-        string probe = ProbeOf();
+        string probe = Gate.ProbeExpression;
 
         Assert.Contains("Settings.Root()", probe, StringComparison.Ordinal);
         Assert.Contains("TopLevelTransition", probe, StringComparison.Ordinal);
@@ -44,7 +43,7 @@ public sealed class SteamPageTests
         // The router memo is not an export — verified against the live client, where every export
         // of the router module was inspected and none carried it. The probe has to find it the same
         // way the gate does or it would pass on a client the gate cannot actually claim.
-        string probe = ProbeOf();
+        string probe = Gate.ProbeExpression;
 
         Assert.Contains("__reactContainer$", probe, StringComparison.Ordinal);
         Assert.Contains("elementType", probe, StringComparison.Ordinal);
@@ -56,7 +55,7 @@ public sealed class SteamPageTests
         // Steam's back-stack Route is what gives a page native back navigation. React-router's
         // renders the same content and silently loses it, so the probe pins the fingerprint that
         // tells them apart rather than accepting whatever the module exports.
-        Assert.Contains(@"routePath:.\.match\?\.path.", ProbeOf(), StringComparison.Ordinal);
+        Assert.Contains(@"routePath:.\.match\?\.path.", Gate.ProbeExpression, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -72,16 +71,7 @@ public sealed class SteamPageTests
     {
         using JsonDocument document = JsonDocument.Parse(json);
 
-        Assert.Equal(expected, CompatibilityOf(document.RootElement));
-    }
-
-    [Fact]
-    public void VerificationRequiresTheRouteComponentAsWellAsTheClaim()
-    {
-        // A claimed router with no Route resolved would register pages that cannot be built.
-        Assert.Equal(
-            "status.installed&&status.resolved&&status.routeResolved&&status.claimed", VerifyOf());
-        Assert.Equal("!status.claimed", RemoveOf());
+        Assert.Equal(expected, Gate.Compatible(document.RootElement));
     }
 
     [Fact]
@@ -108,33 +98,4 @@ public sealed class SteamPageTests
         // operation from adding a page at a path Steam does not have.
         Assert.False(new SteamPage("x", "/x", "X").Override);
     }
-
-    [Fact]
-    public async Task ANullReadingPublishesNothingRatherThanAnEmptyPageSet()
-    {
-        SteamPageState? state = null;
-        SteamUiModuleSet set = new([SteamPageSurface.Module(Always, () => new(state))]);
-        SteamUiStatePublication publication = Assert.Single(set.Publications);
-
-        Assert.Null(await publication.Read());
-        state = new SteamPageState([new SteamPage("artwork", "/wsgm/artwork", "Artwork")]);
-
-        Assert.Equal(
-            "artwork",
-            (await publication.Read())!.Value.GetProperty("pages")[0].GetProperty("id").GetString());
-    }
-
-    private static string ProbeOf() => Field<string>("_probeExpression");
-
-    private static string VerifyOf() => Field<string>("_verifyOk");
-
-    private static string RemoveOf() => Field<string>("_removeOk");
-
-    private static bool CompatibilityOf(JsonElement root) =>
-        Field<Func<JsonElement, bool>>("_compatible")(root);
-
-    private static T Field<T>(string name) =>
-        (T)SteamPageSurface.Patch.GetType()
-            .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!
-            .GetValue(SteamPageSurface.Patch)!;
 }

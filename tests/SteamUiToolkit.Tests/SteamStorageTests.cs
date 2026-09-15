@@ -1,5 +1,5 @@
-using System.Reflection;
 using System.Text.Json;
+using static SteamUiToolkit.Tests.Fakes.SurfaceDispatch;
 
 namespace SteamUiToolkit.Tests;
 
@@ -15,7 +15,7 @@ namespace SteamUiToolkit.Tests;
 /// </remarks>
 public sealed class SteamStorageTests
 {
-    private static readonly Func<bool> Always = () => true;
+    private static SteamGatePatch Gate => (SteamGatePatch)SteamStorageSurface.Patch;
 
     [Fact]
     public void EveryActionSteamCanInvokeHasACommand()
@@ -28,7 +28,7 @@ public sealed class SteamStorageTests
     [Fact]
     public void TheProbePinsTheServiceAndTheTransportSeparately()
     {
-        string probe = ProbeOf();
+        string probe = Gate.ProbeExpression;
 
         Assert.Contains("StorageDeviceManager.IsServiceAvailable#1", probe, StringComparison.Ordinal);
         Assert.Contains("GetDefaultTransport", probe, StringComparison.Ordinal);
@@ -50,7 +50,7 @@ public sealed class SteamStorageTests
     {
         using JsonDocument document = JsonDocument.Parse(json);
 
-        Assert.Equal(expected, CompatibilityOf(document.RootElement));
+        Assert.Equal(expected, Gate.Compatible(document.RootElement));
     }
 
     [Fact]
@@ -102,21 +102,22 @@ public sealed class SteamStorageTests
     {
         // Steam names one or the other depending on which row the user pressed, so requiring both
         // would make half its own buttons refuse.
-        RecordingStorageBackend backend = new();
+        RecordingBackend backend = new();
         SteamUiModuleSet set = new(
         [
             SteamStorageSurface.Module(Always, () => new(null as SteamStorageState), backend),
         ]);
+        string patchId = SteamStorageSurface.PatchId;
 
-        Assert.True((await Dispatch(set, "eject", """{"blockDeviceId":2}""")).Succeeded);
-        Assert.True((await Dispatch(set, "unmount", """{"driveId":1}""")).Succeeded);
-        SteamUiCommandResult refused = await Dispatch(set, "eject", """{}""");
+        Assert.True((await DispatchAsync(set, patchId, "eject", """{"blockDeviceId":2}""")).Succeeded);
+        Assert.True((await DispatchAsync(set, patchId, "unmount", """{"driveId":1}""")).Succeeded);
+        SteamUiCommandResult refused = await DispatchAsync(set, patchId, "eject", """{}""");
 
         Assert.Equal("The storage eject payload named neither a volume nor a drive.", refused.Error);
 
         // Zero is Steam's "not named" rather than a drive, so it refuses like an absent property.
-        SteamUiCommandResult zero = await Dispatch(
-            set, "eject", """{"blockDeviceId":0,"driveId":0}""");
+        SteamUiCommandResult zero = await DispatchAsync(
+            set, patchId, "eject", """{"blockDeviceId":0,"driveId":0}""");
         Assert.Equal("The storage eject payload named neither a volume nor a drive.", zero.Error);
         Assert.Equal(["eject 2/0", "eject 0/1"], backend.Calls);
     }
@@ -124,88 +125,24 @@ public sealed class SteamStorageTests
     [Fact]
     public async Task AdoptAndFormatRequireADriveAndTrimRequiresNothing()
     {
-        RecordingStorageBackend backend = new();
+        RecordingBackend backend = new();
         SteamUiModuleSet set = new(
         [
             SteamStorageSurface.Module(Always, () => new(null as SteamStorageState), backend),
         ]);
+        string patchId = SteamStorageSurface.PatchId;
 
         // Steam's Format Drive modal sends Adopt with the typed name and its validate flag, so
         // both have to survive the trip; a bare adopt still works with neither.
-        Assert.True((await Dispatch(
-            set, "adopt", """{"driveId":1,"label":"Games","validate":true}""")).Succeeded);
-        Assert.True((await Dispatch(set, "adopt", """{"driveId":1}""")).Succeeded);
-        Assert.True((await Dispatch(set, "trimall", """{}""")).Succeeded);
-        SteamUiCommandResult refused = await Dispatch(set, "format", """{"driveId":0}""");
+        Assert.True((await DispatchAsync(
+            set, patchId, "adopt", """{"driveId":1,"label":"Games","validate":true}""")).Succeeded);
+        Assert.True((await DispatchAsync(set, patchId, "adopt", """{"driveId":1}""")).Succeeded);
+        Assert.True((await DispatchAsync(set, patchId, "trimall", """{}""")).Succeeded);
+        SteamUiCommandResult refused = await DispatchAsync(set, patchId, "format", """{"driveId":0}""");
 
         Assert.Equal("The storage format payload is invalid.", refused.Error);
         Assert.Equal(
             ["adopt 1 'Games' validate=True", "adopt 1 '' validate=False", "trimall"],
             backend.Calls);
-    }
-
-    [Fact]
-    public async Task ANullReadingPublishesNothingRatherThanAnEmptyMachine()
-    {
-        // An empty state is a real answer — "no removable drives" — so it must not be what "we do
-        // not know yet" looks like.
-        RecordingStorageBackend backend = new();
-        SteamStorageState? state = null;
-        SteamUiModuleSet set = new(
-        [
-            SteamStorageSurface.Module(Always, () => new(state), backend),
-        ]);
-        SteamUiStatePublication publication = Assert.Single(set.Publications);
-
-        Assert.Null(await publication.Read());
-        state = new SteamStorageState([], []);
-
-        Assert.Equal(0, (await publication.Read())!.Value.GetProperty("drives").GetArrayLength());
-    }
-
-    private static string ProbeOf() =>
-        (string)SteamStorageSurface.Patch.GetType()
-            .GetField("_probeExpression", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .GetValue(SteamStorageSurface.Patch)!;
-
-    private static bool CompatibilityOf(JsonElement root) =>
-        ((Func<JsonElement, bool>)SteamStorageSurface.Patch.GetType()
-            .GetField("_compatible", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .GetValue(SteamStorageSurface.Patch)!)(root);
-
-    private static async Task<SteamUiCommandResult> Dispatch(
-        SteamUiModuleSet set, string command, string payloadJson)
-    {
-        Assert.True(set.TryGetCommand(
-            SteamStorageSurface.PatchId, command, out SteamUiCommandDelegate? handler));
-        using JsonDocument payload = JsonDocument.Parse(payloadJson);
-        SteamUiBridgeRequest request = new(
-            SteamUiBridgeHost.SchemaVersion, "request", SteamStorageSurface.PatchId, command,
-            1, 2, 3, 4, payload.RootElement.Clone());
-        return await handler!(request, CancellationToken.None);
-    }
-
-    private sealed class RecordingStorageBackend : ISteamStorageBackend
-    {
-        internal List<string> Calls { get; } = [];
-
-        private Task<SteamUiCommandResult> Record(string call)
-        {
-            Calls.Add(call);
-            return Task.FromResult(SteamUiCommandResult.Applied);
-        }
-
-        public Task<SteamUiCommandResult> AdoptAsync(
-            uint driveId, string label, bool validate, CancellationToken cancellationToken) =>
-            Record($"adopt {driveId} '{label}' validate={validate}");
-
-        public Task<SteamUiCommandResult> EjectAsync(
-            uint blockDeviceId, uint driveId, CancellationToken cancellationToken) =>
-            Record($"eject {blockDeviceId}/{driveId}");
-
-        public Task<SteamUiCommandResult> FormatAsync(uint driveId, CancellationToken cancellationToken) =>
-            Record($"format {driveId}");
-
-        public Task<SteamUiCommandResult> TrimAllAsync(CancellationToken cancellationToken) => Record("trimall");
     }
 }

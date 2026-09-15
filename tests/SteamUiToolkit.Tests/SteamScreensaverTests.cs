@@ -1,5 +1,5 @@
-using System.Reflection;
 using System.Text.Json;
+using static SteamUiToolkit.Tests.Fakes.SurfaceDispatch;
 
 namespace SteamUiToolkit.Tests;
 
@@ -14,12 +14,12 @@ namespace SteamUiToolkit.Tests;
 /// </remarks>
 public sealed class SteamScreensaverTests
 {
-    private static readonly Func<bool> Always = () => true;
+    private static SteamGatePatch Gate => (SteamGatePatch)SteamScreensaverSurface.Patch;
 
     [Fact]
     public void TheProbeNamesEveryStructuralFactTheGateResolvesOn()
     {
-        string probe = ProbeOf(SteamScreensaverSurface.Patch);
+        string probe = Gate.ProbeExpression;
 
         Assert.Contains("\"#Settings_Customization_Screensaver\"", probe, StringComparison.Ordinal);
         Assert.Contains("ForceScreensaver", probe, StringComparison.Ordinal);
@@ -33,7 +33,7 @@ public sealed class SteamScreensaverTests
     {
         // The route table was module 80344, export B, and the settings store module 39828, export
         // rV, on the beta this was mapped against. Both change with a client build.
-        string probe = ProbeOf(SteamScreensaverSurface.Patch);
+        string probe = Gate.ProbeExpression;
 
         Assert.DoesNotContain("80344", probe, StringComparison.Ordinal);
         Assert.DoesNotContain("39828", probe, StringComparison.Ordinal);
@@ -55,14 +55,7 @@ public sealed class SteamScreensaverTests
     {
         using JsonDocument document = JsonDocument.Parse(json);
 
-        Assert.Equal(expected, CompatibilityOf(SteamScreensaverSurface.Patch, document.RootElement));
-    }
-
-    [Fact]
-    public void VerificationRequiresTheClaimAndRemovalRequiresItsAbsence()
-    {
-        Assert.Equal("status.installed&&status.resolved&&status.claimed", FieldOf("_verifyOk"));
-        Assert.Equal("!status.claimed", FieldOf("_removeOk"));
+        Assert.Equal(expected, Gate.Compatible(document.RootElement));
     }
 
     [Fact]
@@ -139,89 +132,17 @@ public sealed class SteamScreensaverTests
         [
             SteamScreensaverSurface.Module(Always, () => new(null as SteamScreensaverState), backend),
         ]);
+        string patchId = SteamScreensaverSurface.PatchId;
 
-        Assert.True((await Dispatch(set, "report", """{"acSeconds":300,"batterySeconds":null,"battery":false}""")).Succeeded);
-        Assert.True((await Dispatch(set, "setTimeout", """{"row":"battery","seconds":900}""")).Succeeded);
+        Assert.True((await DispatchAsync(set, patchId, "report", """{"acSeconds":300,"batterySeconds":null,"battery":false}""")).Succeeded);
+        Assert.True((await DispatchAsync(set, patchId, "setTimeout", """{"row":"battery","seconds":900}""")).Succeeded);
         Assert.Equal(
             "The screensaver report is invalid.",
-            (await Dispatch(set, "report", """{"acSeconds":"300"}""")).Error);
+            (await DispatchAsync(set, patchId, "report", """{"acSeconds":"300"}""")).Error);
         Assert.Equal(
             "The timeout payload is invalid.",
-            (await Dispatch(set, "setTimeout", """{"row":"battery"}""")).Error);
-        Assert.Equal(["report 300 - False", "battery 900"], backend.Calls);
+            (await DispatchAsync(set, patchId, "setTimeout", """{"row":"battery"}""")).Error);
+        Assert.Equal(["screensaver report 300 - False", "timeout battery 900"], backend.Calls);
         Assert.Equal(SteamScreensaverSurface.Commands, ["report", "setTimeout"]);
-    }
-
-    [Fact]
-    public async Task ANullReadingPublishesNothingRatherThanNoRows()
-    {
-        SteamScreensaverState? state = null;
-        SteamUiModuleSet set = new(
-        [
-            SteamScreensaverSurface.Module(Always, () => new(state), new RecordingBackend()),
-        ]);
-        SteamUiStatePublication publication = Assert.Single(set.Publications);
-
-        Assert.Null(await publication.Read());
-        state = new SteamScreensaverState([]);
-
-        Assert.Equal(0, (await publication.Read())!.Value.GetProperty("rows").GetArrayLength());
-    }
-
-    private static string ProbeOf(ISteamUiPatch patch) =>
-        (string)patch.GetType().GetField("_probeExpression", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .GetValue(patch)!;
-
-    private static string FieldOf(string name) =>
-        (string)SteamScreensaverSurface.Patch.GetType()
-            .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!
-            .GetValue(SteamScreensaverSurface.Patch)!;
-
-    private static bool CompatibilityOf(ISteamUiPatch patch, JsonElement root) =>
-        ((Func<JsonElement, bool>)patch.GetType()
-            .GetField("_compatible", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .GetValue(patch)!)(root);
-
-    private static async Task<SteamUiCommandResult> Dispatch(
-        SteamUiModuleSet set,
-        string command,
-        string payloadJson)
-    {
-        Assert.True(set.TryGetCommand(
-            SteamScreensaverSurface.PatchId, command, out SteamUiCommandDelegate? handler));
-        using JsonDocument payload = JsonDocument.Parse(payloadJson);
-        SteamUiBridgeRequest request = new(
-            SteamUiBridgeHost.SchemaVersion,
-            "request",
-            SteamScreensaverSurface.PatchId,
-            command,
-            1,
-            1,
-            0,
-            0,
-            payload.RootElement.Clone());
-        return await handler!(request, CancellationToken.None);
-    }
-
-    private sealed class RecordingBackend : ISteamScreensaverBackend
-    {
-        internal List<string> Calls { get; } = [];
-
-        public Task<SteamUiCommandResult> ReportAsync(
-            SteamScreensaverReport report,
-            CancellationToken cancellationToken)
-        {
-            Calls.Add($"report {report.PluggedInSeconds} {report.BatterySeconds?.ToString() ?? "-"} {report.Battery}");
-            return Task.FromResult(SteamUiCommandResult.Applied);
-        }
-
-        public Task<SteamUiCommandResult> SetTimeoutAsync(
-            string row,
-            int seconds,
-            CancellationToken cancellationToken)
-        {
-            Calls.Add($"{row} {seconds}");
-            return Task.FromResult(SteamUiCommandResult.Applied);
-        }
     }
 }

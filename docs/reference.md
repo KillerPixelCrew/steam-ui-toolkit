@@ -673,14 +673,16 @@ evaluated and its place among the discovered fragments does not matter.
 
 | Suite                                              | Locks                                                                                                                                                                                    |
 | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TransportTests`                                   | CDP connection (orphan ids, malformed frames, cancellation, slow and throwing handlers); persistent transport (domains before publication, generation advances, one-shot leases, discarded late connections, master switch, health restoration, backoff, invalid deadlines) |
-| `SteamUiPatchManagerTests`                         | kill switches, retraction of an incompatible or unverified patch, re-verification without reapplying, generation epoch guards                                                             |
-| `SteamUiBridgeHostTests`, `SteamUiBridgeWireTests` | replay, malformed and oversized notifications, generation replacement, structured acknowledgements, disposal, the real camelCase envelope captured from a live client                     |
+| `SteamUiCdpConnectionTests`, `PersistentSteamUiTransportTests` | CDP connection (orphan ids, malformed frames, cancellation, slow and throwing handlers); persistent transport (domains before publication, generation advances, one-shot leases, discarded late connections, master switch, health restoration, backoff, invalid deadlines) |
+| `SteamUiPatchManagerTests`                         | bounds, kill switches, retraction of an incompatible or unverified patch, removal failure, per-phase budgets, failure isolation between patches, re-verification without reapplying, generation epoch guards, required structural flags |
+| `SteamUiBridgeHostTests`, `SteamUiBridgeAuthorizerTests` | replay, malformed and oversized notifications, generation replacement, structured acknowledgements, disposal; the authorizer's allowlist, replay, stale generation and cancel rules, and the real camelCase envelope captured from a live client |
 | `SteamUiExtensionHostTests`                        | every rejection reason and conflict rule                                                                                                                                                 |
-| `SteamUiModuleTests`, `SteamUiModuleRuntimeTests`  | module set rules, publication isolation                                                                                                                                                  |
-| `SteamUiTargetMatchingTests`                       | the two role matchers against real URLs                                                                                                                                                  |
-| `NativeTcpTests`                                   | the table decoder, the URL gate, the four port-owner reasons                                                                                                                             |
-| `SteamSurfaceModuleTests`                          | each surface's `Commands` against its module's vocabulary, each refusal reason against its payload                                                                                       |
+| `SteamUiModuleTests`                               | module set rules, publication isolation                                                                                                                                                  |
+| `SteamUiEndpointDiscoveryTests`                    | the two role matchers against real URLs                                                                                                                                                  |
+| `NativeTcpTests`, `SteamCefTests`                  | the table decoder; the debug-flag opt-in, the URL gate, the four port-owner reasons                                                                                                     |
+| `SteamSurfaceModuleTests`                          | each surface's `Commands` against its module's vocabulary, each refusal reason against its payload, a null reading publishing nothing                                                   |
+| `SteamGatePatchContractTests`                      | each claiming gate's verify and remove predicates, and already-claimed compatibility                                                                                                     |
+| `SteamChoiceRowTests`, `SteamWindowSurfaceTests`   | power-profile, preset and core-preference serialization and dispatch; side-menu observation, native button replay, game-window and overlay activation                                     |
 | `SteamNavigationPanelTests`                        | the panel probe's separate structural facts, selection by what an export draws rather than by its minified name, already-claimed compatibility, the published wire shape                 |
 | `eng/check-navigation-panel.mjs`                   | the emitted gate against an inert React fixture: descent to the panel root, anchoring by route and by descriptor key, orphan reporting, hiding before insertion, activation, exact restoration, reinstall |
 | `SteamPageTests`, `eng/check-pages.mjs`            | the page probe's separate facts and its rendered-tree search; the emitted gate's route-list discovery by content, an addition losing to Steam's own route and an override winning, path validation, exact restoration, reinstall |
@@ -1007,8 +1009,8 @@ with `TryReadTarget`. `SteamPowerProfileState` carries up to 64 unique id/label 
 240 characters by the shared text normalizer. Unavailable state with options stays
 visible but disabled; a state with no options hides the row and records its status text in
 `renderOutcomes`. Selection is also disabled while its request is pending. The host owns
-validation, OS writes, persistence and readback. `SteamPowerProfileTests` covers serialization and
-module vocabulary; `eng/check-power-profile.mjs` checks the emitted dropdown, rejected choices,
+validation, OS writes, persistence and readback. `SteamChoiceRowTests` covers serialization and
+dispatch, `SteamSurfaceModuleTests` the module vocabulary; `eng/check-power-profile.mjs` checks the emitted dropdown, rejected choices,
 malformed states and Performance placement with inert React/bridge fixtures.
 
 `SteamHybridCoreRow` adds a second dropdown on Performance through patch `steam-ui.hybrid-cores`,
