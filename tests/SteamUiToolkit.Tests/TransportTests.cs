@@ -5,15 +5,6 @@ namespace SteamUiToolkit.Tests;
 
 public sealed class SteamUiCdpConnectionTests
 {
-    private static readonly SteamUiEndpoint Endpoint = new(
-        "browser-1",
-        "target-1",
-        SteamUiTargetRole.SharedJsContext,
-        new Uri("ws://127.0.0.1:8080/devtools/page/target-1"),
-        "page",
-        "SharedJSContext",
-        "https://steamloopback.host/index.html");
-
     [Fact]
     public async Task EvaluationIgnoresOrphanAndCompletesMatchingRequest()
     {
@@ -27,7 +18,7 @@ public sealed class SteamUiCdpConnectionTests
                 $"{{\"id\":{id},\"result\":{{\"result\":{{\"type\":\"string\",\"value\":\"ok\"}}}}}}"));
         };
         await using var connection = new SteamUiCdpConnection(
-            Endpoint, wire, (_, _) => { }, (_, _) => { });
+            wire, (_, _) => { }, (_, _) => { });
         connection.Start();
 
         var value = await connection.EvaluateAsync(
@@ -43,7 +34,7 @@ public sealed class SteamUiCdpConnectionTests
         wire.Sent = _ => wire.Enqueue("[]"u8.ToArray());
         Exception? closed = null;
         await using var connection = new SteamUiCdpConnection(
-            Endpoint, wire, (_, _) => { }, (_, error) => closed = error);
+            wire, (_, _) => { }, (_, error) => closed = error);
         connection.Start();
 
         await Assert.ThrowsAnyAsync<Exception>(() => connection.EvaluateAsync(
@@ -71,7 +62,7 @@ public sealed class SteamUiCdpConnectionTests
                 $"{{\"id\":{id},\"result\":{{\"result\":{{\"type\":\"string\",\"value\":\"second\"}}}}}}"));
         };
         await using var connection = new SteamUiCdpConnection(
-            Endpoint, wire, (_, _) => { }, (_, _) => { });
+            wire, (_, _) => { }, (_, _) => { });
         connection.Start();
         using var cancellation = new CancellationTokenSource();
         cancellation.CancelAfter(TimeSpan.FromMilliseconds(50));
@@ -101,7 +92,6 @@ public sealed class SteamUiCdpConnectionTests
                 $"{{\"id\":{id},\"result\":{{\"result\":{{\"type\":\"string\",\"value\":\"ok\"}}}}}}"));
         };
         await using var connection = new SteamUiCdpConnection(
-            Endpoint,
             wire,
             (_, _) =>
             {
@@ -137,7 +127,6 @@ public sealed class SteamUiCdpConnectionTests
                 $"{{\"id\":{id},\"result\":{{\"result\":{{\"type\":\"string\",\"value\":\"ok\"}}}}}}"));
         };
         await using var connection = new SteamUiCdpConnection(
-            Endpoint,
             wire,
             (_, _) => throw new InvalidOperationException("fixture failure"),
             (_, _) => { });

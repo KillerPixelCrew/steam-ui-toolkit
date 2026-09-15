@@ -1,9 +1,10 @@
 using System;
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Net.WebSockets;
-using System.Text;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Channels;
@@ -76,6 +77,10 @@ internal sealed class SteamUiWebSocketWire : ISteamUiCdpWire
     private const int MaximumResponseBytes = 8 * 1024 * 1024;
     private readonly ClientWebSocket _socket;
 
+    // Reused across messages: only the connection's single read loop receives, and every message
+    // is copied out before the next receive begins.
+    private readonly ArrayBufferWriter<byte> _received = new(16 * 1024);
+
     internal SteamUiWebSocketWire(ClientWebSocket socket) => _socket = socket;
 
     public Task SendAsync(ReadOnlyMemory<byte> message, CancellationToken cancellationToken) =>
@@ -84,7 +89,8 @@ internal sealed class SteamUiWebSocketWire : ISteamUiCdpWire
 
     public async Task<byte[]?> ReceiveAsync(CancellationToken cancellationToken)
     {
-        var writer = new ArrayBufferWriter<byte>(16 * 1024);
+        var writer = _received;
+        writer.ResetWrittenCount();
         while (true)
         {
             var memory = writer.GetMemory(16 * 1024);
@@ -138,7 +144,6 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
     // the same framing bound as the response cap. There is deliberately no cap on the expressions
     // the host sends.
     private const int MaximumNotificationBytes = 1024 * 1024;
-    private readonly SteamUiEndpoint _endpoint;
     private readonly ISteamUiCdpWire _wire;
     private readonly Action<string, string> _notification;
     private readonly Action<SteamUiCdpConnection, Exception?> _closed;
@@ -157,26 +162,25 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
     private Task _reader = Task.CompletedTask;
     private Task _notificationPump = Task.CompletedTask;
     private int _nextRequestId;
+    private int _pendingCount;
     private int _disposed;
     private int _wireDisposed;
     private int _orphanResponses;
     private int _started;
 
     internal SteamUiCdpConnection(
-        SteamUiEndpoint endpoint,
         ISteamUiCdpWire wire,
         Action<string, string> notification,
         Action<SteamUiCdpConnection, Exception?> closed)
     {
-        _endpoint = endpoint ?? throw new ArgumentNullException(nameof(endpoint));
         _wire = wire ?? throw new ArgumentNullException(nameof(wire));
         _notification = notification ?? throw new ArgumentNullException(nameof(notification));
         _closed = closed ?? throw new ArgumentNullException(nameof(closed));
     }
 
-    internal string TargetId => _endpoint.TargetId;
-
-    internal int OutstandingRequests => _pending.Count;
+    // A counter rather than the dictionary's Count, which takes every one of its internal locks and
+    // is read for each transport snapshot.
+    internal int OutstandingRequests => Volatile.Read(ref _pendingCount);
 
     internal Task Completion => _reader;
 
@@ -190,18 +194,11 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
         _reader = ReadLoopAsync();
     }
 
-    internal Task<JsonElement> InvokeAsync(
-        string method,
-        Action<Utf8JsonWriter>? writeParameters,
-        TimeSpan timeout,
-        CancellationToken cancellationToken) =>
-        InvokeCoreAsync(method, writeParameters, timeout, cancellationToken);
-
     internal async Task<string?> EvaluateAsync(
         string expression, TimeSpan timeout, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(expression);
-        var response = await InvokeCoreAsync(
+        var response = await InvokeAsync(
             "Runtime.evaluate",
             writer =>
             {
@@ -216,7 +213,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
         if (response.TryGetProperty("exceptionDetails", out var exception))
         {
             throw new InvalidDataException(
-                $"Steam UI JavaScript exception: {Bound(exception.GetRawText(), 2048)}");
+                $"Steam UI JavaScript exception: {SteamUiShared.Bound(exception.GetRawText(), 2048)}");
         }
         if (!response.TryGetProperty("result", out var result))
         {
@@ -231,7 +228,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
         return null;
     }
 
-    private async Task<JsonElement> InvokeCoreAsync(
+    internal async Task<JsonElement> InvokeAsync(
         string method,
         Action<Utf8JsonWriter>? writeParameters,
         TimeSpan timeout,
@@ -239,10 +236,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
-        if (timeout <= TimeSpan.Zero || timeout > TimeSpan.FromSeconds(30))
-        {
-            throw new ArgumentOutOfRangeException(nameof(timeout));
-        }
+        SteamUiShared.ThrowIfInvalidTimeout(timeout);
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken, _shutdown.Token);
@@ -262,6 +256,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
             _outstanding.Release();
             throw new InvalidOperationException("Steam UI CDP request identifier collision.");
         }
+        Interlocked.Increment(ref _pendingCount);
 
         try
         {
@@ -287,10 +282,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
         }
         finally
         {
-            if (_pending.TryRemove(id, out _))
-            {
-                _outstanding.Release();
-            }
+            TryTakePending(id, out _);
         }
     }
 
@@ -330,9 +322,8 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
             var terminal = failure ?? new IOException("Steam UI CDP channel closed.");
             foreach (var pair in _pending)
             {
-                if (_pending.TryRemove(pair.Key, out var completion))
+                if (TryTakePending(pair.Key, out var completion))
                 {
-                    _outstanding.Release();
                     completion.TrySetException(terminal);
                 }
             }
@@ -387,7 +378,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
             {
                 throw new InvalidDataException("Steam UI CDP response carried an invalid id.");
             }
-            if (!_pending.TryRemove(id, out var completion))
+            if (!TryTakePending(id, out var completion))
             {
                 if (Interlocked.Increment(ref _orphanResponses) <= 3)
                 {
@@ -395,11 +386,10 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
                 }
                 return;
             }
-            _outstanding.Release();
             if (root.TryGetProperty("error", out var error))
             {
                 completion.TrySetException(new InvalidDataException(
-                    $"Steam UI CDP error: {Bound(error.GetRawText(), 2048)}"));
+                    $"Steam UI CDP error: {SteamUiShared.Bound(error.GetRawText(), 2048)}"));
                 return;
             }
             if (!root.TryGetProperty("result", out var result))
@@ -418,12 +408,17 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
             throw new InvalidDataException("Steam UI CDP notification lacked a method.");
         }
         var method = methodElement.GetString()!;
-        var parameters = root.TryGetProperty("params", out var value)
-            ? value.GetRawText()
-            : "{}";
-        if (Encoding.UTF8.GetByteCount(parameters) > MaximumNotificationBytes)
+        var parameters = "{}";
+        if (root.TryGetProperty("params", out var value))
         {
-            throw new InvalidDataException("Steam UI CDP notification exceeded its byte limit.");
+            // The raw UTF-8 is exactly what the byte bound measures, so an oversized notification
+            // is refused before its text is materialized or its bytes are counted again.
+            if (JsonMarshal.GetRawUtf8Value(value).Length > MaximumNotificationBytes)
+            {
+                throw new InvalidDataException(
+                    "Steam UI CDP notification exceeded its byte limit.");
+            }
+            parameters = value.GetRawText();
         }
         if (!_notifications.Writer.TryWrite((method, parameters)))
         {
@@ -431,7 +426,18 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
         }
     }
 
-    private static byte[] BuildRequest(
+    private bool TryTakePending(int id, [NotNullWhen(true)] out TaskCompletionSource<JsonElement>? completion)
+    {
+        if (!_pending.TryRemove(id, out completion))
+        {
+            return false;
+        }
+        Interlocked.Decrement(ref _pendingCount);
+        _outstanding.Release();
+        return true;
+    }
+
+    private static ReadOnlyMemory<byte> BuildRequest(
         int id, string method, Action<Utf8JsonWriter>? writeParameters)
     {
         var writerBuffer = new ArrayBufferWriter<byte>();
@@ -448,11 +454,8 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
             }
             writer.WriteEndObject();
         }
-        return writerBuffer.WrittenMemory.ToArray();
+        return writerBuffer.WrittenMemory;
     }
-
-    private static string Bound(string value, int maximumLength) =>
-        value.Length <= maximumLength ? value : value[..maximumLength] + "...";
 
     private async ValueTask DisposeWireAsync()
     {

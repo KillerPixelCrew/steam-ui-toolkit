@@ -79,11 +79,19 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         _channels = Enum.GetValues<SteamUiTargetRole>().ToDictionary(
             role => role,
             role => new TargetChannel(role));
-        _notificationEventPump = DispatchNotificationEventsAsync();
-        _generationEventPump = DispatchGenerationEventsAsync();
+        _notificationEventPump = PumpAsync(
+            _notificationEvents.Reader,
+            () => NotificationReceived,
+            "Steam UI notification handler failed");
+        _generationEventPump = PumpAsync(
+            _generationEvents.Reader,
+            () => GenerationChanged,
+            "Steam UI generation handler failed");
     }
 
-    /// <inheritdoc />
+    /// <summary>Raised for the generation-changing notifications and <c>Runtime.bindingCalled</c>.</summary>
+    /// <remarks>Other CDP notifications from the enabled domains have no consumer and are dropped
+    /// as they arrive.</remarks>
     public event EventHandler<SteamUiNotification>? NotificationReceived;
 
     /// <inheritdoc />
@@ -121,77 +129,71 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         ArgumentNullException.ThrowIfNull(expression);
-        ValidateTimeout(timeout);
+        SteamUiShared.ThrowIfInvalidTimeout(timeout);
         if (!_enabled)
         {
             return SteamUiEvaluationResult.Unavailable(
                 "Steam CEF integration disabled in settings.",
-                Snapshot(GetChannel(role)).Generations);
+                GenerationsOf(GetChannel(role)));
         }
-        await using IAsyncDisposable requestLease = await SubscribeAsync(role, cancellationToken)
+        await using RequestLease lease = await LeaseAsync(role, timeout, cancellationToken)
             .ConfigureAwait(false);
-        var channel = GetChannel(role);
-        long ownershipGeneration = GetOwnershipGeneration(channel);
+        TargetChannel channel = lease.Channel;
         try
         {
-            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken, _shutdown.Token);
-            deadline.CancelAfter(timeout);
             var connection = await EnsureConnectedAsync(
                     channel,
-                    ownershipGeneration,
-                    deadline.Token)
+                    lease.OwnershipGeneration,
+                    lease.Deadline)
                 .ConfigureAwait(false);
             if (connection is null)
             {
-                return SteamUiEvaluationResult.Unavailable(
-                    Snapshot(channel).LastFailure ?? "Steam UI target is unavailable.",
-                    Snapshot(channel).Generations);
+                lock (channel.Sync)
+                {
+                    return SteamUiEvaluationResult.Unavailable(
+                        channel.LastFailure ?? "Steam UI target is unavailable.",
+                        channel.Generations);
+                }
             }
 
-            var value = await connection.EvaluateAsync(expression, timeout, deadline.Token)
+            var value = await connection.EvaluateAsync(expression, timeout, lease.Deadline)
                 .ConfigureAwait(false);
             SetHealth(
                 channel,
-                ownershipGeneration,
+                lease.OwnershipGeneration,
                 SteamUiTransportHealth.Ready,
                 failure: null);
-            var generations = Snapshot(channel).Generations;
-            return new SteamUiEvaluationResult(true, value, null, generations);
+            return new SteamUiEvaluationResult(true, value, null, GenerationsOf(channel));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             return SteamUiEvaluationResult.Unavailable(
-                "Steam UI evaluation was cancelled.", Snapshot(channel).Generations);
+                "Steam UI evaluation was cancelled.", GenerationsOf(channel));
         }
         catch (OperationCanceledException)
         {
             return SteamUiEvaluationResult.Unavailable(
-                "Steam UI evaluation timed out.", Snapshot(channel).Generations);
+                "Steam UI evaluation timed out.", GenerationsOf(channel));
         }
         catch (InvalidDataException ex)
         {
             SetHealth(
                 channel,
-                ownershipGeneration,
+                lease.OwnershipGeneration,
                 SteamUiTransportHealth.Incompatible,
                 ex.Message);
             // Steam answered; its CDP reply or JavaScript result was incompatible. Preserve that
             // distinction so callers do not diagnose a renamed API as a closed Steam client.
-            return new SteamUiEvaluationResult(
-                true,
-                null,
-                ex.Message,
-                Snapshot(channel).Generations);
+            return new SteamUiEvaluationResult(true, null, ex.Message, GenerationsOf(channel));
         }
         catch (Exception ex)
         {
             SetHealth(
                 channel,
-                ownershipGeneration,
+                lease.OwnershipGeneration,
                 SteamUiTransportHealth.Retrying,
                 ex.Message);
-            return SteamUiEvaluationResult.Unavailable(ex.Message, Snapshot(channel).Generations);
+            return SteamUiEvaluationResult.Unavailable(ex.Message, GenerationsOf(channel));
         }
     }
 
@@ -204,35 +206,50 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(bindingName);
-        ValidateTimeout(timeout);
+        SteamUiShared.ThrowIfInvalidTimeout(timeout);
         if (!_enabled)
         {
             throw new InvalidOperationException("Steam CEF integration is disabled in settings.");
         }
-        await using IAsyncDisposable requestLease = await SubscribeAsync(role, cancellationToken)
+        await using RequestLease lease = await LeaseAsync(role, timeout, cancellationToken)
             .ConfigureAwait(false);
-        var channel = GetChannel(role);
-        long ownershipGeneration = GetOwnershipGeneration(channel);
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(
-            cancellationToken, _shutdown.Token);
-        deadline.CancelAfter(timeout);
         var connection = await EnsureConnectedAsync(
-                channel,
-                ownershipGeneration,
-                deadline.Token)
+                lease.Channel,
+                lease.OwnershipGeneration,
+                lease.Deadline)
             .ConfigureAwait(false)
             ?? throw new IOException("Steam UI target is unavailable.");
         _ = await connection.InvokeAsync(
                 installed ? "Runtime.addBinding" : "Runtime.removeBinding",
                 writer => writer.WriteString("name", bindingName),
                 timeout,
-                deadline.Token)
+                lease.Deadline)
             .ConfigureAwait(false);
         SetHealth(
-            channel,
-            ownershipGeneration,
+            lease.Channel,
+            lease.OwnershipGeneration,
             SteamUiTransportHealth.Ready,
             failure: null);
+    }
+
+    /// <summary>Takes the temporary subscription and deadline one request runs under.</summary>
+    /// <param name="role">The target the request needs.</param>
+    /// <param name="timeout">The complete request deadline.</param>
+    /// <param name="cancellationToken">The caller's cancellation.</param>
+    /// <returns>A lease that disposes the deadline, then releases the subscription.</returns>
+    private async ValueTask<RequestLease> LeaseAsync(
+        SteamUiTargetRole role,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        IAsyncDisposable subscription = await SubscribeAsync(role, cancellationToken)
+            .ConfigureAwait(false);
+        TargetChannel channel = GetChannel(role);
+        long ownershipGeneration = GetOwnershipGeneration(channel);
+        var deadline = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken, _shutdown.Token);
+        deadline.CancelAfter(timeout);
+        return new RequestLease(subscription, channel, ownershipGeneration, deadline);
     }
 
     /// <inheritdoc />
@@ -267,13 +284,7 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
                 }
                 else
                 {
-                    channel.OwnershipGeneration++;
-                    cancellation = channel.ReconnectCancellation;
-                    channel.ReconnectCancellation = null;
-                    channel.ReconnectTask = null;
-                    connection = channel.Connection;
-                    channel.Connection = null;
-                    channel.Health = SteamUiTransportHealth.Idle;
+                    (cancellation, connection) = DetachLocked(channel, SteamUiTransportHealth.Idle);
                 }
             }
             cancellation?.Cancel();
@@ -291,7 +302,7 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         channel.ReconnectCancellation = CancellationTokenSource.CreateLinkedTokenSource(
             _shutdown.Token);
         long ownershipGeneration = ++channel.OwnershipGeneration;
-        channel.ReconnectTask = ReconnectLoopAsync(
+        _ = ReconnectLoopAsync(
             channel,
             ownershipGeneration,
             channel.ReconnectCancellation.Token);
@@ -366,6 +377,20 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         long ownershipGeneration,
         CancellationToken cancellationToken)
     {
+        void ThrowIfOwnerLeftLocked()
+        {
+            if (Volatile.Read(ref _disposed) != 0
+                || channel.Subscribers == 0
+                || channel.OwnershipGeneration != ownershipGeneration)
+            {
+                SteamUiLog.Info(
+                    $"Steam UI {channel.Role} connection completed after its owner left; "
+                    + "discarding it.");
+                throw new OperationCanceledException(
+                    "The Steam UI channel owner changed while connecting.");
+            }
+        }
+
         lock (channel.Sync)
         {
             if (channel.Connection is not null)
@@ -406,20 +431,10 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
             {
                 lock (channel.Sync)
                 {
-                    if (Volatile.Read(ref _disposed) != 0
-                        || channel.Subscribers == 0
-                        || channel.OwnershipGeneration != ownershipGeneration)
-                    {
-                        SteamUiLog.Info(
-                            $"Steam UI {channel.Role} connection completed after its owner left; "
-                            + "discarding it.");
-                        throw new OperationCanceledException(
-                            "The Steam UI channel owner changed while connecting.");
-                    }
+                    ThrowIfOwnerLeftLocked();
                 }
 
                 connection = new SteamUiCdpConnection(
-                    endpoint,
                     wire,
                     (method, parameters) =>
                         OnNotification(channel, connection, method, parameters),
@@ -439,16 +454,7 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
                     // Recheck after enabling domains: the owner may have gone away while the CDP
                     // setup calls were in flight. Publishing here regardless would leave a live
                     // socket after the last subscription was released or CEF was disabled.
-                    if (Volatile.Read(ref _disposed) != 0
-                        || channel.Subscribers == 0
-                        || channel.OwnershipGeneration != ownershipGeneration)
-                    {
-                        SteamUiLog.Info(
-                            $"Steam UI {channel.Role} connection completed after its owner left; "
-                            + "discarding it.");
-                        throw new OperationCanceledException(
-                            "The Steam UI channel owner changed while connecting.");
-                    }
+                    ThrowIfOwnerLeftLocked();
 
                     var generations = channel.Generations;
                     if (!string.Equals(channel.BrowserId, endpoint.BrowserId, StringComparison.Ordinal))
@@ -482,7 +488,7 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
                     channel.Health = SteamUiTransportHealth.Ready;
                     channel.LastFailure = null;
                 }
-                RaiseGenerationChanged(channel);
+                RaiseGenerationChanged(Snapshot(channel));
                 return connection;
             }
             catch
@@ -533,7 +539,19 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         string method,
         string parameters)
     {
-        var changed = false;
+        // Only generation changes and the Runtime binding have a consumer. Console and DOM chatter
+        // from the enabled domains is dropped here, before the lock, the snapshot and the channel.
+        bool generationMethod = method is "Page.frameNavigated"
+            or "Runtime.executionContextCreated"
+            or "Runtime.executionContextDestroyed"
+            or "Runtime.executionContextsCleared"
+            or "DOM.documentUpdated";
+        if (!generationMethod && method != "Runtime.bindingCalled")
+        {
+            return;
+        }
+
+        SteamUiGenerations generations;
         lock (channel.Sync)
         {
             // Ignore domain-enable chatter from a candidate that has not been published, plus any
@@ -543,51 +561,42 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
             {
                 return;
             }
-            var generations = channel.Generations;
-            switch (method)
+            generations = channel.Generations;
+            channel.Generations = method switch
             {
-                case "Page.frameNavigated":
-                    generations = generations with
-                    {
-                        Frame = generations.Frame + 1,
-                        Document = generations.Document + 1,
-                    };
-                    changed = true;
-                    break;
-                case "Runtime.executionContextCreated":
-                    generations = generations with
-                    {
-                        ExecutionContext = generations.ExecutionContext + 1,
-                    };
-                    changed = true;
-                    break;
-                case "Runtime.executionContextDestroyed":
-                case "Runtime.executionContextsCleared":
-                    generations = generations with
+                "Page.frameNavigated" => generations with
+                {
+                    Frame = generations.Frame + 1,
+                    Document = generations.Document + 1,
+                },
+                "Runtime.executionContextCreated" => generations with
+                {
+                    ExecutionContext = generations.ExecutionContext + 1,
+                },
+                "Runtime.executionContextDestroyed" or "Runtime.executionContextsCleared" =>
+                    generations with
                     {
                         ExecutionContext = generations.ExecutionContext + 1,
                         Document = generations.Document + 1,
-                    };
-                    changed = true;
-                    break;
-                case "DOM.documentUpdated":
-                    generations = generations with
-                    {
-                        Document = generations.Document + 1,
-                    };
-                    changed = true;
-                    break;
-            }
-            channel.Generations = generations;
+                    },
+                "DOM.documentUpdated" => generations with
+                {
+                    Document = generations.Document + 1,
+                },
+                _ => generations,
+            };
         }
 
+        if (!generationMethod)
+        {
+            RaiseNotificationReceived(
+                new SteamUiNotification(channel.Role, method, parameters, generations));
+            return;
+        }
         var snapshot = Snapshot(channel);
         RaiseNotificationReceived(
             new SteamUiNotification(channel.Role, method, parameters, snapshot.Generations));
-        if (changed)
-        {
-            RaiseGenerationChanged(snapshot);
-        }
+        RaiseGenerationChanged(snapshot);
     }
 
     private void OnConnectionClosed(
@@ -619,13 +628,8 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
             }
             if (channel.Subscribers == 0)
             {
-                channel.OwnershipGeneration++;
-                reconnectCancellation = channel.ReconnectCancellation;
-                channel.ReconnectCancellation = null;
-                channel.ReconnectTask = null;
-                connection = channel.Connection;
-                channel.Connection = null;
-                channel.Health = SteamUiTransportHealth.Idle;
+                (reconnectCancellation, connection) =
+                    DetachLocked(channel, SteamUiTransportHealth.Idle);
             }
         }
         reconnectCancellation?.Cancel();
@@ -649,8 +653,25 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
                 return;
             }
             channel.Health = health;
-            channel.LastFailure = Bound(failure, 1024);
+            channel.LastFailure = SteamUiShared.Bound(failure, 1024);
         }
+    }
+
+    /// <summary>Retires the channel's owner and hands back what the caller must close.</summary>
+    /// <param name="channel">The channel, whose lock the caller holds.</param>
+    /// <param name="health">The health the detached channel reports.</param>
+    /// <returns>The reconnect loop's cancellation and the connection, both now unpublished.</returns>
+    private static (CancellationTokenSource? Reconnect, SteamUiCdpConnection? Connection) DetachLocked(
+        TargetChannel channel,
+        SteamUiTransportHealth health)
+    {
+        channel.OwnershipGeneration++;
+        CancellationTokenSource? reconnect = channel.ReconnectCancellation;
+        channel.ReconnectCancellation = null;
+        SteamUiCdpConnection? connection = channel.Connection;
+        channel.Connection = null;
+        channel.Health = health;
+        return (reconnect, connection);
     }
 
     private static async Task DisposeDetachedConnectionAsync(
@@ -670,55 +691,30 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
     private void RaiseNotificationReceived(SteamUiNotification notification)
         => _notificationEvents.Writer.TryWrite(notification);
 
-    private async Task DispatchNotificationEventsAsync()
-    {
-        await foreach (SteamUiNotification notification in
-            _notificationEvents.Reader.ReadAllAsync())
-        {
-            EventHandler<SteamUiNotification>? handlers = NotificationReceived;
-            if (handlers is null)
-            {
-                continue;
-            }
-            foreach (EventHandler<SteamUiNotification> handler in handlers.GetInvocationList())
-            {
-                try
-                {
-                    handler(this, notification);
-                }
-                catch (Exception ex)
-                {
-                    SteamUiLog.Warn($"Steam UI notification handler failed: {ex.Message}");
-                }
-            }
-        }
-    }
-
-    private void RaiseGenerationChanged(TargetChannel channel) =>
-        RaiseGenerationChanged(Snapshot(channel));
-
     private void RaiseGenerationChanged(SteamUiTransportSnapshot snapshot) =>
         _generationEvents.Writer.TryWrite(snapshot);
 
-    private async Task DispatchGenerationEventsAsync()
+    private async Task PumpAsync<T>(
+        ChannelReader<T> reader,
+        Func<EventHandler<T>?> handlers,
+        string failure)
     {
-        await foreach (SteamUiTransportSnapshot snapshot in
-            _generationEvents.Reader.ReadAllAsync())
+        await foreach (T item in reader.ReadAllAsync())
         {
-            EventHandler<SteamUiTransportSnapshot>? handlers = GenerationChanged;
-            if (handlers is null)
+            EventHandler<T>? current = handlers();
+            if (current is null)
             {
                 continue;
             }
-            foreach (EventHandler<SteamUiTransportSnapshot> handler in handlers.GetInvocationList())
+            foreach (EventHandler<T> handler in current.GetInvocationList())
             {
                 try
                 {
-                    handler(this, snapshot);
+                    handler(this, item);
                 }
                 catch (Exception ex)
                 {
-                    SteamUiLog.Warn($"Steam UI generation handler failed: {ex.Message}");
+                    SteamUiLog.Warn($"{failure}: {ex.Message}");
                 }
             }
         }
@@ -752,18 +748,11 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         }
     }
 
-    private static string? Bound(string? value, int maximumLength) =>
-        value is null || value.Length <= maximumLength
-            ? value
-            : value[..maximumLength] + "...";
-
-    private static void ValidateTimeout(TimeSpan timeout)
+    private static SteamUiGenerations GenerationsOf(TargetChannel channel)
     {
-        if (timeout <= TimeSpan.Zero || timeout > TimeSpan.FromSeconds(30))
+        lock (channel.Sync)
         {
-            throw new ArgumentOutOfRangeException(
-                nameof(timeout),
-                "Steam UI operations require a positive timeout no greater than 30 seconds.");
+            return channel.Generations;
         }
     }
 
@@ -783,12 +772,8 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
             CancellationTokenSource? reconnectCancellation;
             lock (channel.Sync)
             {
-                channel.OwnershipGeneration++;
-                reconnectCancellation = channel.ReconnectCancellation;
-                channel.ReconnectCancellation = null;
-                connection = channel.Connection;
-                channel.Connection = null;
-                channel.Health = SteamUiTransportHealth.Disposed;
+                (reconnectCancellation, connection) =
+                    DetachLocked(channel, SteamUiTransportHealth.Disposed);
             }
             reconnectCancellation?.Cancel();
             reconnectCancellation?.Dispose();
@@ -843,8 +828,28 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         internal long OwnershipGeneration { get; set; }
 
         internal CancellationTokenSource? ReconnectCancellation { get; set; }
+    }
 
-        internal Task? ReconnectTask { get; set; }
+    private readonly struct RequestLease(
+        IAsyncDisposable subscription,
+        TargetChannel channel,
+        long ownershipGeneration,
+        CancellationTokenSource deadline) : IAsyncDisposable
+    {
+        private readonly IAsyncDisposable _subscription = subscription;
+        private readonly CancellationTokenSource _deadline = deadline;
+
+        internal TargetChannel Channel { get; } = channel;
+
+        internal long OwnershipGeneration { get; } = ownershipGeneration;
+
+        internal CancellationToken Deadline => _deadline.Token;
+
+        public ValueTask DisposeAsync()
+        {
+            _deadline.Dispose();
+            return _subscription.DisposeAsync();
+        }
     }
 
     private sealed class Subscription(

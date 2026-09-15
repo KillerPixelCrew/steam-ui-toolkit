@@ -275,8 +275,9 @@ left logs `Steam UI <role> connection completed after its owner left; discarding
 | `Runtime.executionContextDestroyed`, `Runtime.executionContextsCleared`   | ExecutionContext, Document                      |
 | `DOM.documentUpdated`                                                     | Document                                        |
 
-`NotificationReceived` fires for every notification; `GenerationChanged` only when a generation
-changed. Both go through bounded drop-oldest channels (256 and 64) and handler exceptions are
+`NotificationReceived` fires only for the generation notifications above and
+`Runtime.bindingCalled`, the one notification the bridge consumes; other domain chatter is dropped
+before it takes the channel lock. `GenerationChanged` fires only when a generation changed. Both go through bounded drop-oldest channels (256 and 64) and handler exceptions are
 logged. A Steam restart is detected through nothing more than this: the socket closes, the loop
 backs off, discovery refuses while the port is closed, and the reconnect brings a new browser id
 that advances every generation, which invalidates every patch and the bridge.

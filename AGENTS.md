@@ -20,6 +20,7 @@ enabled; this repository supplies mechanisms and truthful state.
 - `SteamUiCdpConnection.cs`, `PersistentSteamUiTransport.cs`: framed CDP traffic, subscriptions,
   health, reconnection, and generations.
 - `SteamUiPatchManager.cs`, `SteamUiPatchEvaluation.cs`: probe/apply/verify/remove lifecycle.
+- `SteamUiShared.cs`: internal bounds, timeout validation and safe cancellation the core shares.
 - `SteamUiBridge.cs`, `SteamUiBridgeIdentity.cs`: host binding, authorization, delivery, and
   generation identity.
 - `SteamUiModule.cs`, `SteamUiModuleRuntime.cs`: state publication and semantic command routing.
