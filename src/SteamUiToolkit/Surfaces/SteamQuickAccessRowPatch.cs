@@ -20,7 +20,8 @@ namespace SteamUiToolkit;
 /// </remarks>
 public sealed class SteamQuickAccessRowPatch : ISteamUiPatch
 {
-    private const string BridgeNamespace = SteamUiBridgeIdentity.Namespace;
+    private const string NativeComponents = "'nativeComponents'";
+    private const string VerifyFallback = "Native-QAM component verification failed.";
     private static readonly string[] CommonRequiredCounts =
     [
         "performanceRoot",
@@ -32,9 +33,11 @@ public sealed class SteamQuickAccessRowPatch : ISteamUiPatch
 
     private readonly string _componentKind;
     private readonly string _fingerprint;
-    private readonly string _chunkLabel;
     private readonly string _primaryCountName;
-    private readonly IReadOnlyList<string> _primaryTokens;
+    private readonly string _probeExpression;
+    private readonly string _applyExpression;
+    private readonly string _verifyExpression;
+    private readonly string _removeExpression;
 
     /// <summary>Declares one row.</summary>
     /// <param name="id">Stable patch id.</param>
@@ -59,9 +62,35 @@ public sealed class SteamQuickAccessRowPatch : ISteamUiPatch
         Id = id;
         _componentKind = componentKind;
         _fingerprint = fingerprint;
-        _chunkLabel = chunkLabel;
         _primaryCountName = primaryCountName;
-        _primaryTokens = primaryTokens ?? SteamUiProbeJs.PerformanceActionTokens;
+
+        // Read-only structural probe shared by every row. Built once: the declaration never changes
+        // and the manager probes every row on each synchronization.
+        _probeExpression = $$"""
+            {{SteamUiProbeJs.Preamble(chunkLabel)}}
+              return JSON.stringify({
+                {{primaryCountName}}:count({{SteamUiProbeJs.Tokens(primaryTokens ?? SteamUiProbeJs.PerformanceActionTokens)}}),
+                performanceRoot:count(['#QuickAccess_Tab_Perf_Common_Settings','#QuickAccess_Tab_Perf_BatteryTimeRemaining','TS.ON_FRAME']),
+                nativeFields:count({{SteamUiProbeJs.NativeFieldTokens}}),
+                nativeLayout:count(['PanelSectionTitle','PanelSectionRow','spinner']),
+                localization:count({{SteamUiProbeJs.LocalizationTokens}}),
+                react:count({{SteamUiProbeJs.ReactTokens}})
+              });
+            {{SteamUiProbeJs.Close}}
+            """;
+        string kind = SteamCef.JsString(componentKind);
+        _applyExpression = SteamGatePatch.GateExpression(
+            NativeComponents,
+            "return JSON.stringify(bridge.install(" + kind + "));");
+        _verifyExpression = SteamGatePatch.GateExpression(
+            NativeComponents,
+            "const status=bridge.status(" + kind + ");return JSON.stringify({ok:status.ok"
+                + "&&status.registered&&status.hostVersion===1&&status.performanceRootWrapped,status});");
+        _removeExpression = SteamGatePatch.GateExpression(
+            NativeComponents,
+            "const removed=bridge.remove(" + kind + ");const status=bridge.status(" + kind + ");"
+                + "return JSON.stringify({ok:removed.ok&&!status.registered});",
+            unavailable: "return JSON.stringify({ok:true,absent:true});");
     }
 
     /// <inheritdoc />
@@ -82,172 +111,140 @@ public sealed class SteamQuickAccessRowPatch : ISteamUiPatch
     /// <summary>The compiled kind the injected host installs for this row.</summary>
     public string ComponentKind => _componentKind;
 
-    /// <summary>Read-only structural probe shared by every row.</summary>
-    private string ProbeExpression => $$"""
-        {{SteamUiProbeJs.Preamble(_chunkLabel)}}
-          return JSON.stringify({
-            {{_primaryCountName}}:count({{SteamUiProbeJs.Tokens(_primaryTokens)}}),
-            performanceRoot:count(['#QuickAccess_Tab_Perf_Common_Settings','#QuickAccess_Tab_Perf_BatteryTimeRemaining','TS.ON_FRAME']),
-            nativeFields:count({{SteamUiProbeJs.NativeFieldTokens}}),
-            nativeLayout:count(['PanelSectionTitle','PanelSectionRow','spinner']),
-            localization:count({{SteamUiProbeJs.LocalizationTokens}}),
-            react:count({{SteamUiProbeJs.ReactTokens}})
-          });
-        {{SteamUiProbeJs.Close}}
-        """;
-
     /// <inheritdoc />
-    public async Task<SteamUiPatchProbeResult> ProbeAsync(
+    public Task<SteamUiPatchProbeResult> ProbeAsync(
         SteamUiPatchContext context,
-        CancellationToken cancellationToken)
-    {
-        SteamUiEvaluationResult result = await context.EvaluateAsync(
-            TargetRole,
-            ProbeExpression,
-            cancellationToken).ConfigureAwait(false);
-        if (!result.Reachable || result.Value is null)
-        {
-            return new SteamUiPatchProbeResult(
-                false,
-                false,
-                false,
-                null,
-                result.Error ?? "SharedJSContext is unavailable.");
-        }
-
-        try
-        {
-            using JsonDocument document = JsonDocument.Parse(result.Value);
-            JsonElement root = document.RootElement;
-            bool unique = SteamUiPatchEvaluation.IsOne(root, _primaryCountName);
-            foreach (string property in CommonRequiredCounts)
-            {
-                unique &= SteamUiPatchEvaluation.IsOne(root, property);
-            }
-
-            return new SteamUiPatchProbeResult(
-                true,
-                unique,
-                unique,
-                unique ? _fingerprint : null,
-                unique ? null : result.Value);
-        }
-        catch (JsonException ex)
-        {
-            return new SteamUiPatchProbeResult(true, false, false, null, ex.Message);
-        }
-    }
+        CancellationToken cancellationToken) =>
+        SteamGatePatch.ProbeAsync(
+            context, _probeExpression, IsCompatible, _fingerprint, cancellationToken);
 
     /// <inheritdoc />
     public Task<SteamUiPatchOperationResult> ApplyAsync(
         SteamUiPatchContext context,
-        CancellationToken cancellationToken)
-    {
-        string expression = "(()=>{const b=window["
-            + SteamCef.JsString(BridgeNamespace)
-            + "];const bridge=b&&b.gate?b.gate('nativeComponents'):null;"
-            + "if(!bridge)return JSON.stringify({ok:false,error:'bridge unavailable'});"
-            + "return JSON.stringify(bridge.install("
-            + SteamCef.JsString(_componentKind)
-            + "));})()";
-        return SteamUiPatchEvaluation.EvaluateOutcomeAsync(
+        CancellationToken cancellationToken) =>
+        SteamUiPatchEvaluation.EvaluateOutcomeAsync(
             context,
             SteamUiTargetRole.SharedJsContext,
-            expression,
+            _applyExpression,
             "Native-QAM component installation failed.",
             cancellationToken);
-    }
 
     /// <inheritdoc />
     public async Task<SteamUiPatchOperationResult> VerifyAsync(
         SteamUiPatchContext context,
         CancellationToken cancellationToken)
     {
-        string expression = "(()=>{const b=window["
-            + SteamCef.JsString(BridgeNamespace)
-            + "];const bridge=b&&b.gate?b.gate('nativeComponents'):null;"
-            + "if(!bridge)return JSON.stringify({ok:false,error:'bridge unavailable'});"
-            + "const status=bridge.status("
-            + SteamCef.JsString(_componentKind)
-            + ");return JSON.stringify({ok:status.ok&&status.registered"
-            + "&&status.hostVersion===1&&status.performanceRootWrapped,status});})()";
-        SteamUiPatchOperationResult result = await SteamUiPatchEvaluation.EvaluateOutcomeAsync(
-            context,
+        SteamUiEvaluationResult result = await context.EvaluateAsync(
             SteamUiTargetRole.SharedJsContext,
-            expression,
-            "Native-QAM component verification failed.",
+            _verifyExpression,
             cancellationToken).ConfigureAwait(false);
+        if (!result.Reachable || result.Value is null)
+        {
+            return new SteamUiPatchOperationResult(false, result.Error ?? VerifyFallback);
+        }
 
-        // Verification asks whether the component registered and the performance root is wrapped.
-        // Both can be true while the Quick Access panel shows nothing, because the rows are only
-        // inserted if the tree Steam renders contains the section they attach to — and on Windows
-        // Steam does not render the SteamOS-gated performance blocks at all. Reporting the append
-        // outcome is what separates "the host did not run" from "the host ran and found nowhere to
-        // put it".
-        await LogAppendOutcomeAsync(context, cancellationToken).ConfigureAwait(false);
-        return result;
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(result.Value);
+            JsonElement root = document.RootElement;
+            bool succeeded = root.TryGetProperty("ok", out JsonElement ok)
+                && ok.ValueKind == JsonValueKind.True;
+            string? reported = root.TryGetProperty("error", out JsonElement error)
+                && error.ValueKind == JsonValueKind.String
+                ? error.GetString()
+                : null;
+            LogAppendOutcome(root, reported);
+            return succeeded
+                ? new SteamUiPatchOperationResult(true, null)
+                : new SteamUiPatchOperationResult(
+                    false,
+                    reported ?? SteamUiPatchEvaluation.Bounded(result.Value) ?? VerifyFallback);
+        }
+        catch (JsonException ex)
+        {
+            return new SteamUiPatchOperationResult(false, ex.Message);
+        }
     }
 
     /// <inheritdoc />
     public Task<SteamUiPatchOperationResult> RemoveAsync(
         SteamUiPatchContext context,
-        CancellationToken cancellationToken)
-    {
-        string expression = "(()=>{const b=window["
-            + SteamCef.JsString(BridgeNamespace)
-            + "];const bridge=b&&b.gate?b.gate('nativeComponents'):null;"
-            + "if(!bridge)return JSON.stringify({ok:true,absent:true});"
-            + "const removed=bridge.remove("
-            + SteamCef.JsString(_componentKind)
-            + ");const status=bridge.status("
-            + SteamCef.JsString(_componentKind)
-            + ");return JSON.stringify({ok:removed.ok&&!status.registered});})()";
-        return SteamUiPatchEvaluation.EvaluateOutcomeAsync(
+        CancellationToken cancellationToken) =>
+        SteamUiPatchEvaluation.EvaluateOutcomeAsync(
             context,
             SteamUiTargetRole.SharedJsContext,
-            expression,
+            _removeExpression,
             "Native-QAM component removal failed.",
             cancellationToken);
+
+    private bool IsCompatible(JsonElement root)
+    {
+        bool unique = SteamUiPatchEvaluation.IsOne(root, _primaryCountName);
+        foreach (string property in CommonRequiredCounts)
+        {
+            unique &= SteamUiPatchEvaluation.IsOne(root, property);
+        }
+
+        return unique;
     }
 
     /// <summary>Reports what the last row-insertion attempt actually achieved.</summary>
-    /// <param name="context">The live patch context.</param>
-    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <param name="root">The verification result, carrying the host's <c>status</c>.</param>
+    /// <param name="error">The page's own error, when verification could not reach the host.</param>
     /// <remarks>
-    /// Read-only, and deliberately best-effort: a diagnostic that could fail verification would
-    /// make the log a liability. Keyed per row through <see cref="SteamUiLog.Change"/>, so a steady
-    /// outcome is stated once and a change in it is stated again.
+    /// Verification asks whether the component registered and the performance root is wrapped. Both
+    /// can be true while the Quick Access panel shows nothing, because the rows are only inserted if
+    /// the tree Steam renders contains the section they attach to, and on Windows Steam does not
+    /// render the SteamOS-gated performance blocks at all. Reporting the append outcome is what
+    /// separates "the host did not run" from "the host ran and found nowhere to put it".
+    /// <para>
+    /// Read from the status verification already returned rather than asked for again, in the shape
+    /// the report has always had: <c>append</c> (or <c>{"never":true}</c>), <c>rows</c> and
+    /// <c>toggle</c>. Keyed per row through <see cref="SteamUiLog.Change"/>, so a steady outcome is
+    /// stated once and a change in it is stated again.
+    /// </para>
     /// </remarks>
-    private async Task LogAppendOutcomeAsync(
-        SteamUiPatchContext context,
-        CancellationToken cancellationToken)
+    private void LogAppendOutcome(JsonElement root, string? error)
     {
-        try
+        string report;
+        if (root.TryGetProperty("status", out JsonElement status))
         {
-            string expression = "(()=>{const b=window[" + SteamCef.JsString(BridgeNamespace)
-                + "];const g=b&&b.gate?b.gate('nativeComponents'):null;"
-                + "if(!g)return JSON.stringify({error:'bridge unavailable'});"
-                + "const s=g.status(" + SteamCef.JsString(_componentKind) + ");"
-                + "return JSON.stringify({append:s.lastAppend||{never:true},"
-                + "rows:s.renderOutcomes,toggle:s.toggleResolved});})()";
-            SteamUiEvaluationResult evaluation = await context.EvaluateAsync(
-                SteamUiTargetRole.SharedJsContext,
-                expression,
-                cancellationToken).ConfigureAwait(false);
-            if (!evaluation.Reachable || evaluation.Value is null)
+            report = "{\"append\":"
+                + (status.ValueKind == JsonValueKind.Object
+                    && status.TryGetProperty("lastAppend", out JsonElement append)
+                    && IsTruthy(append)
+                        ? append.GetRawText()
+                        : "{\"never\":true}");
+            if (status.ValueKind == JsonValueKind.Object)
             {
-                return;
+                if (status.TryGetProperty("renderOutcomes", out JsonElement rows))
+                {
+                    report += ",\"rows\":" + rows.GetRawText();
+                }
+                if (status.TryGetProperty("toggleResolved", out JsonElement toggle))
+                {
+                    report += ",\"toggle\":" + toggle.GetRawText();
+                }
             }
-
-            SteamUiLog.Change(
-                "steam.ui.append." + Id,
-                $"Native-QAM rows for {Id}: {evaluation.Value}");
+            report += "}";
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        else if (error == "bridge unavailable")
         {
-            SteamUiLog.Change(
-                "steam.ui.append.error." + Id,
-                $"Native-QAM row report failed: {ex.Message}");
+            report = "{\"error\":\"bridge unavailable\"}";
         }
+        else
+        {
+            return;
+        }
+
+        SteamUiLog.Change("steam.ui.append." + Id, $"Native-QAM rows for {Id}: {report}");
     }
+
+    private static bool IsTruthy(JsonElement value) => value.ValueKind switch
+    {
+        JsonValueKind.Null or JsonValueKind.False or JsonValueKind.Undefined => false,
+        JsonValueKind.Number => value.GetDouble() != 0,
+        JsonValueKind.String => value.GetString() is { Length: > 0 },
+        _ => true,
+    };
 }

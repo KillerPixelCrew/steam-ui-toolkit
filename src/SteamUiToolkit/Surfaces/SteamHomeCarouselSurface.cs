@@ -143,8 +143,8 @@ public static class SteamHomeCarouselSurface
             SteamUiPatchEvaluation.IsOne(root, "homeModule")
             && SteamUiPatchEvaluation.IsOne(root, "homeFound")
             && SteamUiPatchEvaluation.IsOne(root, "react")
-            && SteamGatePatch.Flag(root, "stores")
-            && SteamGatePatch.Flag(root, "claimable"),
+            && SteamUiPatchEvaluation.Flag(root, "stores")
+            && SteamUiPatchEvaluation.Flag(root, "claimable"),
         verifyOk: "status.installed&&status.resolved&&status.claimed",
         removeOk: "!status.claimed",
         subject: "Home carousel gate");

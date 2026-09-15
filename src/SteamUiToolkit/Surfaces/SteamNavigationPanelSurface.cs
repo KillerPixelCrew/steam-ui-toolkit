@@ -123,7 +123,7 @@ public static class SteamNavigationPanelSurface
             && SteamUiPatchEvaluation.IsOne(root, "panelRoot")
             && SteamUiPatchEvaluation.IsOne(root, "memoExports")
             && SteamUiPatchEvaluation.IsOne(root, "react")
-            && SteamGatePatch.Flag(root, "claimable"),
+            && SteamUiPatchEvaluation.Flag(root, "claimable"),
         verifyOk: "status.installed&&status.resolved&&status.claimed",
         removeOk: "!status.claimed",
         subject: "Navigation panel gate");

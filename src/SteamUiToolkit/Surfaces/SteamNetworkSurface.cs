@@ -89,8 +89,8 @@ public static class SteamNetworkSurface
             {{SteamUiProbeJs.Close}}
             """,
         compatible: root =>
-            SteamGatePatch.Flag(root, "getterConfigurable")
-            && SteamGatePatch.Flag(root, "currentlyHidden"),
+            SteamUiPatchEvaluation.Flag(root, "getterConfigurable")
+            && SteamUiPatchEvaluation.Flag(root, "currentlyHidden"),
         verifyOk: "status.installed&&status.available",
         removeOk: "!status.available",
         subject: "Network gate");

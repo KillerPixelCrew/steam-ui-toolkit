@@ -556,8 +556,8 @@ public static class SteamPerformanceSurface
             """,
         compatible: root =>
             SteamUiPatchEvaluation.IsOne(root, "perfStore")
-            && SteamGatePatch.Flag(root, "perfNamespaceAbsent")
-            && SteamGatePatch.Flag(root, "storeSingletonReachable"),
+            && SteamUiPatchEvaluation.Flag(root, "perfNamespaceAbsent")
+            && SteamUiPatchEvaluation.Flag(root, "storeSingletonReachable"),
         verifyOk: "status.installed&&status.namespacePresent",
         removeOk: "!status.namespacePresent",
         subject: "Performance namespace");

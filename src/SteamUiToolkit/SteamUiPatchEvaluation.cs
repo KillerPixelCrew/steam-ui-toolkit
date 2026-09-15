@@ -83,6 +83,13 @@ public static class SteamUiPatchEvaluation
         && value.TryGetInt32(out int count)
         && count == 1;
 
+    /// <summary>Reads one boolean flag out of a probe result.</summary>
+    /// <param name="root">The probe's JSON.</param>
+    /// <param name="name">The flag's property name.</param>
+    /// <returns>True only when the property exists and is literally <c>true</c>.</returns>
+    public static bool Flag(JsonElement root, string name) =>
+        root.TryGetProperty(name, out JsonElement value) && value.ValueKind is JsonValueKind.True;
+
     /// <summary>Whether a probe reported success and every named boolean was true.</summary>
     /// <param name="value">The raw probe result.</param>
     /// <param name="requiredFlags">Boolean properties that must all be present and true. With none,

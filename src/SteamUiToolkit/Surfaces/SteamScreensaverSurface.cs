@@ -139,7 +139,7 @@ public static class SteamScreensaverSurface
             && root.TryGetProperty("route", out JsonElement route)
             && route.ValueKind == JsonValueKind.String
             && route.GetString() is { Length: > 0 }
-            && SteamGatePatch.Flag(root, "settings"),
+            && SteamUiPatchEvaluation.Flag(root, "settings"),
         verifyOk: "status.installed&&status.resolved&&status.claimed",
         removeOk: "!status.claimed",
         subject: "Screensaver settings gate");

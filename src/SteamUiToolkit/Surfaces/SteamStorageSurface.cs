@@ -199,7 +199,7 @@ public static class SteamStorageSurface
             SteamUiPatchEvaluation.IsOne(root, "service")
             && SteamUiPatchEvaluation.IsOne(root, "transportModule")
             && SteamUiPatchEvaluation.IsOne(root, "transportResolved")
-            && SteamGatePatch.Flag(root, "claimable"),
+            && SteamUiPatchEvaluation.Flag(root, "claimable"),
         verifyOk: "status.installed&&status.resolved&&status.claimed",
         removeOk: "!status.claimed",
         subject: "Storage service gate");

@@ -75,9 +75,9 @@ public static class SteamBrightnessSurface
             {{SteamUiProbeJs.Close}}
             """,
         compatible: root =>
-            SteamGatePatch.Flag(root, "fieldPresent")
-            && SteamGatePatch.Flag(root, "revealable")
-            && SteamGatePatch.Flag(root, "backendPresent"),
+            SteamUiPatchEvaluation.Flag(root, "fieldPresent")
+            && SteamUiPatchEvaluation.Flag(root, "revealable")
+            && SteamUiPatchEvaluation.Flag(root, "backendPresent"),
         verifyOk: "status.installed&&status.available&&status.setterOwned",
         removeOk: "!status.available",
         subject: "Brightness gate");

@@ -110,7 +110,7 @@ public static class SteamPageSurface
             && SteamUiPatchEvaluation.IsOne(root, "routerFound")
             && SteamUiPatchEvaluation.IsOne(root, "routeSwitch")
             && SteamUiPatchEvaluation.IsOne(root, "react")
-            && SteamGatePatch.Flag(root, "claimable"),
+            && SteamUiPatchEvaluation.Flag(root, "claimable"),
         verifyOk: "status.installed&&status.resolved&&status.routeResolved&&status.claimed",
         removeOk: "!status.claimed",
         subject: "Custom page gate");

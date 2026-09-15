@@ -121,8 +121,8 @@ public static class SteamAudioSurface
             """,
         compatible: root =>
             SteamUiPatchEvaluation.IsOne(root, "audioStore")
-            && SteamGatePatch.Flag(root, "audioNamespaceAbsent")
-            && SteamGatePatch.Flag(root, "storeSingletonReachable"),
+            && SteamUiPatchEvaluation.Flag(root, "audioNamespaceAbsent")
+            && SteamUiPatchEvaluation.Flag(root, "storeSingletonReachable"),
         verifyOk: "status.installed&&status.namespacePresent",
         removeOk: "!status.namespacePresent",
         subject: "Audio namespace");

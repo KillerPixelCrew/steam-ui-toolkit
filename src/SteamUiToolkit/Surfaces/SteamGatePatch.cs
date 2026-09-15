@@ -21,12 +21,16 @@ namespace SteamUiToolkit;
 public sealed class SteamGatePatch : ISteamUiPatch
 {
     private const string BridgeNamespace = SteamUiBridgeIdentity.Namespace;
-    private readonly string _gateName;
+    private const string BridgeUnavailable =
+        "return JSON.stringify({ok:false,error:'bridge unavailable'});";
     private readonly string _fingerprint;
     private readonly string _probeExpression;
     private readonly Func<JsonElement, bool> _compatible;
     private readonly string _verifyOk;
     private readonly string _removeOk;
+    private readonly string _applyExpression;
+    private readonly string _verifyExpression;
+    private readonly string _removeExpression;
     private readonly string _subject;
 
     /// <summary>Declares one gate.</summary>
@@ -61,13 +65,21 @@ public sealed class SteamGatePatch : ISteamUiPatch
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
         Id = id;
         ResourceKey = resourceKey;
-        _gateName = gateName;
         _fingerprint = fingerprint;
         _probeExpression = probeExpression;
         _compatible = compatible;
         _verifyOk = verifyOk;
         _removeOk = removeOk;
         _subject = subject;
+        string gate = SteamCef.JsString(gateName);
+        _applyExpression = GateExpression(gate, "return JSON.stringify(bridge.install());");
+        _verifyExpression = GateExpression(
+            gate,
+            "const status=bridge.status();return JSON.stringify({ok:" + verifyOk + ",status});");
+        _removeExpression = GateExpression(
+            gate,
+            "const removed=bridge.remove();const status=bridge.status();"
+                + "return JSON.stringify({ok:removed.ok&&" + removeOk + "});");
     }
 
     /// <inheritdoc />
@@ -85,14 +97,74 @@ public sealed class SteamGatePatch : ISteamUiPatch
     /// <inheritdoc />
     public SteamUiPatchBounds Bounds { get; } = SteamUiPatchBounds.Default;
 
+    /// <summary>The read-only probe this gate evaluates.</summary>
+    internal string ProbeExpression => _probeExpression;
+
+    /// <summary>The compatibility verdict over the probe's JSON.</summary>
+    internal Func<JsonElement, bool> Compatible => _compatible;
+
+    /// <summary>The JS predicate over <c>status</c> that verification requires.</summary>
+    internal string VerifyOk => _verifyOk;
+
+    /// <summary>The JS predicate over <c>status</c> that removal requires.</summary>
+    internal string RemoveOk => _removeOk;
+
     /// <inheritdoc />
-    public async Task<SteamUiPatchProbeResult> ProbeAsync(
+    public Task<SteamUiPatchProbeResult> ProbeAsync(
         SteamUiPatchContext context,
+        CancellationToken cancellationToken) =>
+        ProbeAsync(context, _probeExpression, _compatible, _fingerprint, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<SteamUiPatchOperationResult> ApplyAsync(
+        SteamUiPatchContext context,
+        CancellationToken cancellationToken) =>
+        SteamUiPatchEvaluation.EvaluateOutcomeAsync(
+            context,
+            SteamUiTargetRole.SharedJsContext,
+            _applyExpression,
+            _subject + " installation failed.",
+            cancellationToken);
+
+    /// <inheritdoc />
+    public Task<SteamUiPatchOperationResult> VerifyAsync(
+        SteamUiPatchContext context,
+        CancellationToken cancellationToken) =>
+        SteamUiPatchEvaluation.EvaluateOutcomeAsync(
+            context,
+            SteamUiTargetRole.SharedJsContext,
+            _verifyExpression,
+            _subject + " verification failed.",
+            cancellationToken);
+
+    /// <inheritdoc />
+    public Task<SteamUiPatchOperationResult> RemoveAsync(
+        SteamUiPatchContext context,
+        CancellationToken cancellationToken) =>
+        SteamUiPatchEvaluation.EvaluateOutcomeAsync(
+            context,
+            SteamUiTargetRole.SharedJsContext,
+            _removeExpression,
+            _subject + " removal failed.",
+            cancellationToken);
+
+    /// <summary>Evaluates a SharedJSContext probe and reads it into a probe result.</summary>
+    /// <param name="context">The patch context to evaluate through.</param>
+    /// <param name="expression">The read-only probe.</param>
+    /// <param name="compatible">Reads the probe's JSON into a compatibility verdict.</param>
+    /// <param name="fingerprint">The fingerprint reported on a positive verdict.</param>
+    /// <param name="cancellationToken">Cancels the evaluation.</param>
+    /// <returns>A compatible and unique result, or the page's own answer as the diagnostic.</returns>
+    internal static async Task<SteamUiPatchProbeResult> ProbeAsync(
+        SteamUiPatchContext context,
+        string expression,
+        Func<JsonElement, bool> compatible,
+        string fingerprint,
         CancellationToken cancellationToken)
     {
         SteamUiEvaluationResult result = await context.EvaluateAsync(
-            TargetRole,
-            _probeExpression,
+            SteamUiTargetRole.SharedJsContext,
+            expression,
             cancellationToken).ConfigureAwait(false);
         if (!result.Reachable || result.Value is null)
         {
@@ -107,13 +179,13 @@ public sealed class SteamGatePatch : ISteamUiPatch
         try
         {
             using JsonDocument document = JsonDocument.Parse(result.Value);
-            bool compatible = _compatible(document.RootElement);
+            bool matched = compatible(document.RootElement);
             return new SteamUiPatchProbeResult(
                 true,
-                compatible,
-                compatible,
-                compatible ? _fingerprint : null,
-                compatible ? null : result.Value);
+                matched,
+                matched,
+                matched ? fingerprint : null,
+                matched ? null : result.Value);
         }
         catch (JsonException ex)
         {
@@ -121,65 +193,23 @@ public sealed class SteamGatePatch : ISteamUiPatch
         }
     }
 
-    /// <inheritdoc />
-    public Task<SteamUiPatchOperationResult> ApplyAsync(
-        SteamUiPatchContext context,
-        CancellationToken cancellationToken) =>
-        EvaluateAsync(
-            context,
-            "return JSON.stringify(bridge.install());",
-            _subject + " installation failed.",
-            cancellationToken);
-
-    /// <inheritdoc />
-    public Task<SteamUiPatchOperationResult> VerifyAsync(
-        SteamUiPatchContext context,
-        CancellationToken cancellationToken) =>
-        EvaluateAsync(
-            context,
-            "const status=bridge.status();"
-            + "return JSON.stringify({ok:" + _verifyOk + ",status});",
-            _subject + " verification failed.",
-            cancellationToken);
-
-    /// <inheritdoc />
-    public Task<SteamUiPatchOperationResult> RemoveAsync(
-        SteamUiPatchContext context,
-        CancellationToken cancellationToken) =>
-        EvaluateAsync(
-            context,
-            "const removed=bridge.remove();const status=bridge.status();"
-            + "return JSON.stringify({ok:removed.ok&&" + _removeOk + "});",
-            _subject + " removal failed.",
-            cancellationToken);
-
-    /// <summary>Reads one boolean flag out of a probe result.</summary>
-    /// <param name="root">The probe's JSON.</param>
-    /// <param name="name">The flag's property name.</param>
-    /// <returns>True only when the property exists and is literally <c>true</c>.</returns>
-    public static bool Flag(JsonElement root, string name) =>
-        root.TryGetProperty(name, out JsonElement value) && value.ValueKind is JsonValueKind.True;
-
-    private Task<SteamUiPatchOperationResult> EvaluateAsync(
-        SteamUiPatchContext context,
+    /// <summary>Builds an expression bound to one registered injected gate.</summary>
+    /// <param name="gate">The gate name as a JavaScript string literal.</param>
+    /// <param name="body">Statements run with <c>bridge</c> bound to the gate.</param>
+    /// <param name="unavailable">The statement run instead when no such gate is installed.</param>
+    /// <returns>The complete self-invoking expression.</returns>
+    /// <remarks>
+    /// A missing gate reads the same as a missing bridge, because from here they are the same
+    /// failure: nothing of ours is installed to talk to.
+    /// </remarks>
+    internal static string GateExpression(
+        string gate,
         string body,
-        string fallback,
-        CancellationToken cancellationToken)
-    {
-        // `bridge` is bound to this patch's own gate, looked up in the registry the fragments
-        // register into. A missing gate reads the same as a missing bridge, because from here they
-        // are the same failure: nothing of ours is installed to talk to.
-        string expression = "(()=>{const b=window["
-            + SteamCef.JsString(BridgeNamespace)
-            + "];const bridge=b&&b.gate?b.gate(" + SteamCef.JsString(_gateName) + "):null;"
-            + "if(!bridge)return JSON.stringify({ok:false,error:'bridge unavailable'});"
-            + body
-            + "})()";
-        return SteamUiPatchEvaluation.EvaluateOutcomeAsync(
-            context,
-            SteamUiTargetRole.SharedJsContext,
-            expression,
-            fallback,
-            cancellationToken);
-    }
+        string unavailable = BridgeUnavailable) =>
+        "(()=>{const b=window["
+        + SteamCef.JsString(BridgeNamespace)
+        + "];const bridge=b&&b.gate?b.gate(" + gate + "):null;"
+        + "if(!bridge)" + unavailable
+        + body
+        + "})()";
 }

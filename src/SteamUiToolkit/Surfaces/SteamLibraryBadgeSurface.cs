@@ -165,7 +165,7 @@ public static class SteamLibraryBadgeSurface
             && SteamUiPatchEvaluation.IsOne(root, "tileExports")
             && SteamUiPatchEvaluation.IsOne(root, "badgeExports")
             && SteamUiPatchEvaluation.IsOne(root, "react")
-            && SteamGatePatch.Flag(root, "claimable"),
+            && SteamUiPatchEvaluation.Flag(root, "claimable"),
         verifyOk: "status.installed&&status.resolved&&status.claimed",
         removeOk: "!status.claimed",
         subject: "Library badge gate");

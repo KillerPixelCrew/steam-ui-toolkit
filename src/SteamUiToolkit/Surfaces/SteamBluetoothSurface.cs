@@ -179,9 +179,9 @@ public static class SteamBluetoothSurface
             {{SteamUiProbeJs.Close}}
             """,
         compatible: root =>
-            SteamGatePatch.Flag(root, "operationsPresent")
-            && SteamGatePatch.Flag(root, "methodsWritable")
-            && SteamGatePatch.Flag(root, "queryCacheReachable"),
+            SteamUiPatchEvaluation.Flag(root, "operationsPresent")
+            && SteamUiPatchEvaluation.Flag(root, "methodsWritable")
+            && SteamUiPatchEvaluation.Flag(root, "queryCacheReachable"),
         verifyOk: "status.installed&&status.replaced>0",
         removeOk: "!status.installed",
         subject: "Bluetooth service");
