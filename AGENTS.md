@@ -26,8 +26,8 @@ enabled; this repository supplies mechanisms and truthful state.
 - `SteamUiModule.cs`, `SteamUiModuleRuntime.cs`: state publication and semantic command routing.
 - `SteamUiExtension*.cs`: package discovery, validation, and claim conflict handling.
 - `src/SteamUiToolkit/Surfaces`: typed states, backend contracts, patches, and modules.
-- `SteamUiAssets/Source`: TypeScript bridge, ownership helpers, RPC support, gates, and component
-  host.
+- `SteamUiAssets/Source`: TypeScript bridge, ownership helpers, RPC support, shared gate helpers,
+  gates, and component host.
 - `eng/build-prelude.mjs`: deterministic source composition and TypeScript validation.
 - `eng/check-ownership-claims.mjs`: tests ownership behavior against the emitted JavaScript.
 - `tests/SteamUiToolkit.Tests`: transport, bridge, lifecycle, extension, and surface contracts.

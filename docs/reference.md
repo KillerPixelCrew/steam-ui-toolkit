@@ -118,7 +118,7 @@ its patches reach them through `window[namespace].gate(name)`, exactly as the sh
 | Logging    | `ISteamUiLog { Info, Warn, Change(key, message, warning) }`, static `SteamUiLog` with a discarding default                                                                                                                                                                                                                                                   |
 | Surfaces   | `SteamAudioSurface`, `SteamNetworkSurface`, `SteamBluetoothSurface`, `SteamBrightnessSurface`, `SteamPerformanceSurface`, `SteamPowerLimitSurface`, `SteamFrameLimitRow`, `SteamVariableRefreshRow`, `SteamResolutionRow`, `SteamAutoTdpRow`, `SteamControllerTargetRow`, `SteamDeviceControlsRow`, `SteamNavigationPanelSurface`, `SteamPageSurface`, `SteamStorageSurface`, `SteamLibraryBadgeSurface`, `SteamHomeCarouselSurface`, each with a state record and `ISteam*Backend` (§15) |
 | Patch helpers | `SteamUiBridgePatch`, `SteamGatePatch`, `SteamQuickAccessRowPatch`; readers `SteamUiPayload`, `SteamPerformanceDeltaReader`, `SteamOverlayLevelWire`; `SteamUiProbeJs`, `SteamUiText`, `SteamSettingPersistence`                                                                                                                                         |
-| Assets     | `SteamUiAssets/Source/types.ts`, `bridge.ts`, `ownership.ts`, `rpc.ts`, `icons.ts`, `gates/*.ts`, `components.ts`, `epilogue.ts`; built by `eng/build-prelude.mjs`, checked by `eng/check-ownership-claims.mjs`                                                                                                                                           |
+| Assets     | `SteamUiAssets/Source/types.ts`, `bridge.ts`, `ownership.ts`, `rpc.ts`, `gate-helpers.ts`, `icons.ts`, `module-resolver.ts`, `gates/*.ts`, `components.ts`, `epilogue.ts`; built by `eng/build-prelude.mjs`, checked by `eng/check-*.mjs`                                                                                                                                           |
 
 `SteamUiLog` is a settable static rather than a constructor parameter because there is one sink per
 process. `Change` is the poll-loop primitive: a line is written once per transition of its key, and
@@ -615,6 +615,13 @@ A consumer composes one script:
 
 The host replaces the placeholder with the configuration, evaluates the whole thing in one
 `Runtime.evaluate`, and passes the SHA-256 of the source as `assetHash`.
+
+`gate-helpers.ts` holds what several gates share: the fingerprints of modules more than one surface
+resolves (React, the field components, the JSX runtime, the settings store, mobx-react-lite and the
+localizer), `resolveReact`, `findUseObserver`, `isLocalizer`, `classMapOf`, the element helpers
+`keyed`, `mapChildren` and `descendInto`, and the lifecycle steps `attemptResolution` and
+`endSubscription`. It holds constants and functions only, so nothing in it runs while the bundle is
+evaluated and its place among the discovered fragments does not matter.
 
 ## 12. Rules
 

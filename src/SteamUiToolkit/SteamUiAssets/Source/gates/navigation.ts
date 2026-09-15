@@ -205,58 +205,31 @@ function createNavigationPanel() {
   };
 
   // Descends the rendered tree to the panel root. Function components on the way down are replaced
-  // by wrappers that render the original and keep descending, because their children do not exist
-  // until they render. Class components, memo and forwardRef objects are left alone: they cannot be
-  // called directly, and wrapping them would change identity for refs.
+  // by wrappers that render the original and keep descending (descendInto); anything else is
+  // descended through its children.
+  const navigationDescender = (type) =>
+    function SteamUiNavigationDescend(props) {
+      return descend(type(props), 0);
+    };
   const descend = (element, depth) => {
     if (depth > MaximumDescent || !react.isValidElement(element)) return element;
-    const type: any = element.type;
-    if (isPanelRoot(type)) {
-      return react.createElement(
-        wrapPanelRoot(type),
-        element.key === null ? element.props : { ...element.props, key: element.key },
-      );
+    if (isPanelRoot(element.type)) {
+      return react.createElement(wrapPanelRoot(element.type), keyed(element));
     }
-
-    if (typeof type === "function" && !type.prototype?.isReactComponent) {
-      let wrapper = descendCache.get(type);
-      if (!wrapper) {
-        wrapper = function SteamUiNavigationDescend(props) {
-          return descend(type(props), 0);
-        };
-        descendCache.set(type, wrapper);
-      }
-      return react.createElement(
-        wrapper,
-        element.key === null ? element.props : { ...element.props, key: element.key },
-      );
-    }
-
-    const kids = react.Children.toArray(element.props?.children);
-    if (!kids.length) return element;
-    let changed = false;
-    const next: unknown[] = [];
-    for (const kid of kids) {
-      const replacement = descend(kid, depth + 1);
-      changed ||= replacement !== kid;
-      next.push(replacement);
-    }
-    return changed ? react.cloneElement(element, {}, ...next) : element;
+    return (
+      descendInto(react, element, descendCache, navigationDescender) ??
+      mapChildren(react, element, (kid) => descend(kid, depth + 1))
+    );
   };
 
   const resolve = () => {
     runtime = getWebpackRuntime("navigation-panel");
-    const reactFactory = runtime.findUnique([
-      "react.transitional.element",
-      "useState",
-      "cloneElement",
-      "createElement",
-    ]);
-    if (!reactFactory) {
+    const resolvedReact = resolveReact(runtime);
+    if (!resolvedReact) {
       lastError = "React runtime was not a unique match";
       return false;
     }
-    react = runtime(reactFactory[0]);
+    react = resolvedReact;
     icon = createIconRenderer(react);
 
     const menuFactory = runtime.findUnique([PanelRootTokens[0], OuterToken]);
@@ -288,12 +261,10 @@ function createNavigationPanel() {
 
   const install = () => {
     if (installed) return { ok: true, alreadyInstalled: true };
-    try {
-      if (!resolve()) return { ok: false, error: lastError };
-    } catch (error) {
+    const resolved = attemptResolution(resolve, (error) => {
       lastError = "navigation panel resolution failed: " + String(error);
-      return { ok: false, error: lastError };
-    }
+    });
+    if (!resolved) return { ok: false, error: lastError };
 
     // The memo object is the public handle, and every consumer holds the same one, so claiming its
     // `type` reaches the panel wherever it is rendered without patching a single caller.
@@ -329,10 +300,7 @@ function createNavigationPanel() {
   const remove = () => {
     if (!installed) return { ok: true, absent: true };
     installed = false;
-    if (unsubscribe) {
-      unsubscribe();
-      unsubscribe = null;
-    }
+    unsubscribe = endSubscription(unsubscribe);
 
     desired = { items: [], hidden: [] };
     descendCache.clear();

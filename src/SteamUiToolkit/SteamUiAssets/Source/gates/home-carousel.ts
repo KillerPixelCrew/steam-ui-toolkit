@@ -45,8 +45,6 @@ function createHomeCarousel() {
 
   const HomeTokens = ["HomeTabsActive", "HomeActiveTab"] as const;
   const CarouselTokens = ["#Showcase_RecentGames", "RecentGamesContainer"] as const;
-  // mobx-react-lite's own startup check, present once in the client.
-  const ObserverTokens = ["mobx-react-lite requires React with Hooks support"] as const;
   const KnownRoute = "/library/home";
   // Valve's collection ids, the string values of its own enum.
   const InstalledCollection = "local-install";
@@ -100,9 +98,6 @@ function createHomeCarousel() {
     return () => listeners.delete(listener);
   };
   const readRevision = () => policy.revision;
-
-  const keyed = (element, props) =>
-    element.key === null ? props : { ...props, key: element.key };
 
   const collectionStore = () => (window as any).collectionStore;
   const appStore = () => (window as any).appStore;
@@ -300,16 +295,7 @@ function createHomeCarousel() {
           );
         }
       }
-      const kids = react.Children.toArray(props?.children);
-      if (!kids.length) return element;
-      let changed = false;
-      const next: unknown[] = [];
-      for (const kid of kids) {
-        const replacement = replace(kid, depth + 1);
-        changed ||= replacement !== kid;
-        next.push(replacement);
-      }
-      return changed ? react.cloneElement(element, {}, ...next) : element;
+      return mapChildren(react, element, (kid) => replace(kid, depth + 1));
     };
     const output = replace(tree, 0);
     lastOutcome = result
@@ -378,16 +364,7 @@ function createHomeCarousel() {
     if (isCarousel(element.type)) {
       return react.createElement(carouselFor(element.type), keyed(element, element.props));
     }
-    const kids = react.Children.toArray(element.props?.children);
-    if (!kids.length) return element;
-    let changed = false;
-    const next: unknown[] = [];
-    for (const kid of kids) {
-      const replacement = decorate(kid, depth + 1);
-      changed ||= replacement !== kid;
-      next.push(replacement);
-    }
-    return changed ? react.cloneElement(element, {}, ...next) : element;
+    return mapChildren(react, element, (kid) => decorate(kid, depth + 1));
   };
 
   // Home by its own source, or a Home an earlier injection already claimed: the claim replaces
@@ -450,17 +427,12 @@ function createHomeCarousel() {
 
   const resolve = () => {
     runtime = getWebpackRuntime("home-carousel");
-    const reactFactory = runtime.findUnique([
-      "react.transitional.element",
-      "useState",
-      "cloneElement",
-      "createElement",
-    ]);
-    if (!reactFactory) {
+    const resolvedReact = resolveReact(runtime);
+    if (!resolvedReact) {
       lastError = "React runtime was not a unique match";
       return false;
     }
-    react = runtime(reactFactory[0]);
+    react = resolvedReact;
     if (typeof react.useSyncExternalStore !== "function" || typeof react.memo !== "function") {
       lastError = "React runtime lacks useSyncExternalStore or memo";
       return false;
@@ -481,15 +453,7 @@ function createHomeCarousel() {
     // Wanted, not required: without it the carousel still follows the host and Steam's own list,
     // and an install elsewhere shows on its next render. `status.tracking` says which.
     useObserver = null;
-    const observer = runtime.findUnique([...ObserverTokens]);
-    if (observer) {
-      const exports = runtime(observer[0]);
-      const hooks = Object.keys(exports).filter((name) => {
-        const value = exports[name];
-        return typeof value === "function" && value.length === 2 && String(value).includes('"observed"');
-      });
-      if (hooks.length === 1) useObserver = exports[hooks[0]];
-    }
+    useObserver = findUseObserver(runtime);
 
     home = findHome();
     if (!home) {
@@ -503,12 +467,10 @@ function createHomeCarousel() {
 
   const install = () => {
     if (installed) return { ok: true, alreadyInstalled: true };
-    try {
-      if (!resolve()) return { ok: false, error: lastError };
-    } catch (error) {
+    const resolved = attemptResolution(resolve, (error) => {
       lastError = "home carousel resolution failed: " + String(error);
-      return { ok: false, error: lastError };
-    }
+    });
+    if (!resolved) return { ok: false, error: lastError };
 
     // Home renders through this memo wherever the router draws it, and a Home already on screen
     // picks the claim up when it next mounts.
@@ -545,10 +507,7 @@ function createHomeCarousel() {
   const remove = () => {
     if (!installed) return { ok: true, absent: true };
     installed = false;
-    if (unsubscribe) {
-      unsubscribe();
-      unsubscribe = null;
-    }
+    unsubscribe = endSubscription(unsubscribe);
     // A carousel on screen re-renders and hands back Steam's own list and overscan.
     policy = { includeUninstalled: false, disconnected: new Set<number>(), revision: policy.revision + 1 };
     notify();

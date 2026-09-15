@@ -112,10 +112,7 @@ function createPerfNamespace() {
   const remove = () => {
     if (!installed) return { ok: true, absent: true };
     installed = false;
-    if (unsubscribe) {
-      unsubscribe();
-      unsubscribe = null;
-    }
+    unsubscribe = endSubscription(unsubscribe);
 
     const target = store();
     if (target?.m_msgState) {

@@ -347,10 +347,7 @@ function createAudioNamespace() {
   const remove = () => {
     if (!installed) return { ok: true, absent: true };
     installed = false;
-    if (unsubscribe) {
-      unsubscribe();
-      unsubscribe = null;
-    }
+    unsubscribe = endSubscription(unsubscribe);
 
     for (const slot of Object.keys(callbacks)) callbacks[slot] = null;
     const store = liveStore();

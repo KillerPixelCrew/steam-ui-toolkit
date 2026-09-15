@@ -89,8 +89,6 @@ function createLibraryBadge() {
   // one module; `ControllerSupportIcon` also names the stylesheet module, so the pair is what is
   // unique. Neither is a localized string or a generated class.
   const TileTokens = ["ControllerSupportIcon", "appportrait_"] as const;
-  // The settings store: the one module with the store class's own getter and deferred-settings set.
-  const SettingsTokens = ["get clientSettings()", "m_setDeferredSettings"] as const;
   // The tile stylesheet's class map: Valve's own names for the icon row and the Steam Input badge,
   // mapped to whatever hashes this build emitted. Read by name, so the hashes are never written
   // down here. The badge's visibility comes from Valve's rules on the badge class — hidden until
@@ -116,8 +114,10 @@ function createLibraryBadge() {
   let reading = readLibraryBadgeState(null);
 
   // What the last tile render actually did, because a claimed tile can render exactly what Valve
-  // shipped when the badge anchor is not in its tree.
-  let lastOutcome = "never rendered";
+  // shipped when the badge anchor is not in its tree. Kept as counts and the reading that render
+  // saw, so a render does no string work; status builds the text.
+  let outcome: "never rendered" | "rendered" | "removed" = "never rendered";
+  let renderedReading = reading;
   let placed = 0;
   let unanchored = 0;
 
@@ -224,16 +224,7 @@ function createLibraryBadge() {
       placed++;
       return withBadge(element);
     }
-    const kids = react.Children.toArray(element.props?.children);
-    if (!kids.length || kids.length > MaximumChildren) return element;
-    let changed = false;
-    const next: unknown[] = [];
-    for (const kid of kids) {
-      const replacement = decorate(kid, depth + 1);
-      changed ||= replacement !== kid;
-      next.push(replacement);
-    }
-    return changed ? react.cloneElement(element, {}, ...next) : element;
+    return mapChildren(react, element, (kid) => decorate(kid, depth + 1), MaximumChildren);
   };
 
   // Wraps the tile's observer so its OUTPUT can be changed. Cached against the original: a fresh
@@ -247,7 +238,8 @@ function createLibraryBadge() {
       const before = placed;
       const result = decorate(tree, 0);
       if (placed === before) unanchored++;
-      lastOutcome = `placed=${placed} unanchored=${unanchored} libraries=${reading.count} apps=${reading.libraries.size}`;
+      outcome = "rendered";
+      renderedReading = reading;
       return result;
     };
     tileCache.set(original, wrapped);
@@ -256,17 +248,12 @@ function createLibraryBadge() {
 
   const resolve = () => {
     runtime = getWebpackRuntime("library-badge");
-    const reactFactory = runtime.findUnique([
-      "react.transitional.element",
-      "useState",
-      "cloneElement",
-      "createElement",
-    ]);
-    if (!reactFactory) {
+    const resolvedReact = resolveReact(runtime);
+    if (!resolvedReact) {
       lastError = "React runtime was not a unique match";
       return false;
     }
-    react = runtime(reactFactory[0]);
+    react = resolvedReact;
 
     const tileFactory = runtime.findUnique([...TileTokens]);
     if (!tileFactory) {
@@ -304,7 +291,7 @@ function createLibraryBadge() {
     const classMapFactory = runtime.findUnique([...ClassMapTokens]);
     if (classMapFactory) {
       const exported = runtime(classMapFactory[0]);
-      const map = exported && exported.__esModule ? exported.default : exported;
+      const map = classMapOf(exported);
       const row = map?.LibraryItemIcons;
       const icon = map?.ControllerSupportIcon;
       if (typeof row === "string" && row && typeof icon === "string" && icon) {
@@ -329,12 +316,10 @@ function createLibraryBadge() {
 
   const install = () => {
     if (installed) return { ok: true, alreadyInstalled: true };
-    try {
-      if (!resolve()) return { ok: false, error: lastError };
-    } catch (error) {
+    const resolved = attemptResolution(resolve, (error) => {
       lastError = "library badge resolution failed: " + String(error);
-      return { ok: false, error: lastError };
-    }
+    });
+    if (!resolved) return { ok: false, error: lastError };
 
     // Every caller draws the tile through the same memo, so claiming its `type` reaches the
     // carousel and the grid without patching a single caller.
@@ -362,10 +347,7 @@ function createLibraryBadge() {
   const remove = () => {
     if (!installed) return { ok: true, absent: true };
     installed = false;
-    if (unsubscribe) {
-      unsubscribe();
-      unsubscribe = null;
-    }
+    unsubscribe = endSubscription(unsubscribe);
     reading = readLibraryBadgeState(null);
     tileCache.clear();
     const released = releaseMember(tile, "type", claimKeys);
@@ -373,7 +355,7 @@ function createLibraryBadge() {
       lastError = released.error ?? "library badge release failed";
       return { ok: false, error: lastError };
     }
-    lastOutcome = "removed";
+    outcome = "removed";
     return { ok: true, removed: true };
   };
 
@@ -387,7 +369,10 @@ function createLibraryBadge() {
     bigArt: readBigArt(),
     libraries: reading.count,
     apps: reading.libraries.size,
-    lastOutcome,
+    lastOutcome:
+      outcome === "rendered"
+        ? `placed=${placed} unanchored=${unanchored} libraries=${renderedReading.count} apps=${renderedReading.libraries.size}`
+        : outcome,
     lastError,
   });
 
@@ -421,14 +406,7 @@ registerGate("libraryBadge", createLibraryBadge());
 function createLibraryDetails() {
   const publicationId = "steam-ui.library-badge";
   const TransformName = "libraryDetails";
-  const ReactTokens = ["react.transitional.element", "useState", "cloneElement", "createElement"] as const;
-  const RuntimeTokens = ["react.transitional.element", ".jsx", ".jsxs"] as const;
   const ClassMapTokens = ['GameStatsSection:"', 'PlayBarDetailLabel:"', 'LastPlayedInfo:"'] as const;
-  const LocalizationTokens = [
-    "Attempting to localize token",
-    "Unable to find localization token",
-    "LocalizeString",
-  ] as const;
   const RequiredClasses = ["GameStatsSection", "GameStat", "GameStatRight", "PlayBarLabel", "PlayBarDetailLabel"];
   const LabelToken = "#Settings_Page_Library";
   const StatKey = "steam-ui-library-details";
@@ -502,7 +480,7 @@ function createLibraryDetails() {
   const resolve = () => {
     runtime = getWebpackRuntime("library-details");
     react = runtime.resolve([...ReactTokens]);
-    jsxRuntime = runtime.resolve([...RuntimeTokens]);
+    jsxRuntime = runtime.resolve([...JsxRuntimeTokens]);
     if (typeof jsxRuntime?.jsx !== "function" || typeof jsxRuntime?.jsxs !== "function") {
       lastError = "JSX runtime lacks jsx or jsxs";
       return false;
@@ -510,7 +488,7 @@ function createLibraryDetails() {
     // Valve's names for the play bar's classes, mapped to whatever this build emitted. Read by
     // name, never written down.
     const exported = runtime.resolve([...ClassMapTokens]);
-    const map = exported && exported.__esModule ? exported.default : exported;
+    const map = classMapOf(exported);
     if (!map || RequiredClasses.some((name) => typeof map[name] !== "string" || !map[name])) {
       lastError = "the play bar class map lacks a stat class";
       return false;
@@ -534,14 +512,7 @@ function createLibraryDetails() {
         Object.values(exports).filter((value) => {
           if (typeof value !== "function") return false;
           const source = String(value);
-          return (
-            !source.startsWith("class") &&
-            source.includes(".LocalizeString(") &&
-            source.includes("void 0") &&
-            !source.includes("!0)") &&
-            !source.includes("!=null") &&
-            !source.includes("createElement")
-          );
+          return !source.startsWith("class") && isLocalizer(source);
         }),
       );
       if (candidates.size === 1) localize = [...candidates][0] as (token: string) => unknown;
@@ -551,12 +522,10 @@ function createLibraryDetails() {
 
   const install = () => {
     if (installed) return { ok: true, alreadyInstalled: true };
-    try {
-      if (!resolve()) return { ok: false, error: lastError };
-    } catch (error) {
+    const resolved = attemptResolution(resolve, (error) => {
       lastError = "library details resolution failed: " + String(error);
-      return { ok: false, error: lastError };
-    }
+    });
+    if (!resolved) return { ok: false, error: lastError };
 
     installed = true;
     const claim = interceptElements(jsxRuntime, TransformName, transform);
@@ -575,10 +544,7 @@ function createLibraryDetails() {
   const remove = () => {
     if (!installed) return { ok: true, absent: true };
     installed = false;
-    if (unsubscribe) {
-      unsubscribe();
-      unsubscribe = null;
-    }
+    unsubscribe = endSubscription(unsubscribe);
     reading = readLibraryBadgeState(null);
     const released = releaseElements(jsxRuntime, TransformName);
     if (!released.ok) {

@@ -181,10 +181,7 @@ function createBrightnessGate() {
     installed = false;
     ++requestVersion;
     pendingWrite = false;
-    if (unsubscribe) {
-      unsubscribe();
-      unsubscribe = null;
-    }
+    unsubscribe = endSubscription(unsubscribe);
 
     restoreSetter();
     if (!message) return { ok: true, removed: true, storeGone: true };

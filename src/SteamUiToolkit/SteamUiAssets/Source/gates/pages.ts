@@ -126,54 +126,28 @@ function createPageHost() {
       return react.cloneElement(element, { children: applyPages(children) });
     }
 
-    const kids = react.Children.toArray(children);
-    if (!kids.length) return element;
-    let changed = false;
-    const next: unknown[] = [];
-    for (const kid of kids) {
-      const replacement = replaceRouteList(kid, depth + 1);
-      changed ||= replacement !== kid;
-      next.push(replacement);
-    }
-    return changed ? react.cloneElement(element, {}, ...next) : element;
+    return mapChildren(react, element, (kid) => replaceRouteList(kid, depth + 1));
   };
 
+  const pageDescender = (type) =>
+    function SteamUiPageDescend(props) {
+      return descend(type(props), 0);
+    };
   const descend = (element, depth) => {
     if (depth > MaximumDescent || !react.isValidElement(element)) return element;
     const replaced = replaceRouteList(element, 0);
     if (replaced !== element) return replaced;
-
-    const type: any = element.type;
-    if (typeof type === "function" && !type.prototype?.isReactComponent) {
-      let wrapper = descendCache.get(type);
-      if (!wrapper) {
-        wrapper = function SteamUiPageDescend(props) {
-          return descend(type(props), 0);
-        };
-        descendCache.set(type, wrapper);
-      }
-      return react.createElement(
-        wrapper,
-        element.key === null ? element.props : { ...element.props, key: element.key },
-      );
-    }
-
-    return element;
+    return descendInto(react, element, descendCache, pageDescender) ?? element;
   };
 
   const resolve = () => {
     runtime = getWebpackRuntime("pages");
-    const reactFactory = runtime.findUnique([
-      "react.transitional.element",
-      "useState",
-      "cloneElement",
-      "createElement",
-    ]);
-    if (!reactFactory) {
+    const resolvedReact = resolveReact(runtime);
+    if (!resolvedReact) {
       lastError = "React runtime was not a unique match";
       return false;
     }
-    react = runtime(reactFactory[0]);
+    react = resolvedReact;
 
     const backstack = runtime.findUnique([BackstackToken]);
     if (!backstack) {
@@ -217,6 +191,10 @@ function createPageHost() {
   // here reaches the Big Picture window and the menu window alike. The search is bounded in both
   // nodes visited and depth so a pathological tree cannot hang the injection, and it matches on the
   // component's source rather than on a path through the tree.
+  //
+  // Breadth-first over the child and sibling links, as the Home carousel walks the same tree. A
+  // recursive walk nests a frame for every sibling, so a long sibling chain could exhaust the stack
+  // before the node bound was ever reached.
   const findRouterMemo = () => {
     const host = document.getElementById("root");
     if (!host) return null;
@@ -224,9 +202,11 @@ function createPageHost() {
     if (!key) return null;
 
     const seen = new Set();
+    const queue: any[] = [host[key]];
     let visited = 0;
-    const walk = (node) => {
-      if (!node || seen.has(node) || visited > MaximumNodesVisited) return null;
+    for (let head = 0; head < queue.length && visited <= MaximumNodesVisited; head++) {
+      const node = queue[head];
+      if (!node || seen.has(node)) continue;
       seen.add(node);
       visited++;
       if (
@@ -238,19 +218,17 @@ function createPageHost() {
       ) {
         return node.elementType;
       }
-      return walk(node.child) || walk(node.sibling);
-    };
-    return walk(host[key]);
+      queue.push(node.child, node.sibling);
+    }
+    return null;
   };
 
   const install = () => {
     if (installed) return { ok: true, alreadyInstalled: true };
-    try {
-      if (!resolve()) return { ok: false, error: lastError };
-    } catch (error) {
+    const resolved = attemptResolution(resolve, (error) => {
       lastError = "page host resolution failed: " + String(error);
-      return { ok: false, error: lastError };
-    }
+    });
+    if (!resolved) return { ok: false, error: lastError };
 
     const claim = claimMember(memo, "type", claimKeys, (original: any) => {
       if (typeof original !== "function") return original;
@@ -287,10 +265,7 @@ function createPageHost() {
   const remove = () => {
     if (!installed) return { ok: true, absent: true };
     installed = false;
-    if (unsubscribe) {
-      unsubscribe();
-      unsubscribe = null;
-    }
+    unsubscribe = endSubscription(unsubscribe);
 
     pages = [];
     descendCache.clear();

@@ -29,11 +29,6 @@ function createScreensaverSettings() {
   const patchId = "steam-ui.screensaver";
   const MemoName = "screensaverSettings";
 
-  const ReactTokens = ["react.transitional.element", "useState", "cloneElement", "createElement"] as const;
-  const FieldTokens = ["DialogSlider_Container", "DropDownField", "SliderField"] as const;
-  const DropdownMarkers = ["contextMenuPositionOptions", "childrenContainerWidth", "menuLabel"] as const;
-  const SettingsTokens = ["get clientSettings()", "m_setDeferredSettings"] as const;
-  const ObserverTokens = ["mobx-react-lite requires React with Hooks support"] as const;
   const RouteTokens = ["GameAPIOSK:", "/gameapiosk"] as const;
   const SectionTokens = ['"#Settings_Customization_Screensaver"', "ForceScreensaver"] as const;
   const PluggedInSetting = "system_idle_screensaver_ac_sec";
@@ -223,8 +218,6 @@ function createScreensaverSettings() {
     const children = element.props?.children;
     return Array.isArray(children) ? children : children === undefined ? [] : [children];
   };
-  const keyed = (element) =>
-    element.key === null ? element.props : { ...element.props, key: element.key };
 
   const isSection = (type) => {
     if (typeof type !== "function") return false;
@@ -340,26 +333,16 @@ function createScreensaverSettings() {
     // Wanted, not required: without it the rows still follow the host, and a change to Steam's
     // timeout reaches the host on the section's next render. `status.tracking` says which.
     useObserver = null;
-    const observer = runtime.findUnique([...ObserverTokens]);
-    if (observer) {
-      const exports = runtime(observer[0]);
-      const hooks = Object.keys(exports).filter((name) => {
-        const value = exports[name];
-        return typeof value === "function" && value.length === 2 && String(value).includes('"observed"');
-      });
-      if (hooks.length === 1) useObserver = exports[hooks[0]];
-    }
+    useObserver = findUseObserver(runtime);
     return true;
   };
 
   const install = () => {
     if (installed) return { ok: true, alreadyInstalled: true };
-    try {
-      if (!resolve()) return { ok: false, error: lastError };
-    } catch (error) {
+    const resolved = attemptResolution(resolve, (error) => {
       lastError = "screensaver settings resolution failed: " + String(error);
-      return { ok: false, error: lastError };
-    }
+    });
+    if (!resolved) return { ok: false, error: lastError };
 
     installed = true;
     const intercepted = interceptMemo(react, MemoName, transformPages);
@@ -385,10 +368,7 @@ function createScreensaverSettings() {
   const remove = () => {
     if (!installed) return { ok: true, absent: true };
     installed = false;
-    if (unsubscribe) {
-      unsubscribe();
-      unsubscribe = null;
-    }
+    unsubscribe = endSubscription(unsubscribe);
     if (reportTimer) {
       clearTimeout(reportTimer);
       reportTimer = null;

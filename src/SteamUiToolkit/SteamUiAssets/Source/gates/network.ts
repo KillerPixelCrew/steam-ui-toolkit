@@ -173,10 +173,7 @@ function createNetworkGate() {
 
   const remove = () => {
     unwrapScanning();
-    if (unsubscribe) {
-      unsubscribe();
-      unsubscribe = null;
-    }
+    unsubscribe = endSubscription(unsubscribe);
     removeNetworkState(true);
     if (!target) return { ok: true, absent: true };
     const released = releaseAccessor(target, property, availability);

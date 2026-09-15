@@ -150,10 +150,7 @@ function createBluetoothService() {
   const remove = () => {
     if (!installed) return { ok: true, absent: true };
     installed = false;
-    if (unsubscribe) {
-      unsubscribe();
-      unsubscribe = null;
-    }
+    unsubscribe = endSubscription(unsubscribe);
 
     for (const name of replaced) {
       const released = releaseMember(stub, name, methodKeys);

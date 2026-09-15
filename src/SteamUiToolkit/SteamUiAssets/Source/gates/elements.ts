@@ -6,12 +6,11 @@
 // wrapper under a claim is invisible to the claim's own verification. This gate installs nothing of
 // its own; it is the claim's front door, and a registration lives exactly as long as this bridge.
 function createElementsGate() {
-  const RuntimeTokens = ["react.transitional.element", ".jsx", ".jsxs"] as const;
   const MaximumNameLength = 64;
 
   // One resolver for the gate's life rather than a chunk pushed on every registration and check.
   let resolver;
-  const runtime = () => (resolver ??= getWebpackRuntime("elements")).resolve([...RuntimeTokens]);
+  const runtime = () => (resolver ??= getWebpackRuntime("elements")).resolve([...JsxRuntimeTokens]);
   const validName = (name) =>
     typeof name === "string" && name.length > 0 && name.length <= MaximumNameLength;
 

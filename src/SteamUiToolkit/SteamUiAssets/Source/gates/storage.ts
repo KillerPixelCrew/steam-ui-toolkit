@@ -227,12 +227,10 @@ function createStorageService() {
 
   const install = () => {
     if (installed) return { ok: true, alreadyInstalled: true };
-    try {
-      if (!resolve()) return { ok: false, error: lastError };
-    } catch (error) {
+    const resolved = attemptResolution(resolve, (error) => {
       lastError = "storage transport resolution failed: " + String(error);
-      return { ok: false, error: lastError };
-    }
+    });
+    if (!resolved) return { ok: false, error: lastError };
 
     const claim = claimMember(transport, "SendMsg", claimKeys, (original: any) => {
       if (typeof original !== "function") return original;
@@ -320,10 +318,7 @@ function createStorageService() {
   const remove = () => {
     if (!installed) return { ok: true, absent: true };
     installed = false;
-    if (unsubscribe) {
-      unsubscribe();
-      unsubscribe = null;
-    }
+    unsubscribe = endSubscription(unsubscribe);
 
     const released = releaseMember(transport, "SendMsg", claimKeys);
     if (!released.ok) {
