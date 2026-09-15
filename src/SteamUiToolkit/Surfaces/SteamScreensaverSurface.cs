@@ -162,12 +162,10 @@ public static class SteamScreensaverSurface
     public static bool TryReadReport(JsonElement payload, out SteamScreensaverReport report)
     {
         report = new(0, null, false);
-        if (payload.ValueKind != JsonValueKind.Object
-            || !SteamUiPayload.HasExactly(payload, 3)
+        if (!SteamUiPayload.HasExactly(payload, 3)
             || !SteamUiPayload.TryReadInt(payload, "acSeconds", 0, MaximumSeconds, out int pluggedIn)
             || !payload.TryGetProperty("batterySeconds", out JsonElement battery)
-            || !payload.TryGetProperty("battery", out JsonElement hasBattery)
-            || hasBattery.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            || !SteamUiPayload.TryReadBoolean(payload, "battery", out bool hasBattery))
         {
             return false;
         }
@@ -182,7 +180,7 @@ public static class SteamScreensaverSurface
             batterySeconds = value;
         }
 
-        report = new(pluggedIn, batterySeconds, hasBattery.ValueKind is JsonValueKind.True);
+        report = new(pluggedIn, batterySeconds, hasBattery);
         return true;
     }
 
@@ -220,24 +218,32 @@ public static class SteamScreensaverSurface
         string id = "screensaver")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return new SteamUiModule(
+        return SteamSurfaceModule.Declare(
             id,
-            patches: [Patch],
-            publications:
+            PatchId,
+            enabled,
+            read,
+            SteamSurfaceJsonContext.Default.SteamScreensaverState,
+            [Patch],
             [
-                SteamSurfaceModule.Publication(
-                    PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamScreensaverState),
-            ],
-            commands:
-            [
-                new(PatchId, "report", (request, cancellationToken) =>
-                    TryReadReport(request.Payload, out SteamScreensaverReport report)
-                        ? backend.ReportAsync(report, cancellationToken)
-                        : SteamSurfaceModule.Invalid("The screensaver report is invalid.")),
-                new(PatchId, "setTimeout", (request, cancellationToken) =>
-                    TryReadTimeout(request.Payload, out string row, out int seconds)
-                        ? backend.SetTimeoutAsync(row, seconds, cancellationToken)
-                        : SteamSurfaceModule.Invalid("The timeout payload is invalid.")),
+                SteamSurfaceModule.Command<SteamScreensaverReport>(
+                    PatchId,
+                    "report",
+                    TryReadReport,
+                    backend.ReportAsync,
+                    "The screensaver report is invalid."),
+                SteamSurfaceModule.Command(
+                    PatchId,
+                    "setTimeout",
+                    static (JsonElement payload, out (string Row, int Seconds) timeout) =>
+                    {
+                        bool read = TryReadTimeout(payload, out string row, out int seconds);
+                        timeout = (row, seconds);
+                        return read;
+                    },
+                    (timeout, cancellationToken) =>
+                        backend.SetTimeoutAsync(timeout.Row, timeout.Seconds, cancellationToken),
+                    "The timeout payload is invalid."),
             ]);
     }
 }

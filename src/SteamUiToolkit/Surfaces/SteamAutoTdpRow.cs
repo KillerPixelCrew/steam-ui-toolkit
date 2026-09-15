@@ -81,20 +81,20 @@ public static class SteamAutoTdpRow
         string id = "auto-tdp")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return new SteamUiModule(
+        return SteamSurfaceModule.Declare(
             id,
-            patches: [Patch],
-            publications:
+            PatchId,
+            enabled,
+            read,
+            SteamSurfaceJsonContext.Default.SteamAutoTdpState,
+            [Patch],
             [
-                SteamSurfaceModule.Publication(
-                    PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamAutoTdpState),
-            ],
-            commands:
-            [
-                new(PatchId, "setAutoTdp", (request, cancellationToken) =>
-                    SteamUiPayload.TryReadEnabled(request.Payload, out bool on)
-                        ? backend.SetAutoTdpAsync(on, cancellationToken)
-                        : SteamSurfaceModule.Invalid("The AutoTDP payload is invalid.")),
+                SteamSurfaceModule.Command<bool>(
+                    PatchId,
+                    "setAutoTdp",
+                    SteamUiPayload.TryReadEnabled,
+                    backend.SetAutoTdpAsync,
+                    "The AutoTDP payload is invalid."),
             ]);
     }
 }

@@ -101,20 +101,21 @@ public static class SteamBrightnessSurface
         string id = "brightness")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return new SteamUiModule(
+        return SteamSurfaceModule.Declare(
             id,
-            patches: [Patch],
-            publications:
+            PatchId,
+            enabled,
+            read,
+            SteamSurfaceJsonContext.Default.SteamBrightnessState,
+            [Patch],
             [
-                SteamSurfaceModule.Publication(
-                    PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamBrightnessState),
-            ],
-            commands:
-            [
-                new(PatchId, "setBrightness", (request, cancellationToken) =>
-                    SteamUiPayload.TryReadInt(request.Payload, "percent", 0, 100, out int percent)
-                        ? backend.SetBrightnessAsync(percent, cancellationToken)
-                        : SteamSurfaceModule.Invalid("The brightness payload is invalid.")),
+                SteamSurfaceModule.Command(
+                    PatchId,
+                    "setBrightness",
+                    static (JsonElement payload, out int percent) =>
+                        SteamUiPayload.TryReadInt(payload, "percent", 0, 100, out percent),
+                    backend.SetBrightnessAsync,
+                    "The brightness payload is invalid."),
             ]);
     }
 }

@@ -184,16 +184,8 @@ public static class SteamLibraryBadgeSurface
     public static bool TryReadHomeLayout(JsonElement payload, out bool bigArt)
     {
         bigArt = false;
-        if (payload.ValueKind != JsonValueKind.Object
-            || !SteamUiPayload.HasExactly(payload, 1)
-            || !payload.TryGetProperty("bigArt", out JsonElement value)
-            || value.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-        {
-            return false;
-        }
-
-        bigArt = value.ValueKind is JsonValueKind.True;
-        return true;
+        return SteamUiPayload.HasExactly(payload, 1)
+            && SteamUiPayload.TryReadBoolean(payload, "bigArt", out bigArt);
     }
 
     /// <summary>Declares the surface as one module: the gate, the libraries, and the layout report.</summary>
@@ -209,20 +201,20 @@ public static class SteamLibraryBadgeSurface
         string id = "library-badge")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return new SteamUiModule(
+        return SteamSurfaceModule.Declare(
             id,
-            patches: [Patch, DetailsPatch],
-            publications:
+            PatchId,
+            enabled,
+            read,
+            SteamSurfaceJsonContext.Default.SteamLibraryBadgeState,
+            [Patch, DetailsPatch],
             [
-                SteamSurfaceModule.Publication(
-                    PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamLibraryBadgeState),
-            ],
-            commands:
-            [
-                new(PatchId, "homeLayout", (request, cancellationToken) =>
-                    TryReadHomeLayout(request.Payload, out bool bigArt)
-                        ? backend.HomeLayoutAsync(bigArt, cancellationToken)
-                        : SteamSurfaceModule.Invalid("The home layout payload is invalid.")),
+                SteamSurfaceModule.Command<bool>(
+                    PatchId,
+                    "homeLayout",
+                    TryReadHomeLayout,
+                    backend.HomeLayoutAsync,
+                    "The home layout payload is invalid."),
             ]);
     }
 }

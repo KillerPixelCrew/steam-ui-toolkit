@@ -70,20 +70,20 @@ public static class SteamVariableRefreshRow
         string id = "vrr")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return new SteamUiModule(
+        return SteamSurfaceModule.Declare(
             id,
-            patches: [Patch],
-            publications:
+            PatchId,
+            enabled,
+            read,
+            SteamSurfaceJsonContext.Default.SteamVariableRefreshState,
+            [Patch],
             [
-                SteamSurfaceModule.Publication(
-                    PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamVariableRefreshState),
-            ],
-            commands:
-            [
-                new(PatchId, "setVariableRefreshRate", (request, cancellationToken) =>
-                    SteamUiPayload.TryReadEnabled(request.Payload, out bool on)
-                        ? backend.SetVariableRefreshRateAsync(on, cancellationToken)
-                        : SteamSurfaceModule.Invalid("The variable-refresh payload is invalid.")),
+                SteamSurfaceModule.Command<bool>(
+                    PatchId,
+                    "setVariableRefreshRate",
+                    SteamUiPayload.TryReadEnabled,
+                    backend.SetVariableRefreshRateAsync,
+                    "The variable-refresh payload is invalid."),
             ]);
     }
 }

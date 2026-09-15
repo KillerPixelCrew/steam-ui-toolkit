@@ -50,10 +50,9 @@ public static class SteamPowerPresetRow
         ISteamPowerPresetBackend backend)
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return new SteamUiModule("power-preset", patches: [Patch],
-            publications: [SteamSurfaceModule.Publication(
-                PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamPowerPresetState)],
-            commands: [
+        return SteamSurfaceModule.Declare(
+            "power-preset", PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamPowerPresetState, [Patch],
+            [
                 new(PatchId, "setAcPowerPreset", (request, token) => Apply(request, true, token)),
                 new(PatchId, "setBatteryPowerPreset", (request, token) => Apply(request, false, token))]);
 

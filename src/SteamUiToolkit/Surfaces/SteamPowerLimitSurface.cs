@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -94,52 +93,44 @@ public static class SteamPowerLimitSurface
         string id = "power-limit")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return new SteamUiModule(
+        return SteamSurfaceModule.Declare(
             id,
-            patches: [Patch],
-            publications:
+            PatchId,
+            enabled,
+            read,
+            SteamSurfaceJsonContext.Default.SteamPowerLimitState,
+            [Patch],
             [
-                SteamSurfaceModule.Publication(
-                    PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamPowerLimitState),
-            ],
-            commands:
-            [
-                new(PatchId, "setUnifiedMode", (request, cancellationToken) =>
-                    request.Payload.ValueKind == JsonValueKind.Object && request.Payload.EnumerateObject().Count() == 1
-                        && request.Payload.TryGetProperty("unified", out var mode)
-                        && mode.ValueKind is JsonValueKind.True or JsonValueKind.False
-                        ? backend.SetUnifiedModeAsync(mode.GetBoolean(), cancellationToken)
-                        : SteamSurfaceModule.Invalid("The manual power mode payload is invalid.")),
-                new(PatchId, "setPrimaryLimit", (request, cancellationToken) =>
-                    TryReadWatts(request.Payload, out int watts)
-                        ? backend.SetPrimaryLimitAsync(watts, cancellationToken)
-                        : SteamSurfaceModule.Invalid("The sustained power-limit payload is invalid.")),
-                new(PatchId, "setBoostLimit", (request, cancellationToken) =>
-                    TryReadWatts(request.Payload, out int watts)
-                        ? backend.SetBoostLimitAsync(watts, cancellationToken)
-                        : SteamSurfaceModule.Invalid("The boost power-limit payload is invalid.")),
+                SteamSurfaceModule.Command(
+                    PatchId,
+                    "setUnifiedMode",
+                    static (JsonElement payload, out bool unified) =>
+                    {
+                        unified = false;
+                        return SteamUiPayload.HasExactly(payload, 1)
+                            && SteamUiPayload.TryReadBoolean(payload, "unified", out unified);
+                    },
+                    backend.SetUnifiedModeAsync,
+                    "The manual power mode payload is invalid."),
+                SteamSurfaceModule.Command<int>(
+                    PatchId,
+                    "setPrimaryLimit",
+                    TryReadWatts,
+                    backend.SetPrimaryLimitAsync,
+                    "The sustained power-limit payload is invalid."),
+                SteamSurfaceModule.Command<int>(
+                    PatchId,
+                    "setBoostLimit",
+                    TryReadWatts,
+                    backend.SetBoostLimitAsync,
+                    "The boost power-limit payload is invalid."),
             ]);
     }
 
     private static bool TryReadWatts(JsonElement payload, out int watts)
     {
         watts = default;
-        if (payload.ValueKind != JsonValueKind.Object)
-        {
-            return false;
-        }
-
-        int count = 0;
-        foreach (JsonProperty property in payload.EnumerateObject())
-        {
-            if (++count != 1 || property.Name != "watts"
-                || property.Value.ValueKind != JsonValueKind.Number
-                || !property.Value.TryGetInt32(out watts))
-            {
-                return false;
-            }
-        }
-
-        return count == 1 && watts is >= 1 and <= 200;
+        return SteamUiPayload.HasExactly(payload, 1)
+            && SteamUiPayload.TryReadInt(payload, "watts", 1, 200, out watts);
     }
 }

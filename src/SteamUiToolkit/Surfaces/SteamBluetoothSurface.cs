@@ -205,20 +205,20 @@ public static class SteamBluetoothSurface
         string id = "bluetooth")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return new SteamUiModule(
+        return SteamSurfaceModule.Declare(
             id,
-            patches: [Patch],
-            publications:
+            PatchId,
+            enabled,
+            read,
+            SteamSurfaceJsonContext.Default.SteamBluetoothState,
+            [Patch],
             [
-                SteamSurfaceModule.Publication(
-                    PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamBluetoothState),
-            ],
-            commands:
-            [
-                new(PatchId, "setDiscovering", (request, cancellationToken) =>
-                    SteamUiPayload.TryReadEnabled(request.Payload, out bool discovering)
-                        ? backend.SetDiscoveringAsync(discovering, cancellationToken)
-                        : SteamSurfaceModule.Invalid("The discovery payload is invalid.")),
+                SteamSurfaceModule.Command<bool>(
+                    PatchId,
+                    "setDiscovering",
+                    SteamUiPayload.TryReadEnabled,
+                    backend.SetDiscoveringAsync,
+                    "The discovery payload is invalid."),
                 Device("pair", backend.PairAsync),
                 Device("cancelPair", backend.CancelPairAsync),
                 Device("connect", backend.ConnectAsync),
@@ -229,24 +229,36 @@ public static class SteamBluetoothSurface
             ]);
     }
 
+    private const string InvalidDevice = "The Bluetooth device payload is invalid.";
+
     private static SteamUiCommandHandler Device(
         string command,
         Func<string, CancellationToken, Task<SteamUiCommandResult>> operation) =>
-        new(PatchId, command, (request, cancellationToken) =>
-            SteamUiPayload.TryReadBoundedString(request.Payload, "device", 256, out string deviceId)
-                && SteamUiPayload.HasExactly(request.Payload, 1)
-                ? operation(deviceId, cancellationToken)
-                : SteamSurfaceModule.Invalid("The Bluetooth device payload is invalid."));
+        SteamSurfaceModule.Command(
+            PatchId,
+            command,
+            static (JsonElement payload, out string deviceId) =>
+                SteamUiPayload.TryReadBoundedString(payload, "device", 256, out deviceId)
+                && SteamUiPayload.HasExactly(payload, 1),
+            operation,
+            InvalidDevice);
 
     private static SteamUiCommandHandler DeviceFlag(
         string command,
         string flagName,
         Func<string, bool, CancellationToken, Task<SteamUiCommandResult>> operation) =>
-        new(PatchId, command, (request, cancellationToken) =>
-            SteamUiPayload.TryReadBoundedString(request.Payload, "device", 256, out string deviceId)
-                && request.Payload.TryGetProperty(flagName, out JsonElement flag)
-                && flag.ValueKind is JsonValueKind.True or JsonValueKind.False
-                && SteamUiPayload.HasExactly(request.Payload, 2)
-                ? operation(deviceId, flag.ValueKind is JsonValueKind.True, cancellationToken)
-                : SteamSurfaceModule.Invalid("The Bluetooth device payload is invalid."));
+        SteamSurfaceModule.Command(
+            PatchId,
+            command,
+            (JsonElement payload, out (string Device, bool Flag) value) =>
+            {
+                bool flag = false;
+                bool read = SteamUiPayload.TryReadBoundedString(payload, "device", 256, out string device)
+                    && SteamUiPayload.TryReadBoolean(payload, flagName, out flag)
+                    && SteamUiPayload.HasExactly(payload, 2);
+                value = (device, flag);
+                return read;
+            },
+            (value, cancellationToken) => operation(value.Device, value.Flag, cancellationToken),
+            InvalidDevice);
 }

@@ -148,20 +148,21 @@ public static class SteamNavigationPanelSurface
         string id = "navigation-panel")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return new SteamUiModule(
+        return SteamSurfaceModule.Declare(
             id,
-            patches: [Patch],
-            publications:
+            PatchId,
+            enabled,
+            read,
+            SteamSurfaceJsonContext.Default.SteamNavigationPanelState,
+            [Patch],
             [
-                SteamSurfaceModule.Publication(
-                    PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamNavigationPanelState),
-            ],
-            commands:
-            [
-                new(PatchId, "activate", (request, cancellationToken) =>
-                    SteamUiPayload.TryReadBoundedString(request.Payload, "id", 64, out string entryId)
-                        ? backend.ActivateAsync(entryId, cancellationToken)
-                        : SteamSurfaceModule.Invalid("The navigation activation payload is invalid.")),
+                SteamSurfaceModule.Command(
+                    PatchId,
+                    "activate",
+                    static (JsonElement payload, out string entryId) =>
+                        SteamUiPayload.TryReadBoundedString(payload, "id", 64, out entryId),
+                    backend.ActivateAsync,
+                    "The navigation activation payload is invalid."),
             ]);
     }
 }

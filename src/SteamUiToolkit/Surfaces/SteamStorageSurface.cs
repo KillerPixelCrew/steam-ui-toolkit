@@ -223,60 +223,60 @@ public static class SteamStorageSurface
         string id = "storage")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return new SteamUiModule(
+        // Unmount and eject are the same operation under two of Steam's names.
+        SteamUiCommandDelegate eject = (request, cancellationToken) =>
+            Eject(backend, request.Payload, cancellationToken);
+        return SteamSurfaceModule.Declare(
             id,
-            patches: [Patch],
-            publications:
-            [
-                SteamSurfaceModule.Publication(
-                    PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamStorageState),
-            ],
-            commands:
+            PatchId,
+            enabled,
+            read,
+            SteamSurfaceJsonContext.Default.SteamStorageState,
+            [Patch],
             [
                 new(PatchId, "adopt", (request, cancellationToken) =>
-                    TryReadId(request, "driveId", out uint drive)
+                    TryReadId(request.Payload, "driveId", out uint drive)
                         ? backend.AdoptAsync(
-                            drive, ReadLabel(request), ReadValidate(request), cancellationToken)
+                            drive, ReadLabel(request.Payload), ReadValidate(request.Payload), cancellationToken)
                         : SteamSurfaceModule.Invalid("The storage adopt payload is invalid.")),
-                // Unmount and eject are the same operation under two of Steam's names.
-                new(PatchId, "unmount", (request, cancellationToken) => Eject(backend, request, cancellationToken)),
-                new(PatchId, "eject", (request, cancellationToken) => Eject(backend, request, cancellationToken)),
-                new(PatchId, "format", (request, cancellationToken) =>
-                    TryReadId(request, "driveId", out uint drive)
-                        ? backend.FormatAsync(drive, cancellationToken)
-                        : SteamSurfaceModule.Invalid("The storage format payload is invalid.")),
-                new(PatchId, "trimall", (_, cancellationToken) => backend.TrimAllAsync(cancellationToken)),
+                new(PatchId, "unmount", eject),
+                new(PatchId, "eject", eject),
+                SteamSurfaceModule.Command(
+                    PatchId,
+                    "format",
+                    static (JsonElement payload, out uint drive) => TryReadId(payload, "driveId", out drive),
+                    backend.FormatAsync,
+                    "The storage format payload is invalid."),
+                SteamSurfaceModule.Command(PatchId, "trimall", backend.TrimAllAsync),
             ]);
     }
 
     private static Task<SteamUiCommandResult> Eject(
-        ISteamStorageBackend backend, SteamUiBridgeRequest request, CancellationToken cancellationToken)
+        ISteamStorageBackend backend, JsonElement payload, CancellationToken cancellationToken)
     {
         // Steam names one or the other depending on which row the user pressed, so neither alone is
         // required and both being absent is the only refusal.
-        _ = TryReadId(request, "blockDeviceId", out uint device);
-        _ = TryReadId(request, "driveId", out uint drive);
+        _ = TryReadId(payload, "blockDeviceId", out uint device);
+        _ = TryReadId(payload, "driveId", out uint drive);
         return device == 0 && drive == 0
             ? SteamSurfaceModule.Invalid("The storage eject payload named neither a volume nor a drive.")
             : backend.EjectAsync(device, drive, cancellationToken);
     }
 
     /// <summary>The name typed into Steam's Format Drive modal, or empty when there was none.</summary>
-    /// <param name="request">The request carrying the payload.</param>
+    /// <param name="payload">The request payload.</param>
     /// <returns>The label, bounded to what a volume label can hold.</returns>
-    private static string ReadLabel(SteamUiBridgeRequest request) =>
-        SteamUiPayload.TryReadBoundedString(request.Payload, "label", 64, out string label) ? label : "";
+    private static string ReadLabel(JsonElement payload) =>
+        SteamUiPayload.TryReadBoundedString(payload, "label", 64, out string label) ? label : "";
 
     /// <summary>Steam's validate flag from that modal; false when absent.</summary>
-    /// <param name="request">The request carrying the payload.</param>
+    /// <param name="payload">The request payload.</param>
     /// <returns>Whether the flag was set.</returns>
-    private static bool ReadValidate(SteamUiBridgeRequest request) =>
-        request.Payload.ValueKind == JsonValueKind.Object
-        && request.Payload.TryGetProperty("validate", out JsonElement flag)
-        && flag.ValueKind == JsonValueKind.True;
+    private static bool ReadValidate(JsonElement payload) =>
+        SteamUiPayload.TryReadBoolean(payload, "validate", out bool validate) && validate;
 
     /// <summary>Reads one of Steam's storage identifiers, which are unsigned and never zero.</summary>
-    /// <param name="request">The request carrying the payload.</param>
+    /// <param name="payload">The request payload.</param>
     /// <param name="propertyName">Which identifier to read.</param>
     /// <param name="id">The identifier, or zero when absent.</param>
     /// <returns>Whether a usable identifier was present.</returns>
@@ -285,10 +285,10 @@ public static class SteamStorageSurface
     /// answers to zero, and reading a missing property as a valid id would send the host looking
     /// for a drive that was never named.
     /// </remarks>
-    private static bool TryReadId(SteamUiBridgeRequest request, string propertyName, out uint id)
+    private static bool TryReadId(JsonElement payload, string propertyName, out uint id)
     {
         id = 0;
-        if (!SteamUiPayload.TryReadInt(request.Payload, propertyName, 1, int.MaxValue, out int value))
+        if (!SteamUiPayload.TryReadInt(payload, propertyName, 1, int.MaxValue, out int value))
         {
             return false;
         }

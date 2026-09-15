@@ -120,28 +120,33 @@ public static class SteamDeviceControlsRow
         string id = "device-controls")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return new SteamUiModule(
+        return SteamSurfaceModule.Declare(
             id,
-            patches: [Patch],
-            publications:
+            PatchId,
+            enabled,
+            read,
+            SteamSurfaceJsonContext.Default.SteamDeviceControlsState,
+            [Patch],
             [
-                SteamSurfaceModule.Publication(
-                    PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamDeviceControlsState),
-            ],
-            commands:
-            [
-                new(PatchId, "setChargeLimit", (request, cancellationToken) =>
-                    TryReadPercent(request.Payload, out int percent)
-                        ? backend.SetChargeLimitAsync(percent, cancellationToken)
-                        : SteamSurfaceModule.Invalid("The charge-limit payload is invalid.")),
-                new(PatchId, "setLightingBrightness", (request, cancellationToken) =>
-                    TryReadPercent(request.Payload, out int percent)
-                        ? backend.SetLightingBrightnessAsync(percent, cancellationToken)
-                        : SteamSurfaceModule.Invalid("The lighting-brightness payload is invalid.")),
-                new(PatchId, "setLightingColor", (request, cancellationToken) =>
-                    TryReadColor(request.Payload, out string zone, out int color)
-                        ? backend.SetLightingColorAsync(zone, color, cancellationToken)
-                        : SteamSurfaceModule.Invalid("The lighting-color payload is invalid.")),
+                SteamSurfaceModule.Command<int>(
+                    PatchId,
+                    "setChargeLimit",
+                    TryReadPercent,
+                    backend.SetChargeLimitAsync,
+                    "The charge-limit payload is invalid."),
+                SteamSurfaceModule.Command<int>(
+                    PatchId,
+                    "setLightingBrightness",
+                    TryReadPercent,
+                    backend.SetLightingBrightnessAsync,
+                    "The lighting-brightness payload is invalid."),
+                SteamSurfaceModule.Command<(string Zone, int Color)>(
+                    PatchId,
+                    "setLightingColor",
+                    TryReadColor,
+                    (value, cancellationToken) =>
+                        backend.SetLightingColorAsync(value.Zone, value.Color, cancellationToken),
+                    "The lighting-color payload is invalid."),
             ]);
     }
 
@@ -149,11 +154,13 @@ public static class SteamDeviceControlsRow
         SteamUiPayload.TryReadInt(payload, "percent", 0, 100, out percent)
         && SteamUiPayload.HasExactly(payload, 1);
 
-    private static bool TryReadColor(JsonElement payload, out string zone, out int color)
+    private static bool TryReadColor(JsonElement payload, out (string Zone, int Color) value)
     {
-        color = 0;
-        return SteamUiPayload.TryReadBoundedString(payload, "zone", 64, out zone)
+        int color = 0;
+        bool read = SteamUiPayload.TryReadBoundedString(payload, "zone", 64, out string zone)
             && SteamUiPayload.TryReadInt(payload, "color", 0, 0xFFFFFF, out color)
             && SteamUiPayload.HasExactly(payload, 2);
+        value = (zone, color);
+        return read;
     }
 }

@@ -127,20 +127,16 @@ public static class SteamNetworkSurface
         string id = "network")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return new SteamUiModule(
+        return SteamSurfaceModule.Declare(
             id,
-            patches: [Patch],
-            publications:
+            PatchId,
+            enabled,
+            read,
+            SteamSurfaceJsonContext.Default.SteamNetworkState,
+            [Patch],
             [
-                SteamSurfaceModule.Publication(
-                    PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamNetworkState),
-            ],
-            commands:
-            [
-                new(PatchId, "startScan", (_, cancellationToken) =>
-                    backend.StartScanAsync(cancellationToken)),
-                new(PatchId, "stopScan", (_, cancellationToken) =>
-                    backend.StopScanAsync(cancellationToken)),
+                SteamSurfaceModule.Command(PatchId, "startScan", backend.StartScanAsync),
+                SteamSurfaceModule.Command(PatchId, "stopScan", backend.StopScanAsync),
             ]);
     }
 }

@@ -93,20 +93,20 @@ public static class SteamControllerTargetRow
         string id = "controller-target")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return new SteamUiModule(
+        return SteamSurfaceModule.Declare(
             id,
-            patches: [Patch],
-            publications:
+            PatchId,
+            enabled,
+            read,
+            SteamSurfaceJsonContext.Default.SteamControllerTargetState,
+            [Patch],
             [
-                SteamSurfaceModule.Publication(
-                    PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamControllerTargetState),
-            ],
-            commands:
-            [
-                new(PatchId, "setControllerTarget", (request, cancellationToken) =>
-                    SteamUiPayload.TryReadTarget(request.Payload, out string target)
-                        ? backend.SetControllerTargetAsync(target, cancellationToken)
-                        : SteamSurfaceModule.Invalid("The controller-target payload is invalid.")),
+                SteamSurfaceModule.Command<string>(
+                    PatchId,
+                    "setControllerTarget",
+                    SteamUiPayload.TryReadTarget,
+                    backend.SetControllerTargetAsync,
+                    "The controller-target payload is invalid."),
             ]);
     }
 }

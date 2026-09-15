@@ -70,20 +70,20 @@ public static class SteamResolutionRow
         string id = "resolution")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return new SteamUiModule(
+        return SteamSurfaceModule.Declare(
             id,
-            patches: [Patch],
-            publications:
+            PatchId,
+            enabled,
+            read,
+            SteamSurfaceJsonContext.Default.SteamResolutionState,
+            [Patch],
             [
-                SteamSurfaceModule.Publication(
-                    PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamResolutionState),
-            ],
-            commands:
-            [
-                new(PatchId, "setResolution", (request, cancellationToken) =>
-                    SteamUiPayload.TryReadTarget(request.Payload, out string option)
-                        ? backend.SetResolutionAsync(option, cancellationToken)
-                        : SteamSurfaceModule.Invalid("The resolution payload is invalid.")),
+                SteamSurfaceModule.Command<string>(
+                    PatchId,
+                    "setResolution",
+                    SteamUiPayload.TryReadTarget,
+                    backend.SetResolutionAsync,
+                    "The resolution payload is invalid."),
             ]);
     }
 }

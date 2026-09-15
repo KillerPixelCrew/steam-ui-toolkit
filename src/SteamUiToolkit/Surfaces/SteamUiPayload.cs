@@ -34,22 +34,37 @@ public static class SteamUiPayload
             && value <= maximum;
     }
 
+    /// <summary>Reads one required boolean property, without an object-arity rule.</summary>
+    /// <param name="payload">The request payload.</param>
+    /// <param name="propertyName">The property to read.</param>
+    /// <param name="value">The flag, when this returns true; otherwise false.</param>
+    /// <returns>Whether the payload is an object whose property is literally true or false.</returns>
+    public static bool TryReadBoolean(JsonElement payload, string propertyName, out bool value)
+    {
+        value = false;
+        if (payload.ValueKind != JsonValueKind.Object
+            || !payload.TryGetProperty(propertyName, out JsonElement property)
+            || property.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        {
+            return false;
+        }
+
+        value = property.ValueKind is JsonValueKind.True;
+        return true;
+    }
+
     /// <summary>Reads a payload that is exactly one boolean named <c>enabled</c>.</summary>
     /// <param name="payload">The request payload.</param>
     /// <param name="enabled">The flag, when this returns true.</param>
     /// <returns>Whether the payload is exactly that shape.</returns>
     public static bool TryReadEnabled(JsonElement payload, out bool enabled)
     {
-        enabled = false;
-        if (payload.ValueKind != JsonValueKind.Object
-            || !payload.TryGetProperty("enabled", out JsonElement property)
-            || property.ValueKind is not (JsonValueKind.True or JsonValueKind.False)
-            || !HasExactly(payload, 1))
+        if (!TryReadBoolean(payload, "enabled", out enabled) || !HasExactly(payload, 1))
         {
+            enabled = false;
             return false;
         }
 
-        enabled = property.GetBoolean();
         return true;
     }
 

@@ -60,12 +60,9 @@ public static class SteamHybridCoreRow
         ISteamHybridCoreBackend backend, string id = "hybrid-cores")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return new SteamUiModule(id, patches: [Patch],
-            publications: [SteamSurfaceModule.Publication(
-                PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamHybridCoreState)],
-            commands: [new(PatchId, "setHybridCores", (request, cancellationToken) =>
-                SteamUiPayload.TryReadTarget(request.Payload, out string option)
-                    ? backend.SetHybridCoresAsync(option, cancellationToken)
-                    : SteamSurfaceModule.Invalid("The processor core preference payload is invalid."))]);
+        return SteamSurfaceModule.Declare(
+            id, PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamHybridCoreState, [Patch],
+            [SteamSurfaceModule.Command<string>(PatchId, "setHybridCores", SteamUiPayload.TryReadTarget,
+                backend.SetHybridCoresAsync, "The processor core preference payload is invalid.")]);
     }
 }

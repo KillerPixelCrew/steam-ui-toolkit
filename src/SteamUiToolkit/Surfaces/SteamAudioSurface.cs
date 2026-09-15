@@ -151,15 +151,13 @@ public static class SteamAudioSurface
     {
         ArgumentNullException.ThrowIfNull(read);
         ArgumentNullException.ThrowIfNull(backend);
-        return new SteamUiModule(
+        return SteamSurfaceModule.Declare(
             id,
-            patches: [Patch],
-            publications:
-            [
-                SteamSurfaceModule.Publication(
-                    PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamAudioState),
-            ],
-            commands:
+            PatchId,
+            enabled,
+            read,
+            SteamSurfaceJsonContext.Default.SteamAudioState,
+            [Patch],
             [
                 new(PatchId, "getDevices", async (_, _) =>
                 {
@@ -168,51 +166,54 @@ public static class SteamAudioSurface
                         ? new SteamUiCommandResult(false, "Audio is not currently observable.")
                         : new SteamUiCommandResult(true, null, Serialize(state));
                 }),
-                new(PatchId, "setDefaultDevice", (request, cancellationToken) =>
-                    TryReadDevicePayload(request.Payload, out string deviceId, out bool input)
-                        ? backend.SetDefaultDeviceAsync(deviceId, input, cancellationToken)
-                        : SteamSurfaceModule.Invalid("The audio device payload is invalid.")),
-                new(PatchId, "setVolume", (request, cancellationToken) =>
-                    TryReadVolumePayload(request.Payload, out int percent, out bool input)
-                        ? backend.SetVolumeAsync(percent, input, cancellationToken)
-                        : SteamSurfaceModule.Invalid("The audio volume payload is invalid.")),
+                SteamSurfaceModule.Command<(string Id, bool Input)>(
+                    PatchId,
+                    "setDefaultDevice",
+                    TryReadDevicePayload,
+                    (device, cancellationToken) =>
+                        backend.SetDefaultDeviceAsync(device.Id, device.Input, cancellationToken),
+                    "The audio device payload is invalid."),
+                SteamSurfaceModule.Command<(int Percent, bool Input)>(
+                    PatchId,
+                    "setVolume",
+                    TryReadVolumePayload,
+                    (volume, cancellationToken) =>
+                        backend.SetVolumeAsync(volume.Percent, volume.Input, cancellationToken),
+                    "The audio volume payload is invalid."),
             ]);
     }
 
     /// <summary>Reads the endpoint and direction of a default-device change.</summary>
-    private static bool TryReadDevicePayload(JsonElement payload, out string id, out bool input)
+    private static bool TryReadDevicePayload(JsonElement payload, out (string Id, bool Input) device)
     {
-        input = false;
-        if (!SteamUiPayload.TryReadBoundedString(payload, "id", 512, out id)
-            || !payload.TryGetProperty("input", out JsonElement inputProperty)
-            || inputProperty.ValueKind is not (JsonValueKind.True or JsonValueKind.False)
-            || !SteamUiPayload.HasExactly(payload, 2))
-        {
-            return false;
-        }
-
-        input = inputProperty.ValueKind is JsonValueKind.True;
-        return true;
+        bool input = false;
+        bool read = SteamUiPayload.TryReadBoundedString(payload, "id", 512, out string id)
+            && SteamUiPayload.TryReadBoolean(payload, "input", out input)
+            && SteamUiPayload.HasExactly(payload, 2);
+        device = (id, input);
+        return read;
     }
 
-    private static bool TryReadVolumePayload(JsonElement payload, out int percent, out bool input)
+    /// <summary>Reads a volume change; <c>input</c> is optional and defaults to render.</summary>
+    private static bool TryReadVolumePayload(JsonElement payload, out (int Percent, bool Input) volume)
     {
-        input = false;
-        if (!SteamUiPayload.TryReadInt(payload, "percent", 0, 100, out percent))
+        volume = default;
+        if (!SteamUiPayload.TryReadInt(payload, "percent", 0, 100, out int percent))
         {
             return false;
         }
 
-        if (!payload.TryGetProperty("input", out JsonElement inputProperty))
+        if (!payload.TryGetProperty("input", out _))
         {
+            volume = (percent, false);
             return SteamUiPayload.HasExactly(payload, 1);
         }
-        if (inputProperty.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        if (!SteamUiPayload.TryReadBoolean(payload, "input", out bool input))
         {
             return false;
         }
 
-        input = inputProperty.ValueKind is JsonValueKind.True;
+        volume = (percent, input);
         return SteamUiPayload.HasExactly(payload, 2);
     }
 }

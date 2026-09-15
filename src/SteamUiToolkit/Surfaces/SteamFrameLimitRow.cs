@@ -117,15 +117,13 @@ public static class SteamFrameLimitRow
         string id = "frame-limit")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return new SteamUiModule(
+        return SteamSurfaceModule.Declare(
             id,
-            patches: [Patch],
-            publications:
-            [
-                SteamSurfaceModule.Publication(
-                    PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamFrameLimitState),
-            ],
-            commands:
+            PatchId,
+            enabled,
+            read,
+            SteamSurfaceJsonContext.Default.SteamFrameLimitState,
+            [Patch],
             [
                 new(PatchId, "setFrameLimit", (request, cancellationToken) =>
                     SteamSurfaceModule.TryReadValueWrite(
@@ -133,10 +131,13 @@ public static class SteamFrameLimitRow
                         ? backend.SetFrameLimitAsync(
                             fps, persistence, request.ToCorrelationId(), cancellationToken)
                         : SteamSurfaceModule.Invalid("The frame-limit payload is invalid.")),
-                new(PatchId, "setRefreshRate", (request, cancellationToken) =>
-                    SteamSurfaceModule.TryReadValueWrite(request.Payload, out int hz, out _)
-                        ? backend.SetRefreshRateAsync(hz, cancellationToken)
-                        : SteamSurfaceModule.Invalid("The refresh-rate payload is invalid.")),
+                SteamSurfaceModule.Command(
+                    PatchId,
+                    "setRefreshRate",
+                    static (JsonElement payload, out int hz) =>
+                        SteamSurfaceModule.TryReadValueWrite(payload, out hz, out _),
+                    backend.SetRefreshRateAsync,
+                    "The refresh-rate payload is invalid."),
             ]);
     }
 }

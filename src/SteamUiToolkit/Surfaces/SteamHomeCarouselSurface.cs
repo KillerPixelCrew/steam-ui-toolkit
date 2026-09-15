@@ -164,15 +164,14 @@ public static class SteamHomeCarouselSurface
     {
         const int Maximum = 100_000;
         report = new(0, 0, 0, 0, 0, false, false);
-        if (payload.ValueKind != JsonValueKind.Object
-            || !SteamUiPayload.HasExactly(payload, 7)
+        if (!SteamUiPayload.HasExactly(payload, 7)
             || !SteamUiPayload.TryReadInt(payload, "items", 0, Maximum, out int items)
             || !SteamUiPayload.TryReadInt(payload, "purchases", 0, Maximum, out int purchases)
             || !SteamUiPayload.TryReadInt(payload, "installed", 0, Maximum, out int installed)
             || !SteamUiPayload.TryReadInt(payload, "uninstalled", 0, Maximum, out int uninstalled)
             || !SteamUiPayload.TryReadInt(payload, "excluded", 0, Maximum, out int excluded)
-            || !TryReadFlag(payload, "tracking", out bool tracking)
-            || !TryReadFlag(payload, "fallback", out bool fallback))
+            || !SteamUiPayload.TryReadBoolean(payload, "tracking", out bool tracking)
+            || !SteamUiPayload.TryReadBoolean(payload, "fallback", out bool fallback))
         {
             return false;
         }
@@ -194,33 +193,20 @@ public static class SteamHomeCarouselSurface
         string id = "home-carousel")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return new SteamUiModule(
+        return SteamSurfaceModule.Declare(
             id,
-            patches: [Patch],
-            publications:
+            PatchId,
+            enabled,
+            read,
+            SteamSurfaceJsonContext.Default.SteamHomeCarouselState,
+            [Patch],
             [
-                SteamSurfaceModule.Publication(
-                    PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamHomeCarouselState),
-            ],
-            commands:
-            [
-                new(PatchId, "report", (request, cancellationToken) =>
-                    TryReadReport(request.Payload, out SteamHomeCarouselReport report)
-                        ? backend.ReportAsync(report, cancellationToken)
-                        : SteamSurfaceModule.Invalid("The home carousel report is invalid.")),
+                SteamSurfaceModule.Command<SteamHomeCarouselReport>(
+                    PatchId,
+                    "report",
+                    TryReadReport,
+                    backend.ReportAsync,
+                    "The home carousel report is invalid."),
             ]);
-    }
-
-    private static bool TryReadFlag(JsonElement payload, string name, out bool value)
-    {
-        value = false;
-        if (!payload.TryGetProperty(name, out JsonElement property)
-            || property.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-        {
-            return false;
-        }
-
-        value = property.ValueKind is JsonValueKind.True;
-        return true;
     }
 }

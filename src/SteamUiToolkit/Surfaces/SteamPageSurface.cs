@@ -133,13 +133,12 @@ public static class SteamPageSurface
         Func<bool> enabled,
         Func<ValueTask<SteamPageState?>> read,
         string id = "pages")
-        => new SteamUiModule(
+        => SteamSurfaceModule.Declare(
             id,
-            patches: [Patch],
-            publications:
-            [
-                SteamSurfaceModule.Publication(
-                    PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamPageState),
-            ],
-            commands: []);
+            PatchId,
+            enabled,
+            read,
+            SteamSurfaceJsonContext.Default.SteamPageState,
+            [Patch],
+            []);
 }

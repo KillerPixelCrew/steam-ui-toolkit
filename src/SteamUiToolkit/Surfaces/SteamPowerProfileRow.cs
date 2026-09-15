@@ -61,12 +61,9 @@ public static class SteamPowerProfileRow
         ISteamPowerProfileBackend backend, string id = "power-profile")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return new SteamUiModule(id, patches: [Patch],
-            publications: [SteamSurfaceModule.Publication(
-                PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamPowerProfileState)],
-            commands: [new(PatchId, "setPowerProfile", (request, cancellationToken) =>
-                SteamUiPayload.TryReadTarget(request.Payload, out string option)
-                    ? backend.SetPowerProfileAsync(option, cancellationToken)
-                    : SteamSurfaceModule.Invalid("The power-profile payload is invalid."))]);
+        return SteamSurfaceModule.Declare(
+            id, PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamPowerProfileState, [Patch],
+            [SteamSurfaceModule.Command<string>(PatchId, "setPowerProfile", SteamUiPayload.TryReadTarget,
+                backend.SetPowerProfileAsync, "The power-profile payload is invalid.")]);
     }
 }

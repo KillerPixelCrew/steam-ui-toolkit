@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -313,14 +314,15 @@ public sealed record SteamPerformanceDelta(
 /// </remarks>
 public static class SteamPerformanceDeltaReader
 {
-    /// <summary>The Steam client's own pseudo-game id, Valve's vocabulary for the global profile.</summary>
+    /// <summary>The Steam client's own pseudo-game id, <see cref="SteamPerformanceState.NoGame"/>.</summary>
     /// <remarks>
     /// Every store setter stamps <c>gameid</c> from the current or active profile game id, and a
     /// backend publishes 769 for both whenever no per-game profile is in force, so a global-profile
     /// write arrives carrying 769. Reading it as a real AppID would refuse every one of those
     /// writes as stale against a session that has no running application.
     /// </remarks>
-    private const ulong SteamClientPseudoGameId = 769;
+    private static readonly ulong SteamClientPseudoGameId =
+        ulong.Parse(SteamPerformanceState.NoGame, CultureInfo.InvariantCulture);
 
     /// <summary>Reads a forwarded update-settings payload.</summary>
     /// <param name="payload">The request payload, expected to carry a <c>delta</c> object.</param>
@@ -618,30 +620,24 @@ public static class SteamPerformanceSurface
         string id = "performance")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return new SteamUiModule(
+        return SteamSurfaceModule.Declare(
             id,
-            patches: [Patch, ProfileHeaderRow, ResetRow, OverlayLevelRow, RefreshRateRow],
-            publications:
+            PatchId,
+            enabled,
+            read,
+            SteamSurfaceJsonContext.Default.SteamPerformanceState,
+            [Patch, ProfileHeaderRow, ResetRow, OverlayLevelRow, RefreshRateRow],
             [
-                SteamSurfaceModule.Publication(
-                    PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamPerformanceState),
-            ],
-            commands:
-            [
+                // A refusal needs no log of its own: the module runtime logs every refused request
+                // with its reason and payload.
                 new(PatchId, "updateSettings", (request, cancellationToken) =>
-                {
-                    if (!SteamPerformanceDeltaReader.TryRead(
+                    SteamPerformanceDeltaReader.TryRead(
                         request.Payload,
                         out SteamPerformanceDelta delta,
-                        out string? readError))
-                    {
-                        SteamUiLog.Warn($"Native QAM performance delta refused: {readError}");
-                        return SteamSurfaceModule.Invalid(
-                            readError ?? "The performance delta payload is invalid.");
-                    }
-
-                    return backend.ApplyAsync(delta, request.ToCorrelationId(), cancellationToken);
-                }),
+                        out string? readError)
+                        ? backend.ApplyAsync(delta, request.ToCorrelationId(), cancellationToken)
+                        : SteamSurfaceModule.Invalid(
+                            readError ?? "The performance delta payload is invalid.")),
             ]);
     }
 }
