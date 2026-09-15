@@ -17,6 +17,15 @@ const transportReply = (body: object) => ({
   Body: () => ({ ...body, toObject: () => body }),
 });
 
+// A refused call in the same shape. k_EResultFail rather than an absent method, so a caller that
+// compares the result reads a refusal instead of throwing where the comparison would have been.
+const transportFailure = (body: object) => ({
+  ...transportReply(body),
+  BSuccess: () => false,
+  BFailed: () => true,
+  GetEResult: () => 2,
+});
+
 // Replacing a stub is only half the job: react-query still holds the answer the stub gave, so the
 // UI keeps rendering the refusal until the query that cached it is invalidated.
 //
@@ -28,13 +37,20 @@ const transportReply = (body: object) => ({
 // Failure is swallowed on purpose. A client whose query layer moved keeps the stale answer and the
 // row simply does not update — which is a degraded surface, not a broken one, and never a reason to
 // tear down a gate that is otherwise working.
-// The same conjunction the storage gate resolves its query client by.
 const QueryClientTokens = ["ReactQueryDevtools", "offlineFirst"];
 const isQueryClient = (value: any) =>
   typeof value?.invalidateQueries === "function" && typeof value?.getQueryState === "function";
+// The query client, or null when the provider moved or no longer answers to that shape.
+const resolveQueryClient = (req: any) => {
+  try {
+    return req?.exported(QueryClientTokens, isQueryClient) ?? null;
+  } catch {
+    return null;
+  }
+};
 const invalidateQuery = (req: any, queryKey: unknown) => {
   try {
-    req?.exported(QueryClientTokens, isQueryClient).invalidateQueries({ queryKey });
+    resolveQueryClient(req)?.invalidateQueries({ queryKey });
   } catch {
     // Intentionally ignored; see above.
   }

@@ -14,9 +14,11 @@
 function createBluetoothService() {
   const patchId = "steam-ui.bluetooth";
   const queryKey = ["BluetoothManagerService", "State"];
-  const methodMarker = "__steamUiOwnedBluetoothService";
-  const originalMethodField = "__steamUiOriginalBluetoothServiceMethod";
-  const originals = new Map<string, unknown>();
+  const methodKeys = {
+    marker: "__steamUiOwnedBluetoothService",
+    original: "__steamUiOriginalBluetoothServiceMethod",
+  } as const;
+  const replaced = new Set<string>();
   let installed = false;
   let lastError = "";
   let unsubscribe: (() => void) | null = null;
@@ -28,7 +30,10 @@ function createBluetoothService() {
     devices: any[];
   } = { is_service_available: false, adapters: [], devices: [] };
 
-  const modules = () => getWebpackRuntime("bluetooth-service");
+  // Resolved once, at install. Every state push invalidates through the same resolver, and removal
+  // hands the methods back on the stub they were claimed on.
+  let req: any = null;
+  let stub: any = null;
   const serviceStub = (req) => {
     try {
       return req.exported(
@@ -44,8 +49,7 @@ function createBluetoothService() {
     }
   };
 
-  const reply = transportReply;
-  const invalidate = (req) => invalidateQuery(req, queryKey);
+  const invalidate = () => invalidateQuery(req, queryKey);
 
   // The host sends its own field names and the mapping into Steam's lives here, so the client's
   // schema stays in the half that has to change when the client is rebuilt.
@@ -83,66 +87,43 @@ function createBluetoothService() {
         should_hide_hint: false,
       })),
     };
-    invalidate(modules());
+    invalidate();
   };
 
   const install = () => {
     if (installed) return { ok: true, alreadyInstalled: true };
-    const req = modules();
-    const RF = serviceStub(req);
-    if (!RF || typeof RF.GetState !== "function") {
+    req = getWebpackRuntime("bluetooth-service");
+    stub = serviceStub(req);
+    if (!stub || typeof stub.GetState !== "function") {
       lastError = "BluetoothManagerService stub unavailable";
       return { ok: false, error: lastError };
     }
 
     const forward = (command) => (payload) =>
       request(patchId, command, payload ?? null).then(
-        () => { lastError = ""; return reply({ success: true }); },
+        () => { lastError = ""; return transportReply({ success: true }); },
         (error) => {
           lastError = String(error);
-          return {
-            ...reply({ success: false, error: lastError }),
-            BSuccess: () => false,
-            BFailed: () => true,
-            GetEResult: () => 2,
-          };
+          return transportFailure({ success: false, error: lastError });
         },
       );
+    // A member claim per method, so the stub's own method is what removal hands back and a bridge
+    // replaced in place reclaims its predecessor's overlay instead of wrapping it.
     const replace = (name, replacement) => {
-      const current = RF[name];
-      const original = claimed(current, { marker: methodMarker, original: originalMethodField })
-        ? storedOriginal(current, { marker: methodMarker, original: originalMethodField })
-        : current;
-      originals.set(name, original);
-      Object.defineProperty(replacement, methodMarker, {
-        value: true,
-        configurable: true,
-        enumerable: false,
-      });
-      Object.defineProperty(replacement, originalMethodField, {
-        value: original,
-        configurable: true,
-        enumerable: false,
-      });
-      RF[name] = replacement;
-    };
-    const restore = () => {
-      for (const [name, original] of originals) {
-        if (claimed(RF[name], { marker: methodMarker, original: originalMethodField })) {
-          RF[name] = original;
-        }
-      }
+      const claim = claimMember(stub, name, methodKeys, () => replacement);
+      if (!claim.ok) throw new Error(claim.error);
+      replaced.add(name);
     };
 
     try {
-      replace("GetState", () => Promise.resolve(reply(latest)));
+      replace("GetState", () => Promise.resolve(transportReply(latest)));
       replace("GetDeviceDetails", (payload) => {
         const id = payload?.device ?? payload?.id;
         const device = latest.devices.find((entry) => entry.id === id) ?? null;
-        return Promise.resolve(reply({ device }));
+        return Promise.resolve(transportReply({ device }));
       });
       replace("GetAdapterDetails", () =>
-        Promise.resolve(reply({ adapter: latest.adapters[0] ?? null })),
+        Promise.resolve(transportReply({ adapter: latest.adapters[0] ?? null })),
       );
       replace("SetDiscovering", forward("setDiscovering"));
       replace("Pair", forward("pair"));
@@ -154,16 +135,16 @@ function createBluetoothService() {
       replace("SetWakeAllowed", forward("setWakeAllowed"));
     } catch (error) {
       lastError = String(error);
-      restore();
-      originals.clear();
+      for (const name of replaced) releaseMember(stub, name, methodKeys);
+      replaced.clear();
       return { ok: false, error: lastError };
     }
 
     installed = true;
     lastError = "";
     unsubscribe = subscribe(patchId, onState);
-    invalidate(req);
-    return { ok: true, installed: true, replaced: originals.size };
+    invalidate();
+    return { ok: true, installed: true, replaced: replaced.size };
   };
 
   const remove = () => {
@@ -174,26 +155,24 @@ function createBluetoothService() {
       unsubscribe = null;
     }
 
-    const req = modules();
-    const RF = serviceStub(req);
-    if (RF) {
-      for (const [name, original] of originals) {
-        if (claimed(RF[name], { marker: methodMarker, original: originalMethodField })) {
-          RF[name] = original;
-        }
+    for (const name of replaced) {
+      const released = releaseMember(stub, name, methodKeys);
+      if (!released.ok) {
+        lastError = released.error ?? "Bluetooth service method release failed";
+        return { ok: false, error: lastError };
       }
     }
 
-    originals.clear();
+    replaced.clear();
     latest = { is_service_available: false, adapters: [], devices: [] };
-    invalidate(req);
+    invalidate();
     return { ok: true, removed: true };
   };
 
   const status = () => ({
     ok: true,
     installed,
-    replaced: originals.size,
+    replaced: replaced.size,
     available: latest.is_service_available,
     devices: latest.devices.length,
     lastError,

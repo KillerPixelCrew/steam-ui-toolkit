@@ -55,7 +55,6 @@ function createStorageService() {
   // Steam's own store solves this the same way when the service state changes -- it invalidates
   // both keys through the shared query client -- so this does what the client does, with the key
   // names read off the client's own module.
-  const QueryClientTokens = ["ReactQueryDevtools", "offlineFirst"];
   const StorageQueryScope = "SystemStorageService";
   const AvailabilityQueryKey = [StorageQueryScope, "IsServiceAvailable"];
   const StateQueryKey = [StorageQueryScope, "State"];
@@ -114,14 +113,7 @@ function createStorageService() {
     Promise.resolve({ BSuccess: () => true, Body: () => body, GetEResult: () => ResultOk });
 
   const failed = (reason) =>
-    Promise.resolve({
-      BSuccess: () => false,
-      Body: () => ({}),
-      // 2 is k_EResultFail: a refusal has to be a result the caller can compare, not an absent
-      // method that throws where the comparison would have been.
-      GetEResult: () => 2,
-      GetErrorMessage: () => reason,
-    });
+    Promise.resolve({ ...transportFailure({}), GetErrorMessage: () => reason });
 
   // The request arrives already encoded. Steam's encoder yields a Message, which answers toObject(),
   // so the fields are readable without decoding bytes; anything that does not is treated as empty
@@ -221,25 +213,6 @@ function createStorageService() {
     return false;
   };
 
-  // The one shared query client, found by the module that builds it rather than by a name: it is
-  // constructed once beside the provider and the devtools element, and exported as a plain object.
-  // Duck-typed on invalidateQueries for the same reason the transport is duck-typed on SendMsg --
-  // the export names are minified and change between builds, the shape does not.
-  const resolveQueryClient = () => {
-    const ids = runtime.findUnique(QueryClientTokens);
-    if (!ids) return null;
-
-    const exports = runtime(ids[0]);
-    for (const key of Object.keys(exports)) {
-      const candidate = exports[key];
-      if (candidate && typeof candidate.invalidateQueries === "function") {
-        return candidate;
-      }
-    }
-
-    return null;
-  };
-
   // Never fatal. A gate that answers Steam's questions is still strictly better than one that does
   // not, and the alternative to a missed invalidation is refusing to install at all.
   const invalidate = (queryKey: unknown[]) => {
@@ -280,7 +253,9 @@ function createStorageService() {
 
     installed = true;
     lastError = "";
-    queryClient = resolveQueryClient();
+    // The one shared query client, found by the module that builds it and by its shape (rpc.ts):
+    // the export names are minified and change between builds, the shape does not.
+    queryClient = resolveQueryClient(runtime);
     unsubscribe = subscribe(patchId, (published) => {
       if (!published || typeof published !== "object") return;
       const drives = Array.isArray(published.drives) ? published.drives : [];

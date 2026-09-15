@@ -557,9 +557,11 @@ is their front door: `gate("elements").register(name, transform)`, `unregister(n
 than wrapping the runtime itself, which would put a second wrapper on `jsx`.
 
 `rpc.ts` supplies `transportReply(body)` (the `{BSuccess, BFailed, GetEResult: 1, Body().toObject()}`
-shape a Steam transport RPC answer takes) and `invalidateQuery(queryKey)`, which finds the client's
-query client in the provider module carrying `ReactQueryDevtools` and `offlineFirst`, by its
-`invalidateQueries` and `getQueryState`, and calls `invalidateQueries`, swallowing every failure.
+shape a Steam transport RPC answer takes), `transportFailure(body)` (the same shape refused, with
+`GetEResult: 2`), `resolveQueryClient(req)`, which finds the client's query client in the provider
+module carrying `ReactQueryDevtools` and `offlineFirst` by its `invalidateQueries` and
+`getQueryState` and answers null otherwise, and `invalidateQuery(req, queryKey)`, which calls
+`invalidateQueries` on it, swallowing every failure. The Bluetooth and storage gates use all of them.
 
 ## 10. The extension host
 
