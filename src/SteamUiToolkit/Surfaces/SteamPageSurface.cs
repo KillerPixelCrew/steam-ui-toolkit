@@ -76,19 +76,22 @@ public static class SteamPageSurface
                 &&/routePath:.\.match\?\.path./.test(String(backstackExports[name])));
               // The router memo is NOT an export: it is built locally inside that module, so the
               // handle comes from SharedJSContext's own React root, which is the tree every Steam
-              // window renders from. Read-only walk, bounded, matching on component source.
+              // window renders from. Read-only walk, bounded, matching on component source. It is
+              // breadth-first over an explicit queue, like the Home carousel probe, because recursing
+              // down a long sibling chain can exhaust the stack before the bound is reached.
               const host=document.getElementById('root');
               const key=host?Object.keys(host).find(n=>n.startsWith('__reactContainer$')):null;
               let memo=null,visited=0;
-              const walk=node=>{
-                if(!node||memo||visited>60000)return;
+              const queue=key?[host[key]]:[];
+              for(let head=0;head<queue.length&&!memo&&visited<=60000;head++){
+                const node=queue[head];
+                if(!node)continue;
                 visited++;
                 if(typeof node.type==='function'&&String(node.type).includes('Settings.Root()')
                   &&node.elementType&&typeof node.elementType==='object'
-                  &&node.elementType.type===node.type){memo=node.elementType;return;}
-                walk(node.child);walk(node.sibling);
-              };
-              if(key)walk(host[key]);
+                  &&node.elementType.type===node.type){memo=node.elementType;break;}
+                queue.push(node.child,node.sibling);
+              }
               const descriptor=memo?Object.getOwnPropertyDescriptor(memo,'type'):null;
               return JSON.stringify({
                 routerModule:1,

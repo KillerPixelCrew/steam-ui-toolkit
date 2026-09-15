@@ -939,8 +939,10 @@ Three facts decide the API, and all three were measured against the live client 
   ship with and nobody would notice until they pressed B.
 - **The router memo is not an export.** It is built locally inside its module — every export of that
   module was inspected and none carries it — so the handle comes from SharedJSContext's own React
-  root, which is the tree every Steam window renders from. The walk is bounded and matches on
-  component source; on the reference client it finds the router in 659 visited nodes.
+  root, which is the tree every Steam window renders from. The walk is breadth-first over an
+  explicit queue, bounded, and matches on component source. The earlier depth-first walk found the
+  router in 659 visited nodes on the reference client; it recursed, and a long sibling chain could
+  exhaust the stack before the bound was reached.
 
 The route list is found by content: the array holding a route for a path every client has. Decky's
 gamepad path indexes `children.props.children[0].props.children` instead, which is the kind of
