@@ -130,41 +130,16 @@ public sealed class SteamQuickAccessRowPatch : ISteamUiPatch
             cancellationToken);
 
     /// <inheritdoc />
-    public async Task<SteamUiPatchOperationResult> VerifyAsync(
+    public Task<SteamUiPatchOperationResult> VerifyAsync(
         SteamUiPatchContext context,
-        CancellationToken cancellationToken)
-    {
-        SteamUiEvaluationResult result = await context.EvaluateAsync(
+        CancellationToken cancellationToken) =>
+        SteamUiPatchEvaluation.EvaluateOutcomeAsync(
+            context,
             SteamUiTargetRole.SharedJsContext,
             _verifyExpression,
-            cancellationToken).ConfigureAwait(false);
-        if (!result.Reachable || result.Value is null)
-        {
-            return new SteamUiPatchOperationResult(false, result.Error ?? VerifyFallback);
-        }
-
-        try
-        {
-            using JsonDocument document = JsonDocument.Parse(result.Value);
-            JsonElement root = document.RootElement;
-            bool succeeded = root.TryGetProperty("ok", out JsonElement ok)
-                && ok.ValueKind == JsonValueKind.True;
-            string? reported = root.TryGetProperty("error", out JsonElement error)
-                && error.ValueKind == JsonValueKind.String
-                ? error.GetString()
-                : null;
-            LogAppendOutcome(root, reported);
-            return succeeded
-                ? new SteamUiPatchOperationResult(true, null)
-                : new SteamUiPatchOperationResult(
-                    false,
-                    reported ?? SteamUiPatchEvaluation.Bounded(result.Value) ?? VerifyFallback);
-        }
-        catch (JsonException ex)
-        {
-            return new SteamUiPatchOperationResult(false, ex.Message);
-        }
-    }
+            VerifyFallback,
+            LogAppendOutcome,
+            cancellationToken);
 
     /// <inheritdoc />
     public Task<SteamUiPatchOperationResult> RemoveAsync(

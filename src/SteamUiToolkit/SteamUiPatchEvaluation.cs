@@ -27,11 +27,29 @@ public static class SteamUiPatchEvaluation
     /// <param name="fallback">Diagnostic used when the page reported nothing usable.</param>
     /// <param name="cancellationToken">Cancels the evaluation.</param>
     /// <returns>The patch operation result.</returns>
-    public static async Task<SteamUiPatchOperationResult> EvaluateOutcomeAsync(
+    public static Task<SteamUiPatchOperationResult> EvaluateOutcomeAsync(
         SteamUiPatchContext context,
         SteamUiTargetRole role,
         string expression,
         string fallback,
+        CancellationToken cancellationToken) =>
+        EvaluateOutcomeAsync(context, role, expression, fallback, inspect: null, cancellationToken);
+
+    /// <summary>Evaluates an expression, lets the caller read its answer, then reads the outcome.</summary>
+    /// <param name="context">The patch context to evaluate through.</param>
+    /// <param name="role">Which Steam target to evaluate in.</param>
+    /// <param name="expression">The self-contained expression to evaluate.</param>
+    /// <param name="fallback">Diagnostic used when the page reported nothing usable.</param>
+    /// <param name="inspect">Reads the parsed answer and the page's own error, if any, before the
+    /// outcome is decided.</param>
+    /// <param name="cancellationToken">Cancels the evaluation.</param>
+    /// <returns>The patch operation result.</returns>
+    internal static async Task<SteamUiPatchOperationResult> EvaluateOutcomeAsync(
+        SteamUiPatchContext context,
+        SteamUiTargetRole role,
+        string expression,
+        string fallback,
+        Action<JsonElement, string?>? inspect,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -50,7 +68,7 @@ public static class SteamUiPatchEvaluation
             JsonElement root = document.RootElement;
             bool succeeded = root.TryGetProperty("ok", out JsonElement ok)
                 && ok.ValueKind == JsonValueKind.True;
-            if (succeeded)
+            if (succeeded && inspect is null)
             {
                 return new SteamUiPatchOperationResult(true, null);
             }
@@ -59,6 +77,11 @@ public static class SteamUiPatchEvaluation
                 && error.ValueKind == JsonValueKind.String
                 ? error.GetString()
                 : null;
+            inspect?.Invoke(root, reported);
+            if (succeeded)
+            {
+                return new SteamUiPatchOperationResult(true, null);
+            }
             return new SteamUiPatchOperationResult(
                 false,
                 reported ?? Bounded(result.Value) ?? fallback);
