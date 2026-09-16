@@ -508,7 +508,11 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
 
     private async Task DispatchRequestsAsync()
     {
-        await foreach (SteamUiBridgeRequest request in _requests.Reader.ReadAllAsync())
+        // The pump starts in the constructor, so without this every RequestReceived handler runs on
+        // whatever thread built the host. A handler that blocks before its first real await, such as
+        // a hardware write, would then freeze that thread.
+        await foreach (SteamUiBridgeRequest request
+            in _requests.Reader.ReadAllAsync().ConfigureAwait(false))
         {
             if (Volatile.Read(ref _disposed) != 0)
             {
