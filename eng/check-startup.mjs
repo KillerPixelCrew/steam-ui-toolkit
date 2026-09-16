@@ -14,7 +14,7 @@ const probeSource = readSource("src/SteamUiToolkit/Surfaces/SteamUiProbeJs.cs");
 const probeClose = probeSource.match(/Close = "([^"]*)";/u)[1];
 const resolver = readSource("src/SteamUiToolkit/SteamUiAssets/Source/module-resolver.ts");
 const preamble = probeSource
-  .match(/=> \$\$"""\s*([\s\S]*?)\s*""";/u)[1]
+  .match(/(?:=>|return)\s*\$\$"""\s*([\s\S]*?)\s*""";/u)[1]
   .replace("{{SteamUiModuleResolver.CreateExpression(chunkLabel)}}", `(${resolver})("test")`);
 const start = asset.indexOf("function createSteamUiModuleResolver(");
 const returnIndex = asset.indexOf("return requirePresent;", start);
@@ -195,7 +195,7 @@ for (const broken of ["react", "performance"]) {
 }
 
 const network = readSource("src/SteamUiToolkit/Surfaces/SteamNetworkSurface.cs")
-  .match(/probeExpression: \$\$"""\s*([\s\S]*?)\s*"""/u)[1]
+  .match(/new SteamGatePatch\([\s\S]*?\$\$"""\s*([\s\S]*?)\s*"""/u)[1]
   .replace("{{SteamUiProbeJs.Close}}", probeClose);
 const window = {
   webpackChunksteamui: {
