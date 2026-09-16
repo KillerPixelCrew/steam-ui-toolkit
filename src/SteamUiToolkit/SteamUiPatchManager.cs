@@ -956,7 +956,26 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
         _transport.GenerationChanged -= OnGenerationChanged;
         Volatile.Write(ref _globalEnabled, false);
         CancelActivePatchOperations();
-        await _schedulerGate.WaitAsync().ConfigureAwait(false);
+        // The pass this can wait behind is the fire-and-forget one queued by
+        // StartQueuedSynchronizationIfNeeded, which runs SynchronizeAsync with
+        // CancellationToken.None. CancelActivePatchOperations only cancels each entry's own
+        // in-flight operation, not that outer loop's token, so an untimed wait here could block
+        // teardown indefinitely behind an unresponsive steamwebhelper. Bound it to the same
+        // ceiling every per-patch operation already respects; on timeout, give up on removing
+        // the patches rather than race their state against whatever pass is still holding the
+        // gate, and let the caller's own deadline handle the rest.
+        using var gateTimeout = new CancellationTokenSource(SteamUiShared.MaximumOperationTimeout);
+        try
+        {
+            await _schedulerGate.WaitAsync(gateTimeout.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            SteamUiLog.Warn(
+                "Steam UI patch manager disposal gave up waiting for an in-flight "
+                    + "synchronization pass; patches were not removed.");
+            return;
+        }
         try
         {
             foreach (var entry in _patches.Values)
