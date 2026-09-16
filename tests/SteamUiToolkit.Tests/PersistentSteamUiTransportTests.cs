@@ -13,7 +13,7 @@ public sealed class PersistentSteamUiTransportTests
         await using var transport = new PersistentSteamUiTransport(
             new FixtureDiscovery(), factory);
 
-        SteamUiEvaluationResult result = await transport.EvaluateAsync(
+        var result = await transport.EvaluateAsync(
             role,
             "'ready'",
             TimeSpan.FromSeconds(2));
@@ -34,7 +34,7 @@ public sealed class PersistentSteamUiTransportTests
             TaskCreationOptions.RunContinuationsAsynchronously);
         transport.GenerationChanged += (_, _) => generationRaised.TrySetResult();
 
-        Task<SteamUiEvaluationResult> evaluation = transport.EvaluateAsync(
+        var evaluation = transport.EvaluateAsync(
             SteamUiTargetRole.MainWindow,
             "'ready'",
             TimeSpan.FromSeconds(2));
@@ -44,7 +44,7 @@ public sealed class PersistentSteamUiTransportTests
         Assert.DoesNotContain(
             transport.GetSnapshots(),
             snapshot => snapshot.Role == SteamUiTargetRole.MainWindow
-                && snapshot.Health == SteamUiTransportHealth.Ready);
+                        && snapshot.Health == SteamUiTransportHealth.Ready);
 
         factory.ReleasePageEnable.TrySetResult();
         Assert.True((await evaluation).Reachable);
@@ -57,7 +57,7 @@ public sealed class PersistentSteamUiTransportTests
         var factory = new ResponsiveWireFactory();
         await using var transport = new PersistentSteamUiTransport(
             new FixtureDiscovery(), factory);
-        await using IAsyncDisposable subscription = await transport.SubscribeAsync(
+        await using var subscription = await transport.SubscribeAsync(
             SteamUiTargetRole.MainWindow);
         _ = await transport.EvaluateAsync(
             SteamUiTargetRole.MainWindow,
@@ -75,7 +75,7 @@ public sealed class PersistentSteamUiTransportTests
         };
 
         factory.Wires.Single().Notify("DOM.documentUpdated", "{}");
-        SteamUiTransportSnapshot snapshot = await changed.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        var snapshot = await changed.Task.WaitAsync(TimeSpan.FromSeconds(1));
 
         Assert.True(snapshot.Generations.Document > 1);
     }
@@ -87,11 +87,11 @@ public sealed class PersistentSteamUiTransportTests
         await using var transport = new PersistentSteamUiTransport(
             new FixtureDiscovery(), factory);
 
-        SteamUiEvaluationResult first = await transport.EvaluateAsync(
+        var first = await transport.EvaluateAsync(
             SteamUiTargetRole.SharedJsContext,
             "'first'",
             TimeSpan.FromSeconds(2));
-        SteamUiEvaluationResult second = await transport.EvaluateAsync(
+        var second = await transport.EvaluateAsync(
             SteamUiTargetRole.SharedJsContext,
             "'second'",
             TimeSpan.FromSeconds(2));
@@ -107,16 +107,16 @@ public sealed class PersistentSteamUiTransportTests
         var factory = new ResponsiveWireFactory { BlockFirstConnection = true };
         await using var transport = new PersistentSteamUiTransport(
             new FixtureDiscovery(), factory);
-        IAsyncDisposable first = await transport.SubscribeAsync(
+        var first = await transport.SubscribeAsync(
             SteamUiTargetRole.SharedJsContext);
         await factory.FirstConnectStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
 
         await first.DisposeAsync();
-        await using IAsyncDisposable replacement = await transport.SubscribeAsync(
+        await using var replacement = await transport.SubscribeAsync(
             SteamUiTargetRole.SharedJsContext);
         factory.ReleaseFirstConnect.TrySetResult();
 
-        SteamUiEvaluationResult result = await transport.EvaluateAsync(
+        var result = await transport.EvaluateAsync(
             SteamUiTargetRole.SharedJsContext,
             "'replacement'",
             TimeSpan.FromSeconds(2));
@@ -134,14 +134,14 @@ public sealed class PersistentSteamUiTransportTests
             new FixtureDiscovery(), factory);
         transport.SetEnabled(false);
 
-        SteamUiEvaluationResult disabled = await transport.EvaluateAsync(
+        var disabled = await transport.EvaluateAsync(
             SteamUiTargetRole.SharedJsContext,
             "'disabled'",
             TimeSpan.FromSeconds(2));
         Assert.Empty(factory.Wires);
 
         transport.SetEnabled(true);
-        SteamUiEvaluationResult enabled = await transport.EvaluateAsync(
+        var enabled = await transport.EvaluateAsync(
             SteamUiTargetRole.SharedJsContext,
             "'enabled'",
             TimeSpan.FromSeconds(2));
@@ -157,9 +157,9 @@ public sealed class PersistentSteamUiTransportTests
         var factory = new ResponsiveWireFactory();
         await using var transport = new PersistentSteamUiTransport(
             new FixtureDiscovery(), factory);
-        await using IAsyncDisposable subscription = await transport.SubscribeAsync(
+        await using var subscription = await transport.SubscribeAsync(
             SteamUiTargetRole.SharedJsContext);
-        SteamUiEvaluationResult first = await transport.EvaluateAsync(
+        var first = await transport.EvaluateAsync(
             SteamUiTargetRole.SharedJsContext,
             "'first'",
             TimeSpan.FromSeconds(2));
@@ -167,7 +167,7 @@ public sealed class PersistentSteamUiTransportTests
         transport.SetEnabled(false);
         await factory.Wires[0].Disposed.Task.WaitAsync(TimeSpan.FromSeconds(1));
         transport.SetEnabled(true);
-        SteamUiEvaluationResult second = await transport.EvaluateAsync(
+        var second = await transport.EvaluateAsync(
             SteamUiTargetRole.SharedJsContext,
             "'second'",
             TimeSpan.FromSeconds(2));
@@ -183,19 +183,18 @@ public sealed class PersistentSteamUiTransportTests
         var factory = new ResponsiveWireFactory { FailFirstEvaluation = true };
         await using var transport = new PersistentSteamUiTransport(
             new FixtureDiscovery(), factory);
-        await using IAsyncDisposable subscription = await transport.SubscribeAsync(
+        await using var subscription = await transport.SubscribeAsync(
             SteamUiTargetRole.SharedJsContext);
 
-        SteamUiEvaluationResult failed = await transport.EvaluateAsync(
+        var failed = await transport.EvaluateAsync(
             SteamUiTargetRole.SharedJsContext,
             "'first'",
             TimeSpan.FromSeconds(2));
         Assert.Equal(
             SteamUiTransportHealth.Incompatible,
-            transport.GetSnapshots().Single(
-                snapshot => snapshot.Role == SteamUiTargetRole.SharedJsContext).Health);
+            transport.GetSnapshots().Single(snapshot => snapshot.Role == SteamUiTargetRole.SharedJsContext).Health);
 
-        SteamUiEvaluationResult recovered = await transport.EvaluateAsync(
+        var recovered = await transport.EvaluateAsync(
             SteamUiTargetRole.SharedJsContext,
             "'second'",
             TimeSpan.FromSeconds(2));
@@ -205,8 +204,7 @@ public sealed class PersistentSteamUiTransportTests
         Assert.True(recovered.Reachable);
         Assert.Equal(
             SteamUiTransportHealth.Ready,
-            transport.GetSnapshots().Single(
-                snapshot => snapshot.Role == SteamUiTargetRole.SharedJsContext).Health);
+            transport.GetSnapshots().Single(snapshot => snapshot.Role == SteamUiTargetRole.SharedJsContext).Health);
     }
 
     [Fact]
@@ -215,7 +213,7 @@ public sealed class PersistentSteamUiTransportTests
         var factory = new ResponsiveWireFactory();
         await using var transport = new PersistentSteamUiTransport(
             new FixtureDiscovery(), factory);
-        await using IAsyncDisposable subscription = await transport.SubscribeAsync(
+        await using var subscription = await transport.SubscribeAsync(
             SteamUiTargetRole.MainWindow);
         Assert.True((await transport.EvaluateAsync(
             SteamUiTargetRole.MainWindow,
@@ -258,7 +256,7 @@ public sealed class PersistentSteamUiTransportTests
             releaseHandler.Task.GetAwaiter().GetResult();
         };
 
-        Task<SteamUiEvaluationResult> evaluation = transport.EvaluateAsync(
+        var evaluation = transport.EvaluateAsync(
             SteamUiTargetRole.SharedJsContext,
             "'ready'",
             TimeSpan.FromSeconds(2));
@@ -279,8 +277,8 @@ public sealed class PersistentSteamUiTransportTests
         var factory = new ResponsiveWireFactory();
         await using var transport = new PersistentSteamUiTransport(
             new FixtureDiscovery(), factory);
-        IAsyncDisposable first = await transport.SubscribeAsync(SteamUiTargetRole.MainWindow);
-        IAsyncDisposable second = await transport.SubscribeAsync(SteamUiTargetRole.MainWindow);
+        var first = await transport.SubscribeAsync(SteamUiTargetRole.MainWindow);
+        var second = await transport.SubscribeAsync(SteamUiTargetRole.MainWindow);
         Assert.True((await transport.EvaluateAsync(
             SteamUiTargetRole.MainWindow,
             "'ready'",
@@ -325,7 +323,7 @@ public sealed class PersistentSteamUiTransportTests
             Assert.Throws<ObjectDisposedException>(() => SteamUiTransportSession.Attach(disposed));
             SteamUiTransportSession.Attach(active);
 
-            CefEvalResult result = await SteamUiTransportSession.EvaluateAsync(
+            var result = await SteamUiTransportSession.EvaluateAsync(
                 "'active'",
                 TimeSpan.FromSeconds(2));
 
@@ -404,7 +402,7 @@ public sealed class PersistentSteamUiTransportTests
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            int connect = Interlocked.Increment(ref _connectCount);
+            var connect = Interlocked.Increment(ref _connectCount);
             if (connect == 1 && BlockFirstConnection)
             {
                 FirstConnectStarted.TrySetResult();
@@ -412,6 +410,7 @@ public sealed class PersistentSteamUiTransportTests
                 // not a cooperative test double, must reject that previous ownership generation.
                 await ReleaseFirstConnect.Task.ConfigureAwait(false);
             }
+
             var wire = new ResponsiveWire(
                 BlockPageEnable,
                 FailFirstEvaluation,
@@ -421,6 +420,7 @@ public sealed class PersistentSteamUiTransportTests
             {
                 Wires.Add(wire);
             }
+
             return wire;
         }
     }
@@ -441,22 +441,23 @@ public sealed class PersistentSteamUiTransportTests
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            using JsonDocument request = JsonDocument.Parse(message);
-            int id = request.RootElement.GetProperty("id").GetInt32();
-            string method = request.RootElement.GetProperty("method").GetString()!;
+            using var request = JsonDocument.Parse(message);
+            var id = request.RootElement.GetProperty("id").GetInt32();
+            var method = request.RootElement.GetProperty("method").GetString()!;
             Methods.Add(method);
             if (blockPageEnable && method == "Page.enable")
             {
                 pageEnableStarted.TrySetResult();
                 await releasePageEnable.Task.WaitAsync(cancellationToken);
             }
+
             string result;
             if (method == "Runtime.evaluate"
                 && failFirstEvaluation
                 && Interlocked.Increment(ref _evaluations) == 1)
             {
                 result = "{\"exceptionDetails\":{\"text\":\"fixture failure\"},"
-                    + "\"result\":{\"type\":\"undefined\"}}";
+                         + "\"result\":{\"type\":\"undefined\"}}";
             }
             else
             {
@@ -464,6 +465,7 @@ public sealed class PersistentSteamUiTransportTests
                     ? "{\"result\":{\"type\":\"string\",\"value\":\"ok\"}}"
                     : "{}";
             }
+
             Enqueue($"{{\"id\":{id},\"result\":{result}}}");
         }
     }

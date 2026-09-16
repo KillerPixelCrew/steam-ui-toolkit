@@ -8,10 +8,14 @@ namespace SteamUiToolkit;
 
 /// <summary>One state value a module publishes to the injected side.</summary>
 /// <param name="PatchId">The patch the injected side receives this state as.</param>
-/// <param name="Enabled">Whether the value may be published right now. Evaluated per publish, so a
-/// module can stay registered while its backend is unavailable.</param>
-/// <param name="Read">Produces the current value, or <see langword="null"/> to publish nothing this
-/// round — which is how a reading that is momentarily unavailable stays distinct from a zero.</param>
+/// <param name="Enabled">
+///     Whether the value may be published right now. Evaluated per publish, so a
+///     module can stay registered while its backend is unavailable.
+/// </param>
+/// <param name="Read">
+///     Produces the current value, or <see langword="null" /> to publish nothing this
+///     round — which is how a reading that is momentarily unavailable stays distinct from a zero.
+/// </param>
 public sealed record SteamUiStatePublication(
     string PatchId,
     Func<bool> Enabled,
@@ -19,9 +23,11 @@ public sealed record SteamUiStatePublication(
 
 /// <summary>The outcome of one semantic command.</summary>
 /// <param name="Succeeded">Whether the command changed what it claimed to change.</param>
-/// <param name="Error">Why it did not, when it did not. Never null on failure: an unexplained
-/// refusal is the defect this contract exists to prevent, because the injected side has nowhere to
-/// put a reason and the user sees only a control that did nothing.</param>
+/// <param name="Error">
+///     Why it did not, when it did not. Never null on failure: an unexplained
+///     refusal is the defect this contract exists to prevent, because the injected side has nowhere to
+///     put a reason and the user sees only a control that did nothing.
+/// </param>
 /// <param name="Payload">An optional answer, including confirmed readback after a write.</param>
 public readonly record struct SteamUiCommandResult(
     bool Succeeded,
@@ -55,25 +61,27 @@ public sealed record SteamUiCommandHandler(
     SteamUiCommandDelegate Handle);
 
 /// <summary>
-/// One Steam UI surface, declared in one place: the patches that install it, the state it publishes,
-/// and the commands it answers.
+///     One Steam UI surface, declared in one place: the patches that install it, the state it publishes,
+///     and the commands it answers.
 /// </summary>
 /// <remarks>
-/// This exists because a surface used to be four scattered edits — a patch registration, a
-/// publication row, a command row and an id constant — so adding or removing one meant finding all
-/// four and getting them consistent. A module is the unit those four belong to.
-/// <para>
-/// Registration order does not matter: the patch manager sorts by patch id, and publications and
-/// commands are keyed rather than ordered.
-/// </para>
+///     This exists because a surface used to be four scattered edits — a patch registration, a
+///     publication row, a command row and an id constant — so adding or removing one meant finding all
+///     four and getting them consistent. A module is the unit those four belong to.
+///     <para>
+///         Registration order does not matter: the patch manager sorts by patch id, and publications and
+///         commands are keyed rather than ordered.
+///     </para>
 /// </remarks>
 public interface ISteamUiModule
 {
     /// <summary>Stable module identity, for diagnostics and duplicate detection.</summary>
     string Id { get; }
 
-    /// <summary>The patches that install and remove this surface. May be empty for a module that
-    /// only answers commands against a surface another module installs.</summary>
+    /// <summary>
+    ///     The patches that install and remove this surface. May be empty for a module that
+    ///     only answers commands against a surface another module installs.
+    /// </summary>
     IReadOnlyList<ISteamUiPatch> Patches { get; }
 
     /// <summary>State this module pushes to the injected side.</summary>
@@ -119,8 +127,8 @@ public sealed class SteamUiModule : ISteamUiModule
 
 /// <summary>The registered modules, flattened into the three lookups the host drives.</summary>
 /// <remarks>
-/// Flattening happens once, at construction, so a conflict between two modules is a startup failure
-/// with both names in it rather than whichever one happened to win at runtime.
+///     Flattening happens once, at construction, so a conflict between two modules is a startup failure
+///     with both names in it rather than whichever one happened to win at runtime.
 /// </remarks>
 public sealed class SteamUiModuleSet
 {
@@ -128,8 +136,10 @@ public sealed class SteamUiModuleSet
 
     /// <summary>Flattens a module list, rejecting duplicate identity.</summary>
     /// <param name="modules">The declared modules.</param>
-    /// <exception cref="InvalidOperationException">Two modules share an id, register the same patch
-    /// id, or answer the same patch and command.</exception>
+    /// <exception cref="InvalidOperationException">
+    ///     Two modules share an id, register the same patch
+    ///     id, or answer the same patch and command.
+    /// </exception>
     public SteamUiModuleSet(IReadOnlyList<ISteamUiModule> modules)
     {
         ArgumentNullException.ThrowIfNull(modules);
@@ -142,14 +152,15 @@ public sealed class SteamUiModuleSet
         var allowedCommands = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         _commands = [];
 
-        foreach (ISteamUiModule module in modules)
+        foreach (var module in modules)
         {
             if (!seenModules.Add(module.Id))
             {
                 throw new InvalidOperationException(
                     $"Steam UI module '{module.Id}' is declared twice.");
             }
-            foreach (ISteamUiPatch patch in module.Patches)
+
+            foreach (var patch in module.Patches)
             {
                 if (!seenPatches.Add(patch.Id))
                 {
@@ -157,14 +168,17 @@ public sealed class SteamUiModuleSet
                         $"Steam UI patch '{patch.Id}' is registered by more than one module; "
                         + $"'{module.Id}' is the second.");
                 }
+
                 patches.Add(patch);
             }
-            foreach (SteamUiStatePublication publication in module.Publications)
+
+            foreach (var publication in module.Publications)
             {
                 publications.Add(publication);
                 allowedCommands.TryAdd(publication.PatchId, []);
             }
-            foreach (SteamUiCommandHandler command in module.Commands)
+
+            foreach (var command in module.Commands)
             {
                 if (!_commands.TryAdd((command.PatchId, command.Command), command.Handle))
                 {
@@ -172,11 +186,13 @@ public sealed class SteamUiModuleSet
                         $"Steam UI command '{command.PatchId}/{command.Command}' is answered by "
                         + $"more than one module; '{module.Id}' is the second.");
                 }
-                if (!allowedCommands.TryGetValue(command.PatchId, out List<string>? names))
+
+                if (!allowedCommands.TryGetValue(command.PatchId, out var names))
                 {
                     names = [];
                     allowedCommands.Add(command.PatchId, names);
                 }
+
                 names.Add(command.Command);
             }
         }
@@ -184,10 +200,11 @@ public sealed class SteamUiModuleSet
         Patches = patches;
         Publications = publications;
         var vocabulary = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
-        foreach ((string patchId, List<string> commands) in allowedCommands)
+        foreach (var (patchId, commands) in allowedCommands)
         {
             vocabulary.Add(patchId, commands.AsReadOnly());
         }
+
         AllowedCommands = vocabulary;
     }
 
@@ -202,9 +219,9 @@ public sealed class SteamUiModuleSet
 
     /// <summary>The exact state identities and commands the bridge may carry for these modules.</summary>
     /// <remarks>
-    /// A publication contributes its patch identity even when it accepts no commands, because the
-    /// injected subscriber is guarded by the same vocabulary as command requests. Deriving this
-    /// view from the modules keeps the bridge and its router from drifting apart.
+    ///     A publication contributes its patch identity even when it accepts no commands, because the
+    ///     injected subscriber is guarded by the same vocabulary as command requests. Deriving this
+    ///     view from the modules keeps the bridge and its router from drifting apart.
     /// </remarks>
     public IReadOnlyDictionary<string, IReadOnlyList<string>> AllowedCommands { get; }
 
@@ -212,19 +229,21 @@ public sealed class SteamUiModuleSet
     /// <param name="patchId">The addressed patch.</param>
     /// <param name="command">The command name.</param>
     /// <param name="handler">The handler, when one is registered.</param>
-    /// <returns><see langword="true"/> when a module answers this command.</returns>
+    /// <returns><see langword="true" /> when a module answers this command.</returns>
     public bool TryGetCommand(
         string patchId,
         string command,
         out SteamUiCommandDelegate? handler)
-        => _commands.TryGetValue((patchId, command), out handler);
+    {
+        return _commands.TryGetValue((patchId, command), out handler);
+    }
 
     /// <summary>Registers every module's patches with the patch manager.</summary>
     /// <param name="patches">The manager that owns patch lifecycle.</param>
     public void RegisterPatches(SteamUiPatchManager patches)
     {
         ArgumentNullException.ThrowIfNull(patches);
-        foreach (ISteamUiPatch patch in Patches)
+        foreach (var patch in Patches)
         {
             patches.Register(patch);
         }

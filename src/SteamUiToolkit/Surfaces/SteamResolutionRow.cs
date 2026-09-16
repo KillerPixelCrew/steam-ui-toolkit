@@ -8,10 +8,14 @@ namespace SteamUiToolkit;
 
 /// <summary>The display-resolution row's state.</summary>
 /// <param name="Available">Whether the row can be drawn at all.</param>
-/// <param name="Options">Resolutions to offer, as <c>WIDTHxHEIGHT</c>, at most 64. Fewer than two
-/// hides the row: a picker with nothing to pick is worse than no picker.</param>
-/// <param name="Current">The resolution in force, or empty when it cannot be read. A value outside
-/// <paramref name="Options"/> selects nothing rather than the first entry.</param>
+/// <param name="Options">
+///     Resolutions to offer, as <c>WIDTHxHEIGHT</c>, at most 64. Fewer than two
+///     hides the row: a picker with nothing to pick is worse than no picker.
+/// </param>
+/// <param name="Current">
+///     The resolution in force, or empty when it cannot be read. A value outside
+///     <paramref name="Options" /> selects nothing rather than the first entry.
+/// </param>
 /// <param name="StatusText">Why the row is unavailable, when it is.</param>
 public sealed record SteamResolutionState(
     bool Available,
@@ -31,10 +35,10 @@ public interface ISteamResolutionBackend
 
 /// <summary>A display-resolution dropdown in Quick Settings, hand-built on Valve's dropdown field.</summary>
 /// <remarks>
-/// SteamOS drives resolution through gamescope and the client ships no component for it, so there
-/// is nothing to mount and the row is this library's own. Its label is deliberately not localized:
-/// the client has no token meaning "display resolution", and passing a token that does not exist
-/// makes Steam log an unresolved token on every render.
+///     SteamOS drives resolution through gamescope and the client ships no component for it, so there
+///     is nothing to mount and the row is this library's own. Its label is deliberately not localized:
+///     the client has no token meaning "display resolution", and passing a token that does not exist
+///     makes Steam log an unresolved token on every render.
 /// </remarks>
 public static class SteamResolutionRow
 {
@@ -54,8 +58,10 @@ public static class SteamResolutionRow
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
     /// <param name="state">The state to serialize.</param>
     /// <returns>The wire payload.</returns>
-    public static JsonElement Serialize(SteamResolutionState state) =>
-        JsonSerializer.SerializeToElement(state, SteamSurfaceJsonContext.Default.SteamResolutionState);
+    public static JsonElement Serialize(SteamResolutionState state)
+    {
+        return JsonSerializer.SerializeToElement(state, SteamSurfaceJsonContext.Default.SteamResolutionState);
+    }
 
     /// <summary>Declares the row as one module: the patch, the state, and the answer.</summary>
     /// <param name="enabled">Whether the state may be published right now.</param>
@@ -83,7 +89,7 @@ public static class SteamResolutionRow
                     "setResolution",
                     SteamUiPayload.TryReadTarget,
                     backend.SetResolutionAsync,
-                    "The resolution payload is invalid."),
+                    "The resolution payload is invalid.")
             ]);
     }
 }

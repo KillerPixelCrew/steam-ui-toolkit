@@ -11,7 +11,7 @@ public sealed class SteamUiCdpConnectionTests
         var wire = new QueueWire();
         wire.Sent = request =>
         {
-            int id = QueueWire.RequestId(request);
+            var id = QueueWire.RequestId(request);
             wire.Enqueue("{\"id\":999,\"result\":{}}");
             wire.Enqueue(StringResult(id, "ok"));
         };
@@ -29,7 +29,7 @@ public sealed class SteamUiCdpConnectionTests
     public async Task MalformedFramesAreDroppedWithoutClosingTheChannel()
     {
         var oversized = "{\"method\":\"Page.frameNavigated\",\"params\":{\"frame\":\""
-            + new string('x', 1024 * 1024) + "\"}}";
+                        + new string('x', 1024 * 1024) + "\"}}";
         var wire = new QueueWire();
         wire.Sent = request =>
         {
@@ -73,6 +73,7 @@ public sealed class SteamUiCdpConnectionTests
             {
                 return;
             }
+
             wire.Enqueue(StringResult(QueueWire.RequestId(request), "second"));
         };
         await using var connection = new SteamUiCdpConnection(
@@ -115,7 +116,7 @@ public sealed class SteamUiCdpConnectionTests
         // Generous budgets: the handler parks a pool thread, and a busy CI runner can take a
         // while to start the next one. The contract is only that the reply arrives while the
         // handler is still blocked.
-        Task<string?> evaluation = connection.EvaluateAsync(
+        var evaluation = connection.EvaluateAsync(
             "'ok'", TimeSpan.FromSeconds(15), CancellationToken.None);
         await handlerStarted.Task.WaitAsync(TimeSpan.FromSeconds(15));
         try
@@ -144,12 +145,14 @@ public sealed class SteamUiCdpConnectionTests
             (_, _) => { });
         connection.Start();
 
-        string? value = await connection.EvaluateAsync(
+        var value = await connection.EvaluateAsync(
             "'ok'", TimeSpan.FromSeconds(1), CancellationToken.None);
 
         Assert.Equal("ok", value);
     }
 
-    private static string StringResult(int id, string value) =>
-        $"{{\"id\":{id},\"result\":{{\"result\":{{\"type\":\"string\",\"value\":\"{value}\"}}}}}}";
+    private static string StringResult(int id, string value)
+    {
+        return $"{{\"id\":{id},\"result\":{{\"result\":{{\"type\":\"string\",\"value\":\"{value}\"}}}}}}";
+    }
 }

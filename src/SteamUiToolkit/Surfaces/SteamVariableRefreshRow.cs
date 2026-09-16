@@ -9,7 +9,10 @@ namespace SteamUiToolkit;
 /// <summary>The variable-refresh switch as the row renders it.</summary>
 /// <param name="Available">Whether a backend capability backs the switch at all. False hides the row.</param>
 /// <param name="Enabled">What the device reports now, not what was last asked for.</param>
-/// <param name="Progress">Command progress; the row disables itself while <c>queued</c>, <c>applying</c> or <c>replacing</c>.</param>
+/// <param name="Progress">
+///     Command progress; the row disables itself while <c>queued</c>, <c>applying</c> or
+///     <c>replacing</c>.
+/// </param>
 /// <param name="StatusText">One line describing the state, or why the row cannot be operated.</param>
 public sealed record SteamVariableRefreshState(
     bool Available,
@@ -23,17 +26,19 @@ public interface ISteamVariableRefreshBackend
     /// <summary>Turns variable refresh rate on or off.</summary>
     /// <param name="enabled">The wanted state.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns>The outcome. Awaited before the switch settles, so a refused write leaves it
-    /// where the hardware actually is.</returns>
+    /// <returns>
+    ///     The outcome. Awaited before the switch settles, so a refused write leaves it
+    ///     where the hardware actually is.
+    /// </returns>
     Task<SteamUiCommandResult> SetVariableRefreshRateAsync(bool enabled, CancellationToken cancellationToken);
 }
 
 /// <summary>A variable-refresh toggle on the Performance tab, labelled by Valve's own token.</summary>
 /// <remarks>
-/// Valve ships one, and it cannot be used: its component is gated on a react-query over
-/// <c>SteamClient.System.DisplayManager</c>, whose <c>GetState</c> the Windows client does not
-/// define — the query never succeeds and the component returns null before it reads a single
-/// published field (live-probed 2026-08-30). This row is built from Valve's toggle field instead.
+///     Valve ships one, and it cannot be used: its component is gated on a react-query over
+///     <c>SteamClient.System.DisplayManager</c>, whose <c>GetState</c> the Windows client does not
+///     define — the query never succeeds and the component returns null before it reads a single
+///     published field (live-probed 2026-08-30). This row is built from Valve's toggle field instead.
 /// </remarks>
 public static class SteamVariableRefreshRow
 {
@@ -53,9 +58,11 @@ public static class SteamVariableRefreshRow
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
     /// <param name="state">The state to serialize.</param>
     /// <returns>The wire payload.</returns>
-    public static JsonElement Serialize(SteamVariableRefreshState state) =>
-        JsonSerializer.SerializeToElement(
+    public static JsonElement Serialize(SteamVariableRefreshState state)
+    {
+        return JsonSerializer.SerializeToElement(
             state, SteamSurfaceJsonContext.Default.SteamVariableRefreshState);
+    }
 
     /// <summary>Declares the row as one module: the patch, the state, and the answer.</summary>
     /// <param name="enabled">Whether the state may be published right now.</param>
@@ -83,7 +90,7 @@ public static class SteamVariableRefreshRow
                     "setVariableRefreshRate",
                     SteamUiPayload.TryReadEnabled,
                     backend.SetVariableRefreshRateAsync,
-                    "The variable-refresh payload is invalid."),
+                    "The variable-refresh payload is invalid.")
             ]);
     }
 }

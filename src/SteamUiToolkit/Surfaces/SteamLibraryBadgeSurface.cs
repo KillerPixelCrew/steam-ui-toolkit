@@ -9,16 +9,16 @@ namespace SteamUiToolkit;
 /// <summary>One Steam library the badge can name, and the games it holds.</summary>
 /// <param name="Name">The badge text for a game in this library. Untrusted display text, bounded by the gate.</param>
 /// <param name="Connected">
-/// Whether the library is attached right now. Steam's own installed flag decides the badge's
-/// colour where it can; this stands in only for a game whose overview cannot say.
+///     Whether the library is attached right now. Steam's own installed flag decides the badge's
+///     colour where it can; this stands in only for a game whose overview cannot say.
 /// </param>
 /// <param name="AppIds">The Steam app ids installed in this library.</param>
 public sealed record SteamLibraryBadgeLibrary(string Name, bool Connected, IReadOnlyList<long> AppIds);
 
 /// <summary>Everything the badge needs to name a game's library.</summary>
 /// <param name="Libraries">
-/// The libraries worth naming — every tracked removable one, attached or not, so a game on an
-/// absent card keeps naming the card. A game in none of them is on the internal library.
+///     The libraries worth naming — every tracked removable one, attached or not, so a game on an
+///     absent card keeps naming the card. A game in none of them is on the internal library.
 /// </param>
 /// <param name="InternalLabel">The badge text for an installed game that no listed library holds.</param>
 /// <param name="Revision">Monotonic host observation revision.</param>
@@ -32,8 +32,8 @@ public interface ISteamLibraryBadgeBackend
 {
     /// <summary>Reports Steam's Big Picture Home layout: Big Art Mode on or off.</summary>
     /// <remarks>
-    /// Sent when the gate first resolves the setting and again whenever a tile render sees it
-    /// change, so a host learns of a toggle without polling.
+    ///     Sent when the gate first resolves the setting and again whenever a tile render sees it
+    ///     change, so a host learns of a toggle without polling.
     /// </remarks>
     /// <param name="bigArt">Whether <c>library_home_big_art</c> is on.</param>
     /// <param name="cancellationToken">Cancels the handling.</param>
@@ -42,27 +42,27 @@ public interface ISteamLibraryBadgeBackend
 }
 
 /// <summary>
-/// A library badge beside Valve's Steam Input badge on every library tile: the name of the library
-/// that holds the game, green when the game is installed and grey when it is not.
+///     A library badge beside Valve's Steam Input badge on every library tile: the name of the library
+///     that holds the game, green when the game is installed and grey when it is not.
 /// </summary>
 /// <remarks>
-/// The tile and the Steam Input badge are exported from one module, but the tile draws the badge
-/// through its module-local name, so the claim is on the tile memo's <c>type</c> and the anchor is
-/// found in what the tile renders by element type — identity with the export, never a generated
-/// class name. Every caller draws the tile through that export, so one claim reaches Home's
-/// carousel and the library grid alike, and the badge inherits the icon row's own visibility,
-/// which Valve shows on the focused tile only.
-/// <para>
-/// Big Art Mode is Steam's own <c>library_home_big_art</c> client setting, read from the settings
-/// store the Home component reads it from and reported to the host through <c>homeLayout</c>.
-/// The badge itself is tile-relative and moves with the carousel in either layout.
-/// </para>
-/// <para>
-/// Mapped against the September 2026 client beta on 2026-09-11: <c>appportrait_</c> occurs in
-/// exactly one of the 2622 loaded modules, that module has exactly one <c>React.memo</c> export
-/// and exactly one function export drawing the controller-support icon, and the memo's
-/// <c>type</c> is a writable, configurable own property, which is what makes the claim restorable.
-/// </para>
+///     The tile and the Steam Input badge are exported from one module, but the tile draws the badge
+///     through its module-local name, so the claim is on the tile memo's <c>type</c> and the anchor is
+///     found in what the tile renders by element type — identity with the export, never a generated
+///     class name. Every caller draws the tile through that export, so one claim reaches Home's
+///     carousel and the library grid alike, and the badge inherits the icon row's own visibility,
+///     which Valve shows on the focused tile only.
+///     <para>
+///         Big Art Mode is Steam's own <c>library_home_big_art</c> client setting, read from the settings
+///         store the Home component reads it from and reported to the host through <c>homeLayout</c>.
+///         The badge itself is tile-relative and moves with the carousel in either layout.
+///     </para>
+///     <para>
+///         Mapped against the September 2026 client beta on 2026-09-11: <c>appportrait_</c> occurs in
+///         exactly one of the 2622 loaded modules, that module has exactly one <c>React.memo</c> export
+///         and exactly one function export drawing the controller-support icon, and the memo's
+///         <c>type</c> is a writable, configurable own property, which is what makes the claim restorable.
+///     </para>
 /// </remarks>
 public static class SteamLibraryBadgeSurface
 {
@@ -70,7 +70,7 @@ public static class SteamLibraryBadgeSurface
     public const string PatchId = "steam-ui.library-badge";
 
     /// <summary>The patch id of the library stat on a game's own page.</summary>
-    /// <remarks>It sends no commands and reads the badge's publication under <see cref="PatchId"/>.</remarks>
+    /// <remarks>It sends no commands and reads the badge's publication under <see cref="PatchId" />.</remarks>
     public const string DetailsPatchId = "steam-ui.library-details";
 
     /// <summary>The exact command vocabulary the injected gate sends.</summary>
@@ -78,104 +78,106 @@ public static class SteamLibraryBadgeSurface
 
     /// <summary>The gate that adds the library as a stat beside Last Played and Play Time on a game's page.</summary>
     /// <remarks>
-    /// The stats row is built inside mobx observer classes, which pin a non-writable render on each
-    /// instance, so the gate adds its stat where Steam creates the row: through the toolkit's shared
-    /// JSX-runtime claim, on the element whose class is the play bar class map's
-    /// <c>GameStatsSection</c>. It shares that claim's resource with every other element transform.
-    /// The localizer is reported but not required; without it the label is the English word.
-    /// <para>
-    /// Read from the Stable client (UI build of 2026-09-06) and the September 2026 beta on
-    /// 2026-09-11: the app-details module is the same in both, the class map carrying
-    /// <c>GameStatsSection</c>, <c>PlayBarDetailLabel</c> and <c>LastPlayedInfo</c> occurs once, and
-    /// the row is created as <c>jsxs("div", { className: GameStatsSection, children })</c>.
-    /// </para>
+    ///     The stats row is built inside mobx observer classes, which pin a non-writable render on each
+    ///     instance, so the gate adds its stat where Steam creates the row: through the toolkit's shared
+    ///     JSX-runtime claim, on the element whose class is the play bar class map's
+    ///     <c>GameStatsSection</c>. It shares that claim's resource with every other element transform.
+    ///     The localizer is reported but not required; without it the label is the English word.
+    ///     <para>
+    ///         Read from the Stable client (UI build of 2026-09-06) and the September 2026 beta on
+    ///         2026-09-11: the app-details module is the same in both, the class map carrying
+    ///         <c>GameStatsSection</c>, <c>PlayBarDetailLabel</c> and <c>LastPlayedInfo</c> occurs once, and
+    ///         the row is created as <c>jsxs("div", { className: GameStatsSection, children })</c>.
+    ///     </para>
     /// </remarks>
     public static ISteamUiPatch DetailsPatch { get; } = new SteamGatePatch(
-        id: DetailsPatchId,
-        resourceKey: "steam-ui.jsx-runtime",
-        gateName: "libraryDetails",
-        fingerprint: "steam-library-details-v1:unique-jsx-runtime+play-bar-class-map",
-        probeExpression: $$"""
-            {{SteamUiProbeJs.Preamble("steam_ui_library_details_probe_")}}
-              return JSON.stringify({
-                react:count({{SteamUiProbeJs.ReactTokens}}),
-                runtime:count(['react.transitional.element','.jsx','.jsxs']),
-                classMap:count(['GameStatsSection:"','PlayBarDetailLabel:"','LastPlayedInfo:"']),
-                localization:count({{SteamUiProbeJs.LocalizationTokens}})
-              });
-            {{SteamUiProbeJs.Close}}
-            """,
-        compatible: root =>
+        DetailsPatchId,
+        "steam-ui.jsx-runtime",
+        "libraryDetails",
+        "steam-library-details-v1:unique-jsx-runtime+play-bar-class-map",
+        $$"""
+          {{SteamUiProbeJs.Preamble("steam_ui_library_details_probe_")}}
+            return JSON.stringify({
+              react:count({{SteamUiProbeJs.ReactTokens}}),
+              runtime:count(['react.transitional.element','.jsx','.jsxs']),
+              classMap:count(['GameStatsSection:"','PlayBarDetailLabel:"','LastPlayedInfo:"']),
+              localization:count({{SteamUiProbeJs.LocalizationTokens}})
+            });
+          {{SteamUiProbeJs.Close}}
+          """,
+        root =>
             SteamUiPatchEvaluation.IsOne(root, "react")
             && SteamUiPatchEvaluation.IsOne(root, "runtime")
             && SteamUiPatchEvaluation.IsOne(root, "classMap"),
-        verifyOk: "status.installed&&status.resolved&&status.claimed",
-        removeOk: "!status.claimed",
-        subject: "Library details gate");
+        "status.installed&&status.resolved&&status.claimed",
+        "!status.claimed",
+        "Library details gate");
 
     /// <summary>The gate that claims the tile and draws the badge from the published libraries.</summary>
     /// <remarks>
-    /// The probe requires each structural fact the gate resolves on, separately, so an incompatible
-    /// client says which one moved. The settings store and the tile's class map are reported but
-    /// not required: without the first the badge still draws and Big Art Mode reads as unknown,
-    /// without the second it draws on every tile rather than fading with the focused one. It
-    /// accepts a tile this gate has already claimed, for the reason every gate does.
+    ///     The probe requires each structural fact the gate resolves on, separately, so an incompatible
+    ///     client says which one moved. The settings store and the tile's class map are reported but
+    ///     not required: without the first the badge still draws and Big Art Mode reads as unknown,
+    ///     without the second it draws on every tile rather than fading with the focused one. It
+    ///     accepts a tile this gate has already claimed, for the reason every gate does.
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
-        id: PatchId,
-        resourceKey: "steam-ui.library-tile",
-        gateName: "libraryBadge",
-        fingerprint: "steam-library-badge-v1:unique-tile-module+single-memo-export+single-badge-export",
-        probeExpression: $$"""
-            {{SteamUiProbeJs.Preamble("steam_ui_library_badge_probe_")}}
-              const tile=req.findUnique(['ControllerSupportIcon','appportrait_']);
-              if(!tile)return JSON.stringify({tileModule:0});
-              const exports=req(tile[0]);
-              const memoType=Symbol.for('react.memo');
-              // The tile is the module's one memo; the badge is the one function drawing the
-              // controller-support icon. Chosen by what they are, never by a minified name.
-              const tiles=Object.keys(exports).filter(name=>{
-                const value=exports[name];
-                return value&&typeof value==='object'&&value.$$typeof===memoType;
-              });
-              const badges=Object.keys(exports).filter(name=>{
-                const value=exports[name];
-                return typeof value==='function'&&String(value).includes('ControllerSupportIcon');
-              });
-              const memo=tiles.length===1?exports[tiles[0]]:null;
-              const descriptor=memo?Object.getOwnPropertyDescriptor(memo,'type'):null;
-              return JSON.stringify({
-                tileModule:1,
-                tileExports:tiles.length,
-                badgeExports:badges.length,
-                // Writable and configurable, or the claim could neither replace nor restore it.
-                claimable:{{SteamUiProbeJs.Replaceable("descriptor")}},
-                // Already ours is compatible; see the remarks on this patch.
-                claimed:!!memo&&memo.type.__steamUiLibraryBadgeClaimed===true,
-                settingsModule:count({{SteamUiProbeJs.SettingsStoreTokens}}),
-                // The tile stylesheet's class map, read by Valve's names; wanted for focus-only
-                // visibility, not required for the badge to draw.
-                classMap:count(['ControllerSupportIcon:"','LibraryItemIcons:"','LibraryItemBox:"']),
-                react:count({{SteamUiProbeJs.ReactTokens}})
-              });
-            {{SteamUiProbeJs.Close}}
-            """,
-        compatible: root =>
+        PatchId,
+        "steam-ui.library-tile",
+        "libraryBadge",
+        "steam-library-badge-v1:unique-tile-module+single-memo-export+single-badge-export",
+        $$"""
+          {{SteamUiProbeJs.Preamble("steam_ui_library_badge_probe_")}}
+            const tile=req.findUnique(['ControllerSupportIcon','appportrait_']);
+            if(!tile)return JSON.stringify({tileModule:0});
+            const exports=req(tile[0]);
+            const memoType=Symbol.for('react.memo');
+            // The tile is the module's one memo; the badge is the one function drawing the
+            // controller-support icon. Chosen by what they are, never by a minified name.
+            const tiles=Object.keys(exports).filter(name=>{
+              const value=exports[name];
+              return value&&typeof value==='object'&&value.$$typeof===memoType;
+            });
+            const badges=Object.keys(exports).filter(name=>{
+              const value=exports[name];
+              return typeof value==='function'&&String(value).includes('ControllerSupportIcon');
+            });
+            const memo=tiles.length===1?exports[tiles[0]]:null;
+            const descriptor=memo?Object.getOwnPropertyDescriptor(memo,'type'):null;
+            return JSON.stringify({
+              tileModule:1,
+              tileExports:tiles.length,
+              badgeExports:badges.length,
+              // Writable and configurable, or the claim could neither replace nor restore it.
+              claimable:{{SteamUiProbeJs.Replaceable("descriptor")}},
+              // Already ours is compatible; see the remarks on this patch.
+              claimed:!!memo&&memo.type.__steamUiLibraryBadgeClaimed===true,
+              settingsModule:count({{SteamUiProbeJs.SettingsStoreTokens}}),
+              // The tile stylesheet's class map, read by Valve's names; wanted for focus-only
+              // visibility, not required for the badge to draw.
+              classMap:count(['ControllerSupportIcon:"','LibraryItemIcons:"','LibraryItemBox:"']),
+              react:count({{SteamUiProbeJs.ReactTokens}})
+            });
+          {{SteamUiProbeJs.Close}}
+          """,
+        root =>
             SteamUiPatchEvaluation.IsOne(root, "tileModule")
             && SteamUiPatchEvaluation.IsOne(root, "tileExports")
             && SteamUiPatchEvaluation.IsOne(root, "badgeExports")
             && SteamUiPatchEvaluation.IsOne(root, "react")
             && SteamUiPatchEvaluation.Flag(root, "claimable"),
-        verifyOk: "status.installed&&status.resolved&&status.claimed",
-        removeOk: "!status.claimed",
-        subject: "Library badge gate");
+        "status.installed&&status.resolved&&status.claimed",
+        "!status.claimed",
+        "Library badge gate");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
     /// <param name="state">The state to serialize.</param>
     /// <returns>The wire payload.</returns>
-    public static JsonElement Serialize(SteamLibraryBadgeState state) =>
-        JsonSerializer.SerializeToElement(
+    public static JsonElement Serialize(SteamLibraryBadgeState state)
+    {
+        return JsonSerializer.SerializeToElement(
             state, SteamSurfaceJsonContext.Default.SteamLibraryBadgeState);
+    }
 
     /// <summary>Reads the exact <c>homeLayout</c> payload: <c>{ bigArt: bool }</c> and nothing else.</summary>
     /// <param name="payload">The request payload.</param>
@@ -185,7 +187,7 @@ public static class SteamLibraryBadgeSurface
     {
         bigArt = false;
         return SteamUiPayload.HasExactly(payload, 1)
-            && SteamUiPayload.TryReadBoolean(payload, "bigArt", out bigArt);
+               && SteamUiPayload.TryReadBoolean(payload, "bigArt", out bigArt);
     }
 
     /// <summary>Declares the surface as one module: the gate, the libraries, and the layout report.</summary>
@@ -214,7 +216,7 @@ public static class SteamLibraryBadgeSurface
                     "homeLayout",
                     TryReadHomeLayout,
                     backend.HomeLayoutAsync,
-                    "The home layout payload is invalid."),
+                    "The home layout payload is invalid.")
             ]);
     }
 }

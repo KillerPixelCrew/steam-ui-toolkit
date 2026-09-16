@@ -4,14 +4,14 @@ using static SteamUiToolkit.Tests.Fakes.SurfaceDispatch;
 namespace SteamUiToolkit.Tests;
 
 /// <summary>
-/// The Home carousel surface's own contract: what the probe demands before Home is claimed, what a
-/// publication puts on the wire, and what the carousel's report carries back.
+///     The Home carousel surface's own contract: what the probe demands before Home is claimed, what a
+///     publication puts on the wire, and what the carousel's report carries back.
 /// </summary>
 /// <remarks>
-/// The structural facts were read from the September 2026 client beta's shipped bundle on
-/// 2026-09-11: <c>HomeTabsActive</c> with <c>#Showcase_RecentGames</c> occurs in one module, the
-/// <c>/library/home</c> route renders a <c>React.memo</c>, and mobx-react-lite's startup check
-/// occurs once.
+///     The structural facts were read from the September 2026 client beta's shipped bundle on
+///     2026-09-11: <c>HomeTabsActive</c> with <c>#Showcase_RecentGames</c> occurs in one module, the
+///     <c>/library/home</c> route renders a <c>React.memo</c>, and mobx-react-lite's startup check
+///     occurs once.
 /// </remarks>
 public sealed class SteamHomeCarouselTests
 {
@@ -20,7 +20,7 @@ public sealed class SteamHomeCarouselTests
     [Fact]
     public void TheProbeNamesEveryStructuralFactTheGateResolvesOn()
     {
-        string probe = Gate.ProbeExpression;
+        var probe = Gate.ProbeExpression;
 
         Assert.Contains("HomeTabsActive", probe, StringComparison.Ordinal);
         Assert.Contains("#Showcase_RecentGames", probe, StringComparison.Ordinal);
@@ -38,25 +38,37 @@ public sealed class SteamHomeCarouselTests
     {
         // Home is `r5` and the carousel `hi` in today's build. The probe matches the route by its
         // path and the page by its source, and names neither.
-        string probe = Gate.ProbeExpression;
+        var probe = Gate.ProbeExpression;
 
         Assert.DoesNotContain("r5", probe, StringComparison.Ordinal);
         Assert.DoesNotContain("46307", probe, StringComparison.Ordinal);
     }
 
     [Theory]
-    [InlineData("""{"homeModule":1,"homeFound":1,"claimable":true,"claimed":false,"stores":true,"observer":1,"react":1}""", true)]
+    [InlineData(
+        """{"homeModule":1,"homeFound":1,"claimable":true,"claimed":false,"stores":true,"observer":1,"react":1}""",
+        true)]
     // Steam's observer hook is wanted, not required.
-    [InlineData("""{"homeModule":1,"homeFound":1,"claimable":true,"claimed":false,"stores":true,"observer":0,"react":1}""", true)]
-    [InlineData("""{"homeModule":1,"homeFound":0,"claimable":false,"claimed":false,"stores":true,"observer":1,"react":1}""", false)]
-    [InlineData("""{"homeModule":2,"homeFound":1,"claimable":true,"claimed":false,"stores":true,"observer":1,"react":1}""", false)]
-    [InlineData("""{"homeModule":1,"homeFound":1,"claimable":true,"claimed":false,"stores":false,"observer":1,"react":1}""", false)]
+    [InlineData(
+        """{"homeModule":1,"homeFound":1,"claimable":true,"claimed":false,"stores":true,"observer":0,"react":1}""",
+        true)]
+    [InlineData(
+        """{"homeModule":1,"homeFound":0,"claimable":false,"claimed":false,"stores":true,"observer":1,"react":1}""",
+        false)]
+    [InlineData(
+        """{"homeModule":2,"homeFound":1,"claimable":true,"claimed":false,"stores":true,"observer":1,"react":1}""",
+        false)]
+    [InlineData(
+        """{"homeModule":1,"homeFound":1,"claimable":true,"claimed":false,"stores":false,"observer":1,"react":1}""",
+        false)]
     // A non-writable type could be replaced by nothing and restored to nothing.
-    [InlineData("""{"homeModule":1,"homeFound":1,"claimable":false,"claimed":false,"stores":true,"observer":1,"react":1}""", false)]
+    [InlineData(
+        """{"homeModule":1,"homeFound":1,"claimable":false,"claimed":false,"stores":true,"observer":1,"react":1}""",
+        false)]
     [InlineData("""{"error":"Steam modules unavailable"}""", false)]
     public void CompatibilityRequiresEveryFactAndAUniqueMatchForEachOne(string json, bool expected)
     {
-        using JsonDocument document = JsonDocument.Parse(json);
+        using var document = JsonDocument.Parse(json);
 
         Assert.Equal(expected, Gate.Compatible(document.RootElement));
     }
@@ -64,8 +76,8 @@ public sealed class SteamHomeCarouselTests
     [Fact]
     public void TheInstructionReachesTheWireAsPublished()
     {
-        JsonElement wire = SteamHomeCarouselSurface.Serialize(
-            new SteamHomeCarouselState(IncludeUninstalled: true, [70, 400], Revision: 3));
+        var wire = SteamHomeCarouselSurface.Serialize(
+            new SteamHomeCarouselState(true, [70, 400], 3));
 
         Assert.True(wire.GetProperty("includeUninstalled").GetBoolean());
         Assert.Equal(400, wire.GetProperty("disconnectedAppIds")[1].GetInt64());
@@ -73,16 +85,24 @@ public sealed class SteamHomeCarouselTests
     }
 
     [Theory]
-    [InlineData("""{"items":12,"purchases":1,"installed":9,"uninstalled":0,"excluded":4,"tracking":true,"fallback":false}""", true)]
+    [InlineData(
+        """{"items":12,"purchases":1,"installed":9,"uninstalled":0,"excluded":4,"tracking":true,"fallback":false}""",
+        true)]
     [InlineData("""{"items":12,"purchases":1,"installed":9,"uninstalled":0,"excluded":4,"tracking":true}""", false)]
-    [InlineData("""{"items":12,"purchases":1,"installed":9,"uninstalled":0,"excluded":4,"tracking":true,"fallback":false,"extra":1}""", false)]
-    [InlineData("""{"items":-1,"purchases":1,"installed":9,"uninstalled":0,"excluded":4,"tracking":true,"fallback":false}""", false)]
-    [InlineData("""{"items":12,"purchases":1,"installed":9,"uninstalled":0,"excluded":4,"tracking":"yes","fallback":false}""", false)]
+    [InlineData(
+        """{"items":12,"purchases":1,"installed":9,"uninstalled":0,"excluded":4,"tracking":true,"fallback":false,"extra":1}""",
+        false)]
+    [InlineData(
+        """{"items":-1,"purchases":1,"installed":9,"uninstalled":0,"excluded":4,"tracking":true,"fallback":false}""",
+        false)]
+    [InlineData(
+        """{"items":12,"purchases":1,"installed":9,"uninstalled":0,"excluded":4,"tracking":"yes","fallback":false}""",
+        false)]
     public void TheReportIsExactlyFiveCountsAndTwoFlags(string json, bool valid)
     {
-        using JsonDocument payload = JsonDocument.Parse(json);
+        using var payload = JsonDocument.Parse(json);
 
-        bool read = SteamHomeCarouselSurface.TryReadReport(payload.RootElement, out SteamHomeCarouselReport report);
+        var read = SteamHomeCarouselSurface.TryReadReport(payload.RootElement, out var report);
 
         Assert.Equal(valid, read);
         if (valid)
@@ -97,15 +117,16 @@ public sealed class SteamHomeCarouselTests
         RecordingBackend backend = new();
         SteamUiModuleSet set = new(
         [
-            SteamHomeCarouselSurface.Module(Always, () => new(null as SteamHomeCarouselState), backend),
+            SteamHomeCarouselSurface.Module(Always,
+                () => new ValueTask<SteamHomeCarouselState?>(null as SteamHomeCarouselState), backend)
         ]);
 
-        SteamUiCommandResult applied = await DispatchAsync(
+        var applied = await DispatchAsync(
             set,
             SteamHomeCarouselSurface.PatchId,
             "report",
             """{"items":3,"purchases":0,"installed":3,"uninstalled":0,"excluded":0,"tracking":true,"fallback":false}""");
-        SteamUiCommandResult refused = await DispatchAsync(
+        var refused = await DispatchAsync(
             set, SteamHomeCarouselSurface.PatchId, "report", """{"items":3}""");
 
         Assert.True(applied.Succeeded);

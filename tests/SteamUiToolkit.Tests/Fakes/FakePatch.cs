@@ -5,18 +5,8 @@ internal sealed class FakePatch(string id = "fixture.patch", string resourceKey 
     : ISteamUiPatch
 {
     private int _applyCalls;
-    private int _verifyCalls;
     private int _removeCalls;
-
-    public string Id => id;
-
-    public int Version => 1;
-
-    public SteamUiTargetRole TargetRole => SteamUiTargetRole.SharedJsContext;
-
-    public string ResourceKey => resourceKey;
-
-    public SteamUiPatchBounds Bounds { get; init; } = SteamUiPatchBounds.Default;
+    private int _verifyCalls;
 
     internal bool Compatible { get; set; } = true;
 
@@ -45,6 +35,16 @@ internal sealed class FakePatch(string id = "fixture.patch", string resourceKey 
     internal TaskCompletionSource RemoveStarted { get; } = new(
         TaskCreationOptions.RunContinuationsAsynchronously);
 
+    public string Id => id;
+
+    public int Version => 1;
+
+    public SteamUiTargetRole TargetRole => SteamUiTargetRole.SharedJsContext;
+
+    public string ResourceKey => resourceKey;
+
+    public SteamUiPatchBounds Bounds { get; init; } = SteamUiPatchBounds.Default;
+
     public async Task<SteamUiPatchProbeResult> ProbeAsync(
         SteamUiPatchContext context,
         CancellationToken cancellationToken)
@@ -68,6 +68,7 @@ internal sealed class FakePatch(string id = "fixture.patch", string resourceKey 
         {
             throw new InvalidOperationException("fixture apply failure");
         }
+
         Interlocked.Increment(ref _applyCalls);
         await DelayAsync(cancellationToken);
         return new SteamUiPatchOperationResult(true, null);
@@ -84,6 +85,7 @@ internal sealed class FakePatch(string id = "fixture.patch", string resourceKey 
         {
             await ReleaseVerification.Task.WaitAsync(cancellationToken);
         }
+
         return new SteamUiPatchOperationResult(VerifySucceeds, VerifySucceeds ? null : "no proof");
     }
 
@@ -100,6 +102,8 @@ internal sealed class FakePatch(string id = "fixture.patch", string resourceKey 
             RemoveSucceeds ? null : "removal unverified");
     }
 
-    private Task DelayAsync(CancellationToken cancellationToken) =>
-        PhaseDelay <= TimeSpan.Zero ? Task.CompletedTask : Task.Delay(PhaseDelay, cancellationToken);
+    private Task DelayAsync(CancellationToken cancellationToken)
+    {
+        return PhaseDelay <= TimeSpan.Zero ? Task.CompletedTask : Task.Delay(PhaseDelay, cancellationToken);
+    }
 }

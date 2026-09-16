@@ -39,7 +39,7 @@ public enum SteamUiPatchState
     RemoveFailed,
 
     /// <summary>The patch is waiting for its target or generation to recover.</summary>
-    Retrying,
+    Retrying
 }
 
 /// <summary>Hard bounds declared by one Steam UI patch.</summary>
@@ -50,8 +50,8 @@ public sealed record SteamUiPatchBounds
     /// <param name="MaximumExpressionCharacters">Maximum repository-owned expression size.</param>
     /// <param name="MaximumDiagnosticCharacters">Maximum retained diagnostic size.</param>
     /// <remarks>
-    /// Parameter casing preserves the names exposed by the original positional record constructor,
-    /// because callers may use named arguments.
+    ///     Parameter casing preserves the names exposed by the original positional record constructor,
+    ///     because callers may use named arguments.
     /// </remarks>
     public SteamUiPatchBounds(
         TimeSpan OperationTimeout,
@@ -65,6 +65,7 @@ public sealed record SteamUiPatchBounds
         {
             throw new ArgumentOutOfRangeException(nameof(MaximumExpressionCharacters));
         }
+
         if (MaximumDiagnosticCharacters <= 0 || MaximumDiagnosticCharacters > 64 * 1024)
         {
             throw new ArgumentOutOfRangeException(
@@ -86,6 +87,10 @@ public sealed record SteamUiPatchBounds
     /// <summary>Maximum retained diagnostic size.</summary>
     public int MaximumDiagnosticCharacters { get; }
 
+    /// <summary>Conservative defaults for small bootstrap and store patches.</summary>
+    public static SteamUiPatchBounds Default { get; } =
+        new(TimeSpan.FromSeconds(8), 96 * 1024, 2048);
+
     /// <summary>Deconstructs these bounds for callers using positional syntax.</summary>
     /// <param name="operationTimeout">Maximum duration of one phase.</param>
     /// <param name="maximumExpressionCharacters">Maximum expression size.</param>
@@ -99,10 +104,6 @@ public sealed record SteamUiPatchBounds
         maximumExpressionCharacters = MaximumExpressionCharacters;
         maximumDiagnosticCharacters = MaximumDiagnosticCharacters;
     }
-
-    /// <summary>Conservative defaults for small bootstrap and store patches.</summary>
-    public static SteamUiPatchBounds Default { get; } =
-        new(TimeSpan.FromSeconds(8), 96 * 1024, 2048);
 }
 
 /// <summary>Positive structural probe result required before patch application.</summary>
@@ -126,8 +127,8 @@ public readonly record struct SteamUiPatchOperationResult(bool Succeeded, string
 /// <summary>Context that applies one patch's declared evaluation bounds.</summary>
 public sealed class SteamUiPatchContext
 {
-    private readonly ISteamUiTransport _transport;
     private readonly SteamUiPatchBounds _bounds;
+    private readonly ISteamUiTransport _transport;
 
     internal SteamUiPatchContext(ISteamUiTransport transport, SteamUiPatchBounds bounds)
     {
@@ -150,11 +151,13 @@ public sealed class SteamUiPatchContext
         {
             throw new ArgumentOutOfRangeException(nameof(role));
         }
+
         if (expression.Length > _bounds.MaximumExpressionCharacters)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(expression), "Patch expression exceeded its declared bound.");
         }
+
         return _transport.EvaluateAsync(
             role, expression, _bounds.OperationTimeout, cancellationToken);
     }
@@ -217,20 +220,24 @@ public sealed record SteamUiPatchSnapshot(
 /// <summary>Serializes patch work, isolates failures, and owns independent kill switches.</summary>
 public sealed class SteamUiPatchManager : IAsyncDisposable
 {
-    private readonly ISteamUiTransport _transport;
     // The manager subscribes to transport events in its constructor, so a generation change can be
     // enumerating patches on the pump thread while the host is still registering them. Registration
     // therefore publishes a new immutable map instead of mutating the one a reader may be walking.
     private readonly object _registrationSync = new();
-    private volatile ImmutableSortedDictionary<string, PatchEntry> _patches =
-        ImmutableSortedDictionary.Create<string, PatchEntry>(StringComparer.Ordinal);
+
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _resourceGates =
         new(StringComparer.Ordinal);
+
     private readonly SemaphoreSlim _schedulerGate = new(1, 1);
+    private readonly ISteamUiTransport _transport;
+    private int _disposed;
     private bool _globalEnabled = true;
+
+    private volatile ImmutableSortedDictionary<string, PatchEntry> _patches =
+        ImmutableSortedDictionary.Create<string, PatchEntry>(StringComparer.Ordinal);
+
     private int _queuedSynchronizationPending;
     private int _queuedSynchronizationRunning;
-    private int _disposed;
 
     /// <summary>Creates a registry over the single process-owned Steam UI transport.</summary>
     /// <param name="transport">Persistent Steam UI transport.</param>
@@ -238,6 +245,63 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
     {
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         _transport.GenerationChanged += OnGenerationChanged;
+    }
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        _transport.GenerationChanged -= OnGenerationChanged;
+        Volatile.Write(ref _globalEnabled, false);
+        CancelActivePatchOperations();
+        // The pass this can wait behind is the fire-and-forget one queued by
+        // StartQueuedSynchronizationIfNeeded, which runs SynchronizeAsync with
+        // CancellationToken.None. CancelActivePatchOperations only cancels each entry's own
+        // in-flight operation, not that outer loop's token, so an untimed wait here could block
+        // teardown indefinitely behind an unresponsive steamwebhelper. Bound it to the same
+        // ceiling every per-patch operation already respects; on timeout, give up on removing
+        // the patches rather than race their state against whatever pass is still holding the
+        // gate, and let the caller's own deadline handle the rest.
+        using var gateTimeout = new CancellationTokenSource(SteamUiShared.MaximumOperationTimeout);
+        try
+        {
+            await _schedulerGate.WaitAsync(gateTimeout.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            SteamUiLog.Warn(
+                "Steam UI patch manager disposal gave up waiting for an in-flight "
+                + "synchronization pass; patches were not removed.");
+            return;
+        }
+
+        try
+        {
+            foreach (var entry in _patches.Values)
+            {
+                try
+                {
+                    using var timeout = new CancellationTokenSource(entry.Patch.Bounds.OperationTimeout);
+                    await RemovePatchAsync(entry, timeout.Token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    SetState(entry, SteamUiPatchState.RemoveFailed,
+                        Snapshot(entry).Fingerprint, ex.Message);
+                }
+            }
+        }
+        finally
+        {
+            _schedulerGate.Release();
+        }
+        // SemaphoreSlim has no unmanaged state. Leaving the scheduler objects for GC avoids a
+        // dispose-versus-WaitAsync race with a caller that passed its disposed check immediately
+        // before shutdown took ownership of the scheduler.
     }
 
     /// <summary>Registers a patch before the first synchronization.</summary>
@@ -255,6 +319,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
             throw new ArgumentException(
                 "Steam UI patch identity, version, target, resource, and bounds are required.");
         }
+
         lock (_registrationSync)
         {
             if (_patches.ContainsKey(patch.Id))
@@ -262,6 +327,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
                 throw new InvalidOperationException(
                     $"Steam UI patch '{patch.Id}' is already registered.");
             }
+
             // The gate exists before the patch is published, so no reader can find the patch
             // without its gate.
             _resourceGates.TryAdd(patch.ResourceKey, new SemaphoreSlim(1, 1));
@@ -295,7 +361,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
     /// <param name="enabled">Whether that patch may be applied.</param>
     public void SetPatchEnabled(string patchId, bool enabled)
     {
-        if (SetPatchSwitch(patchId, enabled, onlyWhenChanged: true))
+        if (SetPatchSwitch(patchId, enabled, true))
         {
             QueueSynchronization();
         }
@@ -312,7 +378,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
     {
         // Always synchronizes, even when the switch already had this value: a caller awaiting
         // cleanup must see a removal that previously failed attempted again.
-        SetPatchSwitch(patchId, enabled, onlyWhenChanged: false);
+        SetPatchSwitch(patchId, enabled, false);
         return SynchronizeAsync(cancellationToken);
     }
 
@@ -329,7 +395,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
     private bool SetPatchSwitch(string patchId, bool enabled, bool onlyWhenChanged)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        if (!_patches.TryGetValue(patchId, out PatchEntry? entry))
+        if (!_patches.TryGetValue(patchId, out var entry))
         {
             throw new KeyNotFoundException($"Steam UI patch '{patchId}' is not registered.");
         }
@@ -346,26 +412,28 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
             entry.Snapshot = entry.Snapshot with
             {
                 Enabled = enabled,
-                LastChangedUtc = DateTimeOffset.UtcNow,
+                LastChangedUtc = DateTimeOffset.UtcNow
             };
             if (!enabled)
             {
                 activeOperation = entry.ActiveOperationCancellation;
             }
         }
+
         SteamUiShared.CancelSafely(activeOperation);
         return true;
     }
 
     private void CancelActivePatchOperations()
     {
-        foreach (PatchEntry entry in _patches.Values)
+        foreach (var entry in _patches.Values)
         {
             CancellationTokenSource? cancellation;
             lock (entry.Sync)
             {
                 cancellation = entry.ActiveOperationCancellation;
             }
+
             SteamUiShared.CancelSafely(cancellation);
         }
     }
@@ -440,14 +508,16 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
     }
 
     /// <summary>Returns immutable health snapshots for diagnostics and UI.</summary>
-    public IReadOnlyList<SteamUiPatchSnapshot> GetSnapshots() =>
-        _patches.Values.Select(static entry =>
+    public IReadOnlyList<SteamUiPatchSnapshot> GetSnapshots()
+    {
+        return _patches.Values.Select(static entry =>
         {
             lock (entry.Sync)
             {
                 return entry.Snapshot;
             }
         }).ToArray();
+    }
 
     private async Task SynchronizePatchAsync(
         PatchEntry entry, CancellationToken cancellationToken)
@@ -464,6 +534,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
             {
                 patchEnabled = entry.Enabled;
             }
+
             if (!Volatile.Read(ref _globalEnabled) || !patchEnabled)
             {
                 await RemovePatchAsync(entry, cancellationToken).ConfigureAwait(false);
@@ -483,7 +554,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
             string? fingerprintBeforeProbe;
             lock (entry.Sync)
             {
-                SteamUiTransportSnapshot? observedSnapshot =
+                var observedSnapshot =
                     FindTransportSnapshot(patch.TargetRole);
                 if (entry.TransportSnapshot is { } retainedSnapshot
                     && observedSnapshot is { } currentSnapshot
@@ -510,12 +581,14 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
                 {
                     entry.TransportSnapshot = observedSnapshot;
                 }
+
                 generationEpoch = entry.GenerationEpoch;
                 activeGenerationEpoch = generationEpoch;
                 stateBeforeProbe = entry.Snapshot.State;
                 fingerprintBeforeProbe = entry.Snapshot.Fingerprint;
             }
-            CancellationToken operation = activeOperation.Token;
+
+            var operation = activeOperation.Token;
             SteamUiPatchProbeResult probe;
             try
             {
@@ -543,10 +616,11 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
                     probe.Diagnostic);
                 return;
             }
+
             if (!probe.Compatible || !probe.Unique || string.IsNullOrWhiteSpace(probe.Fingerprint))
             {
-                string diagnostic = probe.Diagnostic
-                    ?? "Patch fingerprint was not a unique positive match.";
+                var diagnostic = probe.Diagnostic
+                                 ?? "Patch fingerprint was not a unique positive match.";
                 if (stateBeforeProbe is SteamUiPatchState.Applying
                     or SteamUiPatchState.Applied
                     or SteamUiPatchState.Verified)
@@ -567,6 +641,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
                         null,
                         diagnostic);
                 }
+
                 return;
             }
 
@@ -581,7 +656,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
                     probe.Fingerprint,
                     StringComparison.Ordinal))
             {
-                SteamUiPatchOperationResult retainedVerification = await RunPhaseAsync(
+                var retainedVerification = await RunPhaseAsync(
                         entry, patch.VerifyAsync, cancellationToken, operation)
                     .ConfigureAwait(false);
                 if (retainedVerification.Succeeded)
@@ -597,15 +672,16 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
             }
 
             if (!TrySetStateForGeneration(
-                entry,
-                generationEpoch,
-                SteamUiPatchState.Applying,
-                probe.Fingerprint,
-                null))
+                    entry,
+                    generationEpoch,
+                    SteamUiPatchState.Applying,
+                    probe.Fingerprint,
+                    null))
             {
                 return;
             }
-            SteamUiPatchOperationResult applied = await RunPhaseAsync(
+
+            var applied = await RunPhaseAsync(
                     entry, patch.ApplyAsync, cancellationToken, operation)
                 .ConfigureAwait(false);
             if (!applied.Succeeded)
@@ -620,15 +696,16 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
             }
 
             if (!TrySetStateForGeneration(
-                entry,
-                generationEpoch,
-                SteamUiPatchState.Applied,
-                probe.Fingerprint,
-                null))
+                    entry,
+                    generationEpoch,
+                    SteamUiPatchState.Applied,
+                    probe.Fingerprint,
+                    null))
             {
                 return;
             }
-            SteamUiPatchOperationResult verified = await RunPhaseAsync(
+
+            var verified = await RunPhaseAsync(
                     entry, patch.VerifyAsync, cancellationToken, operation)
                 .ConfigureAwait(false);
             if (verified.Succeeded)
@@ -649,7 +726,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
             SteamUiLog.Warn(
                 $"Steam UI patch {patch.Id} applied but did not verify; removing it: "
                 + $"{verified.Diagnostic ?? "no detail"}");
-            SteamUiPatchOperationResult removed = await RunPhaseAsync(
+            var removed = await RunPhaseAsync(
                     entry, patch.RemoveAsync, cancellationToken, operation)
                 .ConfigureAwait(false);
             TrySetStateForGeneration(
@@ -684,8 +761,10 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
                         entry.ActiveOperationCancellation = null;
                     }
                 }
+
                 activeOperation.Dispose();
             }
+
             resourceGate.Release();
         }
     }
@@ -694,14 +773,16 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
     /// <param name="entry">The patch whose phase runs, and whose context it runs in.</param>
     /// <param name="phase">The phase to run.</param>
     /// <param name="cancellationToken">The synchronization's own cancellation.</param>
-    /// <param name="operationCancellation">Cancels the active phase for a kill switch or
-    /// generation replacement.</param>
+    /// <param name="operationCancellation">
+    ///     Cancels the active phase for a kill switch or
+    ///     generation replacement.
+    /// </param>
     /// <returns>The phase's result.</returns>
     /// <remarks>
-    /// One timeout per phase, as the bound is documented. A single source spanning probe, apply and
-    /// verify meant a reachable but slow client that spent most of the budget probing had its
-    /// otherwise in-budget apply or verification cancelled underneath it, and the patch dropped to
-    /// Retrying with nothing actually wrong.
+    ///     One timeout per phase, as the bound is documented. A single source spanning probe, apply and
+    ///     verify meant a reachable but slow client that spent most of the budget probing had its
+    ///     otherwise in-budget apply or verification cancelled underneath it, and the patch dropped to
+    ///     Retrying with nothing actually wrong.
     /// </remarks>
     private static async Task<T> RunPhaseAsync<T>(
         PatchEntry entry,
@@ -709,7 +790,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
         CancellationToken cancellationToken,
         CancellationToken operationCancellation = default)
     {
-        using CancellationTokenSource source =
+        using var source =
             CancellationTokenSource.CreateLinkedTokenSource(
                 cancellationToken,
                 operationCancellation);
@@ -719,8 +800,10 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
 
     /// <summary>Records how a synchronization failed outside its phase results.</summary>
     /// <param name="entry">The patch.</param>
-    /// <param name="generationEpoch">The epoch the synchronization took, or null before it took
-    /// one; a later epoch's state is then left alone.</param>
+    /// <param name="generationEpoch">
+    ///     The epoch the synchronization took, or null before it took
+    ///     one; a later epoch's state is then left alone.
+    /// </param>
     /// <param name="state">The resulting state.</param>
     /// <param name="failure">The bounded reason.</param>
     private static void SetOutcome(
@@ -729,7 +812,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
         SteamUiPatchState state,
         string failure)
     {
-        string? fingerprint = Snapshot(entry).Fingerprint;
+        var fingerprint = Snapshot(entry).Fingerprint;
         if (generationEpoch is { } epoch)
         {
             TrySetStateForGeneration(entry, epoch, state, fingerprint, failure);
@@ -746,12 +829,12 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
     {
         try
         {
-            SteamUiPatchSnapshot snapshot = Snapshot(entry);
+            var snapshot = Snapshot(entry);
             if (snapshot.State != SteamUiPatchState.Disabled)
             {
                 try
                 {
-                    SteamUiPatchOperationResult removed = await RunPhaseAsync(
+                    var removed = await RunPhaseAsync(
                             entry, entry.Patch.RemoveAsync, cancellationToken)
                         .ConfigureAwait(false);
                     SetState(entry,
@@ -801,7 +884,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
     {
         try
         {
-            SteamUiPatchOperationResult removed = await RunPhaseAsync(
+            var removed = await RunPhaseAsync(
                     entry, entry.Patch.RemoveAsync, cancellationToken)
                 .ConfigureAwait(false);
             TrySetStateForGeneration(
@@ -843,6 +926,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
             {
                 continue;
             }
+
             CancellationTokenSource? activeOperation = null;
             lock (entry.Sync)
             {
@@ -856,13 +940,14 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
                     entry.TransportSnapshot = snapshot;
                     continue;
                 }
+
                 entry.TransportSnapshot = snapshot;
                 entry.GenerationEpoch++;
                 activeOperation = entry.ActiveOperationCancellation;
                 if (activeOperation is not null
                     || entry.Snapshot.State is SteamUiPatchState.Applying
-                    or SteamUiPatchState.Applied
-                    or SteamUiPatchState.Verified)
+                        or SteamUiPatchState.Applied
+                        or SteamUiPatchState.Verified)
                 {
                     SetStateLocked(
                         entry,
@@ -871,12 +956,15 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
                         "Steam UI generation changed; reapply required.");
                 }
             }
+
             SteamUiShared.CancelSafely(activeOperation);
         }
     }
 
-    private SteamUiTransportSnapshot? FindTransportSnapshot(SteamUiTargetRole role) =>
-        _transport.GetSnapshots().FirstOrDefault(snapshot => snapshot.Role == role);
+    private SteamUiTransportSnapshot? FindTransportSnapshot(SteamUiTargetRole role)
+    {
+        return _transport.GetSnapshots().FirstOrDefault(snapshot => snapshot.Role == role);
+    }
 
     private static SteamUiPatchSnapshot Snapshot(PatchEntry entry)
     {
@@ -899,6 +987,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
             {
                 return false;
             }
+
             SetStateLocked(entry, state, fingerprint, failure);
             return true;
         }
@@ -918,20 +1007,20 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
 
     /// <summary>Records a patch's new state and reports the transition.</summary>
     /// <remarks>
-    /// The single funnel every outcome of <see cref="SynchronizePatchAsync"/> passes through, which
-    /// is why the log line belongs here rather than at the seven call sites.
-    /// <para>
-    /// This state machine already computed exactly what a remote diagnosis needs — which patch,
-    /// whether the target was absent, whether the fingerprint matched, and a bounded diagnostic
-    /// saying why — and then put all of it in a snapshot that nothing logged. A native QAM that
-    /// never appeared produced no line at all, so "nothing is in Steam's QAM" and "the host never tried"
-    /// looked identical from a pasted log.
-    /// </para>
-    /// <para>
-    /// Keyed per patch so each one's transitions are tracked independently, and via
-    /// <see cref="SteamUiLog.Change"/> because synchronization re-runs on every Steam UI generation and a
-    /// steady Verified state would otherwise be the next thing to flood the log.
-    /// </para>
+    ///     The single funnel every outcome of <see cref="SynchronizePatchAsync" /> passes through, which
+    ///     is why the log line belongs here rather than at the seven call sites.
+    ///     <para>
+    ///         This state machine already computed exactly what a remote diagnosis needs — which patch,
+    ///         whether the target was absent, whether the fingerprint matched, and a bounded diagnostic
+    ///         saying why — and then put all of it in a snapshot that nothing logged. A native QAM that
+    ///         never appeared produced no line at all, so "nothing is in Steam's QAM" and "the host never tried"
+    ///         looked identical from a pasted log.
+    ///     </para>
+    ///     <para>
+    ///         Keyed per patch so each one's transitions are tracked independently, and via
+    ///         <see cref="SteamUiLog.Change" /> because synchronization re-runs on every Steam UI generation and a
+    ///         steady Verified state would otherwise be the next thing to flood the log.
+    ///     </para>
     /// </remarks>
     private static void SetStateLocked(
         PatchEntry entry,
@@ -950,69 +1039,14 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
             SteamUiShared.Bound(failure, entry.Patch.Bounds.MaximumDiagnosticCharacters),
             DateTimeOffset.UtcNow);
 
-        string detail = string.IsNullOrWhiteSpace(entry.Snapshot.LastFailure)
+        var detail = string.IsNullOrWhiteSpace(entry.Snapshot.LastFailure)
             ? string.Empty
             : $" — {entry.Snapshot.LastFailure}";
         SteamUiLog.Change(
             "steam.ui.patch." + entry.Patch.Id,
             $"Steam UI patch {entry.Patch.Id} v{entry.Patch.Version}: {state}{detail}",
-            warning: state is not (SteamUiPatchState.Applied or SteamUiPatchState.Verified
+            state is not (SteamUiPatchState.Applied or SteamUiPatchState.Verified
                 or SteamUiPatchState.Applying or SteamUiPatchState.Disabled));
-    }
-
-    /// <inheritdoc />
-    public async ValueTask DisposeAsync()
-    {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0)
-        {
-            return;
-        }
-        _transport.GenerationChanged -= OnGenerationChanged;
-        Volatile.Write(ref _globalEnabled, false);
-        CancelActivePatchOperations();
-        // The pass this can wait behind is the fire-and-forget one queued by
-        // StartQueuedSynchronizationIfNeeded, which runs SynchronizeAsync with
-        // CancellationToken.None. CancelActivePatchOperations only cancels each entry's own
-        // in-flight operation, not that outer loop's token, so an untimed wait here could block
-        // teardown indefinitely behind an unresponsive steamwebhelper. Bound it to the same
-        // ceiling every per-patch operation already respects; on timeout, give up on removing
-        // the patches rather than race their state against whatever pass is still holding the
-        // gate, and let the caller's own deadline handle the rest.
-        using var gateTimeout = new CancellationTokenSource(SteamUiShared.MaximumOperationTimeout);
-        try
-        {
-            await _schedulerGate.WaitAsync(gateTimeout.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            SteamUiLog.Warn(
-                "Steam UI patch manager disposal gave up waiting for an in-flight "
-                    + "synchronization pass; patches were not removed.");
-            return;
-        }
-        try
-        {
-            foreach (var entry in _patches.Values)
-            {
-                try
-                {
-                    using var timeout = new CancellationTokenSource(entry.Patch.Bounds.OperationTimeout);
-                    await RemovePatchAsync(entry, timeout.Token).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    SetState(entry, SteamUiPatchState.RemoveFailed,
-                        Snapshot(entry).Fingerprint, ex.Message);
-                }
-            }
-        }
-        finally
-        {
-            _schedulerGate.Release();
-        }
-        // SemaphoreSlim has no unmanaged state. Leaving the scheduler objects for GC avoids a
-        // dispose-versus-WaitAsync race with a caller that passed its disposed check immediately
-        // before shutdown took ownership of the scheduler.
     }
 
     private sealed class PatchEntry(ISteamUiPatch patch, SteamUiPatchContext context)

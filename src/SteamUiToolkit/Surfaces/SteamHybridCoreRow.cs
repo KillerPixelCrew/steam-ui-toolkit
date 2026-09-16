@@ -8,15 +8,18 @@ namespace SteamUiToolkit;
 
 /// <summary>The Performance menu's processor core-preference dropdown.</summary>
 /// <remarks>
-/// The same shape as the power-profile row because it is the same control: a list of host-named
-/// choices, the one currently observed, and a line of status. The host owns what the choices mean.
+///     The same shape as the power-profile row because it is the same control: a list of host-named
+///     choices, the one currently observed, and a line of status. The host owns what the choices mean.
 /// </remarks>
 /// <param name="Available">Whether selection is enabled. False keeps the status visible.</param>
 /// <param name="Options">At most 64 preferences with unique identifiers.</param>
 /// <param name="Current">Observed preference id, or empty when the machine is set to something the host does not offer.</param>
 /// <param name="StatusText">Current state or the last failure.</param>
 public sealed record SteamHybridCoreState(
-    bool Available, IReadOnlyList<SteamPowerProfileOption> Options, string Current, string StatusText);
+    bool Available,
+    IReadOnlyList<SteamPowerProfileOption> Options,
+    string Current,
+    string StatusText);
 
 /// <summary>Applies a host's processor core preferences.</summary>
 public interface ISteamHybridCoreBackend
@@ -46,8 +49,10 @@ public static class SteamHybridCoreRow
     /// <summary>Serializes state for the injected component.</summary>
     /// <param name="state">State to publish.</param>
     /// <returns>The wire payload.</returns>
-    public static JsonElement Serialize(SteamHybridCoreState state) =>
-        JsonSerializer.SerializeToElement(state, SteamSurfaceJsonContext.Default.SteamHybridCoreState);
+    public static JsonElement Serialize(SteamHybridCoreState state)
+    {
+        return JsonSerializer.SerializeToElement(state, SteamSurfaceJsonContext.Default.SteamHybridCoreState);
+    }
 
     /// <summary>Declares the patch, state publication and command handler.</summary>
     /// <param name="enabled">Whether publication is enabled.</param>
@@ -62,7 +67,9 @@ public static class SteamHybridCoreRow
         ArgumentNullException.ThrowIfNull(backend);
         return SteamSurfaceModule.Declare(
             id, PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamHybridCoreState, [Patch],
-            [SteamSurfaceModule.Command<string>(PatchId, "setHybridCores", SteamUiPayload.TryReadTarget,
-                backend.SetHybridCoresAsync, "The processor core preference payload is invalid.")]);
+            [
+                SteamSurfaceModule.Command<string>(PatchId, "setHybridCores", SteamUiPayload.TryReadTarget,
+                    backend.SetHybridCoresAsync, "The processor core preference payload is invalid.")
+            ]);
     }
 }

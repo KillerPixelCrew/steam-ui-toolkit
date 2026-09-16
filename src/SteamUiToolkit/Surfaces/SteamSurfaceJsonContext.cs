@@ -5,10 +5,10 @@ namespace SteamUiToolkit;
 
 /// <summary>The wire shapes every surface publishes, serialized without reflection.</summary>
 /// <remarks>
-/// CamelCase because that is what the injected validators read; the performance state's inner
-/// objects override it with Valve's snake_case field names explicitly. Element and nested record
-/// types are generated from the roots listed here; only the token list the probes serialize directly
-/// is named on its own.
+///     CamelCase because that is what the injected validators read; the performance state's inner
+///     objects override it with Valve's snake_case field names explicitly. Element and nested record
+///     types are generated from the roots listed here; only the token list the probes serialize directly
+///     is named on its own.
 /// </remarks>
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(SteamAudioState))]

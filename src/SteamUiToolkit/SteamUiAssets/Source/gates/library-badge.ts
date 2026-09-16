@@ -36,32 +36,32 @@
 // the label for a game no listed library holds. Bounded; a malformed entry is skipped rather than
 // failing the whole reading.
 const readLibraryBadgeState = (state) => {
-  const MaximumLibraries = 64;
-  const MaximumAppIds = 4096;
-  const MaximumNameLength = 64;
-  const libraries = new Map<number, { name: string; connected: boolean }>();
-  const published = Array.isArray(state?.libraries) ? state.libraries : [];
-  let ids = 0;
-  let count = 0;
-  for (const entry of published.slice(0, MaximumLibraries)) {
-    if (!entry || typeof entry.name !== "string" || !Array.isArray(entry.appIds)) continue;
-    count++;
-    const library = {
-      name: entry.name.slice(0, MaximumNameLength),
-      connected: entry.connected === true,
-    };
-    for (const appid of entry.appIds) {
-      if (typeof appid !== "number" || !Number.isInteger(appid) || appid <= 0) continue;
-      if (ids >= MaximumAppIds) break;
-      libraries.set(appid, library);
-      ids++;
+    const MaximumLibraries = 64;
+    const MaximumAppIds = 4096;
+    const MaximumNameLength = 64;
+    const libraries = new Map<number, { name: string; connected: boolean }>();
+    const published = Array.isArray(state?.libraries) ? state.libraries : [];
+    let ids = 0;
+    let count = 0;
+    for (const entry of published.slice(0, MaximumLibraries)) {
+        if (!entry || typeof entry.name !== "string" || !Array.isArray(entry.appIds)) continue;
+        count++;
+        const library = {
+            name: entry.name.slice(0, MaximumNameLength),
+            connected: entry.connected === true,
+        };
+        for (const appid of entry.appIds) {
+            if (typeof appid !== "number" || !Number.isInteger(appid) || appid <= 0) continue;
+            if (ids >= MaximumAppIds) break;
+            libraries.set(appid, library);
+            ids++;
+        }
     }
-  }
-  const internalLabel =
-    typeof state?.internalLabel === "string" && state.internalLabel
-      ? state.internalLabel.slice(0, MaximumNameLength)
-      : "Internal";
-  return { libraries, internalLabel, count };
+    const internalLabel =
+        typeof state?.internalLabel === "string" && state.internalLabel
+            ? state.internalLabel.slice(0, MaximumNameLength)
+            : "Internal";
+    return {libraries, internalLabel, count};
 };
 
 // The library to name for one app overview, or null when there is none. Steam's own installed flag is
@@ -69,314 +69,315 @@ const readLibraryBadgeState = (state) => {
 // published connection stands in only where the overview cannot say. A game that no published library
 // holds is on the internal library while it is installed, and one installed nowhere has no library.
 const libraryForOverview = (overview, reading: ReturnType<typeof readLibraryBadgeState>) => {
-  const appid = typeof overview?.appid === "number" ? overview.appid : null;
-  if (appid === null) return null;
-  const library = reading.libraries.get(appid);
-  const installed =
-    typeof overview.installed === "boolean" ? overview.installed : (library?.connected ?? false);
-  if (!library && !installed) return null;
-  return { name: library ? library.name : reading.internalLabel, installed };
+    const appid = typeof overview?.appid === "number" ? overview.appid : null;
+    if (appid === null) return null;
+    const library = reading.libraries.get(appid);
+    const installed =
+        typeof overview.installed === "boolean" ? overview.installed : (library?.connected ?? false);
+    if (!library && !installed) return null;
+    return {name: library ? library.name : reading.internalLabel, installed};
 };
 
 function createLibraryBadge() {
-  const patchId = "steam-ui.library-badge";
-  const claimKeys = {
-    marker: "__steamUiLibraryBadgeClaimed",
-    original: "__steamUiLibraryBadgeOriginal",
-  } as const;
+    const patchId = "steam-ui.library-badge";
+    const claimKeys = {
+        marker: "__steamUiLibraryBadgeClaimed",
+        original: "__steamUiLibraryBadgeOriginal",
+    } as const;
 
-  // The module that owns the tile. `appportrait_` is the tile's own focus key and occurs in exactly
-  // one module; `ControllerSupportIcon` also names the stylesheet module, so the pair is what is
-  // unique. Neither is a localized string or a generated class.
-  const TileTokens = ["ControllerSupportIcon", "appportrait_"] as const;
-  // The tile stylesheet's class map: Valve's own names for the icon row and the Steam Input badge,
-  // mapped to whatever hashes this build emitted. Read by name, so the hashes are never written
-  // down here. The badge's visibility comes from Valve's rules on the badge class — hidden until
-  // the tile is focused or hovered — and the row wearing that class inherits them.
-  const ClassMapTokens = ['ControllerSupportIcon:"', 'LibraryItemIcons:"', 'LibraryItemBox:"'] as const;
-  const BigArtSetting = "library_home_big_art";
+    // The module that owns the tile. `appportrait_` is the tile's own focus key and occurs in exactly
+    // one module; `ControllerSupportIcon` also names the stylesheet module, so the pair is what is
+    // unique. Neither is a localized string or a generated class.
+    const TileTokens = ["ControllerSupportIcon", "appportrait_"] as const;
+    // The tile stylesheet's class map: Valve's own names for the icon row and the Steam Input badge,
+    // mapped to whatever hashes this build emitted. Read by name, so the hashes are never written
+    // down here. The badge's visibility comes from Valve's rules on the badge class — hidden until
+    // the tile is focused or hovered — and the row wearing that class inherits them.
+    const ClassMapTokens = ['ControllerSupportIcon:"', 'LibraryItemIcons:"', 'LibraryItemBox:"'] as const;
+    const BigArtSetting = "library_home_big_art";
 
-  const MaximumDescent = 12;
-  const MaximumChildren = 64;
+    const MaximumDescent = 12;
+    const MaximumChildren = 64;
 
-  let runtime;
-  let react;
-  let tile: any = null;
-  let badge: any = null;
-  let settings: any = null;
-  let classes: { row: string; icon: string } | null = null;
-  let installed = false;
-  let lastError = "";
-  let unsubscribe: (() => void) | null = null;
-  let reportedBigArt: boolean | null = null;
+    let runtime;
+    let react;
+    let tile: any = null;
+    let badge: any = null;
+    let settings: any = null;
+    let classes: { row: string; icon: string } | null = null;
+    let installed = false;
+    let lastError = "";
+    let unsubscribe: (() => void) | null = null;
+    let reportedBigArt: boolean | null = null;
 
-  // The host's published libraries, replaced whole on each publication and indexed by app id.
-  let reading = readLibraryBadgeState(null);
+    // The host's published libraries, replaced whole on each publication and indexed by app id.
+    let reading = readLibraryBadgeState(null);
 
-  // What the last tile render actually did, because a claimed tile can render exactly what Valve
-  // shipped when the badge anchor is not in its tree. Kept as counts and the reading that render
-  // saw, so a render does no string work; status builds the text.
-  let outcome: "never rendered" | "rendered" | "removed" = "never rendered";
-  let renderedReading = reading;
-  let placed = 0;
-  let unanchored = 0;
+    // What the last tile render actually did, because a claimed tile can render exactly what Valve
+    // shipped when the badge anchor is not in its tree. Kept as counts and the reading that render
+    // saw, so a render does no string work; status builds the text.
+    let outcome: "never rendered" | "rendered" | "removed" = "never rendered";
+    let renderedReading = reading;
+    let placed = 0;
+    let unanchored = 0;
 
-  const tileCache = new Map();
+    const tileCache = new Map();
 
-  const readBigArt = () => {
-    try {
-      const value = settings?.clientSettings?.[BigArtSetting];
-      return typeof value === "boolean" ? value : null;
-    } catch {
-      return null;
-    }
-  };
-
-  // Tells the host once per change, never once per render: the setting is read on every tile
-  // render, which is how a toggle is noticed without a subscription into Valve's store.
-  const reportBigArt = () => {
-    const current = readBigArt();
-    if (current === null || current === reportedBigArt) return;
-    reportedBigArt = current;
-    request(patchId, "homeLayout", { bigArt: current }).catch(() => {});
-  };
-
-  const badgeStyle = (installedNow) => ({
-    display: "inline-block",
-    maxWidth: "180px",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-    padding: "2px 8px",
-    borderRadius: "4px",
-    fontSize: "13px",
-    lineHeight: "17px",
-    fontWeight: 600,
-    letterSpacing: "0.2px",
-    color: "#f2f4f5",
-    background: installedNow ? "rgba(76, 160, 54, 0.92)" : "rgba(110, 115, 120, 0.85)",
-  });
-
-  // The badge for one tile, or null when there is no library to name.
-  const renderBadge = (overview) => {
-    // Grey when not installed, which is exactly what a disconnected card amounts to.
-    const library = libraryForOverview(overview, reading);
-    if (!library) return null;
-    return react.createElement(
-      "span",
-      {
-        key: "steam-ui-library-badge",
-        className: "steam-ui-library-badge",
-        style: badgeStyle(library.installed),
-        "aria-label": library.name,
-      },
-      library.name,
-    );
-  };
-
-  // Replaces Valve's badge element with a right-aligned row of ours and Valve's. The icon row is
-  // `space-between` with Valve's badge pushed to its end by an auto margin, so a bare sibling would
-  // land at the row's far left; one flex box holding both keeps this badge immediately left of the
-  // icon wherever the row puts it.
-  //
-  // The box wears two of Valve's own classes. The badge class carries the visibility rule — opacity
-  // zero until the tile is focused or hovered — and the end-of-row margin, so the pair appears and
-  // disappears with Valve's icon instead of sitting on every tile; its size, padding and pill
-  // background are overridden inline because they are drawn for a 34-pixel glyph. The row class
-  // keeps Valve's icon a direct child of a row, which is what its pill background is written
-  // against. Without the class map the box is plain and always visible, and status says so.
-  const withBadge = (element) => {
-    const ours = renderBadge(element.props?.overview);
-    if (!ours) return element;
-    const style: Record<string, unknown> = {
-      display: "flex",
-      alignItems: "center",
-      gap: "8px",
-      marginInlineStart: "auto",
+    const readBigArt = () => {
+        try {
+            const value = settings?.clientSettings?.[BigArtSetting];
+            return typeof value === "boolean" ? value : null;
+        } catch {
+            return null;
+        }
     };
-    let className: string | undefined;
-    if (classes) {
-      className = `${classes.row} ${classes.icon}`;
-      Object.assign(style, {
-        justifyContent: "flex-end",
-        width: "auto",
-        maxWidth: "none",
-        maxHeight: "none",
-        padding: 0,
-        borderRadius: 0,
-        backgroundColor: "transparent",
-      });
-    }
-    return react.createElement(
-      "div",
-      { key: "steam-ui-library-badge-row", className, style },
-      ours,
-      element,
-    );
-  };
 
-  // Descends the rendered tree by props alone. The tile's whole icon row is host elements and
-  // fragments below the Focusable, so nothing has to be rendered to reach the anchor; function
-  // components on the way are left untouched, which keeps every identity Valve's reconciler holds.
-  const decorate = (element, depth) => {
-    if (depth > MaximumDescent || !react.isValidElement(element)) return element;
-    if (element.type === badge) {
-      placed++;
-      return withBadge(element);
-    }
-    return mapChildren(react, element, (kid) => decorate(kid, depth + 1), MaximumChildren);
-  };
-
-  // Wraps the tile's observer so its OUTPUT can be changed. Cached against the original: a fresh
-  // identity on every claim would remount every tile React reconciles.
-  const wrapTile = (original) => {
-    let wrapped = tileCache.get(original);
-    if (wrapped) return wrapped;
-    wrapped = function SteamUiLibraryTile(this: unknown, props, secondArgument) {
-      const tree = original.call(this, props, secondArgument);
-      reportBigArt();
-      const before = placed;
-      const result = decorate(tree, 0);
-      if (placed === before) unanchored++;
-      outcome = "rendered";
-      renderedReading = reading;
-      return result;
+    // Tells the host once per change, never once per render: the setting is read on every tile
+    // render, which is how a toggle is noticed without a subscription into Valve's store.
+    const reportBigArt = () => {
+        const current = readBigArt();
+        if (current === null || current === reportedBigArt) return;
+        reportedBigArt = current;
+        request(patchId, "homeLayout", {bigArt: current}).catch(() => {
+        });
     };
-    tileCache.set(original, wrapped);
-    return wrapped;
-  };
 
-  const resolve = () => {
-    runtime = getWebpackRuntime("library-badge");
-    const resolvedReact = resolveReact(runtime);
-    if (!resolvedReact) {
-      lastError = "React runtime was not a unique match";
-      return false;
-    }
-    react = resolvedReact;
-
-    const tileFactory = runtime.findUnique([...TileTokens]);
-    if (!tileFactory) {
-      lastError = "library tile module was not a unique match";
-      return false;
-    }
-    const exports = runtime(tileFactory[0]);
-
-    // The tile is the module's one memo export; the badge is the one function export that draws
-    // the controller-support icon. Both are chosen by what they are, never by their minified names.
-    const memoType = Symbol.for("react.memo");
-    const tiles = Object.keys(exports).filter((name) => {
-      const value = exports[name];
-      return value && typeof value === "object" && value.$$typeof === memoType;
+    const badgeStyle = (installedNow) => ({
+        display: "inline-block",
+        maxWidth: "180px",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        padding: "2px 8px",
+        borderRadius: "4px",
+        fontSize: "13px",
+        lineHeight: "17px",
+        fontWeight: 600,
+        letterSpacing: "0.2px",
+        color: "#f2f4f5",
+        background: installedNow ? "rgba(76, 160, 54, 0.92)" : "rgba(110, 115, 120, 0.85)",
     });
-    if (tiles.length !== 1) {
-      lastError = `library tile export was ${tiles.length ? "ambiguous" : "absent"}`;
-      return false;
-    }
-    const badges = Object.keys(exports).filter((name) => {
-      const value = exports[name];
-      return typeof value === "function" && String(value).includes(TileTokens[0]);
+
+    // The badge for one tile, or null when there is no library to name.
+    const renderBadge = (overview) => {
+        // Grey when not installed, which is exactly what a disconnected card amounts to.
+        const library = libraryForOverview(overview, reading);
+        if (!library) return null;
+        return react.createElement(
+            "span",
+            {
+                key: "steam-ui-library-badge",
+                className: "steam-ui-library-badge",
+                style: badgeStyle(library.installed),
+                "aria-label": library.name,
+            },
+            library.name,
+        );
+    };
+
+    // Replaces Valve's badge element with a right-aligned row of ours and Valve's. The icon row is
+    // `space-between` with Valve's badge pushed to its end by an auto margin, so a bare sibling would
+    // land at the row's far left; one flex box holding both keeps this badge immediately left of the
+    // icon wherever the row puts it.
+    //
+    // The box wears two of Valve's own classes. The badge class carries the visibility rule — opacity
+    // zero until the tile is focused or hovered — and the end-of-row margin, so the pair appears and
+    // disappears with Valve's icon instead of sitting on every tile; its size, padding and pill
+    // background are overridden inline because they are drawn for a 34-pixel glyph. The row class
+    // keeps Valve's icon a direct child of a row, which is what its pill background is written
+    // against. Without the class map the box is plain and always visible, and status says so.
+    const withBadge = (element) => {
+        const ours = renderBadge(element.props?.overview);
+        if (!ours) return element;
+        const style: Record<string, unknown> = {
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            marginInlineStart: "auto",
+        };
+        let className: string | undefined;
+        if (classes) {
+            className = `${classes.row} ${classes.icon}`;
+            Object.assign(style, {
+                justifyContent: "flex-end",
+                width: "auto",
+                maxWidth: "none",
+                maxHeight: "none",
+                padding: 0,
+                borderRadius: 0,
+                backgroundColor: "transparent",
+            });
+        }
+        return react.createElement(
+            "div",
+            {key: "steam-ui-library-badge-row", className, style},
+            ours,
+            element,
+        );
+    };
+
+    // Descends the rendered tree by props alone. The tile's whole icon row is host elements and
+    // fragments below the Focusable, so nothing has to be rendered to reach the anchor; function
+    // components on the way are left untouched, which keeps every identity Valve's reconciler holds.
+    const decorate = (element, depth) => {
+        if (depth > MaximumDescent || !react.isValidElement(element)) return element;
+        if (element.type === badge) {
+            placed++;
+            return withBadge(element);
+        }
+        return mapChildren(react, element, (kid) => decorate(kid, depth + 1), MaximumChildren);
+    };
+
+    // Wraps the tile's observer so its OUTPUT can be changed. Cached against the original: a fresh
+    // identity on every claim would remount every tile React reconciles.
+    const wrapTile = (original) => {
+        let wrapped = tileCache.get(original);
+        if (wrapped) return wrapped;
+        wrapped = function SteamUiLibraryTile(this: unknown, props, secondArgument) {
+            const tree = original.call(this, props, secondArgument);
+            reportBigArt();
+            const before = placed;
+            const result = decorate(tree, 0);
+            if (placed === before) unanchored++;
+            outcome = "rendered";
+            renderedReading = reading;
+            return result;
+        };
+        tileCache.set(original, wrapped);
+        return wrapped;
+    };
+
+    const resolve = () => {
+        runtime = getWebpackRuntime("library-badge");
+        const resolvedReact = resolveReact(runtime);
+        if (!resolvedReact) {
+            lastError = "React runtime was not a unique match";
+            return false;
+        }
+        react = resolvedReact;
+
+        const tileFactory = runtime.findUnique([...TileTokens]);
+        if (!tileFactory) {
+            lastError = "library tile module was not a unique match";
+            return false;
+        }
+        const exports = runtime(tileFactory[0]);
+
+        // The tile is the module's one memo export; the badge is the one function export that draws
+        // the controller-support icon. Both are chosen by what they are, never by their minified names.
+        const memoType = Symbol.for("react.memo");
+        const tiles = Object.keys(exports).filter((name) => {
+            const value = exports[name];
+            return value && typeof value === "object" && value.$$typeof === memoType;
+        });
+        if (tiles.length !== 1) {
+            lastError = `library tile export was ${tiles.length ? "ambiguous" : "absent"}`;
+            return false;
+        }
+        const badges = Object.keys(exports).filter((name) => {
+            const value = exports[name];
+            return typeof value === "function" && String(value).includes(TileTokens[0]);
+        });
+        if (badges.length !== 1) {
+            lastError = `Steam Input badge export was ${badges.length ? "ambiguous" : "absent"}`;
+            return false;
+        }
+        tile = exports[tiles[0]];
+        badge = exports[badges[0]];
+
+        // The class map is wanted, not required: without it the badge still draws, on every tile
+        // rather than the focused one, and `status.classesResolved` says so. Read as the tile reads
+        // it — the module's export, unwrapped if it is an ES default.
+        classes = null;
+        const classMapFactory = runtime.findUnique([...ClassMapTokens]);
+        if (classMapFactory) {
+            const exported = runtime(classMapFactory[0]);
+            const map = classMapOf(exported);
+            const row = map?.LibraryItemIcons;
+            const icon = map?.ControllerSupportIcon;
+            if (typeof row === "string" && row && typeof icon === "string" && icon) {
+                classes = {row, icon};
+            }
+        }
+
+        // The settings store is wanted, not required: without it the badge still draws and
+        // `status.bigArt` says null rather than guessing.
+        settings = null;
+        const settingsFactory = runtime.findUnique([...SettingsTokens]);
+        if (settingsFactory) {
+            const stores = runtime(settingsFactory[0]);
+            const candidates = Object.keys(stores).filter((name) => {
+                const value = stores[name];
+                return value && typeof value === "object" && typeof value.clientSettings === "object";
+            });
+            if (candidates.length === 1) settings = stores[candidates[0]];
+        }
+        return true;
+    };
+
+    const install = () => {
+        if (installed) return {ok: true, alreadyInstalled: true};
+        const resolved = attemptResolution(resolve, (error) => {
+            lastError = "library badge resolution failed: " + String(error);
+        });
+        if (!resolved) return {ok: false, error: lastError};
+
+        // Every caller draws the tile through the same memo, so claiming its `type` reaches the
+        // carousel and the grid without patching a single caller.
+        const claim = claimMember(tile, "type", claimKeys, (original: any) => {
+            if (typeof original !== "function") return original;
+            return wrapTile(original);
+        });
+        if (!claim.ok) {
+            lastError = claim.error;
+            return {ok: false, error: lastError};
+        }
+
+        installed = true;
+        lastError = "";
+        reportedBigArt = null;
+        reportBigArt();
+        unsubscribe = subscribe(patchId, (state) => {
+            // Nothing re-renders the tiles on its own: the claim is on the type, so the next render of
+            // each tile — focus moving, the grid scrolling, Home rebuilding — draws the new map.
+            reading = readLibraryBadgeState(state);
+        });
+        return {ok: true, installed: true, reclaimed: claim.reclaimed};
+    };
+
+    const remove = () => {
+        if (!installed) return {ok: true, absent: true};
+        installed = false;
+        unsubscribe = endSubscription(unsubscribe);
+        reading = readLibraryBadgeState(null);
+        tileCache.clear();
+        const released = releaseMember(tile, "type", claimKeys);
+        if (!released.ok) {
+            lastError = released.error ?? "library badge release failed";
+            return {ok: false, error: lastError};
+        }
+        outcome = "removed";
+        return {ok: true, removed: true};
+    };
+
+    const status = () => ({
+        ok: true,
+        installed,
+        resolved: !!tile && !!badge,
+        claimed: memberClaimed(tile, "type", claimKeys),
+        settingsResolved: !!settings,
+        classesResolved: !!classes,
+        bigArt: readBigArt(),
+        libraries: reading.count,
+        apps: reading.libraries.size,
+        lastOutcome:
+            outcome === "rendered"
+                ? `placed=${placed} unanchored=${unanchored} libraries=${renderedReading.count} apps=${renderedReading.libraries.size}`
+                : outcome,
+        lastError,
     });
-    if (badges.length !== 1) {
-      lastError = `Steam Input badge export was ${badges.length ? "ambiguous" : "absent"}`;
-      return false;
-    }
-    tile = exports[tiles[0]];
-    badge = exports[badges[0]];
 
-    // The class map is wanted, not required: without it the badge still draws, on every tile
-    // rather than the focused one, and `status.classesResolved` says so. Read as the tile reads
-    // it — the module's export, unwrapped if it is an ES default.
-    classes = null;
-    const classMapFactory = runtime.findUnique([...ClassMapTokens]);
-    if (classMapFactory) {
-      const exported = runtime(classMapFactory[0]);
-      const map = classMapOf(exported);
-      const row = map?.LibraryItemIcons;
-      const icon = map?.ControllerSupportIcon;
-      if (typeof row === "string" && row && typeof icon === "string" && icon) {
-        classes = { row, icon };
-      }
-    }
-
-    // The settings store is wanted, not required: without it the badge still draws and
-    // `status.bigArt` says null rather than guessing.
-    settings = null;
-    const settingsFactory = runtime.findUnique([...SettingsTokens]);
-    if (settingsFactory) {
-      const stores = runtime(settingsFactory[0]);
-      const candidates = Object.keys(stores).filter((name) => {
-        const value = stores[name];
-        return value && typeof value === "object" && typeof value.clientSettings === "object";
-      });
-      if (candidates.length === 1) settings = stores[candidates[0]];
-    }
-    return true;
-  };
-
-  const install = () => {
-    if (installed) return { ok: true, alreadyInstalled: true };
-    const resolved = attemptResolution(resolve, (error) => {
-      lastError = "library badge resolution failed: " + String(error);
-    });
-    if (!resolved) return { ok: false, error: lastError };
-
-    // Every caller draws the tile through the same memo, so claiming its `type` reaches the
-    // carousel and the grid without patching a single caller.
-    const claim = claimMember(tile, "type", claimKeys, (original: any) => {
-      if (typeof original !== "function") return original;
-      return wrapTile(original);
-    });
-    if (!claim.ok) {
-      lastError = claim.error;
-      return { ok: false, error: lastError };
-    }
-
-    installed = true;
-    lastError = "";
-    reportedBigArt = null;
-    reportBigArt();
-    unsubscribe = subscribe(patchId, (state) => {
-      // Nothing re-renders the tiles on its own: the claim is on the type, so the next render of
-      // each tile — focus moving, the grid scrolling, Home rebuilding — draws the new map.
-      reading = readLibraryBadgeState(state);
-    });
-    return { ok: true, installed: true, reclaimed: claim.reclaimed };
-  };
-
-  const remove = () => {
-    if (!installed) return { ok: true, absent: true };
-    installed = false;
-    unsubscribe = endSubscription(unsubscribe);
-    reading = readLibraryBadgeState(null);
-    tileCache.clear();
-    const released = releaseMember(tile, "type", claimKeys);
-    if (!released.ok) {
-      lastError = released.error ?? "library badge release failed";
-      return { ok: false, error: lastError };
-    }
-    outcome = "removed";
-    return { ok: true, removed: true };
-  };
-
-  const status = () => ({
-    ok: true,
-    installed,
-    resolved: !!tile && !!badge,
-    claimed: memberClaimed(tile, "type", claimKeys),
-    settingsResolved: !!settings,
-    classesResolved: !!classes,
-    bigArt: readBigArt(),
-    libraries: reading.count,
-    apps: reading.libraries.size,
-    lastOutcome:
-      outcome === "rendered"
-        ? `placed=${placed} unanchored=${unanchored} libraries=${renderedReading.count} apps=${renderedReading.libraries.size}`
-        : outcome,
-    lastError,
-  });
-
-  return { install, remove, status };
+    return {install, remove, status};
 }
 
 registerGate("libraryBadge", createLibraryBadge());
@@ -404,170 +405,170 @@ registerGate("libraryBadge", createLibraryBadge());
 // not attached shows its library dimmed, and one installed nowhere has no stat. The row draws with the
 // page, so a new publication shows the next time the page renders.
 function createLibraryDetails() {
-  const publicationId = "steam-ui.library-badge";
-  const TransformName = "libraryDetails";
-  const ClassMapTokens = ['GameStatsSection:"', 'PlayBarDetailLabel:"', 'LastPlayedInfo:"'] as const;
-  const RequiredClasses = ["GameStatsSection", "GameStat", "GameStatRight", "PlayBarLabel", "PlayBarDetailLabel"];
-  const LabelToken = "#Settings_Page_Library";
-  const StatKey = "steam-ui-library-details";
-  const MaximumChildren = 32;
+    const publicationId = "steam-ui.library-badge";
+    const TransformName = "libraryDetails";
+    const ClassMapTokens = ['GameStatsSection:"', 'PlayBarDetailLabel:"', 'LastPlayedInfo:"'] as const;
+    const RequiredClasses = ["GameStatsSection", "GameStat", "GameStatRight", "PlayBarLabel", "PlayBarDetailLabel"];
+    const LabelToken = "#Settings_Page_Library";
+    const StatKey = "steam-ui-library-details";
+    const MaximumChildren = 32;
 
-  let runtime;
-  let react: any = null;
-  let jsxRuntime: any = null;
-  let localize: ((token: string) => unknown) | null = null;
-  let classes: { section: string; stat: string; right: string; label: string; value: string } | null =
-    null;
-  let installed = false;
-  let lastError = "";
-  let lastOutcome = "never rendered";
-  let placed = 0;
-  let without = 0;
-  let unsubscribe: (() => void) | null = null;
-  let reading = readLibraryBadgeState(null);
+    let runtime;
+    let react: any = null;
+    let jsxRuntime: any = null;
+    let localize: ((token: string) => unknown) | null = null;
+    let classes: { section: string; stat: string; right: string; label: string; value: string } | null =
+        null;
+    let installed = false;
+    let lastError = "";
+    let lastOutcome = "never rendered";
+    let placed = 0;
+    let without = 0;
+    let unsubscribe: (() => void) | null = null;
+    let reading = readLibraryBadgeState(null);
 
-  const label = () => {
-    try {
-      const text = localize?.(LabelToken);
-      if (typeof text === "string" && text && text !== LabelToken) return text;
-    } catch {
-      // The English word stands in for a localizer that did not resolve or answer.
-    }
-    return "Library";
-  };
-
-  const overviewIn = (children: unknown[]) => {
-    for (const child of children) {
-      const overview = (child as any)?.props?.overview;
-      if (overview && typeof overview.appid === "number") return overview;
-    }
-    return null;
-  };
-
-  const renderStat = (library: { name: string; installed: boolean }) =>
-    react.createElement(
-      "div",
-      { key: StatKey, className: classes!.stat },
-      react.createElement(
-        "div",
-        { className: classes!.right },
-        react.createElement("div", { className: classes!.label }, label()),
-        react.createElement(
-          "div",
-          { className: classes!.value, style: library.installed ? undefined : { opacity: 0.55 } },
-          library.name,
-        ),
-      ),
-    );
-
-  const transform = (create, type, props, key) => {
-    if (type !== "div" || !installed || !classes || props?.className !== classes.section) return undefined;
-    const children = Array.isArray(props.children) ? props.children : [props.children];
-    if (children.length > MaximumChildren || children.some((child) => child?.key === StatKey)) {
-      return undefined;
-    }
-    const library = libraryForOverview(overviewIn(children), reading);
-    if (!library) {
-      without++;
-    } else {
-      placed++;
-    }
-    lastOutcome = `placed=${placed} without=${without} libraries=${reading.count} apps=${reading.libraries.size}`;
-    if (!library) return undefined;
-    return create(type, { ...props, children: [...children, renderStat(library)] }, key);
-  };
-
-  const resolve = () => {
-    runtime = getWebpackRuntime("library-details");
-    react = runtime.resolve([...ReactTokens]);
-    jsxRuntime = runtime.resolve([...JsxRuntimeTokens]);
-    if (typeof jsxRuntime?.jsx !== "function" || typeof jsxRuntime?.jsxs !== "function") {
-      lastError = "JSX runtime lacks jsx or jsxs";
-      return false;
-    }
-    // Valve's names for the play bar's classes, mapped to whatever this build emitted. Read by
-    // name, never written down.
-    const exported = runtime.resolve([...ClassMapTokens]);
-    const map = classMapOf(exported);
-    if (!map || RequiredClasses.some((name) => typeof map[name] !== "string" || !map[name])) {
-      lastError = "the play bar class map lacks a stat class";
-      return false;
-    }
-    const join = (...names: string[]) =>
-      names.map((name) => map[name]).filter((value) => typeof value === "string" && value).join(" ");
-    classes = {
-      section: map.GameStatsSection,
-      stat: join("GameStat", "LastPlayed"),
-      right: join("GameStatRight"),
-      label: join("PlayBarLabel"),
-      value: join("PlayBarDetailLabel", "LastPlayedInfo"),
+    const label = () => {
+        try {
+            const text = localize?.(LabelToken);
+            if (typeof text === "string" && text && text !== LabelToken) return text;
+        } catch {
+            // The English word stands in for a localizer that did not resolve or answer.
+        }
+        return "Library";
     };
 
-    // Wanted, not required: without it the label is the English word.
-    localize = null;
-    const localization = runtime.findUnique([...LocalizationTokens]);
-    if (localization) {
-      const exports = runtime(localization[0]);
-      const candidates = new Set(
-        Object.values(exports).filter((value) => {
-          if (typeof value !== "function") return false;
-          const source = String(value);
-          return !source.startsWith("class") && isLocalizer(source);
-        }),
-      );
-      if (candidates.size === 1) localize = [...candidates][0] as (token: string) => unknown;
-    }
-    return true;
-  };
+    const overviewIn = (children: unknown[]) => {
+        for (const child of children) {
+            const overview = (child as any)?.props?.overview;
+            if (overview && typeof overview.appid === "number") return overview;
+        }
+        return null;
+    };
 
-  const install = () => {
-    if (installed) return { ok: true, alreadyInstalled: true };
-    const resolved = attemptResolution(resolve, (error) => {
-      lastError = "library details resolution failed: " + String(error);
+    const renderStat = (library: { name: string; installed: boolean }) =>
+        react.createElement(
+            "div",
+            {key: StatKey, className: classes!.stat},
+            react.createElement(
+                "div",
+                {className: classes!.right},
+                react.createElement("div", {className: classes!.label}, label()),
+                react.createElement(
+                    "div",
+                    {className: classes!.value, style: library.installed ? undefined : {opacity: 0.55}},
+                    library.name,
+                ),
+            ),
+        );
+
+    const transform = (create, type, props, key) => {
+        if (type !== "div" || !installed || !classes || props?.className !== classes.section) return undefined;
+        const children = Array.isArray(props.children) ? props.children : [props.children];
+        if (children.length > MaximumChildren || children.some((child) => child?.key === StatKey)) {
+            return undefined;
+        }
+        const library = libraryForOverview(overviewIn(children), reading);
+        if (!library) {
+            without++;
+        } else {
+            placed++;
+        }
+        lastOutcome = `placed=${placed} without=${without} libraries=${reading.count} apps=${reading.libraries.size}`;
+        if (!library) return undefined;
+        return create(type, {...props, children: [...children, renderStat(library)]}, key);
+    };
+
+    const resolve = () => {
+        runtime = getWebpackRuntime("library-details");
+        react = runtime.resolve([...ReactTokens]);
+        jsxRuntime = runtime.resolve([...JsxRuntimeTokens]);
+        if (typeof jsxRuntime?.jsx !== "function" || typeof jsxRuntime?.jsxs !== "function") {
+            lastError = "JSX runtime lacks jsx or jsxs";
+            return false;
+        }
+        // Valve's names for the play bar's classes, mapped to whatever this build emitted. Read by
+        // name, never written down.
+        const exported = runtime.resolve([...ClassMapTokens]);
+        const map = classMapOf(exported);
+        if (!map || RequiredClasses.some((name) => typeof map[name] !== "string" || !map[name])) {
+            lastError = "the play bar class map lacks a stat class";
+            return false;
+        }
+        const join = (...names: string[]) =>
+            names.map((name) => map[name]).filter((value) => typeof value === "string" && value).join(" ");
+        classes = {
+            section: map.GameStatsSection,
+            stat: join("GameStat", "LastPlayed"),
+            right: join("GameStatRight"),
+            label: join("PlayBarLabel"),
+            value: join("PlayBarDetailLabel", "LastPlayedInfo"),
+        };
+
+        // Wanted, not required: without it the label is the English word.
+        localize = null;
+        const localization = runtime.findUnique([...LocalizationTokens]);
+        if (localization) {
+            const exports = runtime(localization[0]);
+            const candidates = new Set(
+                Object.values(exports).filter((value) => {
+                    if (typeof value !== "function") return false;
+                    const source = String(value);
+                    return !source.startsWith("class") && isLocalizer(source);
+                }),
+            );
+            if (candidates.size === 1) localize = [...candidates][0] as (token: string) => unknown;
+        }
+        return true;
+    };
+
+    const install = () => {
+        if (installed) return {ok: true, alreadyInstalled: true};
+        const resolved = attemptResolution(resolve, (error) => {
+            lastError = "library details resolution failed: " + String(error);
+        });
+        if (!resolved) return {ok: false, error: lastError};
+
+        installed = true;
+        const claim = interceptElements(jsxRuntime, TransformName, transform);
+        if (!claim.ok) {
+            installed = false;
+            lastError = claim.error ?? "the JSX runtime could not be intercepted";
+            return {ok: false, error: lastError};
+        }
+        lastError = "";
+        unsubscribe = subscribe(publicationId, (state) => {
+            reading = readLibraryBadgeState(state);
+        });
+        return {ok: true, installed: true};
+    };
+
+    const remove = () => {
+        if (!installed) return {ok: true, absent: true};
+        installed = false;
+        unsubscribe = endSubscription(unsubscribe);
+        reading = readLibraryBadgeState(null);
+        const released = releaseElements(jsxRuntime, TransformName);
+        if (!released.ok) {
+            lastError = released.error ?? "library details release failed";
+            return {ok: false, error: lastError};
+        }
+        lastOutcome = "removed";
+        return {ok: true, removed: true};
+    };
+
+    const status = () => ({
+        ok: true,
+        installed,
+        resolved: !!react && !!jsxRuntime && !!classes,
+        claimed: elementsIntercepted(jsxRuntime, TransformName),
+        localized: !!localize,
+        libraries: reading.count,
+        apps: reading.libraries.size,
+        lastOutcome,
+        lastError,
     });
-    if (!resolved) return { ok: false, error: lastError };
 
-    installed = true;
-    const claim = interceptElements(jsxRuntime, TransformName, transform);
-    if (!claim.ok) {
-      installed = false;
-      lastError = claim.error ?? "the JSX runtime could not be intercepted";
-      return { ok: false, error: lastError };
-    }
-    lastError = "";
-    unsubscribe = subscribe(publicationId, (state) => {
-      reading = readLibraryBadgeState(state);
-    });
-    return { ok: true, installed: true };
-  };
-
-  const remove = () => {
-    if (!installed) return { ok: true, absent: true };
-    installed = false;
-    unsubscribe = endSubscription(unsubscribe);
-    reading = readLibraryBadgeState(null);
-    const released = releaseElements(jsxRuntime, TransformName);
-    if (!released.ok) {
-      lastError = released.error ?? "library details release failed";
-      return { ok: false, error: lastError };
-    }
-    lastOutcome = "removed";
-    return { ok: true, removed: true };
-  };
-
-  const status = () => ({
-    ok: true,
-    installed,
-    resolved: !!react && !!jsxRuntime && !!classes,
-    claimed: elementsIntercepted(jsxRuntime, TransformName),
-    localized: !!localize,
-    libraries: reading.count,
-    apps: reading.libraries.size,
-    lastOutcome,
-    lastError,
-  });
-
-  return { install, remove, status };
+    return {install, remove, status};
 }
 
 registerGate("libraryDetails", createLibraryDetails());

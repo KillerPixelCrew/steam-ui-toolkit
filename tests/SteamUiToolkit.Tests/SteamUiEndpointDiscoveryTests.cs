@@ -2,8 +2,10 @@ using System.Text.Json;
 
 namespace SteamUiToolkit.Tests;
 
-/// <summary>Which Steam CDP target is which. Every URL here is verbatim from /json/list on a
-/// real client in game mode.</summary>
+/// <summary>
+///     Which Steam CDP target is which. Every URL here is verbatim from /json/list on a
+///     real client in game mode.
+/// </summary>
 public sealed class SteamUiEndpointDiscoveryTests
 {
     [Theory]
@@ -15,9 +17,12 @@ public sealed class SteamUiEndpointDiscoveryTests
     {
         var targets = new List<object>
         {
-            new { id = "shared", type = "page", title = "SharedJSContext",
+            new
+            {
+                id = "shared", type = "page", title = "SharedJSContext",
                 url = "https://steamloopback.host/index.html",
-                webSocketDebuggerUrl = "ws://127.0.0.1:8080/devtools/page/shared" },
+                webSocketDebuggerUrl = "ws://127.0.0.1:8080/devtools/page/shared"
+            }
         };
         if (windowUrl is not null)
         {
@@ -30,11 +35,12 @@ public sealed class SteamUiEndpointDiscoveryTests
                 webSocketDebuggerUrl = "ws://127.0.0.1:8080/devtools/page/main"
             });
         }
+
         using var document = JsonDocument.Parse(JsonSerializer.Serialize(targets));
         Assert.Equal(expected, SteamUiEndpointDiscovery.SelectTarget(
-            document.RootElement, SteamUiTargetRole.SharedJsContext, "browser", requireMainWindow: true) is not null);
+            document.RootElement, SteamUiTargetRole.SharedJsContext, "browser", true) is not null);
         Assert.NotNull(SteamUiEndpointDiscovery.SelectTarget(
-            document.RootElement, SteamUiTargetRole.SharedJsContext, "browser", requireMainWindow: false));
+            document.RootElement, SteamUiTargetRole.SharedJsContext, "browser", false));
     }
 
     [Theory]
@@ -44,11 +50,14 @@ public sealed class SteamUiEndpointDiscoveryTests
     {
         var targets = new List<object>
         {
-            new { id = "shared", type = "page", title = "SharedJSContext",
+            new
+            {
+                id = "shared", type = "page", title = "SharedJSContext",
                 url = "https://steamloopback.host/index.html",
-                webSocketDebuggerUrl = "ws://127.0.0.1:8080/devtools/page/shared" },
+                webSocketDebuggerUrl = "ws://127.0.0.1:8080/devtools/page/shared"
+            }
         };
-        for (int i = 0; i < count; i++)
+        for (var i = 0; i < count; i++)
         {
             targets.Add(new
             {
@@ -59,9 +68,10 @@ public sealed class SteamUiEndpointDiscoveryTests
                 webSocketDebuggerUrl = socket
             });
         }
+
         using var document = JsonDocument.Parse(JsonSerializer.Serialize(targets));
         Assert.Null(SteamUiEndpointDiscovery.SelectTarget(
-            document.RootElement, SteamUiTargetRole.SharedJsContext, "browser", requireMainWindow: true));
+            document.RootElement, SteamUiTargetRole.SharedJsContext, "browser", true));
     }
 
     [Fact]

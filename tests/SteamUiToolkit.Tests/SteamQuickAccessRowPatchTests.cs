@@ -5,13 +5,13 @@ public sealed class SteamQuickAccessRowPatchTests
     [Fact]
     public async Task PowerLimitRowRequiresEveryUniqueStructuralMatchBeforeInstall()
     {
-        RowClient client = new(performanceActions: 2);
+        RowClient client = new(2);
         await using var manager = new SteamUiPatchManager(client.Transport);
         manager.Register(SteamPowerLimitSurface.Patch);
 
         await manager.SynchronizeAsync();
 
-        SteamUiPatchSnapshot snapshot = Assert.Single(manager.GetSnapshots());
+        var snapshot = Assert.Single(manager.GetSnapshots());
         Assert.Equal(SteamUiPatchState.Incompatible, snapshot.State);
         Assert.Equal(0, client.InstallCount);
     }
@@ -19,13 +19,13 @@ public sealed class SteamQuickAccessRowPatchTests
     [Fact]
     public async Task OverlayLevelRowRequiresUniqueNativeActionModuleBeforeInstall()
     {
-        RowClient client = new(performanceActions: 2);
+        RowClient client = new(2);
         await using var manager = new SteamUiPatchManager(client.Transport);
         manager.Register(SteamPerformanceSurface.OverlayLevelRow);
 
         await manager.SynchronizeAsync();
 
-        SteamUiPatchSnapshot snapshot = Assert.Single(manager.GetSnapshots());
+        var snapshot = Assert.Single(manager.GetSnapshots());
         Assert.Equal(SteamUiPatchState.Incompatible, snapshot.State);
         Assert.Equal(0, client.InstallCount);
     }
@@ -119,7 +119,7 @@ public sealed class SteamQuickAccessRowPatchTests
             SteamPerformanceSurface.ProfileHeaderRow,
             SteamPerformanceSurface.ResetRow,
             SteamPerformanceSurface.OverlayLevelRow,
-            SteamPerformanceSurface.RefreshRateRow,
+            SteamPerformanceSurface.RefreshRateRow
         ];
 
         // One kind per row because the injected host installs by kind, and one resource key for all
@@ -130,8 +130,8 @@ public sealed class SteamQuickAccessRowPatchTests
     }
 
     /// <summary>
-    /// A client whose performance panel answers every row probe, counts installs through the
-    /// component host, and records which row kind each removal named.
+    ///     A client whose performance panel answers every row probe, counts installs through the
+    ///     component host, and records which row kind each removal named.
     /// </summary>
     private sealed class RowClient
     {
@@ -155,22 +155,24 @@ public sealed class SteamQuickAccessRowPatchTests
             if (expression.Contains("steam_ui_controller_target_probe_", StringComparison.Ordinal))
             {
                 return """
-                    {"controllerPresentation":1,"performanceRoot":1,"nativeFields":1,"nativeLayout":1,"localization":1,"react":1}
-                    """;
+                       {"controllerPresentation":1,"performanceRoot":1,"nativeFields":1,"nativeLayout":1,"localization":1,"react":1}
+                       """;
             }
+
             if (expression.Contains("_probe_", StringComparison.Ordinal))
             {
                 return $$"""
-                    {"performanceActions":{{_performanceActions}},"performanceRoot":1,"nativeFields":1,"nativeLayout":1,"localization":1,"react":1}
-                    """;
+                         {"performanceActions":{{_performanceActions}},"performanceRoot":1,"nativeFields":1,"nativeLayout":1,"localization":1,"react":1}
+                         """;
             }
+
             if (expression.Contains("gate('nativeComponents')", StringComparison.Ordinal)
                 && expression.Contains("bridge.install(", StringComparison.Ordinal))
             {
                 InstallCount++;
             }
             else if (expression.Contains("gate('nativeComponents')", StringComparison.Ordinal)
-                && expression.Contains("bridge.remove(", StringComparison.Ordinal))
+                     && expression.Contains("bridge.remove(", StringComparison.Ordinal))
             {
                 RemovedKinds.Add(
                     expression.Contains("controllerTarget", StringComparison.Ordinal) ? "controllerTarget"
@@ -179,6 +181,7 @@ public sealed class SteamQuickAccessRowPatchTests
                     : expression.Contains("valveOverlayLevel", StringComparison.Ordinal) ? "valveOverlayLevel"
                     : "powerLimit");
             }
+
             return "{\"ok\":true}";
         }
     }

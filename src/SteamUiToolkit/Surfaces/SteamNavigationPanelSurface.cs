@@ -11,15 +11,15 @@ namespace SteamUiToolkit;
 /// <param name="Label">The entry's accessible name and visible text.</param>
 /// <param name="Icon">A toolkit glyph name, or null for a text-only entry.</param>
 /// <param name="Before">
-/// The Steam entry this one is inserted before, named by its route (<c>/library</c>) or by Valve's
-/// own descriptor key (<c>power</c>). Null leaves placement to <see cref="After"/> or
-/// <see cref="Position"/>.
+///     The Steam entry this one is inserted before, named by its route (<c>/library</c>) or by Valve's
+///     own descriptor key (<c>power</c>). Null leaves placement to <see cref="After" /> or
+///     <see cref="Position" />.
 /// </param>
 /// <param name="After">The Steam entry this one is inserted after, named the same way.</param>
 /// <param name="Position">
-/// <c>start</c> or <c>end</c> when the entry is not anchored to one of Steam's. An entry with no
-/// placement at all, and one whose anchor is not in the panel, goes to the end rather than being
-/// dropped.
+///     <c>start</c> or <c>end</c> when the entry is not anchored to one of Steam's. An entry with no
+///     placement at all, and one whose anchor is not in the panel, goes to the end rather than being
+///     dropped.
 /// </param>
 public sealed record SteamNavigationItem(
     string Id,
@@ -32,8 +32,8 @@ public sealed record SteamNavigationItem(
 /// <summary>The additions and hidden entries the panel should show.</summary>
 /// <param name="Items">Entries to add, in the order they should be placed.</param>
 /// <param name="Hidden">
-/// Steam entries to hide, named by route or descriptor key. Hiding is applied before insertion, so
-/// an anchor and the entry it anchors to cannot disagree about what the user can see.
+///     Steam entries to hide, named by route or descriptor key. Hiding is applied before insertion, so
+///     an anchor and the entry it anchors to cannot disagree about what the user can see.
 /// </param>
 /// <param name="Revision">Monotonic host observation revision, shared by publications and readback.</param>
 public sealed record SteamNavigationPanelState(
@@ -45,32 +45,32 @@ public sealed record SteamNavigationPanelState(
 public interface ISteamNavigationPanelBackend
 {
     /// <summary>Reports that the user activated an added entry.</summary>
-    /// <param name="id">The <see cref="SteamNavigationItem.Id"/> that was activated.</param>
+    /// <param name="id">The <see cref="SteamNavigationItem.Id" /> that was activated.</param>
     /// <param name="cancellationToken">Cancels the handling.</param>
     /// <returns>The outcome. A refusal is reported rather than swallowed.</returns>
     Task<SteamUiCommandResult> ActivateAsync(string id, CancellationToken cancellationToken);
 }
 
 /// <summary>
-/// Steam's left slideout navigation panel, as an extension surface.
+///     Steam's left slideout navigation panel, as an extension surface.
 /// </summary>
 /// <remarks>
-/// The panel is module-private: its root builds its own entry list and neither the root nor the
-/// builder is exported, and the builder calls React hooks, so the list cannot even be read from
-/// outside a render. The gate therefore claims the one public handle — the exported memo's
-/// <c>type</c> — and reaches the root by rendering, which is the mechanism the native-row filter in
-/// <c>components.ts</c> already uses.
-/// <para>
-/// Entries are addressed by route or by Valve's own descriptor key, never by index or by a
-/// generated class name: routes and keys are stable across client builds and languages, whereas the
-/// rendered labels are localized and the class names are content hashes.
-/// </para>
-/// <para>
-/// Mapped against the live client on 2026-09-10. <c>#MainMenu_Title</c> occurs in exactly one of
-/// the 2581 modules the client loads and <c>MainNavMenuContainer</c> in exactly one; the module
-/// they both name has exactly one export whose memo renders the outer container, and that export's
-/// <c>type</c> is a writable, configurable own property, which is what makes the claim restorable.
-/// </para>
+///     The panel is module-private: its root builds its own entry list and neither the root nor the
+///     builder is exported, and the builder calls React hooks, so the list cannot even be read from
+///     outside a render. The gate therefore claims the one public handle — the exported memo's
+///     <c>type</c> — and reaches the root by rendering, which is the mechanism the native-row filter in
+///     <c>components.ts</c> already uses.
+///     <para>
+///         Entries are addressed by route or by Valve's own descriptor key, never by index or by a
+///         generated class name: routes and keys are stable across client builds and languages, whereas the
+///         rendered labels are localized and the class names are content hashes.
+///     </para>
+///     <para>
+///         Mapped against the live client on 2026-09-10. <c>#MainMenu_Title</c> occurs in exactly one of
+///         the 2581 modules the client loads and <c>MainNavMenuContainer</c> in exactly one; the module
+///         they both name has exactly one export whose memo renders the outer container, and that export's
+///         <c>type</c> is a writable, configurable own property, which is what makes the claim restorable.
+///     </para>
 /// </remarks>
 public static class SteamNavigationPanelSurface
 {
@@ -82,58 +82,60 @@ public static class SteamNavigationPanelSurface
 
     /// <summary>The gate that claims the panel and applies the published entries.</summary>
     /// <remarks>
-    /// The probe requires each structural fact the gate resolves on, separately, so an incompatible
-    /// client says which one moved rather than only that something did. It accepts a panel this
-    /// gate has already claimed: requiring the pre-patch shape alone would make a successful apply
-    /// fail its own next probe and tear the claim down on every poll.
+    ///     The probe requires each structural fact the gate resolves on, separately, so an incompatible
+    ///     client says which one moved rather than only that something did. It accepts a panel this
+    ///     gate has already claimed: requiring the pre-patch shape alone would make a successful apply
+    ///     fail its own next probe and tear the claim down on every poll.
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
-        id: PatchId,
-        resourceKey: "steam-ui.navigation-panel-root",
-        gateName: "navigationPanel",
-        fingerprint: "steam-navigation-panel-v1:unique-menu-module+single-memo-export",
-        probeExpression: $$"""
-            {{SteamUiProbeJs.Preamble("steam_ui_navigation_probe_")}}
-              const menu=req.findUnique(['#MainMenu_Title','MainNavMenuContainer']);
-              if(!menu)return JSON.stringify({menuModule:0});
-              const exports=req(menu[0]);
-              // The export is chosen by what its component draws, never by its minified name.
-              const memos=Object.keys(exports).filter(name=>{
-                const value=exports[name];
-                return value&&typeof value==='object'&&typeof value.type==='function'
-                  &&String(value.type).includes('MainNavMenuContainer');
-              });
-              const memo=memos.length===1?exports[memos[0]]:null;
-              const descriptor=memo?Object.getOwnPropertyDescriptor(memo,'type'):null;
-              return JSON.stringify({
-                menuModule:1,
-                // The panel root itself, matched the way the gate matches it while descending.
-                panelRoot:count(['#MainMenu_Title','RunnningAppSeparator']),
-                memoExports:memos.length,
-                // Writable and configurable, or the claim could neither replace nor restore it.
-                claimable:{{SteamUiProbeJs.Replaceable("descriptor")}},
-                // Already ours is compatible; see the remarks on this patch.
-                claimed:!!memo&&memo.type.__steamUiNavigationPanelClaimed===true,
-                react:count({{SteamUiProbeJs.ReactTokens}})
-              });
-            {{SteamUiProbeJs.Close}}
-            """,
-        compatible: root =>
+        PatchId,
+        "steam-ui.navigation-panel-root",
+        "navigationPanel",
+        "steam-navigation-panel-v1:unique-menu-module+single-memo-export",
+        $$"""
+          {{SteamUiProbeJs.Preamble("steam_ui_navigation_probe_")}}
+            const menu=req.findUnique(['#MainMenu_Title','MainNavMenuContainer']);
+            if(!menu)return JSON.stringify({menuModule:0});
+            const exports=req(menu[0]);
+            // The export is chosen by what its component draws, never by its minified name.
+            const memos=Object.keys(exports).filter(name=>{
+              const value=exports[name];
+              return value&&typeof value==='object'&&typeof value.type==='function'
+                &&String(value.type).includes('MainNavMenuContainer');
+            });
+            const memo=memos.length===1?exports[memos[0]]:null;
+            const descriptor=memo?Object.getOwnPropertyDescriptor(memo,'type'):null;
+            return JSON.stringify({
+              menuModule:1,
+              // The panel root itself, matched the way the gate matches it while descending.
+              panelRoot:count(['#MainMenu_Title','RunnningAppSeparator']),
+              memoExports:memos.length,
+              // Writable and configurable, or the claim could neither replace nor restore it.
+              claimable:{{SteamUiProbeJs.Replaceable("descriptor")}},
+              // Already ours is compatible; see the remarks on this patch.
+              claimed:!!memo&&memo.type.__steamUiNavigationPanelClaimed===true,
+              react:count({{SteamUiProbeJs.ReactTokens}})
+            });
+          {{SteamUiProbeJs.Close}}
+          """,
+        root =>
             SteamUiPatchEvaluation.IsOne(root, "menuModule")
             && SteamUiPatchEvaluation.IsOne(root, "panelRoot")
             && SteamUiPatchEvaluation.IsOne(root, "memoExports")
             && SteamUiPatchEvaluation.IsOne(root, "react")
             && SteamUiPatchEvaluation.Flag(root, "claimable"),
-        verifyOk: "status.installed&&status.resolved&&status.claimed",
-        removeOk: "!status.claimed",
-        subject: "Navigation panel gate");
+        "status.installed&&status.resolved&&status.claimed",
+        "!status.claimed",
+        "Navigation panel gate");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
     /// <param name="state">The state to serialize.</param>
     /// <returns>The wire payload.</returns>
-    public static JsonElement Serialize(SteamNavigationPanelState state) =>
-        JsonSerializer.SerializeToElement(
+    public static JsonElement Serialize(SteamNavigationPanelState state)
+    {
+        return JsonSerializer.SerializeToElement(
             state, SteamSurfaceJsonContext.Default.SteamNavigationPanelState);
+    }
 
     /// <summary>Declares the surface as one module: the gate, the entries, and the answer.</summary>
     /// <param name="enabled">Whether the entries may be published right now.</param>
@@ -162,7 +164,7 @@ public static class SteamNavigationPanelSurface
                     static (JsonElement payload, out string entryId) =>
                         SteamUiPayload.TryReadBoundedString(payload, "id", 64, out entryId),
                     backend.ActivateAsync,
-                    "The navigation activation payload is invalid."),
+                    "The navigation activation payload is invalid.")
             ]);
     }
 }

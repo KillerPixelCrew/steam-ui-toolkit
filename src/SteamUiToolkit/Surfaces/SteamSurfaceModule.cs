@@ -17,7 +17,7 @@ public enum SteamSettingPersistence
     Global,
 
     /// <summary>Write the running application's own profile.</summary>
-    Application,
+    Application
 }
 
 /// <summary>Reads one exact payload shape.</summary>
@@ -47,17 +47,19 @@ internal static class SteamSurfaceModule
         JsonTypeInfo<T> typeInfo,
         IReadOnlyList<ISteamUiPatch> patches,
         IReadOnlyList<SteamUiCommandHandler> commands)
-        where T : class =>
-        new SteamUiModule(
+        where T : class
+    {
+        return new SteamUiModule(
             id,
             patches,
             [Publication(patchId, enabled, read, typeInfo)],
             commands);
+    }
 
     /// <summary>One typed state publication.</summary>
     /// <remarks>
-    /// A null reading publishes nothing that round, which keeps "momentarily unavailable" distinct
-    /// from a zero — the same rule <see cref="SteamUiStatePublication"/> documents.
+    ///     A null reading publishes nothing that round, which keeps "momentarily unavailable" distinct
+    ///     from a zero — the same rule <see cref="SteamUiStatePublication" /> documents.
     /// </remarks>
     internal static SteamUiStatePublication Publication<T>(
         string patchId,
@@ -70,7 +72,7 @@ internal static class SteamSurfaceModule
         ArgumentNullException.ThrowIfNull(read);
         return new SteamUiStatePublication(patchId, enabled, async () =>
         {
-            T? state = await read().ConfigureAwait(false);
+            var state = await read().ConfigureAwait(false);
             return state is null ? null : JsonSerializer.SerializeToElement(state, typeInfo);
         });
     }
@@ -87,11 +89,13 @@ internal static class SteamSurfaceModule
         string command,
         SteamPayloadReader<T> reader,
         Func<T, CancellationToken, Task<SteamUiCommandResult>> apply,
-        string invalid) =>
-        new(patchId, command, (request, cancellationToken) =>
-            reader(request.Payload, out T value)
+        string invalid)
+    {
+        return new SteamUiCommandHandler(patchId, command, (request, cancellationToken) =>
+            reader(request.Payload, out var value)
                 ? apply(value, cancellationToken)
                 : Invalid(invalid));
+    }
 
     /// <summary>A command that carries no payload the backend reads.</summary>
     /// <param name="patchId">The addressed patch.</param>
@@ -101,8 +105,10 @@ internal static class SteamSurfaceModule
     internal static SteamUiCommandHandler Command(
         string patchId,
         string command,
-        Func<CancellationToken, Task<SteamUiCommandResult>> apply) =>
-        new(patchId, command, (_, cancellationToken) => apply(cancellationToken));
+        Func<CancellationToken, Task<SteamUiCommandResult>> apply)
+    {
+        return new SteamUiCommandHandler(patchId, command, (_, cancellationToken) => apply(cancellationToken));
+    }
 
     /// <summary>Reads the wire shape every row-authored value write uses: a number and where to keep it.</summary>
     internal static bool TryReadValueWrite(
@@ -112,7 +118,7 @@ internal static class SteamSurfaceModule
     {
         persistence = default;
         if (!SteamUiPayload.TryReadInt(payload, "value", int.MinValue, int.MaxValue, out value)
-            || !payload.TryGetProperty("persistence", out JsonElement persistenceProperty)
+            || !payload.TryGetProperty("persistence", out var persistenceProperty)
             || persistenceProperty.ValueKind != JsonValueKind.String
             || !SteamUiPayload.HasExactly(payload, 2))
         {
@@ -136,6 +142,8 @@ internal static class SteamSurfaceModule
     }
 
     /// <summary>A handler that refuses with one fixed reason before the backend is reached.</summary>
-    internal static Task<SteamUiCommandResult> Invalid(string reason) =>
-        Task.FromResult(new SteamUiCommandResult(false, reason));
+    internal static Task<SteamUiCommandResult> Invalid(string reason)
+    {
+        return Task.FromResult(new SteamUiCommandResult(false, reason));
+    }
 }

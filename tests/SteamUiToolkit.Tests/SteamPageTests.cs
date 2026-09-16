@@ -3,15 +3,15 @@ using System.Text.Json;
 namespace SteamUiToolkit.Tests;
 
 /// <summary>
-/// The custom-page surface's contract: what the probe demands of a client, and what a publication
-/// puts on the wire.
+///     The custom-page surface's contract: what the probe demands of a client, and what a publication
+///     puts on the wire.
 /// </summary>
 /// <remarks>
-/// Measured against the live client on 2026-09-10. The router module is unique on
-/// <c>Settings.Root()</c> plus <c>TopLevelTransition</c>, the back-stack module is unique on
-/// <c>router-backstack</c> and has exactly one export matching the Route fingerprint, and the
-/// router memo is reachable through SharedJSContext's React root in 659 visited nodes with a
-/// writable, configurable <c>type</c>.
+///     Measured against the live client on 2026-09-10. The router module is unique on
+///     <c>Settings.Root()</c> plus <c>TopLevelTransition</c>, the back-stack module is unique on
+///     <c>router-backstack</c> and has exactly one export matching the Route fingerprint, and the
+///     router memo is reachable through SharedJSContext's React root in 659 visited nodes with a
+///     writable, configurable <c>type</c>.
 /// </remarks>
 public sealed class SteamPageTests
 {
@@ -28,7 +28,7 @@ public sealed class SteamPageTests
     [Fact]
     public void TheProbeChecksTheRouterAndTheBackStackRouteSeparately()
     {
-        string probe = Gate.ProbeExpression;
+        var probe = Gate.ProbeExpression;
 
         Assert.Contains("Settings.Root()", probe, StringComparison.Ordinal);
         Assert.Contains("TopLevelTransition", probe, StringComparison.Ordinal);
@@ -43,7 +43,7 @@ public sealed class SteamPageTests
         // The router memo is not an export — verified against the live client, where every export
         // of the router module was inspected and none carried it. The probe has to find it the same
         // way the gate does or it would pass on a client the gate cannot actually claim.
-        string probe = Gate.ProbeExpression;
+        var probe = Gate.ProbeExpression;
 
         Assert.Contains("__reactContainer$", probe, StringComparison.Ordinal);
         Assert.Contains("elementType", probe, StringComparison.Ordinal);
@@ -59,17 +59,27 @@ public sealed class SteamPageTests
     }
 
     [Theory]
-    [InlineData("""{"routerModule":1,"backstackModule":1,"steamRoute":1,"routerFound":1,"claimable":true,"routeSwitch":1,"react":1}""", true)]
+    [InlineData(
+        """{"routerModule":1,"backstackModule":1,"steamRoute":1,"routerFound":1,"claimable":true,"routeSwitch":1,"react":1}""",
+        true)]
     // The router has not rendered yet: not a broken client, but not claimable either.
-    [InlineData("""{"routerModule":1,"backstackModule":1,"steamRoute":1,"routerFound":0,"claimable":true,"routeSwitch":1,"react":1}""", false)]
+    [InlineData(
+        """{"routerModule":1,"backstackModule":1,"steamRoute":1,"routerFound":0,"claimable":true,"routeSwitch":1,"react":1}""",
+        false)]
     // Two Route candidates is ambiguous, which is a refusal rather than a reason to pick one.
-    [InlineData("""{"routerModule":1,"backstackModule":1,"steamRoute":2,"routerFound":1,"claimable":true,"routeSwitch":1,"react":1}""", false)]
-    [InlineData("""{"routerModule":1,"backstackModule":1,"steamRoute":1,"routerFound":1,"claimable":false,"routeSwitch":1,"react":1}""", false)]
-    [InlineData("""{"routerModule":0,"backstackModule":1,"steamRoute":1,"routerFound":1,"claimable":true,"routeSwitch":1,"react":1}""", false)]
+    [InlineData(
+        """{"routerModule":1,"backstackModule":1,"steamRoute":2,"routerFound":1,"claimable":true,"routeSwitch":1,"react":1}""",
+        false)]
+    [InlineData(
+        """{"routerModule":1,"backstackModule":1,"steamRoute":1,"routerFound":1,"claimable":false,"routeSwitch":1,"react":1}""",
+        false)]
+    [InlineData(
+        """{"routerModule":0,"backstackModule":1,"steamRoute":1,"routerFound":1,"claimable":true,"routeSwitch":1,"react":1}""",
+        false)]
     [InlineData("""{"error":"Steam modules unavailable"}""", false)]
     public void CompatibilityRequiresEveryFactAndAUniqueMatchForEachOne(string json, bool expected)
     {
-        using JsonDocument document = JsonDocument.Parse(json);
+        using var document = JsonDocument.Parse(json);
 
         Assert.Equal(expected, Gate.Compatible(document.RootElement));
     }
@@ -80,10 +90,10 @@ public sealed class SteamPageTests
         SteamPageState state = new(
         [
             new SteamPage("artwork", "/wsgm/artwork/:appid", "Artwork"),
-            new SteamPage("settings", "/settings", "WSGM Settings", Override: true),
+            new SteamPage("settings", "/settings", "WSGM Settings", true)
         ]);
 
-        JsonElement wire = SteamPageSurface.Serialize(state);
+        var wire = SteamPageSurface.Serialize(state);
 
         Assert.Equal("/wsgm/artwork/:appid", wire.GetProperty("pages")[0].GetProperty("path").GetString());
         Assert.False(wire.GetProperty("pages")[0].GetProperty("override").GetBoolean());

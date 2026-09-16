@@ -4,9 +4,9 @@ using static SteamUiToolkit.Tests.Fakes.SurfaceDispatch;
 namespace SteamUiToolkit.Tests;
 
 /// <summary>
-/// The contract a consumer relies on: every surface's declared command list is exactly the
-/// vocabulary its module puts on the bridge, malformed payloads are refused with the documented
-/// reason before any backend runs, and well-formed ones reach the backend as typed values.
+///     The contract a consumer relies on: every surface's declared command list is exactly the
+///     vocabulary its module puts on the bridge, malformed payloads are refused with the documented
+///     reason before any backend runs, and well-formed ones reach the backend as typed values.
 /// </summary>
 public sealed class SteamSurfaceModuleTests
 {
@@ -16,24 +16,40 @@ public sealed class SteamSurfaceModuleTests
         RecordingBackend backend = new();
         SteamUiModuleSet set = new(
         [
-            SteamAudioSurface.Module(Always, () => new(null as SteamAudioState), backend),
-            SteamNetworkSurface.Module(Always, () => new(null as SteamNetworkState), backend),
-            SteamBluetoothSurface.Module(Always, () => new(null as SteamBluetoothState), backend),
-            SteamBrightnessSurface.Module(Always, () => new(null as SteamBrightnessState), backend),
-            SteamPowerLimitSurface.Module(Always, () => new(null as SteamPowerLimitState), backend),
-            SteamPerformanceSurface.Module(Always, () => new(null as SteamPerformanceState), backend),
-            SteamFrameLimitRow.Module(Always, () => new(null as SteamFrameLimitState), backend),
-            SteamVariableRefreshRow.Module(Always, () => new(null as SteamVariableRefreshState), backend),
-            SteamResolutionRow.Module(Always, () => new(null as SteamResolutionState), backend),
-            SteamAutoTdpRow.Module(Always, () => new(null as SteamAutoTdpState), backend),
-            SteamControllerTargetRow.Module(Always, () => new(null as SteamControllerTargetState), backend),
-            SteamDeviceControlsRow.Module(Always, () => new(null as SteamDeviceControlsState), backend),
-            SteamNavigationPanelSurface.Module(Always, () => new(null as SteamNavigationPanelState), backend),
-            SteamLibraryBadgeSurface.Module(Always, () => new(null as SteamLibraryBadgeState), backend),
-            SteamHomeCarouselSurface.Module(Always, () => new(null as SteamHomeCarouselState), backend),
-            SteamPowerProfileRow.Module(Always, () => new(null as SteamPowerProfileState), backend),
-            SteamPowerPresetRow.Module(Always, () => new(null as SteamPowerPresetState), backend),
-            SteamHybridCoreRow.Module(Always, () => new(null as SteamHybridCoreState), backend),
+            SteamAudioSurface.Module(Always, () => new ValueTask<SteamAudioState?>(null as SteamAudioState), backend),
+            SteamNetworkSurface.Module(Always, () => new ValueTask<SteamNetworkState?>(null as SteamNetworkState),
+                backend),
+            SteamBluetoothSurface.Module(Always, () => new ValueTask<SteamBluetoothState?>(null as SteamBluetoothState),
+                backend),
+            SteamBrightnessSurface.Module(Always,
+                () => new ValueTask<SteamBrightnessState?>(null as SteamBrightnessState), backend),
+            SteamPowerLimitSurface.Module(Always,
+                () => new ValueTask<SteamPowerLimitState?>(null as SteamPowerLimitState), backend),
+            SteamPerformanceSurface.Module(Always,
+                () => new ValueTask<SteamPerformanceState?>(null as SteamPerformanceState), backend),
+            SteamFrameLimitRow.Module(Always, () => new ValueTask<SteamFrameLimitState?>(null as SteamFrameLimitState),
+                backend),
+            SteamVariableRefreshRow.Module(Always,
+                () => new ValueTask<SteamVariableRefreshState?>(null as SteamVariableRefreshState), backend),
+            SteamResolutionRow.Module(Always, () => new ValueTask<SteamResolutionState?>(null as SteamResolutionState),
+                backend),
+            SteamAutoTdpRow.Module(Always, () => new ValueTask<SteamAutoTdpState?>(null as SteamAutoTdpState), backend),
+            SteamControllerTargetRow.Module(Always,
+                () => new ValueTask<SteamControllerTargetState?>(null as SteamControllerTargetState), backend),
+            SteamDeviceControlsRow.Module(Always,
+                () => new ValueTask<SteamDeviceControlsState?>(null as SteamDeviceControlsState), backend),
+            SteamNavigationPanelSurface.Module(Always,
+                () => new ValueTask<SteamNavigationPanelState?>(null as SteamNavigationPanelState), backend),
+            SteamLibraryBadgeSurface.Module(Always,
+                () => new ValueTask<SteamLibraryBadgeState?>(null as SteamLibraryBadgeState), backend),
+            SteamHomeCarouselSurface.Module(Always,
+                () => new ValueTask<SteamHomeCarouselState?>(null as SteamHomeCarouselState), backend),
+            SteamPowerProfileRow.Module(Always,
+                () => new ValueTask<SteamPowerProfileState?>(null as SteamPowerProfileState), backend),
+            SteamPowerPresetRow.Module(Always,
+                () => new ValueTask<SteamPowerPresetState?>(null as SteamPowerPresetState), backend),
+            SteamHybridCoreRow.Module(Always, () => new ValueTask<SteamHybridCoreState?>(null as SteamHybridCoreState),
+                backend)
         ]);
 
         Assert.Equal(SteamAudioSurface.Commands, set.AllowedCommands[SteamAudioSurface.PatchId]);
@@ -74,11 +90,13 @@ public sealed class SteamSurfaceModuleTests
     public async Task AudioVolumeReachesTheBackendTypedAndAMalformedOneIsRefusedByName()
     {
         RecordingBackend backend = new();
-        SteamUiModuleSet set = new([SteamAudioSurface.Module(Always, () => new(null as SteamAudioState), backend)]);
+        SteamUiModuleSet set = new([
+            SteamAudioSurface.Module(Always, () => new ValueTask<SteamAudioState?>(null as SteamAudioState), backend)
+        ]);
 
-        SteamUiCommandResult applied = await DispatchAsync(
+        var applied = await DispatchAsync(
             set, SteamAudioSurface.PatchId, "setVolume", """{"percent":40,"input":true}""");
-        SteamUiCommandResult refused = await DispatchAsync(
+        var refused = await DispatchAsync(
             set, SteamAudioSurface.PatchId, "setVolume", """{"percent":140}""");
 
         Assert.True(applied.Succeeded);
@@ -92,11 +110,14 @@ public sealed class SteamSurfaceModuleTests
     {
         RecordingBackend backend = new();
         SteamAudioState? current = null;
-        SteamUiModuleSet set = new([SteamAudioSurface.Module(Always, () => new(current), backend)]);
+        SteamUiModuleSet set = new([
+            SteamAudioSurface.Module(Always, () => new ValueTask<SteamAudioState?>(current), backend)
+        ]);
 
-        SteamUiCommandResult absent = await DispatchAsync(set, SteamAudioSurface.PatchId, "getDevices", "null");
-        current = new SteamAudioState(true, [new("spk", "Speakers", true, false)], "spk", "", 55, false, null, false, "");
-        SteamUiCommandResult present = await DispatchAsync(set, SteamAudioSurface.PatchId, "getDevices", "null");
+        var absent = await DispatchAsync(set, SteamAudioSurface.PatchId, "getDevices", "null");
+        current = new SteamAudioState(true, [new SteamAudioDevice("spk", "Speakers", true, false)], "spk", "", 55,
+            false, null, false, "");
+        var present = await DispatchAsync(set, SteamAudioSurface.PatchId, "getDevices", "null");
 
         Assert.False(absent.Succeeded);
         Assert.True(present.Succeeded);
@@ -108,19 +129,22 @@ public sealed class SteamSurfaceModuleTests
     public async Task BluetoothDeviceOperationsCarryTheDeviceIdAndTheBlueZFlagsAreAcceptedByDefault()
     {
         RecordingBackend backend = new();
-        SteamUiModuleSet set = new([SteamBluetoothSurface.Module(Always, () => new(null as SteamBluetoothState), backend)]);
+        SteamUiModuleSet set = new([
+            SteamBluetoothSurface.Module(Always, () => new ValueTask<SteamBluetoothState?>(null as SteamBluetoothState),
+                backend)
+        ]);
 
-        SteamUiCommandResult connect = await DispatchAsync(
+        var connect = await DispatchAsync(
             set, SteamBluetoothSurface.PatchId, "connect", """{"device":"aa:bb"}""");
         // The shapes Steam's panel sends, read from the client bundle: {device}, and for the two
         // BlueZ flags {device, trusted} / {device, allowed}.
-        SteamUiCommandResult trusted = await DispatchAsync(
+        var trusted = await DispatchAsync(
             set, SteamBluetoothSurface.PatchId, "setTrusted", """{"device":"aa:bb","trusted":true}""");
-        SteamUiCommandResult wake = await DispatchAsync(
+        var wake = await DispatchAsync(
             set, SteamBluetoothSurface.PatchId, "setWakeAllowed", """{"device":"aa:bb","allowed":false}""");
-        SteamUiCommandResult refused = await DispatchAsync(
+        var refused = await DispatchAsync(
             set, SteamBluetoothSurface.PatchId, "forget", """{"id":"aa:bb"}""");
-        SteamUiCommandResult flagless = await DispatchAsync(
+        var flagless = await DispatchAsync(
             set, SteamBluetoothSurface.PatchId, "setTrusted", """{"device":"aa:bb"}""");
 
         Assert.True(connect.Succeeded);
@@ -136,17 +160,20 @@ public sealed class SteamSurfaceModuleTests
     public async Task PowerLimitsRouteIndependentExplicitWrites()
     {
         RecordingBackend backend = new();
-        SteamUiModuleSet set = new([SteamPowerLimitSurface.Module(Always, () => new(null as SteamPowerLimitState), backend)]);
+        SteamUiModuleSet set = new([
+            SteamPowerLimitSurface.Module(Always,
+                () => new ValueTask<SteamPowerLimitState?>(null as SteamPowerLimitState), backend)
+        ]);
 
-        SteamUiCommandResult released = await DispatchAsync(
+        var released = await DispatchAsync(
             set, SteamPowerLimitSurface.PatchId, "setPrimaryLimit", """{"watts":15}""");
-        SteamUiCommandResult refused = await DispatchAsync(
+        var refused = await DispatchAsync(
             set, SteamPowerLimitSurface.PatchId, "setPrimaryLimit", """{"watts":"15"}""");
 
         Assert.True(released.Succeeded);
         Assert.Equal("limit 15", Assert.Single(backend.Calls));
         Assert.Equal("The sustained power-limit payload is invalid.", refused.Error);
-        SteamUiCommandResult boosted = await DispatchAsync(
+        var boosted = await DispatchAsync(
             set, SteamPowerLimitSurface.PatchId, "setBoostLimit", """{"watts":30}""");
         Assert.True(boosted.Succeeded);
         Assert.Equal(["limit 15", "boost 30"], backend.Calls);
@@ -163,11 +190,15 @@ public sealed class SteamSurfaceModuleTests
     public async Task PowerSlidersRejectInvalidOrLegacyPayloads(string payload)
     {
         RecordingBackend backend = new();
-        SteamUiModuleSet set = new([SteamPowerLimitSurface.Module(Always, () => new(null as SteamPowerLimitState), backend)]);
-        foreach (string command in SteamPowerLimitSurface.Commands)
+        SteamUiModuleSet set = new([
+            SteamPowerLimitSurface.Module(Always,
+                () => new ValueTask<SteamPowerLimitState?>(null as SteamPowerLimitState), backend)
+        ]);
+        foreach (var command in SteamPowerLimitSurface.Commands)
         {
             Assert.False((await DispatchAsync(set, SteamPowerLimitSurface.PatchId, command, payload)).Succeeded);
         }
+
         Assert.Empty(backend.Calls);
     }
 
@@ -175,7 +206,8 @@ public sealed class SteamSurfaceModuleTests
     public void PowerSlidersSerializeSeparateHardwareReadbacks()
     {
         SteamPowerLimitRangeState sustained = new(true, 8, 37, 1, 23, "", "");
-        JsonElement wire = SteamPowerLimitSurface.Serialize(new(sustained, sustained with { ObservedWatts = 37 }));
+        var wire = SteamPowerLimitSurface.Serialize(new SteamPowerLimitState(sustained,
+            sustained with { ObservedWatts = 37 }));
         Assert.Equal(23, wire.GetProperty("sustained").GetProperty("observedWatts").GetInt32());
         Assert.Equal(37, wire.GetProperty("boost").GetProperty("observedWatts").GetInt32());
     }
@@ -184,13 +216,16 @@ public sealed class SteamSurfaceModuleTests
     public async Task FrameLimitCarriesPersistenceAndACorrelationId()
     {
         RecordingBackend backend = new();
-        SteamUiModuleSet set = new([SteamFrameLimitRow.Module(Always, () => new(null as SteamFrameLimitState), backend)]);
+        SteamUiModuleSet set = new([
+            SteamFrameLimitRow.Module(Always, () => new ValueTask<SteamFrameLimitState?>(null as SteamFrameLimitState),
+                backend)
+        ]);
 
-        SteamUiCommandResult applied = await DispatchAsync(
+        var applied = await DispatchAsync(
             set, SteamFrameLimitRow.PatchId, "setFrameLimit", """{"value":60,"persistence":"application"}""");
-        SteamUiCommandResult unknownPersistence = await DispatchAsync(
+        var unknownPersistence = await DispatchAsync(
             set, SteamFrameLimitRow.PatchId, "setFrameLimit", """{"value":60,"persistence":"forever"}""");
-        SteamUiCommandResult refresh = await DispatchAsync(
+        var refresh = await DispatchAsync(
             set, SteamFrameLimitRow.PatchId, "setRefreshRate", """{"value":75,"persistence":"automatic"}""");
 
         Assert.True(applied.Succeeded);
@@ -205,14 +240,17 @@ public sealed class SteamSurfaceModuleTests
     public async Task PerformanceDeltasAreDecodedBeforeTheBackendSeesThem()
     {
         RecordingBackend backend = new();
-        SteamUiModuleSet set = new([SteamPerformanceSurface.Module(Always, () => new(null as SteamPerformanceState), backend)]);
+        SteamUiModuleSet set = new([
+            SteamPerformanceSurface.Module(Always,
+                () => new ValueTask<SteamPerformanceState?>(null as SteamPerformanceState), backend)
+        ]);
 
-        SteamUiCommandResult applied = await DispatchAsync(
+        var applied = await DispatchAsync(
             set,
             SteamPerformanceSurface.PatchId,
             "updateSettings",
             """{"delta":{"gameid":570,"settings_delta":{"per_app":{"fps_limit":45}}}}""");
-        SteamUiCommandResult undecoded = await DispatchAsync(
+        var undecoded = await DispatchAsync(
             set, SteamPerformanceSurface.PatchId, "updateSettings", """{"delta":"CgQI"}""");
 
         Assert.True(applied.Succeeded);
@@ -225,13 +263,16 @@ public sealed class SteamSurfaceModuleTests
     public async Task DeviceColourRequiresExactlyZoneAndColour()
     {
         RecordingBackend backend = new();
-        SteamUiModuleSet set = new([SteamDeviceControlsRow.Module(Always, () => new(null as SteamDeviceControlsState), backend)]);
+        SteamUiModuleSet set = new([
+            SteamDeviceControlsRow.Module(Always,
+                () => new ValueTask<SteamDeviceControlsState?>(null as SteamDeviceControlsState), backend)
+        ]);
 
-        SteamUiCommandResult applied = await DispatchAsync(
+        var applied = await DispatchAsync(
             set, SteamDeviceControlsRow.PatchId, "setLightingColor", """{"zone":"ring","color":16711680}""");
-        SteamUiCommandResult extra = await DispatchAsync(
+        var extra = await DispatchAsync(
             set, SteamDeviceControlsRow.PatchId, "setLightingColor", """{"zone":"ring","color":1,"alpha":1}""");
-        SteamUiCommandResult charge = await DispatchAsync(
+        var charge = await DispatchAsync(
             set, SteamDeviceControlsRow.PatchId, "setChargeLimit", """{"percent":80}""");
 
         Assert.True(applied.Succeeded);
@@ -253,8 +294,8 @@ public sealed class SteamSurfaceModuleTests
         // An empty state is a real instruction: no removable drives, nothing disconnected, every
         // installed game internal, no pages, no rows, a zero brightness. Having nothing to say yet is
         // different, and not publishing is how a surface says it.
-        NullReading reading = NullReadingOf(surface);
-        SteamUiStatePublication publication = Assert.Single(new SteamUiModuleSet([reading.Module]).Publications);
+        var reading = NullReadingOf(surface);
+        var publication = Assert.Single(new SteamUiModuleSet([reading.Module]).Publications);
 
         Assert.Null(await publication.Read());
         reading.Supply();
@@ -262,71 +303,74 @@ public sealed class SteamSurfaceModuleTests
         reading.Check((await publication.Read())!.Value);
     }
 
-    private sealed record NullReading(ISteamUiModule Module, Action Supply, Action<JsonElement> Check);
-
     private static NullReading NullReadingOf(string surface)
     {
         RecordingBackend backend = new();
         switch (surface)
         {
             case "brightness":
-                {
-                    SteamBrightnessState? state = null;
-                    return new(
-                        SteamBrightnessSurface.Module(Always, () => new(state), backend),
-                        () => state = new SteamBrightnessState(42),
-                        wire => Assert.Equal(42, wire.GetProperty("percent").GetInt32()));
-                }
+            {
+                SteamBrightnessState? state = null;
+                return new NullReading(
+                    SteamBrightnessSurface.Module(Always, () => new ValueTask<SteamBrightnessState?>(state), backend),
+                    () => state = new SteamBrightnessState(42),
+                    wire => Assert.Equal(42, wire.GetProperty("percent").GetInt32()));
+            }
             case "home-carousel":
-                {
-                    SteamHomeCarouselState? state = null;
-                    return new(
-                        SteamHomeCarouselSurface.Module(Always, () => new(state), backend),
-                        () => state = new SteamHomeCarouselState(false, []),
-                        wire => Assert.Equal(0, wire.GetProperty("disconnectedAppIds").GetArrayLength()));
-                }
+            {
+                SteamHomeCarouselState? state = null;
+                return new NullReading(
+                    SteamHomeCarouselSurface.Module(Always, () => new ValueTask<SteamHomeCarouselState?>(state),
+                        backend),
+                    () => state = new SteamHomeCarouselState(false, []),
+                    wire => Assert.Equal(0, wire.GetProperty("disconnectedAppIds").GetArrayLength()));
+            }
             case "library-badge":
-                {
-                    SteamLibraryBadgeState? state = null;
-                    return new(
-                        SteamLibraryBadgeSurface.Module(Always, () => new(state), backend),
-                        () => state = new SteamLibraryBadgeState([]),
-                        wire => Assert.Equal(0, wire.GetProperty("libraries").GetArrayLength()));
-                }
+            {
+                SteamLibraryBadgeState? state = null;
+                return new NullReading(
+                    SteamLibraryBadgeSurface.Module(Always, () => new ValueTask<SteamLibraryBadgeState?>(state),
+                        backend),
+                    () => state = new SteamLibraryBadgeState([]),
+                    wire => Assert.Equal(0, wire.GetProperty("libraries").GetArrayLength()));
+            }
             case "navigation-panel":
-                {
-                    SteamNavigationPanelState? state = null;
-                    return new(
-                        SteamNavigationPanelSurface.Module(Always, () => new(state), backend),
-                        () => state = new SteamNavigationPanelState([], ["power"]),
-                        wire => Assert.Equal("power", wire.GetProperty("hidden")[0].GetString()));
-                }
+            {
+                SteamNavigationPanelState? state = null;
+                return new NullReading(
+                    SteamNavigationPanelSurface.Module(Always, () => new ValueTask<SteamNavigationPanelState?>(state),
+                        backend),
+                    () => state = new SteamNavigationPanelState([], ["power"]),
+                    wire => Assert.Equal("power", wire.GetProperty("hidden")[0].GetString()));
+            }
             case "page":
-                {
-                    SteamPageState? state = null;
-                    return new(
-                        SteamPageSurface.Module(Always, () => new(state)),
-                        () => state = new SteamPageState([new SteamPage("artwork", "/wsgm/artwork", "Artwork")]),
-                        wire => Assert.Equal("artwork", wire.GetProperty("pages")[0].GetProperty("id").GetString()));
-                }
+            {
+                SteamPageState? state = null;
+                return new NullReading(
+                    SteamPageSurface.Module(Always, () => new ValueTask<SteamPageState?>(state)),
+                    () => state = new SteamPageState([new SteamPage("artwork", "/wsgm/artwork", "Artwork")]),
+                    wire => Assert.Equal("artwork", wire.GetProperty("pages")[0].GetProperty("id").GetString()));
+            }
             case "screensaver":
-                {
-                    SteamScreensaverState? state = null;
-                    return new(
-                        SteamScreensaverSurface.Module(Always, () => new(state), backend),
-                        () => state = new SteamScreensaverState([]),
-                        wire => Assert.Equal(0, wire.GetProperty("rows").GetArrayLength()));
-                }
+            {
+                SteamScreensaverState? state = null;
+                return new NullReading(
+                    SteamScreensaverSurface.Module(Always, () => new ValueTask<SteamScreensaverState?>(state), backend),
+                    () => state = new SteamScreensaverState([]),
+                    wire => Assert.Equal(0, wire.GetProperty("rows").GetArrayLength()));
+            }
             case "storage":
-                {
-                    SteamStorageState? state = null;
-                    return new(
-                        SteamStorageSurface.Module(Always, () => new(state), backend),
-                        () => state = new SteamStorageState([], []),
-                        wire => Assert.Equal(0, wire.GetProperty("drives").GetArrayLength()));
-                }
+            {
+                SteamStorageState? state = null;
+                return new NullReading(
+                    SteamStorageSurface.Module(Always, () => new ValueTask<SteamStorageState?>(state), backend),
+                    () => state = new SteamStorageState([], []),
+                    wire => Assert.Equal(0, wire.GetProperty("drives").GetArrayLength()));
+            }
             default:
                 throw new ArgumentOutOfRangeException(nameof(surface));
         }
     }
+
+    private sealed record NullReading(ISteamUiModule Module, Action Supply, Action<JsonElement> Check);
 }

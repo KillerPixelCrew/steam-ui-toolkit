@@ -13,7 +13,7 @@ public sealed class SteamGatePatchContractTests
     public void VerificationRequiresTheClaimAndRemovalRequiresItsAbsence(
         string surface, string verify, string remove)
     {
-        SteamGatePatch gate = Gate(surface);
+        var gate = Gate(surface);
 
         Assert.Equal(verify, gate.VerifyOk);
         Assert.Equal(remove, gate.RemoveOk);
@@ -30,15 +30,18 @@ public sealed class SteamGatePatchContractTests
         Assert.Contains(marker, Gate(surface).ProbeExpression, StringComparison.Ordinal);
     }
 
-    internal static SteamGatePatch Gate(string surface) => (SteamGatePatch)(surface switch
+    internal static SteamGatePatch Gate(string surface)
     {
-        "home-carousel" => SteamHomeCarouselSurface.Patch,
-        "library-badge" => SteamLibraryBadgeSurface.Patch,
-        "library-details" => SteamLibraryBadgeSurface.DetailsPatch,
-        "navigation-panel" => SteamNavigationPanelSurface.Patch,
-        "page" => SteamPageSurface.Patch,
-        "screensaver" => SteamScreensaverSurface.Patch,
-        "storage" => SteamStorageSurface.Patch,
-        _ => throw new ArgumentOutOfRangeException(nameof(surface)),
-    });
+        return (SteamGatePatch)(surface switch
+        {
+            "home-carousel" => SteamHomeCarouselSurface.Patch,
+            "library-badge" => SteamLibraryBadgeSurface.Patch,
+            "library-details" => SteamLibraryBadgeSurface.DetailsPatch,
+            "navigation-panel" => SteamNavigationPanelSurface.Patch,
+            "page" => SteamPageSurface.Patch,
+            "screensaver" => SteamScreensaverSurface.Patch,
+            "storage" => SteamStorageSurface.Patch,
+            _ => throw new ArgumentOutOfRangeException(nameof(surface))
+        });
+    }
 }

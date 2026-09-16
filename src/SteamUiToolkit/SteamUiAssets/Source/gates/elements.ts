@@ -6,43 +6,43 @@
 // wrapper under a claim is invisible to the claim's own verification. This gate installs nothing of
 // its own; it is the claim's front door, and a registration lives exactly as long as this bridge.
 function createElementsGate() {
-  const MaximumNameLength = 64;
+    const MaximumNameLength = 64;
 
-  // One resolver for the gate's life rather than a chunk pushed on every registration and check.
-  let resolver;
-  const runtime = () => (resolver ??= getWebpackRuntime("elements")).resolve([...JsxRuntimeTokens]);
-  const validName = (name) =>
-    typeof name === "string" && name.length > 0 && name.length <= MaximumNameLength;
+    // One resolver for the gate's life rather than a chunk pushed on every registration and check.
+    let resolver;
+    const runtime = () => (resolver ??= getWebpackRuntime("elements")).resolve([...JsxRuntimeTokens]);
+    const validName = (name) =>
+        typeof name === "string" && name.length > 0 && name.length <= MaximumNameLength;
 
-  const register = (name, transform) => {
-    if (!validName(name) || typeof transform !== "function") {
-      return { ok: false, error: "invalid element transform" };
-    }
-    try {
-      return interceptElements(runtime(), name, transform);
-    } catch (error) {
-      return { ok: false, error: String(error) };
-    }
-  };
+    const register = (name, transform) => {
+        if (!validName(name) || typeof transform !== "function") {
+            return {ok: false, error: "invalid element transform"};
+        }
+        try {
+            return interceptElements(runtime(), name, transform);
+        } catch (error) {
+            return {ok: false, error: String(error)};
+        }
+    };
 
-  const unregister = (name) => {
-    if (!validName(name)) return { ok: false, error: "invalid element transform name" };
-    try {
-      return releaseElements(runtime(), name);
-    } catch (error) {
-      return { ok: false, error: String(error) };
-    }
-  };
+    const unregister = (name) => {
+        if (!validName(name)) return {ok: false, error: "invalid element transform name"};
+        try {
+            return releaseElements(runtime(), name);
+        } catch (error) {
+            return {ok: false, error: String(error)};
+        }
+    };
 
-  const registered = (name) => {
-    try {
-      return validName(name) && elementsIntercepted(runtime(), name);
-    } catch {
-      return false;
-    }
-  };
+    const registered = (name) => {
+        try {
+            return validName(name) && elementsIntercepted(runtime(), name);
+        } catch {
+            return false;
+        }
+    };
 
-  return { register, unregister, registered };
+    return {register, unregister, registered};
 }
 
 registerGate("elements", createElementsGate());

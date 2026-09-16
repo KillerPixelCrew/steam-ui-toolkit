@@ -9,35 +9,35 @@ using System.Threading.Tasks;
 namespace SteamUiToolkit;
 
 /// <summary>
-/// The performance state supplied in place of Steam's absent <c>SteamClient.System.Perf</c>.
+///     The performance state supplied in place of Steam's absent <c>SteamClient.System.Perf</c>.
 /// </summary>
 /// <remarks>
-/// The field names are Valve's, taken from the generated protobuf metadata in the client's own
-/// bundle (<c>CMsgSystemPerfLimits</c>, <c>CMsgSystemPerfSettingsGlobal</c>,
-/// <c>CMsgSystemPerfSettingsPerApp</c>), because the store's controls read them by name. They are
-/// spelled out here rather than derived from a naming policy: the outer object is camelCase for the
-/// injected gate and the inner objects are the protobuf's snake_case, so one policy cannot serve
-/// both and a wrong name is silently a missing control.
-/// <para>
-/// <b>Every field is nullable and omitted when null, and that is the safety property.</b> Control
-/// availability is read straight out of this state — <c>msgLimits?.is_vrr_supported ?? false</c> —
-/// so a field the backend cannot honour is left out and Valve's own wrapper renders nothing. Hiding
-/// costs no CSS and no patching; adding a field is what makes a control appear.
-/// </para>
-/// <para>
-/// <b>Limits and settings are a pair.</b> Hiding a control by omitting its <c>limits</c> field is
-/// safe; advertising it in <c>limits</c> and then omitting its <c>settings</c> value is not —
-/// Valve's component renders, finds no value, and throws inside Steam's error boundary, taking
-/// the whole Performance tab with it (device, 2026-08-30).
-/// </para>
+///     The field names are Valve's, taken from the generated protobuf metadata in the client's own
+///     bundle (<c>CMsgSystemPerfLimits</c>, <c>CMsgSystemPerfSettingsGlobal</c>,
+///     <c>CMsgSystemPerfSettingsPerApp</c>), because the store's controls read them by name. They are
+///     spelled out here rather than derived from a naming policy: the outer object is camelCase for the
+///     injected gate and the inner objects are the protobuf's snake_case, so one policy cannot serve
+///     both and a wrong name is silently a missing control.
+///     <para>
+///         <b>Every field is nullable and omitted when null, and that is the safety property.</b> Control
+///         availability is read straight out of this state — <c>msgLimits?.is_vrr_supported ?? false</c> —
+///         so a field the backend cannot honour is left out and Valve's own wrapper renders nothing. Hiding
+///         costs no CSS and no patching; adding a field is what makes a control appear.
+///     </para>
+///     <para>
+///         <b>Limits and settings are a pair.</b> Hiding a control by omitting its <c>limits</c> field is
+///         safe; advertising it in <c>limits</c> and then omitting its <c>settings</c> value is not —
+///         Valve's component renders, finds no value, and throws inside Steam's error boundary, taking
+///         the whole Performance tab with it (device, 2026-08-30).
+///     </para>
 /// </remarks>
 public sealed record SteamPerformanceState
 {
     /// <summary>Valve's "no game": the Steam client's own pseudo-app id, never <c>"0"</c>.</summary>
     /// <remarks>
-    /// The profile header, the per-game toggle's availability and the name lookup all compare
-    /// game ids against 769 (live-read 2026-09-02). Publishing "0" made the header take the
-    /// game-specific branch, look up game id 0, and render "Use profile from" with an empty name.
+    ///     The profile header, the per-game toggle's availability and the name lookup all compare
+    ///     game ids against 769 (live-read 2026-09-02). Publishing "0" made the header take the
+    ///     game-specific branch, look up game id 0, and render "Use profile from" with an empty name.
     /// </remarks>
     public const string NoGame = "769";
 
@@ -53,35 +53,35 @@ public sealed record SteamPerformanceState
     [JsonPropertyName("perApp")]
     public SteamPerformanceApplicationSettings? PerApp { get; init; }
 
-    /// <summary>The running application's Steam AppID as a string, or <see cref="NoGame"/>.</summary>
+    /// <summary>The running application's Steam AppID as a string, or <see cref="NoGame" />.</summary>
     /// <remarks>
-    /// Steam decides the per-game profile is in use by comparing this with
-    /// <see cref="ActiveProfileGameId"/>: equal, and not the pseudo-app, means the running game's
-    /// own profile is the one on screen.
+    ///     Steam decides the per-game profile is in use by comparing this with
+    ///     <see cref="ActiveProfileGameId" />: equal, and not the pseudo-app, means the running game's
+    ///     own profile is the one on screen.
     /// </remarks>
     [JsonPropertyName("currentGameId")]
     public string CurrentGameId { get; init; } = NoGame;
 
-    /// <summary>The AppID whose profile is being edited, or <see cref="NoGame"/> for the global profile.</summary>
+    /// <summary>The AppID whose profile is being edited, or <see cref="NoGame" /> for the global profile.</summary>
     [JsonPropertyName("activeProfileGameId")]
     public string ActiveProfileGameId { get; init; } = NoGame;
 }
 
 /// <summary>Bounds and support flags for the performance controls a backend can honour.</summary>
 /// <remarks>
-/// Deliberately partial. The message also carries CPU governor bounds, FSR sharpness bounds, split
-/// scaling filters and scalers, external-display refresh bounds, and
-/// <c>is_dynamic_refresh_rate_in_steam_supported</c>; none is modelled, so none of those controls
-/// renders. <c>tdp_limit_min</c>/<c>tdp_limit_max</c> exist in this message and are also not
-/// modelled: no component in the performance bundle renders a TDP control, so the fields would be
-/// read by nothing. Valve's TDP row comes from <see cref="SteamPowerLimitSurface"/> instead.
+///     Deliberately partial. The message also carries CPU governor bounds, FSR sharpness bounds, split
+///     scaling filters and scalers, external-display refresh bounds, and
+///     <c>is_dynamic_refresh_rate_in_steam_supported</c>; none is modelled, so none of those controls
+///     renders. <c>tdp_limit_min</c>/<c>tdp_limit_max</c> exist in this message and are also not
+///     modelled: no component in the performance bundle renders a TDP control, so the fields would be
+///     read by nothing. Valve's TDP row comes from <see cref="SteamPowerLimitSurface" /> instead.
 /// </remarks>
 public sealed record SteamPerformanceLimits
 {
     /// <summary>The frame caps the slider offers, as its notches, in ascending order.</summary>
     /// <remarks>
-    /// The slider's labels are <c>value.toString()</c> over this array, so the notches and the
-    /// options are the same list; there is no separate label channel to fill.
+    ///     The slider's labels are <c>value.toString()</c> over this array, so the notches and the
+    ///     options are the same list; there is no separate label channel to fill.
     /// </remarks>
     [JsonPropertyName("fps_limit_options")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -89,13 +89,13 @@ public sealed record SteamPerformanceLimits
 
     /// <summary>The same notches, for a display Steam considers external.</summary>
     /// <remarks>
-    /// THE external-twin rule, referenced by every other twin here and by the delta reader: EVERY
-    /// display field in this message has an <c>_external</c> twin, and Valve's controls read and
-    /// write whichever side their own display test selects — a handheld's built-in panel can report
-    /// <c>bDisplayIsExternal: true</c>, so on such hardware the external twin is the one that
-    /// renders. Supplying only the internal fields left the frame-limit slider a grey bar with a
-    /// label: the component rendered with an empty notch list. A backend managing one display
-    /// should carry the same values in both twins rather than guess which Steam will read.
+    ///     THE external-twin rule, referenced by every other twin here and by the delta reader: EVERY
+    ///     display field in this message has an <c>_external</c> twin, and Valve's controls read and
+    ///     write whichever side their own display test selects — a handheld's built-in panel can report
+    ///     <c>bDisplayIsExternal: true</c>, so on such hardware the external twin is the one that
+    ///     renders. Supplying only the internal fields left the frame-limit slider a grey bar with a
+    ///     label: the component rendered with an empty notch list. A backend managing one display
+    ///     should carry the same values in both twins rather than guess which Steam will read.
     /// </remarks>
     [JsonPropertyName("fps_limit_options_external")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -135,12 +135,12 @@ public sealed record SteamPerformanceLimits
 /// <summary>Performance settings that are not per-application.</summary>
 public sealed record SteamPerformanceGlobalSettings
 {
-    /// <summary>The performance overlay level, as Valve's wire enum. See <see cref="SteamOverlayLevelWire"/>.</summary>
+    /// <summary>The performance overlay level, as Valve's wire enum. See <see cref="SteamOverlayLevelWire" />.</summary>
     /// <remarks>
-    /// Always supply a number, and always one of the five the selector knows. It resolves the
-    /// notch with <c>levels.find(l =&gt; l.value === current).notchIndex</c> and does not guard
-    /// the miss, so a level outside the enum throws inside the render and Steam's error boundary
-    /// blanks the whole Performance tab.
+    ///     Always supply a number, and always one of the five the selector knows. It resolves the
+    ///     notch with <c>levels.find(l =&gt; l.value === current).notchIndex</c> and does not guard
+    ///     the miss, so a level outside the enum throws inside the render and Steam's error boundary
+    ///     blanks the whole Performance tab.
     /// </remarks>
     [JsonPropertyName("perf_overlay_level")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -153,11 +153,14 @@ public sealed record SteamPerformanceGlobalSettings
 
     /// <summary>The second gate on the refresh-rate row for an externally-classified display.</summary>
     /// <remarks>
-    /// Live-read from the refresh-rate hook 2026-08-30: availability is
-    /// <c>external ? (is_manual_display_refresh_rate_available &amp;&amp;
-    /// allow_external_display_refresh_control) : (is_manual_display_refresh_rate_available &amp;&amp;
-    /// !disable_refresh_rate_management)</c>. A built-in panel that reports as external leaves the
-    /// row hidden on the availability flag alone — this is the half that was missing.
+    ///     Live-read from the refresh-rate hook 2026-08-30: availability is
+    ///     <c>
+    ///         external ? (is_manual_display_refresh_rate_available &amp;&amp;
+    ///         allow_external_display_refresh_control) : (is_manual_display_refresh_rate_available &amp;&amp;
+    ///         !disable_refresh_rate_management)
+    ///     </c>
+    ///     . A built-in panel that reports as external leaves the
+    ///     row hidden on the availability flag alone — this is the half that was missing.
     /// </remarks>
     [JsonPropertyName("allow_external_display_refresh_control")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -167,7 +170,7 @@ public sealed record SteamPerformanceGlobalSettings
 /// <summary>Performance settings for one application, or for the global profile.</summary>
 public sealed record SteamPerformanceApplicationSettings
 {
-    /// <summary>The frame cap in FPS. Never zero: "off" is <see cref="IsFpsLimitEnabled"/>.</summary>
+    /// <summary>The frame cap in FPS. Never zero: "off" is <see cref="IsFpsLimitEnabled" />.</summary>
     [JsonPropertyName("fps_limit")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? FpsLimit { get; init; }
@@ -178,8 +181,10 @@ public sealed record SteamPerformanceApplicationSettings
     public int? FpsLimitExternal { get; init; }
 
     /// <summary>Whether the frame cap is applied at all.</summary>
-    /// <remarks>Steam draws the cap and its on/off state from two fields. Without the flag the
-    /// slider renders at the cap but reads as disabled.</remarks>
+    /// <remarks>
+    ///     Steam draws the cap and its on/off state from two fields. Without the flag the
+    ///     slider renders at the cap but reads as disabled.
+    /// </remarks>
     [JsonPropertyName("is_fps_limit_enabled")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? IsFpsLimitEnabled { get; init; }
@@ -207,49 +212,57 @@ public sealed record SteamPerformanceApplicationSettings
 
 /// <summary>Translates Steam's <c>perf_overlay_level</c> wire values to and from the selector's notch order.</summary>
 /// <remarks>
-/// Valve added the Minimal preset last, so <c>EGraphicsPerfOverlayLevel</c> is Hidden=0, Basic=1,
-/// Medium=2, Full=3, Minimal=4 — while the selector presents OFF, Minimal, Basic, Medium, Full.
-/// Treating the wire value as the notch put the top level on the first notch and shifted the rest
-/// (live-verified 2026-09-01: parking the selector on notch 1 stores <c>perf_overlay_level=4</c>).
-/// A backend that thinks in notches translates at this boundary in both directions.
+///     Valve added the Minimal preset last, so <c>EGraphicsPerfOverlayLevel</c> is Hidden=0, Basic=1,
+///     Medium=2, Full=3, Minimal=4 — while the selector presents OFF, Minimal, Basic, Medium, Full.
+///     Treating the wire value as the notch put the top level on the first notch and shifted the rest
+///     (live-verified 2026-09-01: parking the selector on notch 1 stores <c>perf_overlay_level=4</c>).
+///     A backend that thinks in notches translates at this boundary in both directions.
 /// </remarks>
 public static class SteamOverlayLevelWire
 {
     /// <summary>Highest notch Steam's overlay-level selector has.</summary>
-    /// <remarks>Read off the selector itself: it builds five entries, OFF plus 1 to 4, and
-    /// resolves the current value against them without a fallback.</remarks>
+    /// <remarks>
+    ///     Read off the selector itself: it builds five entries, OFF plus 1 to 4, and
+    ///     resolves the current value against them without a fallback.
+    /// </remarks>
     public const int MaximumNotch = 4;
 
     /// <summary>Maps a Steam wire value to the selector notch.</summary>
     /// <param name="steamValue">The <c>perf_overlay_level</c> value Steam sent.</param>
     /// <returns>The notch, with unknown values reading as off.</returns>
-    public static int ToNotch(int steamValue) => steamValue switch
+    public static int ToNotch(int steamValue)
     {
-        4 => 1,
-        1 => 2,
-        2 => 3,
-        3 => 4,
-        _ => 0,
-    };
+        return steamValue switch
+        {
+            4 => 1,
+            1 => 2,
+            2 => 3,
+            3 => 4,
+            _ => 0
+        };
+    }
 
     /// <summary>Maps a selector notch to the Steam wire value the selector resolves.</summary>
-    /// <param name="notch">The notch, 0 to <see cref="MaximumNotch"/>.</param>
+    /// <param name="notch">The notch, 0 to <see cref="MaximumNotch" />.</param>
     /// <returns>The wire value, with unknown notches reading as hidden.</returns>
-    public static int ToSteam(int notch) => notch switch
+    public static int ToSteam(int notch)
     {
-        1 => 4,
-        2 => 1,
-        3 => 2,
-        4 => 3,
-        _ => 0,
-    };
+        return notch switch
+        {
+            1 => 4,
+            2 => 1,
+            3 => 2,
+            4 => 3,
+            _ => 0
+        };
+    }
 }
 
 /// <summary>The performance settings Steam's panel can ask a backend to write.</summary>
 /// <remarks>
-/// Only the settings behind a control this surface can render. A delta naming anything else is
-/// reported as unsupported rather than silently dropped, because a control that appears to work
-/// and does nothing is worse than one that is not there.
+///     Only the settings behind a control this surface can render. A delta naming anything else is
+///     reported as unsupported rather than silently dropped, because a control that appears to work
+///     and does nothing is worse than one that is not there.
 /// </remarks>
 public enum SteamPerformanceSetting
 {
@@ -259,7 +272,7 @@ public enum SteamPerformanceSetting
     /// <summary>Whether the frame cap applies.</summary>
     FrameLimitEnabled,
 
-    /// <summary>The performance overlay level, as Valve's wire enum. See <see cref="SteamOverlayLevelWire"/>.</summary>
+    /// <summary>The performance overlay level, as Valve's wire enum. See <see cref="SteamOverlayLevelWire" />.</summary>
     OverlayLevel,
 
     /// <summary>Whether variable refresh rate is on.</summary>
@@ -272,13 +285,15 @@ public enum SteamPerformanceSetting
     PerApplicationProfileEnabled,
 
     /// <summary>Whether the advanced rows are shown.</summary>
-    AdvancedSettingsEnabled,
+    AdvancedSettingsEnabled
 }
 
 /// <summary>One setting change Steam's performance panel asked for.</summary>
 /// <param name="Kind">Which setting changed.</param>
-/// <param name="Value">The requested value; meaning depends on <paramref name="Kind"/>. Flags
-/// arrive as 0 or 1.</param>
+/// <param name="Value">
+///     The requested value; meaning depends on <paramref name="Kind" />. Flags
+///     arrive as 0 or 1.
+/// </param>
 public readonly record struct SteamPerformanceChange(SteamPerformanceSetting Kind, int Value)
 {
     /// <summary>Reads the change as a flag.</summary>
@@ -287,11 +302,15 @@ public readonly record struct SteamPerformanceChange(SteamPerformanceSetting Kin
 
 /// <summary>What one <c>UpdateSettings</c> call asked for.</summary>
 /// <param name="Recognized">Changes the surface understands, in the order they appeared.</param>
-/// <param name="ResetToDefault">Whether the panel asked to reset the current profile. Arrives on
-/// its own: Valve's button sends only this flag.</param>
+/// <param name="ResetToDefault">
+///     Whether the panel asked to reset the current profile. Arrives on
+///     its own: Valve's button sends only this flag.
+/// </param>
 /// <param name="SteamAppId">The AppID the delta targets, or null for the global profile.</param>
-/// <param name="Unsupported">Field names that were present and are not modelled, for the log.
-/// Never empty silently.</param>
+/// <param name="Unsupported">
+///     Field names that were present and are not modelled, for the log.
+///     Never empty silently.
+/// </param>
 public sealed record SteamPerformanceDelta(
     IReadOnlyList<SteamPerformanceChange> Recognized,
     bool ResetToDefault,
@@ -299,27 +318,27 @@ public sealed record SteamPerformanceDelta(
     IReadOnlyList<string> Unsupported);
 
 /// <summary>
-/// Decodes a <c>CMsgSystemPerfUpdateSettings</c> that the injected gate forwarded as an object.
+///     Decodes a <c>CMsgSystemPerfUpdateSettings</c> that the injected gate forwarded as an object.
 /// </summary>
 /// <remarks>
-/// Every setter in Valve's store builds a delta and hands it to the one <c>UpdateSettings</c>
-/// method, so this is where all of them arrive. The message shapes belong to the client, so the
-/// injected half forwards <c>toObject()</c> verbatim and this half does the interpreting; nothing
-/// about the wire format is reimplemented on either side.
-/// <para>
-/// A delta carries only what changed, and a settings message nests
-/// <c>settings_delta.global</c>/<c>settings_delta.per_app</c>. Both are optional and either may be
-/// absent on any given call.
-/// </para>
+///     Every setter in Valve's store builds a delta and hands it to the one <c>UpdateSettings</c>
+///     method, so this is where all of them arrive. The message shapes belong to the client, so the
+///     injected half forwards <c>toObject()</c> verbatim and this half does the interpreting; nothing
+///     about the wire format is reimplemented on either side.
+///     <para>
+///         A delta carries only what changed, and a settings message nests
+///         <c>settings_delta.global</c>/<c>settings_delta.per_app</c>. Both are optional and either may be
+///         absent on any given call.
+///     </para>
 /// </remarks>
 public static class SteamPerformanceDeltaReader
 {
-    /// <summary>The Steam client's own pseudo-game id, <see cref="SteamPerformanceState.NoGame"/>.</summary>
+    /// <summary>The Steam client's own pseudo-game id, <see cref="SteamPerformanceState.NoGame" />.</summary>
     /// <remarks>
-    /// Every store setter stamps <c>gameid</c> from the current or active profile game id, and a
-    /// backend publishes 769 for both whenever no per-game profile is in force, so a global-profile
-    /// write arrives carrying 769. Reading it as a real AppID would refuse every one of those
-    /// writes as stale against a session that has no running application.
+    ///     Every store setter stamps <c>gameid</c> from the current or active profile game id, and a
+    ///     backend publishes 769 for both whenever no per-game profile is in force, so a global-profile
+    ///     write arrives carrying 769. Reading it as a real AppID would refuse every one of those
+    ///     writes as stale against a session that has no running application.
     /// </remarks>
     private static readonly ulong SteamClientPseudoGameId =
         ulong.Parse(SteamPerformanceState.NoGame, CultureInfo.InvariantCulture);
@@ -338,7 +357,7 @@ public static class SteamPerformanceDeltaReader
         error = null;
 
         if (payload.ValueKind is not JsonValueKind.Object
-            || !payload.TryGetProperty("delta", out JsonElement message))
+            || !payload.TryGetProperty("delta", out var message))
         {
             error = "The performance delta payload carried no delta object.";
             return false;
@@ -351,7 +370,7 @@ public static class SteamPerformanceDeltaReader
             // string here means the injected gate stopped decoding it and EVERY performance control
             // has silently stopped working. Saying so beats "no delta object".
             error = "The performance delta arrived undecoded; the injected gate did not deserialize "
-                + "the update-settings message.";
+                    + "the update-settings message.";
             return false;
         }
 
@@ -364,19 +383,19 @@ public static class SteamPerformanceDeltaReader
         List<SteamPerformanceChange> recognized = [];
         List<string> unsupported = [];
 
-        bool resetToDefault = ReadFlag(message, "reset_to_default") ?? false;
-        uint? steamAppId = ReadAppId(message);
+        var resetToDefault = ReadFlag(message, "reset_to_default") ?? false;
+        var steamAppId = ReadAppId(message);
 
-        if (message.TryGetProperty("settings_delta", out JsonElement settings)
+        if (message.TryGetProperty("settings_delta", out var settings)
             && settings.ValueKind is JsonValueKind.Object)
         {
-            if (settings.TryGetProperty("global", out JsonElement global)
+            if (settings.TryGetProperty("global", out var global)
                 && global.ValueKind is JsonValueKind.Object)
             {
                 ReadFields(global, recognized, unsupported);
             }
 
-            if (settings.TryGetProperty("per_app", out JsonElement perApp)
+            if (settings.TryGetProperty("per_app", out var perApp)
                 && perApp.ValueKind is JsonValueKind.Object)
             {
                 ReadFields(perApp, recognized, unsupported);
@@ -392,7 +411,7 @@ public static class SteamPerformanceDeltaReader
         List<SteamPerformanceChange> recognized,
         List<string> unsupported)
     {
-        foreach (JsonProperty property in settings.EnumerateObject())
+        foreach (var property in settings.EnumerateObject())
         {
             // toObject() emits every field of the message, not only the ones the setter touched, so
             // a null or absent value is "not part of this delta" and must not be applied. Treating
@@ -417,7 +436,7 @@ public static class SteamPerformanceDeltaReader
                     SteamPerformanceSetting.RefreshRateHz,
                 "is_game_perf_profile_enabled" => SteamPerformanceSetting.PerApplicationProfileEnabled,
                 "is_advanced_settings_enabled" => SteamPerformanceSetting.AdvancedSettingsEnabled,
-                _ => null,
+                _ => null
             };
 
             if (kind is not { } setting)
@@ -426,7 +445,7 @@ public static class SteamPerformanceDeltaReader
                 continue;
             }
 
-            if (TryReadInteger(property.Value, out int value))
+            if (TryReadInteger(property.Value, out var value))
             {
                 recognized.Add(new SteamPerformanceChange(setting, value));
             }
@@ -455,34 +474,36 @@ public static class SteamPerformanceDeltaReader
         }
     }
 
-    private static bool? ReadFlag(JsonElement message, string name) =>
-        message.TryGetProperty(name, out JsonElement value)
+    private static bool? ReadFlag(JsonElement message, string name)
+    {
+        return message.TryGetProperty(name, out var value)
             ? value.ValueKind switch
             {
                 JsonValueKind.True => true,
                 JsonValueKind.False => false,
-                _ => null,
+                _ => null
             }
             : null;
+    }
 
     /// <remarks>
-    /// <c>gameid</c> is a 64-bit id, and the client emits it as either a number or a string
-    /// depending on magnitude. Anything that is not a Steam AppID — zero, the Steam client's own
-    /// pseudo-app, or a value beyond 32 bits such as a full game id — targets the global profile
-    /// rather than being guessed at.
+    ///     <c>gameid</c> is a 64-bit id, and the client emits it as either a number or a string
+    ///     depending on magnitude. Anything that is not a Steam AppID — zero, the Steam client's own
+    ///     pseudo-app, or a value beyond 32 bits such as a full game id — targets the global profile
+    ///     rather than being guessed at.
     /// </remarks>
     private static uint? ReadAppId(JsonElement message)
     {
-        if (!message.TryGetProperty("gameid", out JsonElement value))
+        if (!message.TryGetProperty("gameid", out var value))
         {
             return null;
         }
 
         ulong raw = value.ValueKind switch
         {
-            JsonValueKind.Number when value.TryGetUInt64(out ulong number) => number,
-            JsonValueKind.String when ulong.TryParse(value.GetString(), out ulong parsed) => parsed,
-            _ => 0,
+            JsonValueKind.Number when value.TryGetUInt64(out var number) => number,
+            JsonValueKind.String when ulong.TryParse(value.GetString(), out var parsed) => parsed,
+            _ => 0
         };
 
         return raw is > 0 and <= uint.MaxValue && raw != SteamClientPseudoGameId
@@ -495,9 +516,11 @@ public static class SteamPerformanceDeltaReader
 public interface ISteamPerformanceBackend
 {
     /// <summary>Applies one <c>UpdateSettings</c> call from Steam's own performance panel.</summary>
-    /// <param name="delta">The decoded delta. A single call can carry several changes; apply them
-    /// in the order they arrived, because a delta that turns the cap on and sets it in one message
-    /// must not apply the two out of order.</param>
+    /// <param name="delta">
+    ///     The decoded delta. A single call can carry several changes; apply them
+    ///     in the order they arrived, because a delta that turns the cap on and sets it in one message
+    ///     must not apply the two out of order.
+    /// </param>
     /// <param name="correlationId">Correlates the command across the backend's log.</param>
     /// <param name="cancellationToken">Cancels the writes.</param>
     /// <returns>Whether every recognized change applied, and the first failure if not.</returns>
@@ -509,14 +532,14 @@ public interface ISteamPerformanceBackend
 
 /// <summary>Valve's own Performance tab, backed by the consumer's performance state.</summary>
 /// <remarks>
-/// <c>SystemPerfStore</c>'s constructor optional-chains through a <c>SteamClient.System.Perf</c>
-/// that does not exist on Windows, so its state stays empty and every control renders null. The
-/// gate supplies that namespace, writes the published state into the store, and decodes each
-/// setter's protobuf delta through the message's own <c>deserializeBinary</c> before forwarding.
-/// The module also mounts Valve's own rows that read that store: the profile header and its
-/// per-game toggle, the reset button, the overlay-level selector, and the manual refresh-rate row
-/// in Quick Settings. Which of them show anything is decided entirely by which fields the
-/// published state carries.
+///     <c>SystemPerfStore</c>'s constructor optional-chains through a <c>SteamClient.System.Perf</c>
+///     that does not exist on Windows, so its state stays empty and every control renders null. The
+///     gate supplies that namespace, writes the published state into the store, and decodes each
+///     setter's protobuf delta through the message's own <c>deserializeBinary</c> before forwarding.
+///     The module also mounts Valve's own rows that read that store: the profile header and its
+///     per-game toggle, the reset button, the overlay-level selector, and the manual refresh-rate row
+///     in Quick Settings. Which of them show anything is decided entirely by which fields the
+///     published state carries.
 /// </remarks>
 public static class SteamPerformanceSurface
 {
@@ -528,48 +551,48 @@ public static class SteamPerformanceSurface
 
     /// <summary>The gate that supplies the performance backend behind <c>SteamClient.System.Perf</c>.</summary>
     /// <remarks>
-    /// Its own resource key, separate from the row patches that mount into the panel: this
-    /// supplies data, they render, and a failure in one must not disable the other.
+    ///     Its own resource key, separate from the row patches that mount into the panel: this
+    ///     supplies data, they render, and a failure in one must not disable the other.
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
-        id: PatchId,
-        resourceKey: "steam-ui.performance-namespace",
-        gateName: "perf",
-        fingerprint: "native-qam-perf-v1:store+absent-namespace+reachable-singleton",
+        PatchId,
+        "steam-ui.performance-namespace",
+        "perf",
+        "native-qam-perf-v1:store+absent-namespace+reachable-singleton",
         // The store is counted by the source tokens that make it the perf store, never by module
         // id; the singleton is reached through the one exported class with a Get() whose body
         // declares the state, because the state is written into a client that is already running.
         // Naming module 74514 is what refused this gate on the September 2026 beta.
-        probeExpression: $$"""
-            {{SteamUiProbeJs.Preamble("steam_ui_performance_probe_")}}
-              let singleton=false;
-              try{
-                const holder=req.exported(['SteamClient.System.Perf','RegisterForStateChanges','m_msgState'],
-                  v=>typeof v==='function'&&typeof v.Get==='function'&&String(v).includes('m_msgState'));
-                const store=holder.Get();
-                singleton=!!(store&&'m_msgState' in store);
-              }catch{}
-              return JSON.stringify({
-                perfStore:count(['SteamClient.System.Perf','RegisterForStateChanges','m_msgState']),
-                perfNamespaceAbsent:{{SteamUiProbeJs.OwnedOrAbsentNamespace("Perf")}},
-                storeSingletonReachable:singleton
-              });
-            {{SteamUiProbeJs.Close}}
-            """,
-        compatible: root =>
+        $$"""
+          {{SteamUiProbeJs.Preamble("steam_ui_performance_probe_")}}
+            let singleton=false;
+            try{
+              const holder=req.exported(['SteamClient.System.Perf','RegisterForStateChanges','m_msgState'],
+                v=>typeof v==='function'&&typeof v.Get==='function'&&String(v).includes('m_msgState'));
+              const store=holder.Get();
+              singleton=!!(store&&'m_msgState' in store);
+            }catch{}
+            return JSON.stringify({
+              perfStore:count(['SteamClient.System.Perf','RegisterForStateChanges','m_msgState']),
+              perfNamespaceAbsent:{{SteamUiProbeJs.OwnedOrAbsentNamespace("Perf")}},
+              storeSingletonReachable:singleton
+            });
+          {{SteamUiProbeJs.Close}}
+          """,
+        root =>
             SteamUiPatchEvaluation.IsOne(root, "perfStore")
             && SteamUiPatchEvaluation.Flag(root, "perfNamespaceAbsent")
             && SteamUiPatchEvaluation.Flag(root, "storeSingletonReachable"),
-        verifyOk: "status.installed&&status.namespacePresent",
-        removeOk: "!status.namespacePresent",
-        subject: "Performance namespace");
+        "status.installed&&status.namespacePresent",
+        "!status.namespacePresent",
+        "Performance namespace");
 
     /// <summary>Valve's profile header and the per-game profile toggle, as one row kind.</summary>
     /// <remarks>
-    /// Two separate exports of the perf-components module on the current client — re-probed
-    /// 2026-09-02 after the header rendered with no way to enable a profile — mounted as two rows
-    /// under this one kind because they are halves of one feature: the header names whose profile
-    /// is on screen, the toggle is the only control that can change that.
+    ///     Two separate exports of the perf-components module on the current client — re-probed
+    ///     2026-09-02 after the header rendered with no way to enable a profile — mounted as two rows
+    ///     under this one kind because they are halves of one feature: the header names whose profile
+    ///     is on screen, the toggle is the only control that can change that.
     /// </remarks>
     public static SteamQuickAccessRowPatch ProfileHeaderRow { get; } = new(
         "steam-ui.valve-profile-header",
@@ -592,8 +615,10 @@ public static class SteamPerformanceSurface
         "steam_ui_valve_overlay_probe_");
 
     /// <summary>Valve's manual refresh-rate row, mounted into Quick Settings.</summary>
-    /// <remarks>It reads <c>limits.display_refresh_manual_hz_*</c> from the published state, so
-    /// it appears exactly when the backend supplies those fields.</remarks>
+    /// <remarks>
+    ///     It reads <c>limits.display_refresh_manual_hz_*</c> from the published state, so
+    ///     it appears exactly when the backend supplies those fields.
+    /// </remarks>
     public static SteamQuickAccessRowPatch RefreshRateRow { get; } = new(
         "steam-ui.valve-refresh-rate",
         "valveRefreshRate",
@@ -603,9 +628,11 @@ public static class SteamPerformanceSurface
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
     /// <param name="state">The state to serialize.</param>
     /// <returns>The wire payload.</returns>
-    public static JsonElement Serialize(SteamPerformanceState state) =>
-        JsonSerializer.SerializeToElement(
+    public static JsonElement Serialize(SteamPerformanceState state)
+    {
+        return JsonSerializer.SerializeToElement(
             state, SteamSurfaceJsonContext.Default.SteamPerformanceState);
+    }
 
     /// <summary>Declares the surface as one module: the gate, Valve's rows, the state and the answer.</summary>
     /// <param name="enabled">Whether the state may be published right now.</param>
@@ -630,14 +657,14 @@ public static class SteamPerformanceSurface
             [
                 // A refusal needs no log of its own: the module runtime logs every refused request
                 // with its reason and payload.
-                new(PatchId, "updateSettings", (request, cancellationToken) =>
+                new SteamUiCommandHandler(PatchId, "updateSettings", (request, cancellationToken) =>
                     SteamPerformanceDeltaReader.TryRead(
                         request.Payload,
-                        out SteamPerformanceDelta delta,
-                        out string? readError)
+                        out var delta,
+                        out var readError)
                         ? backend.ApplyAsync(delta, request.ToCorrelationId(), cancellationToken)
                         : SteamSurfaceModule.Invalid(
-                            readError ?? "The performance delta payload is invalid.")),
+                            readError ?? "The performance delta payload is invalid."))
             ]);
     }
 }

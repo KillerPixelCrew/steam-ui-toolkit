@@ -17,17 +17,17 @@ public interface ISteamBrightnessBackend
     /// <summary>Sets the panel backlight.</summary>
     /// <param name="percent">The level, 0 to 100.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns>The outcome with serialized <see cref="SteamBrightnessState"/> readback as its payload on success.</returns>
+    /// <returns>The outcome with serialized <see cref="SteamBrightnessState" /> readback as its payload on success.</returns>
     Task<SteamUiCommandResult> SetBrightnessAsync(int percent, CancellationToken cancellationToken);
 }
 
 /// <summary>Steam's own brightness slider in Quick Settings, revealed and backed.</summary>
 /// <remarks>
-/// The slider ships in the Windows client behind one settings boolean, and its native
-/// <c>SetBrightness</c> is a stub whose change notifications never fire. The gate reveals the flag,
-/// claims the setter so the slider's writes reach the backend, and feeds the store's observable
-/// from confirmed readback. Pending user requests and programmatic state projection are separate:
-/// an observable refresh must never invoke the hardware setter. Revisions reject stale publications.
+///     The slider ships in the Windows client behind one settings boolean, and its native
+///     <c>SetBrightness</c> is a stub whose change notifications never fire. The gate reveals the flag,
+///     claims the setter so the slider's writes reach the backend, and feeds the store's observable
+///     from confirmed readback. Pending user requests and programmatic state projection are separate:
+///     an observable refresh must never invoke the hardware setter. Revisions reject stale publications.
 /// </remarks>
 public static class SteamBrightnessSurface
 {
@@ -39,54 +39,56 @@ public static class SteamBrightnessSurface
 
     /// <summary>The gate that reveals Steam's brightness row and claims its setter.</summary>
     /// <remarks>
-    /// The probe requires the native backend to be present: revealing the row without it would
-    /// produce a slider that moves and changes nothing. Verification includes <c>setterOwned</c>
-    /// because a revealed slider whose writes still reach the native stub is the exact broken
-    /// state this gate first shipped with.
+    ///     The probe requires the native backend to be present: revealing the row without it would
+    ///     produce a slider that moves and changes nothing. Verification includes <c>setterOwned</c>
+    ///     because a revealed slider whose writes still reach the native stub is the exact broken
+    ///     state this gate first shipped with.
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
-        id: PatchId,
-        resourceKey: "steam-ui.brightness-availability",
-        gateName: "brightness",
-        fingerprint: "steam-brightness-v1:hidden-flag+present-backend",
-        probeExpression: $$"""
-            {{SteamUiProbeJs.Preamble("steam_ui_brightness_probe_")}}
-              // By what it is, never by module id or export name: the September 2026 beta renumbered
-              // module 59547 and this probe refused brightness until it stopped naming it.
-              let store=null;
-              try{store=req.exported(['m_flDisplayBrightness','is_display_brightness_available'],
-                v=>typeof v==='function'&&typeof v.Get==='function'&&String(v).includes('m_flDisplayBrightness')).Get();}catch{}
-              const settings=store&&store.m_msgSettings;
-              if(!settings)return JSON.stringify({error:'display settings unavailable'});
-              const display=window.SteamClient&&SteamClient.System&&SteamClient.System.Display;
-              return JSON.stringify({
-                fieldPresent:'is_display_brightness_available' in settings,
-                // Hidden, or visible because this gate revealed it. Requiring hidden alone was the
-                // self-incompatibility teardown loop: a successful apply made this false, the next
-                // poll declared the patch incompatible, and the manager removed the reveal it had
-                // just verified — the row flickered on a ~25-second cycle on the device (2026-08-30).
-                revealable:settings.is_display_brightness_available!==true
-                  ||settings.__steamUiBrightnessRevealed===true||settings.__wsgmBrightnessRevealed===true,
-                  // The __wsgm* spellings are the markers a build before the rename wrote; read as ours so
-                  // that upgrade needs no Steam restart. Never written.
-                backendPresent:!!display&&typeof display.SetBrightness==='function'
-                  &&typeof display.RegisterForBrightnessChanges==='function'
-              });
-            {{SteamUiProbeJs.Close}}
-            """,
-        compatible: root =>
+        PatchId,
+        "steam-ui.brightness-availability",
+        "brightness",
+        "steam-brightness-v1:hidden-flag+present-backend",
+        $$"""
+          {{SteamUiProbeJs.Preamble("steam_ui_brightness_probe_")}}
+            // By what it is, never by module id or export name: the September 2026 beta renumbered
+            // module 59547 and this probe refused brightness until it stopped naming it.
+            let store=null;
+            try{store=req.exported(['m_flDisplayBrightness','is_display_brightness_available'],
+              v=>typeof v==='function'&&typeof v.Get==='function'&&String(v).includes('m_flDisplayBrightness')).Get();}catch{}
+            const settings=store&&store.m_msgSettings;
+            if(!settings)return JSON.stringify({error:'display settings unavailable'});
+            const display=window.SteamClient&&SteamClient.System&&SteamClient.System.Display;
+            return JSON.stringify({
+              fieldPresent:'is_display_brightness_available' in settings,
+              // Hidden, or visible because this gate revealed it. Requiring hidden alone was the
+              // self-incompatibility teardown loop: a successful apply made this false, the next
+              // poll declared the patch incompatible, and the manager removed the reveal it had
+              // just verified — the row flickered on a ~25-second cycle on the device (2026-08-30).
+              revealable:settings.is_display_brightness_available!==true
+                ||settings.__steamUiBrightnessRevealed===true||settings.__wsgmBrightnessRevealed===true,
+                // The __wsgm* spellings are the markers a build before the rename wrote; read as ours so
+                // that upgrade needs no Steam restart. Never written.
+              backendPresent:!!display&&typeof display.SetBrightness==='function'
+                &&typeof display.RegisterForBrightnessChanges==='function'
+            });
+          {{SteamUiProbeJs.Close}}
+          """,
+        root =>
             SteamUiPatchEvaluation.Flag(root, "fieldPresent")
             && SteamUiPatchEvaluation.Flag(root, "revealable")
             && SteamUiPatchEvaluation.Flag(root, "backendPresent"),
-        verifyOk: "status.installed&&status.available&&status.setterOwned",
-        removeOk: "!status.available",
-        subject: "Brightness gate");
+        "status.installed&&status.available&&status.setterOwned",
+        "!status.available",
+        "Brightness gate");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
     /// <param name="state">The state to serialize.</param>
     /// <returns>The wire payload.</returns>
-    public static JsonElement Serialize(SteamBrightnessState state) =>
-        JsonSerializer.SerializeToElement(state, SteamSurfaceJsonContext.Default.SteamBrightnessState);
+    public static JsonElement Serialize(SteamBrightnessState state)
+    {
+        return JsonSerializer.SerializeToElement(state, SteamSurfaceJsonContext.Default.SteamBrightnessState);
+    }
 
     /// <summary>Declares the surface as one module: the gate, the state, and the answer.</summary>
     /// <param name="enabled">Whether the state may be published right now.</param>
@@ -115,7 +117,7 @@ public static class SteamBrightnessSurface
                     static (JsonElement payload, out int percent) =>
                         SteamUiPayload.TryReadInt(payload, "percent", 0, 100, out percent),
                     backend.SetBrightnessAsync,
-                    "The brightness payload is invalid."),
+                    "The brightness payload is invalid.")
             ]);
     }
 }

@@ -14,10 +14,10 @@ namespace SteamUiToolkit;
 
 /// <summary>The framed message channel a CDP connection runs over.</summary>
 /// <remarks>
-/// Public because it is the seam a consumer substitutes to exercise its patches without a running
-/// Steam client. Everything above it — generations, request correlation, the patch lifecycle — is
-/// worth testing that way, and a framework that can only be tested against live Steam is one whose
-/// consumers will not test at all.
+///     Public because it is the seam a consumer substitutes to exercise its patches without a running
+///     Steam client. Everything above it — generations, request correlation, the patch lifecycle — is
+///     worth testing that way, and a framework that can only be tested against live Steam is one whose
+///     consumers will not test at all.
 /// </remarks>
 public interface ISteamUiCdpWire : IAsyncDisposable
 {
@@ -29,7 +29,7 @@ public interface ISteamUiCdpWire : IAsyncDisposable
 
     /// <summary>Waits for the next complete message.</summary>
     /// <param name="cancellationToken">Cancels the receive.</param>
-    /// <returns>The payload, or <see langword="null"/> when the channel closed cleanly.</returns>
+    /// <returns>The payload, or <see langword="null" /> when the channel closed cleanly.</returns>
     Task<byte[]?> ReceiveAsync(CancellationToken cancellationToken);
 }
 
@@ -37,8 +37,10 @@ public interface ISteamUiCdpWire : IAsyncDisposable
 public interface ISteamUiCdpWireFactory
 {
     /// <summary>Connects to one target.</summary>
-    /// <param name="endpoint">The discovered target, whose socket URL has already been checked to
-    /// be loopback on the debug port.</param>
+    /// <param name="endpoint">
+    ///     The discovered target, whose socket URL has already been checked to
+    ///     be loopback on the debug port.
+    /// </param>
     /// <param name="cancellationToken">Cancels the connection attempt.</param>
     /// <returns>The open channel.</returns>
     Task<ISteamUiCdpWire> ConnectAsync(
@@ -75,17 +77,22 @@ internal sealed class SteamUiWebSocketWire : ISteamUiCdpWire
     // and the old 96 KB expression cap rejected it. The patch reported "expression exceeded its byte
     // limit" and the Steam Input page silently kept Valve's artwork.
     private const int MaximumResponseBytes = 8 * 1024 * 1024;
-    private readonly ClientWebSocket _socket;
 
     // Reused across messages: only the connection's single read loop receives, and every message
     // is copied out before the next receive begins.
     private readonly ArrayBufferWriter<byte> _received = new(16 * 1024);
+    private readonly ClientWebSocket _socket;
 
-    internal SteamUiWebSocketWire(ClientWebSocket socket) => _socket = socket;
+    internal SteamUiWebSocketWire(ClientWebSocket socket)
+    {
+        _socket = socket;
+    }
 
-    public Task SendAsync(ReadOnlyMemory<byte> message, CancellationToken cancellationToken) =>
-        _socket.SendAsync(
+    public Task SendAsync(ReadOnlyMemory<byte> message, CancellationToken cancellationToken)
+    {
+        return _socket.SendAsync(
             message, WebSocketMessageType.Text, true, cancellationToken).AsTask();
+    }
 
     public async Task<byte[]?> ReceiveAsync(CancellationToken cancellationToken)
     {
@@ -99,15 +106,18 @@ internal sealed class SteamUiWebSocketWire : ISteamUiCdpWire
             {
                 return null;
             }
+
             if (result.MessageType != WebSocketMessageType.Text)
             {
                 throw new InvalidDataException("Steam UI CDP emitted a non-text frame.");
             }
+
             writer.Advance(result.Count);
             if (writer.WrittenCount > MaximumResponseBytes)
             {
                 throw new InvalidDataException("Steam UI CDP response exceeded its byte limit.");
             }
+
             if (result.EndOfMessage)
             {
                 return writer.WrittenMemory.ToArray();
@@ -123,7 +133,7 @@ internal sealed class SteamUiWebSocketWire : ISteamUiCdpWire
             try
             {
                 await _socket.CloseOutputAsync(
-                    WebSocketCloseStatus.NormalClosure, "the host channel closed", timeout.Token)
+                        WebSocketCloseStatus.NormalClosure, "the host channel closed", timeout.Token)
                     .ConfigureAwait(false);
             }
             catch
@@ -131,6 +141,7 @@ internal sealed class SteamUiWebSocketWire : ISteamUiCdpWire
                 // Disposal remains bounded; disposing the socket is the final cleanup.
             }
         }
+
         _socket.Dispose();
     }
 }
@@ -144,30 +155,31 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
     // the same framing bound as the response cap. There is deliberately no cap on the expressions
     // the host sends.
     private const int MaximumNotificationBytes = 1024 * 1024;
-    private readonly ISteamUiCdpWire _wire;
-    private readonly Action<string, string> _notification;
     private readonly Action<SteamUiCdpConnection, Exception?> _closed;
+    private readonly Action<string, string> _notification;
+
     private readonly Channel<(string Method, string Parameters)> _notifications =
         Channel.CreateBounded<(string Method, string Parameters)>(
             new BoundedChannelOptions(MaximumQueuedNotifications)
             {
                 SingleReader = true,
                 SingleWriter = true,
-                FullMode = BoundedChannelFullMode.Wait,
+                FullMode = BoundedChannelFullMode.Wait
             });
-    private readonly ConcurrentDictionary<int, TaskCompletionSource<JsonElement>> _pending = new();
+
     private readonly SemaphoreSlim _outstanding = new(MaximumOutstandingRequests);
+    private readonly ConcurrentDictionary<int, TaskCompletionSource<JsonElement>> _pending = new();
     private readonly SemaphoreSlim _sendGate = new(1, 1);
     private readonly CancellationTokenSource _shutdown = new();
-    private Task _reader = Task.CompletedTask;
-    private Task _notificationPump = Task.CompletedTask;
-    private int _nextRequestId;
-    private int _pendingCount;
+    private readonly ISteamUiCdpWire _wire;
     private int _disposed;
-    private int _wireDisposed;
-    private int _orphanResponses;
     private int _malformedFrames;
+    private int _nextRequestId;
+    private Task _notificationPump = Task.CompletedTask;
+    private int _orphanResponses;
+    private int _pendingCount;
     private int _started;
+    private int _wireDisposed;
 
     internal SteamUiCdpConnection(
         ISteamUiCdpWire wire,
@@ -183,7 +195,31 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
     // is read for each transport snapshot.
     internal int OutstandingRequests => Volatile.Read(ref _pendingCount);
 
-    internal Task Completion => _reader;
+    internal Task Completion { get; private set; } = Task.CompletedTask;
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        _shutdown.Cancel();
+        _notifications.Writer.TryComplete();
+        await DisposeWireAsync().ConfigureAwait(false);
+        try
+        {
+            await Task.WhenAll(Completion, _notificationPump)
+                .WaitAsync(TimeSpan.FromSeconds(1))
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+        }
+        // Pending request continuations can still be leaving their semaphore finally blocks after
+        // the reader drains them. These managed synchronization objects are collected with the
+        // connection; explicitly disposing them here would race those continuations.
+    }
 
     internal void Start()
     {
@@ -191,8 +227,9 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
         {
             throw new InvalidOperationException("Steam UI CDP connection was already started.");
         }
+
         _notificationPump = DispatchNotificationsAsync();
-        _reader = ReadLoopAsync();
+        Completion = ReadLoopAsync();
     }
 
     internal async Task<string?> EvaluateAsync(
@@ -216,16 +253,19 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
             throw new InvalidDataException(
                 $"Steam UI JavaScript exception: {SteamUiShared.Bound(exception.GetRawText(), 2048)}");
         }
+
         if (!response.TryGetProperty("result", out var result))
         {
             throw new InvalidDataException("Steam UI evaluation response lacked a result.");
         }
+
         if (result.TryGetProperty("value", out var value))
         {
             return value.ValueKind == JsonValueKind.String
                 ? value.GetString()
                 : value.GetRawText();
         }
+
         return null;
     }
 
@@ -257,6 +297,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
             _outstanding.Release();
             throw new InvalidOperationException("Steam UI CDP request identifier collision.");
         }
+
         Interlocked.Increment(ref _pendingCount);
 
         try
@@ -279,6 +320,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
             {
                 _sendGate.Release();
             }
+
             return await completion.Task.WaitAsync(deadline.Token).ConfigureAwait(false);
         }
         finally
@@ -299,6 +341,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
                 {
                     break;
                 }
+
                 ProcessMessage(message);
             }
         }
@@ -320,6 +363,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
             {
                 SteamUiLog.Warn("Steam UI notification handlers exceeded their drain budget.");
             }
+
             var terminal = failure ?? new IOException("Steam UI CDP channel closed.");
             foreach (var pair in _pending)
             {
@@ -328,6 +372,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
                     completion.TrySetException(terminal);
                 }
             }
+
             try
             {
                 await DisposeWireAsync().ConfigureAwait(false);
@@ -336,6 +381,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
             {
                 failure ??= ex;
             }
+
             try
             {
                 _closed(this, failure);
@@ -351,8 +397,8 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
     {
         // Started from the constructor like the transport pumps, so the notification handler must
         // not inherit the constructing thread's context.
-        await foreach ((string method, string parameters)
-            in _notifications.Reader.ReadAllAsync().ConfigureAwait(false))
+        await foreach (var (method, parameters)
+                       in _notifications.Reader.ReadAllAsync().ConfigureAwait(false))
         {
             try
             {
@@ -389,6 +435,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
             DropMalformed($"not JSON ({ex.Message})");
             return;
         }
+
         using var parsed = document;
         var root = parsed.RootElement;
         if (root.ValueKind != JsonValueKind.Object)
@@ -406,26 +453,31 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
                 DropMalformed("response carried an invalid id");
                 return;
             }
+
             if (!TryTakePending(id, out var completion))
             {
                 if (Interlocked.Increment(ref _orphanResponses) <= 3)
                 {
                     SteamUiLog.Warn($"Steam UI CDP ignored orphan response id {id}.");
                 }
+
                 return;
             }
+
             if (root.TryGetProperty("error", out var error))
             {
                 completion.TrySetException(new InvalidDataException(
                     $"Steam UI CDP error: {SteamUiShared.Bound(error.GetRawText(), 2048)}"));
                 return;
             }
+
             if (!root.TryGetProperty("result", out var result))
             {
                 completion.TrySetException(new InvalidDataException(
                     "Steam UI CDP response lacked result and error."));
                 return;
             }
+
             completion.TrySetResult(result.Clone());
             return;
         }
@@ -436,6 +488,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
             DropMalformed("notification lacked a method");
             return;
         }
+
         var method = methodElement.GetString()!;
         var parameters = "{}";
         if (root.TryGetProperty("params", out var value))
@@ -453,6 +506,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
                 parameters = value.GetRawText();
             }
         }
+
         if (!_notifications.Writer.TryWrite((method, parameters)))
         {
             throw new InvalidDataException("Steam UI CDP notification queue exceeded its limit.");
@@ -465,6 +519,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
         {
             return false;
         }
+
         Interlocked.Decrement(ref _pendingCount);
         _outstanding.Release();
         return true;
@@ -485,8 +540,10 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
                 writeParameters(writer);
                 writer.WriteEndObject();
             }
+
             writer.WriteEndObject();
         }
+
         return writerBuffer.WrittenMemory;
     }
 
@@ -496,28 +553,5 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
         {
             await _wire.DisposeAsync().ConfigureAwait(false);
         }
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0)
-        {
-            return;
-        }
-        _shutdown.Cancel();
-        _notifications.Writer.TryComplete();
-        await DisposeWireAsync().ConfigureAwait(false);
-        try
-        {
-            await Task.WhenAll(_reader, _notificationPump)
-                .WaitAsync(TimeSpan.FromSeconds(1))
-                .ConfigureAwait(false);
-        }
-        catch
-        {
-        }
-        // Pending request continuations can still be leaving their semaphore finally blocks after
-        // the reader drains them. These managed synchronization objects are collected with the
-        // connection; explicitly disposing them here would race those continuations.
     }
 }

@@ -4,14 +4,14 @@ using static SteamUiToolkit.Tests.Fakes.SurfaceDispatch;
 namespace SteamUiToolkit.Tests;
 
 /// <summary>
-/// The navigation panel surface's own contract: what the probe demands of a client before the
-/// panel is claimed, and what a publication puts on the wire.
+///     The navigation panel surface's own contract: what the probe demands of a client before the
+///     panel is claimed, and what a publication puts on the wire.
 /// </summary>
 /// <remarks>
-/// Every structural fact asserted here was measured against the live client on 2026-09-10, where
-/// <c>#MainMenu_Title</c> and <c>MainNavMenuContainer</c> each occur in exactly one of the 2581
-/// loaded modules, that module has exactly one export whose memo renders the container, and that
-/// export's <c>type</c> is a writable and configurable own property.
+///     Every structural fact asserted here was measured against the live client on 2026-09-10, where
+///     <c>#MainMenu_Title</c> and <c>MainNavMenuContainer</c> each occur in exactly one of the 2581
+///     loaded modules, that module has exactly one export whose memo renders the container, and that
+///     export's <c>type</c> is a writable and configurable own property.
 /// </remarks>
 public sealed class SteamNavigationPanelTests
 {
@@ -22,7 +22,7 @@ public sealed class SteamNavigationPanelTests
     {
         // Each fact is separate so an incompatible client says which one moved. A probe that
         // reported one boolean would only ever say "something changed".
-        string probe = Gate.ProbeExpression;
+        var probe = Gate.ProbeExpression;
 
         Assert.Contains("#MainMenu_Title", probe, StringComparison.Ordinal);
         Assert.Contains("MainNavMenuContainer", probe, StringComparison.Ordinal);
@@ -36,7 +36,7 @@ public sealed class SteamNavigationPanelTests
     {
         // Minified export names are right for exactly one client build. The live panel's export is
         // called v_ today and that name is deliberately nowhere in this file or the probe.
-        string probe = Gate.ProbeExpression;
+        var probe = Gate.ProbeExpression;
 
         Assert.DoesNotContain("v_", probe, StringComparison.Ordinal);
         Assert.DoesNotContain("exports.Ie", probe, StringComparison.Ordinal);
@@ -53,7 +53,7 @@ public sealed class SteamNavigationPanelTests
     [InlineData("""{"error":"Steam modules unavailable"}""", false)]
     public void CompatibilityRequiresEveryFactAndAUniqueMatchForEachOne(string json, bool expected)
     {
-        using JsonDocument document = JsonDocument.Parse(json);
+        using var document = JsonDocument.Parse(json);
 
         Assert.Equal(expected, Gate.Compatible(document.RootElement));
     }
@@ -62,11 +62,11 @@ public sealed class SteamNavigationPanelTests
     public void EntriesAndHiddenNamesReachTheWireAsPublished()
     {
         SteamNavigationPanelState state = new(
-            [new SteamNavigationItem("wsgm-overlay", "WSGM", Icon: "cores", After: "/library")],
+            [new SteamNavigationItem("wsgm-overlay", "WSGM", "cores", After: "/library")],
             ["power"]);
 
-        JsonElement wire = SteamNavigationPanelSurface.Serialize(state);
-        JsonElement item = wire.GetProperty("items")[0];
+        var wire = SteamNavigationPanelSurface.Serialize(state);
+        var item = wire.GetProperty("items")[0];
 
         Assert.Equal("wsgm-overlay", item.GetProperty("id").GetString());
         Assert.Equal("WSGM", item.GetProperty("label").GetString());
@@ -82,12 +82,12 @@ public sealed class SteamNavigationPanelTests
         SteamUiModuleSet set = new(
         [
             SteamNavigationPanelSurface.Module(
-                Always, () => new(null as SteamNavigationPanelState), backend),
+                Always, () => new ValueTask<SteamNavigationPanelState?>(null as SteamNavigationPanelState), backend)
         ]);
 
-        SteamUiCommandResult applied = await DispatchAsync(
+        var applied = await DispatchAsync(
             set, SteamNavigationPanelSurface.PatchId, "activate", """{"id":"wsgm-overlay"}""");
-        SteamUiCommandResult refused = await DispatchAsync(
+        var refused = await DispatchAsync(
             set, SteamNavigationPanelSurface.PatchId, "activate", """{"id":""}""");
 
         Assert.True(applied.Succeeded);

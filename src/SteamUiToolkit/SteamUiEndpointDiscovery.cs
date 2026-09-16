@@ -13,8 +13,10 @@ namespace SteamUiToolkit;
 /// <param name="BrowserId">The browser-level target this page belongs to.</param>
 /// <param name="TargetId">The page target's own id.</param>
 /// <param name="Role">Which of Steam's surfaces this is.</param>
-/// <param name="SocketUri">The debugger socket, already checked to be loopback on the debug
-/// port — a squatter answering the HTTP probe could otherwise redirect the client anywhere.</param>
+/// <param name="SocketUri">
+///     The debugger socket, already checked to be loopback on the debug
+///     port — a squatter answering the HTTP probe could otherwise redirect the client anywhere.
+/// </param>
 /// <param name="Type">The CDP target type, as Steam reported it.</param>
 /// <param name="Title">The page title, as Steam reported it.</param>
 /// <param name="Url">The page URL, as Steam reported it.</param>
@@ -28,15 +30,19 @@ public sealed record SteamUiEndpoint(
     string Url);
 
 /// <summary>Finds the Steam target for a role.</summary>
-/// <remarks>Public alongside <see cref="ISteamUiCdpWire"/>, and for the same reason: substituting
-/// discovery is how a consumer tests without Steam running.</remarks>
+/// <remarks>
+///     Public alongside <see cref="ISteamUiCdpWire" />, and for the same reason: substituting
+///     discovery is how a consumer tests without Steam running.
+/// </remarks>
 public interface ISteamUiEndpointDiscovery
 {
     /// <summary>Finds the current target for one role.</summary>
     /// <param name="role">The surface wanted.</param>
     /// <param name="cancellationToken">Cancels discovery.</param>
-    /// <returns>The target, or <see langword="null"/> when none is available — which is the normal
-    /// answer while Steam is starting, not an error.</returns>
+    /// <returns>
+    ///     The target, or <see langword="null" /> when none is available — which is the normal
+    ///     answer while Steam is starting, not an error.
+    /// </returns>
     Task<SteamUiEndpoint?> DiscoverAsync(
         SteamUiTargetRole role, CancellationToken cancellationToken);
 }
@@ -44,10 +50,13 @@ public interface ISteamUiEndpointDiscovery
 internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDisposable
 {
     private const int MaximumDiscoveryBytes = 1024 * 1024;
+
     private static readonly Uri VersionUri =
         new($"http://127.0.0.1:{SteamCef.DebugPort}/json/version");
+
     private static readonly Uri TargetsUri =
         new($"http://127.0.0.1:{SteamCef.DebugPort}/json/list");
+
     private readonly HttpClient _httpClient;
     private readonly bool _requireMainWindow;
     private int _disposed;
@@ -58,17 +67,25 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDis
         _requireMainWindow = requireMainWindow;
     }
 
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) == 0)
+        {
+            _httpClient.Dispose();
+        }
+    }
+
     public async Task<SteamUiEndpoint?> DiscoverAsync(
         SteamUiTargetRole role, CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         // Returning null abandons Steam UI injection, so preserve the decisive discovery reason.
-        if (!IsSteamPortOwner(out string ownership))
+        if (!IsSteamPortOwner(out var ownership))
         {
             SteamUiLog.Change(
                 "steam.ui.discovery",
                 $"Steam UI discovery for {role} refused: {ownership}.",
-                warning: true);
+                true);
             return null;
         }
 
@@ -96,6 +113,7 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDis
                 "steam.ui.discovery",
                 $"Steam UI discovery for {role} waiting for a validated main window and target.");
         }
+
         return match;
     }
 
@@ -103,7 +121,7 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDis
         JsonElement targets, SteamUiTargetRole role, string browserId, bool requireMainWindow)
     {
         SteamUiEndpoint? match = null;
-        int mainWindows = 0;
+        var mainWindows = 0;
         foreach (var target in targets.EnumerateArray())
         {
             // Read each target once; it is then matched against the main window and the role.
@@ -120,10 +138,12 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDis
             {
                 continue;
             }
+
             if (MatchesTarget(SteamUiTargetRole.MainWindow, type, title, url))
             {
                 mainWindows++;
             }
+
             if (!MatchesTarget(role, type, title, url))
             {
                 continue;
@@ -133,15 +153,18 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDis
             {
                 throw new InvalidDataException($"Steam UI reported multiple {role} targets.");
             }
+
             match = new SteamUiEndpoint(
                 browserId, id, role, new Uri(socketUrl!, UriKind.Absolute), type, title, url);
         }
+
         return requireMainWindow && mainWindows != 1 ? null : match;
     }
 
     internal static bool MatchesTarget(
-        SteamUiTargetRole role, string type, string title, string url) =>
-        role switch
+        SteamUiTargetRole role, string type, string title, string url)
+    {
+        return role switch
         {
             SteamUiTargetRole.SharedJsContext =>
                 type == "page"
@@ -165,13 +188,16 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDis
                 && url.Contains("minwidth", StringComparison.Ordinal)
                 && !url.Contains("browserviewpopup", StringComparison.Ordinal)
                 && !url.Contains("openerid", StringComparison.Ordinal),
-            _ => false,
+            _ => false
         };
+    }
 
-    private static string? ReadString(JsonElement value, string property) =>
-        value.TryGetProperty(property, out var item) && item.ValueKind == JsonValueKind.String
+    private static string? ReadString(JsonElement value, string property)
+    {
+        return value.TryGetProperty(property, out var item) && item.ValueKind == JsonValueKind.String
             ? item.GetString()
             : null;
+    }
 
     private async Task<JsonDocument> ReadBoundedJsonAsync(
         Uri uri, CancellationToken cancellationToken)
@@ -195,19 +221,23 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDis
             {
                 break;
             }
+
             if (destination.Length + read > MaximumDiscoveryBytes)
             {
                 throw new InvalidDataException("Steam UI discovery response exceeded its byte limit.");
             }
+
             destination.Write(buffer, 0, read);
         }
+
         destination.Position = 0;
         return await JsonDocument.ParseAsync(destination, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
     }
 
-    private static bool IsSteamPortOwner(out string reason) =>
-        SteamCef.IsSteamPortOwner(
+    private static bool IsSteamPortOwner(out string reason)
+    {
+        return SteamCef.IsSteamPortOwner(
             NativeTcp.ListListeners(),
             static processId =>
             {
@@ -222,12 +252,5 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDis
                 }
             },
             out reason);
-
-    public void Dispose()
-    {
-        if (Interlocked.Exchange(ref _disposed, 1) == 0)
-        {
-            _httpClient.Dispose();
-        }
     }
 }

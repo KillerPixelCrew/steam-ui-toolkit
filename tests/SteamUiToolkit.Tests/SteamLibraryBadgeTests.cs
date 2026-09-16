@@ -4,14 +4,14 @@ using static SteamUiToolkit.Tests.Fakes.SurfaceDispatch;
 namespace SteamUiToolkit.Tests;
 
 /// <summary>
-/// The library badge surface's own contract: what the probe demands of a client before the tile
-/// is claimed, what a publication puts on the wire, and what the layout report carries back.
+///     The library badge surface's own contract: what the probe demands of a client before the tile
+///     is claimed, what a publication puts on the wire, and what the layout report carries back.
 /// </summary>
 /// <remarks>
-/// Every structural fact asserted here was measured against the September 2026 client beta on
-/// 2026-09-11, where <c>appportrait_</c> occurs in exactly one of the 2622 loaded modules, that
-/// module has exactly one <c>React.memo</c> export and exactly one function export drawing the
-/// controller-support icon, and the memo's <c>type</c> is a writable and configurable own property.
+///     Every structural fact asserted here was measured against the September 2026 client beta on
+///     2026-09-11, where <c>appportrait_</c> occurs in exactly one of the 2622 loaded modules, that
+///     module has exactly one <c>React.memo</c> export and exactly one function export drawing the
+///     controller-support icon, and the memo's <c>type</c> is a writable and configurable own property.
 /// </remarks>
 public sealed class SteamLibraryBadgeTests
 {
@@ -22,7 +22,7 @@ public sealed class SteamLibraryBadgeTests
     [Fact]
     public void TheProbeNamesEveryStructuralFactTheGateResolvesOn()
     {
-        string probe = Badge.ProbeExpression;
+        var probe = Badge.ProbeExpression;
 
         Assert.Contains("ControllerSupportIcon", probe, StringComparison.Ordinal);
         Assert.Contains("appportrait_", probe, StringComparison.Ordinal);
@@ -37,7 +37,7 @@ public sealed class SteamLibraryBadgeTests
     {
         // The live tile export is called TK and the badge Kt today. Neither name is anywhere in
         // the probe, because both are right for exactly one client build.
-        string probe = Badge.ProbeExpression;
+        var probe = Badge.ProbeExpression;
 
         Assert.DoesNotContain("exports.TK", probe, StringComparison.Ordinal);
         Assert.DoesNotContain("exports.Kt", probe, StringComparison.Ordinal);
@@ -48,19 +48,24 @@ public sealed class SteamLibraryBadgeTests
     }
 
     [Theory]
-    [InlineData("""{"tileModule":1,"tileExports":1,"badgeExports":1,"claimable":true,"settingsModule":1,"react":1}""", true)]
+    [InlineData("""{"tileModule":1,"tileExports":1,"badgeExports":1,"claimable":true,"settingsModule":1,"react":1}""",
+        true)]
     // The settings store is wanted, not required: the badge draws without it.
-    [InlineData("""{"tileModule":1,"tileExports":1,"badgeExports":1,"claimable":true,"settingsModule":0,"react":1}""", true)]
+    [InlineData("""{"tileModule":1,"tileExports":1,"badgeExports":1,"claimable":true,"settingsModule":0,"react":1}""",
+        true)]
     // Two memos is ambiguous, which is a refusal rather than a reason to pick one.
-    [InlineData("""{"tileModule":1,"tileExports":2,"badgeExports":1,"claimable":true,"settingsModule":1,"react":1}""", false)]
-    [InlineData("""{"tileModule":1,"tileExports":1,"badgeExports":0,"claimable":true,"settingsModule":1,"react":1}""", false)]
+    [InlineData("""{"tileModule":1,"tileExports":2,"badgeExports":1,"claimable":true,"settingsModule":1,"react":1}""",
+        false)]
+    [InlineData("""{"tileModule":1,"tileExports":1,"badgeExports":0,"claimable":true,"settingsModule":1,"react":1}""",
+        false)]
     // A non-writable type could be replaced by nothing and restored to nothing.
-    [InlineData("""{"tileModule":1,"tileExports":1,"badgeExports":1,"claimable":false,"settingsModule":1,"react":1}""", false)]
+    [InlineData("""{"tileModule":1,"tileExports":1,"badgeExports":1,"claimable":false,"settingsModule":1,"react":1}""",
+        false)]
     [InlineData("""{"tileModule":0}""", false)]
     [InlineData("""{"error":"Steam modules unavailable"}""", false)]
     public void CompatibilityRequiresEveryFactAndAUniqueMatchForEachOne(string json, bool expected)
     {
-        using JsonDocument document = JsonDocument.Parse(json);
+        using var document = JsonDocument.Parse(json);
 
         Assert.Equal(expected, Badge.Compatible(document.RootElement));
     }
@@ -74,7 +79,7 @@ public sealed class SteamLibraryBadgeTests
     [InlineData("""{"error":"Steam modules unavailable"}""", false)]
     public void TheDetailsStatRequiresOneRuntimeAndOnePlayBarClassMap(string json, bool expected)
     {
-        using JsonDocument document = JsonDocument.Parse(json);
+        using var document = JsonDocument.Parse(json);
 
         Assert.Equal(expected, Details.Compatible(document.RootElement));
     }
@@ -82,7 +87,7 @@ public sealed class SteamLibraryBadgeTests
     [Fact]
     public void TheDetailsStatFindsItsRowByValveNamesAndSharesTheRuntimeResource()
     {
-        string probe = Details.ProbeExpression;
+        var probe = Details.ProbeExpression;
 
         Assert.Contains("GameStatsSection:\"", probe, StringComparison.Ordinal);
         Assert.Contains("'.jsx','.jsxs'", probe, StringComparison.Ordinal);
@@ -94,8 +99,9 @@ public sealed class SteamLibraryBadgeTests
     [Fact]
     public void TheModuleDeclaresTheBadgeAndTheStatUnderOnePublication()
     {
-        ISteamUiModule module = SteamLibraryBadgeSurface.Module(
-            Always, () => new(null as SteamLibraryBadgeState), new RecordingBackend());
+        var module = SteamLibraryBadgeSurface.Module(
+            Always, () => new ValueTask<SteamLibraryBadgeState?>(null as SteamLibraryBadgeState),
+            new RecordingBackend());
 
         Assert.Equal(
             [SteamLibraryBadgeSurface.PatchId, SteamLibraryBadgeSurface.DetailsPatchId],
@@ -107,11 +113,11 @@ public sealed class SteamLibraryBadgeTests
     public void LibrariesReachTheWireWithTheirNameConnectionAndAppIds()
     {
         SteamLibraryBadgeState state = new(
-            [new SteamLibraryBadgeLibrary("Blue card", Connected: false, [70, 400])],
-            InternalLabel: "Claw");
+            [new SteamLibraryBadgeLibrary("Blue card", false, [70, 400])],
+            "Claw");
 
-        JsonElement wire = SteamLibraryBadgeSurface.Serialize(state);
-        JsonElement library = wire.GetProperty("libraries")[0];
+        var wire = SteamLibraryBadgeSurface.Serialize(state);
+        var library = wire.GetProperty("libraries")[0];
 
         Assert.Equal("Blue card", library.GetProperty("name").GetString());
         Assert.False(library.GetProperty("connected").GetBoolean());
@@ -127,9 +133,9 @@ public sealed class SteamLibraryBadgeTests
     [InlineData("""{}""", false, false)]
     public void TheLayoutReportIsExactlyOneBoolean(string json, bool valid, bool expected)
     {
-        using JsonDocument payload = JsonDocument.Parse(json);
+        using var payload = JsonDocument.Parse(json);
 
-        Assert.Equal(valid, SteamLibraryBadgeSurface.TryReadHomeLayout(payload.RootElement, out bool bigArt));
+        Assert.Equal(valid, SteamLibraryBadgeSurface.TryReadHomeLayout(payload.RootElement, out var bigArt));
         Assert.Equal(expected, bigArt);
     }
 
@@ -139,12 +145,13 @@ public sealed class SteamLibraryBadgeTests
         RecordingBackend backend = new();
         SteamUiModuleSet set = new(
         [
-            SteamLibraryBadgeSurface.Module(Always, () => new(null as SteamLibraryBadgeState), backend),
+            SteamLibraryBadgeSurface.Module(Always,
+                () => new ValueTask<SteamLibraryBadgeState?>(null as SteamLibraryBadgeState), backend)
         ]);
 
-        SteamUiCommandResult applied = await DispatchAsync(
+        var applied = await DispatchAsync(
             set, SteamLibraryBadgeSurface.PatchId, "homeLayout", """{"bigArt":true}""");
-        SteamUiCommandResult refused = await DispatchAsync(
+        var refused = await DispatchAsync(
             set, SteamLibraryBadgeSurface.PatchId, "homeLayout", """{"bigArt":1}""");
 
         Assert.True(applied.Succeeded);

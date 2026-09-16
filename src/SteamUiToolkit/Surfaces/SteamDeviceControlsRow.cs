@@ -9,11 +9,14 @@ namespace SteamUiToolkit;
 /// <summary>One bounded integer device control rendered as a percent slider.</summary>
 /// <param name="Available">Whether the slider may be operated. False hides it.</param>
 /// <param name="Minimum">Lowest value, at least 0.</param>
-/// <param name="Maximum">Highest value, at most 100 and above <paramref name="Minimum"/>.</param>
+/// <param name="Maximum">Highest value, at most 100 and above <paramref name="Minimum" />.</param>
 /// <param name="Step">Slider step, at least 1 and within the range.</param>
 /// <param name="Desired">The value asked for, on a step, or null.</param>
 /// <param name="Observed">The value the device reports, on a step, or null.</param>
-/// <param name="Progress">Command progress; the slider disables itself while <c>queued</c>, <c>applying</c> or <c>replacing</c>.</param>
+/// <param name="Progress">
+///     Command progress; the slider disables itself while <c>queued</c>, <c>applying</c> or
+///     <c>replacing</c>.
+/// </param>
 /// <param name="StatusText">One line of detail, or empty.</param>
 public sealed record SteamDeviceRangeState(
     bool Available,
@@ -45,8 +48,10 @@ public sealed record SteamLightingZoneState(
 /// <summary>Device charging and lighting controls shown in Steam Quick Settings.</summary>
 /// <param name="ChargeLimit">The battery charge-limit slider, or null to omit it.</param>
 /// <param name="LightingBrightness">The lighting-brightness slider, or null to omit it.</param>
-/// <param name="LightingZones">At most 16 zones. With at least one available zone the row draws a
-/// zone dropdown, a colour preview and hue, saturation and value sliders.</param>
+/// <param name="LightingZones">
+///     At most 16 zones. With at least one available zone the row draws a
+///     zone dropdown, a colour preview and hue, saturation and value sliders.
+/// </param>
 public sealed record SteamDeviceControlsState(
     SteamDeviceRangeState? ChargeLimit,
     SteamDeviceRangeState? LightingBrightness,
@@ -69,8 +74,10 @@ public interface ISteamDeviceControlsBackend
 
     /// <summary>Sets one zone's colour.</summary>
     /// <param name="zone">The zone id.</param>
-    /// <param name="color">The colour as 0xRRGGBB. The row coalesces slider edits 350 ms after
-    /// the last change, so a firmware write-rate limit does not queue stale intermediate colours.</param>
+    /// <param name="color">
+    ///     The colour as 0xRRGGBB. The row coalesces slider edits 350 ms after
+    ///     the last change, so a firmware write-rate limit does not queue stale intermediate colours.
+    /// </param>
     /// <param name="cancellationToken">Cancels the write.</param>
     /// <returns>The outcome.</returns>
     Task<SteamUiCommandResult> SetLightingColorAsync(string zone, int color, CancellationToken cancellationToken);
@@ -78,11 +85,11 @@ public interface ISteamDeviceControlsBackend
 
 /// <summary>Charge-limit and persistent device-lighting controls in Quick Settings.</summary>
 /// <remarks>
-/// Built from Valve's slider, dropdown and row primitives. The HSV interaction is this library's:
-/// Steam's generic HSV implementation is closed over by its module and not exported, and its
-/// exported controller-LED wrapper calls <c>SteamClient.Input.PreviewControllerLEDColor</c>, a
-/// Steam Input side effect unrelated to device lighting (live-probed 2026-08-31). Hue, saturation
-/// and value stay local while dragging and a write is requested only on release.
+///     Built from Valve's slider, dropdown and row primitives. The HSV interaction is this library's:
+///     Steam's generic HSV implementation is closed over by its module and not exported, and its
+///     exported controller-LED wrapper calls <c>SteamClient.Input.PreviewControllerLEDColor</c>, a
+///     Steam Input side effect unrelated to device lighting (live-probed 2026-08-31). Hue, saturation
+///     and value stay local while dragging and a write is requested only on release.
 /// </remarks>
 public static class SteamDeviceControlsRow
 {
@@ -103,9 +110,11 @@ public static class SteamDeviceControlsRow
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
     /// <param name="state">The state to serialize.</param>
     /// <returns>The wire payload.</returns>
-    public static JsonElement Serialize(SteamDeviceControlsState state) =>
-        JsonSerializer.SerializeToElement(
+    public static JsonElement Serialize(SteamDeviceControlsState state)
+    {
+        return JsonSerializer.SerializeToElement(
             state, SteamSurfaceJsonContext.Default.SteamDeviceControlsState);
+    }
 
     /// <summary>Declares the row as one module: the patch, the state, and the answers.</summary>
     /// <param name="enabled">Whether the state may be published right now.</param>
@@ -146,20 +155,22 @@ public static class SteamDeviceControlsRow
                     TryReadColor,
                     (value, cancellationToken) =>
                         backend.SetLightingColorAsync(value.Zone, value.Color, cancellationToken),
-                    "The lighting-color payload is invalid."),
+                    "The lighting-color payload is invalid.")
             ]);
     }
 
-    private static bool TryReadPercent(JsonElement payload, out int percent) =>
-        SteamUiPayload.TryReadInt(payload, "percent", 0, 100, out percent)
-        && SteamUiPayload.HasExactly(payload, 1);
+    private static bool TryReadPercent(JsonElement payload, out int percent)
+    {
+        return SteamUiPayload.TryReadInt(payload, "percent", 0, 100, out percent)
+               && SteamUiPayload.HasExactly(payload, 1);
+    }
 
     private static bool TryReadColor(JsonElement payload, out (string Zone, int Color) value)
     {
-        int color = 0;
-        bool read = SteamUiPayload.TryReadBoundedString(payload, "zone", 64, out string zone)
-            && SteamUiPayload.TryReadInt(payload, "color", 0, 0xFFFFFF, out color)
-            && SteamUiPayload.HasExactly(payload, 2);
+        var color = 0;
+        var read = SteamUiPayload.TryReadBoundedString(payload, "zone", 64, out var zone)
+                   && SteamUiPayload.TryReadInt(payload, "color", 0, 0xFFFFFF, out color)
+                   && SteamUiPayload.HasExactly(payload, 2);
         value = (zone, color);
         return read;
     }

@@ -4,11 +4,13 @@ using System.IO;
 namespace SteamUiToolkit;
 
 /// <summary>Supplies the toolkit's module resolver to standalone feature expressions.</summary>
-/// <remarks>The returned function resolves a literal module id only when its factory exists.
-/// Its <c>resolve(tokens)</c> method inspects source and requires exactly one match before loading
-/// exports. <c>count(tokens)</c> and <c>findUnique(tokens)</c> never execute factories. Missing,
-/// ambiguous and failed resolutions throw diagnostic errors. Factory presence does not prove
-/// dependency readiness; the host must also enforce its startup attachment policy.</remarks>
+/// <remarks>
+///     The returned function resolves a literal module id only when its factory exists.
+///     Its <c>resolve(tokens)</c> method inspects source and requires exactly one match before loading
+///     exports. <c>count(tokens)</c> and <c>findUnique(tokens)</c> never execute factories. Missing,
+///     ambiguous and failed resolutions throw diagnostic errors. Factory presence does not prove
+///     dependency readiness; the host must also enforce its startup attachment policy.
+/// </remarks>
 public static class SteamUiModuleResolver
 {
     private static readonly string Source = ReadSource();
@@ -25,8 +27,8 @@ public static class SteamUiModuleResolver
     private static string ReadSource()
     {
         using var stream = typeof(SteamUiModuleResolver).Assembly.GetManifestResourceStream(
-            "SteamUiToolkit.ModuleResolver.js")
-            ?? throw new InvalidOperationException("The Steam module resolver resource is missing.");
+                               "SteamUiToolkit.ModuleResolver.js")
+                           ?? throw new InvalidOperationException("The Steam module resolver resource is missing.");
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();
     }

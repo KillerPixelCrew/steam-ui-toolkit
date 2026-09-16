@@ -16,10 +16,12 @@ internal static class SteamUiShared
     /// <param name="maximumLength">The longest retained prefix.</param>
     /// <returns>The value itself when it fits, otherwise its prefix followed by "...".</returns>
     [return: NotNullIfNotNull(nameof(value))]
-    internal static string? Bound(string? value, int maximumLength) =>
-        value is null || value.Length <= maximumLength
+    internal static string? Bound(string? value, int maximumLength)
+    {
+        return value is null || value.Length <= maximumLength
             ? value
             : value[..maximumLength] + "...";
+    }
 
     /// <summary>Rejects a timeout that is not positive or exceeds the operation bound.</summary>
     /// <param name="timeout">The requested timeout.</param>
@@ -28,7 +30,8 @@ internal static class SteamUiShared
     internal static void ThrowIfInvalidTimeout(
         TimeSpan timeout,
         string message = "Steam UI operations require a positive timeout no greater than 30 seconds.",
-        [CallerArgumentExpression(nameof(timeout))] string? paramName = null)
+        [CallerArgumentExpression(nameof(timeout))]
+        string? paramName = null)
     {
         if (timeout <= TimeSpan.Zero || timeout > MaximumOperationTimeout)
         {

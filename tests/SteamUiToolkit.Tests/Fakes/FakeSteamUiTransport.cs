@@ -14,23 +14,19 @@ internal readonly record struct FakeEvaluation(
     CancellationToken CancellationToken);
 
 /// <summary>
-/// A shared-context transport that records what is sent and answers evaluations from a delegate.
+///     A shared-context transport that records what is sent and answers evaluations from a delegate.
 /// </summary>
 /// <remarks>
-/// Without a delegate every evaluation answers <see cref="EvaluationValue"/> under the current
-/// generations. Tests that need content-dependent answers, blocking, or generation changes during a
-/// call supply <see cref="OnEvaluate"/> and build the answer with <see cref="Reply"/>.
+///     Without a delegate every evaluation answers <see cref="EvaluationValue" /> under the current
+///     generations. Tests that need content-dependent answers, blocking, or generation changes during a
+///     call supply <see cref="OnEvaluate" /> and build the answer with <see cref="Reply" />.
 /// </remarks>
 internal sealed class FakeSteamUiTransport : ISteamUiTransport
 {
-    private readonly object _sync = new();
-    private readonly List<string> _expressions = [];
     private readonly List<bool> _bindingStates = [];
+    private readonly List<string> _expressions = [];
+    private readonly object _sync = new();
     private int _releasedSubscriptions;
-
-    public event EventHandler<SteamUiNotification>? NotificationReceived;
-
-    public event EventHandler<SteamUiTransportSnapshot>? GenerationChanged;
 
     internal SteamUiGenerations Generations { get; set; } = new(1, 1, 1, 1, 1, 1);
 
@@ -70,6 +66,10 @@ internal sealed class FakeSteamUiTransport : ISteamUiTransport
 
     internal int ReleasedSubscriptions => Volatile.Read(ref _releasedSubscriptions);
 
+    public event EventHandler<SteamUiNotification>? NotificationReceived;
+
+    public event EventHandler<SteamUiTransportSnapshot>? GenerationChanged;
+
     public ValueTask<IAsyncDisposable> SubscribeAsync(
         SteamUiTargetRole role,
         CancellationToken cancellationToken = default)
@@ -78,6 +78,7 @@ internal sealed class FakeSteamUiTransport : ISteamUiTransport
         {
             throw new InvalidOperationException("Must borrow the existing subscription");
         }
+
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.FromResult<IAsyncDisposable>(new Lease(this));
     }
@@ -93,8 +94,9 @@ internal sealed class FakeSteamUiTransport : ISteamUiTransport
         {
             _expressions.Add(expression);
         }
+
         return OnEvaluate?.Invoke(new FakeEvaluation(role, expression, timeout, cancellationToken))
-            ?? Task.FromResult(Reply(EvaluationValue));
+               ?? Task.FromResult(Reply(EvaluationValue));
     }
 
     public Task SetRuntimeBindingAsync(
@@ -108,22 +110,36 @@ internal sealed class FakeSteamUiTransport : ISteamUiTransport
         {
             throw new InvalidOperationException("Must not install a binding");
         }
+
         cancellationToken.ThrowIfCancellationRequested();
         lock (_sync)
         {
             _bindingStates.Add(installed);
         }
+
         if (installed && AdvanceGenerationOnInstall)
         {
             AdvanceDocumentGeneration();
         }
+
         return Task.CompletedTask;
     }
 
-    public IReadOnlyList<SteamUiTransportSnapshot> GetSnapshots() => [Snapshot()];
+    public IReadOnlyList<SteamUiTransportSnapshot> GetSnapshots()
+    {
+        return [Snapshot()];
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        return ValueTask.CompletedTask;
+    }
 
     /// <summary>A reachable answer under the current generations.</summary>
-    internal SteamUiEvaluationResult Reply(string? value) => new(true, value, null, Generations);
+    internal SteamUiEvaluationResult Reply(string? value)
+    {
+        return new SteamUiEvaluationResult(true, value, null, Generations);
+    }
 
     internal void AdvanceDocumentGeneration()
     {
@@ -131,21 +147,29 @@ internal sealed class FakeSteamUiTransport : ISteamUiTransport
         EmitCurrentGeneration();
     }
 
-    internal void AdvanceGenerationWithoutEvent() =>
+    internal void AdvanceGenerationWithoutEvent()
+    {
         Generations = Generations with
         {
             ExecutionContext = Generations.ExecutionContext + 1,
-            Document = Generations.Document + 1,
+            Document = Generations.Document + 1
         };
+    }
 
-    internal void EmitCurrentGeneration() => GenerationChanged?.Invoke(this, Snapshot());
+    internal void EmitCurrentGeneration()
+    {
+        GenerationChanged?.Invoke(this, Snapshot());
+    }
 
-    internal void EmitBindingPayload(string payload, SteamUiGenerations? generations = null) =>
+    internal void EmitBindingPayload(string payload, SteamUiGenerations? generations = null)
+    {
         EmitRawParameters(
             JsonSerializer.Serialize(new { name = SteamUiBridgeIdentity.BindingName, payload }),
             generations);
+    }
 
-    internal void EmitRawParameters(string parameters, SteamUiGenerations? generations = null) =>
+    internal void EmitRawParameters(string parameters, SteamUiGenerations? generations = null)
+    {
         NotificationReceived?.Invoke(
             this,
             new SteamUiNotification(
@@ -153,17 +177,19 @@ internal sealed class FakeSteamUiTransport : ISteamUiTransport
                 "Runtime.bindingCalled",
                 parameters,
                 generations ?? Generations));
+    }
 
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-
-    private SteamUiTransportSnapshot Snapshot() => new(
-        SteamUiTargetRole.SharedJsContext,
-        Health,
-        Generations,
-        "fixture",
-        null,
-        0,
-        1);
+    private SteamUiTransportSnapshot Snapshot()
+    {
+        return new SteamUiTransportSnapshot(
+            SteamUiTargetRole.SharedJsContext,
+            Health,
+            Generations,
+            "fixture",
+            null,
+            0,
+            1);
+    }
 
     private sealed class Lease(FakeSteamUiTransport owner) : IAsyncDisposable
     {
@@ -175,6 +201,7 @@ internal sealed class FakeSteamUiTransport : ISteamUiTransport
             {
                 Interlocked.Increment(ref owner._releasedSubscriptions);
             }
+
             return ValueTask.CompletedTask;
         }
     }

@@ -8,9 +8,9 @@ namespace SteamUiToolkit;
 
 /// <summary>One Bluetooth device as Steam's own pairing panel renders it.</summary>
 /// <remarks>
-/// The panel reads paired and connected to decide which list a device belongs in, and the type to
-/// choose its icon. Signal strength and battery are not on this record: the injected side reports
-/// none, because a fabricated strength would order the list by a number that means nothing.
+///     The panel reads paired and connected to decide which list a device belongs in, and the type to
+///     choose its icon. Signal strength and battery are not on this record: the injected side reports
+///     none, because a fabricated strength would order the list by a number that means nothing.
 /// </remarks>
 /// <param name="Id">Stable device identifier.</param>
 /// <param name="Name">Device name, or its address when it reports none.</param>
@@ -32,9 +32,9 @@ public readonly record struct SteamBluetoothDevice(
 
 /// <summary>Bluetooth as Steam's own pairing panel expects to receive it.</summary>
 /// <remarks>
-/// <paramref name="Available"/> means "this machine has a radio the backend can drive", never
-/// "the radio is on". Wiring it to the on/off state removes the entire settings page and the
-/// toggle with it — the exact control needed to turn the radio back on.
+///     <paramref name="Available" /> means "this machine has a radio the backend can drive", never
+///     "the radio is on". Wiring it to the on/off state removes the entire settings page and the
+///     toggle with it — the exact control needed to turn the radio back on.
 /// </remarks>
 /// <param name="Available">Whether Bluetooth can be observed and changed at all.</param>
 /// <param name="Enabled">Whether the radio is on.</param>
@@ -48,13 +48,13 @@ public sealed record SteamBluetoothState(
 
 /// <summary>What answers Steam's Bluetooth panel.</summary>
 /// <remarks>
-/// Every device operation receives the id the published state named; the payload shapes were read
-/// from the client's bundle (2026-09-03): every device operation sends <c>{device}</c>,
-/// <c>SetTrusted</c> sends <c>{device, trusted}</c>, <c>SetWakeAllowed</c> sends
-/// <c>{device, allowed}</c> and <c>SetDiscovering</c> sends <c>{enabled}</c>. Trusted and
-/// wake-allowed are BlueZ concepts; their default implementations accept and do nothing, because
-/// refusing them makes Steam's UI report a failure for a control that was never going to change
-/// anything on a platform without the concept.
+///     Every device operation receives the id the published state named; the payload shapes were read
+///     from the client's bundle (2026-09-03): every device operation sends <c>{device}</c>,
+///     <c>SetTrusted</c> sends <c>{device, trusted}</c>, <c>SetWakeAllowed</c> sends
+///     <c>{device, allowed}</c> and <c>SetDiscovering</c> sends <c>{enabled}</c>. Trusted and
+///     wake-allowed are BlueZ concepts; their default implementations accept and do nothing, because
+///     refusing them makes Steam's UI report a failure for a control that was never going to change
+///     anything on a platform without the concept.
 /// </remarks>
 public interface ISteamBluetoothBackend
 {
@@ -102,8 +102,10 @@ public interface ISteamBluetoothBackend
     Task<SteamUiCommandResult> SetTrustedAsync(
         string deviceId,
         bool trusted,
-        CancellationToken cancellationToken) =>
-        Task.FromResult(SteamUiCommandResult.Applied);
+        CancellationToken cancellationToken)
+    {
+        return Task.FromResult(SteamUiCommandResult.Applied);
+    }
 
     /// <summary>Steam's wake-allowed flag. Accepted and ignored unless overridden.</summary>
     /// <param name="deviceId">The device.</param>
@@ -113,23 +115,27 @@ public interface ISteamBluetoothBackend
     Task<SteamUiCommandResult> SetWakeAllowedAsync(
         string deviceId,
         bool allowed,
-        CancellationToken cancellationToken) =>
-        Task.FromResult(SteamUiCommandResult.Applied);
+        CancellationToken cancellationToken)
+    {
+        return Task.FromResult(SteamUiCommandResult.Applied);
+    }
 }
 
 /// <summary>Steam's own Bluetooth page and Quick Settings panel, backed by the consumer's radio.</summary>
 /// <remarks>
-/// The service, its message shapes and every operation ship in the Windows client; only the
-/// backend is missing, so <c>GetState</c> answers unavailable with empty adapters and devices.
-/// Its handler exports are message descriptors rather than registration hooks, so the service
-/// cannot be implemented — the gate replaces the stub's methods instead, publishes one synthetic
-/// adapter to hang the radio toggle on, and invalidates the react-query the panel caches
-/// availability in, because that cache has an infinite stale time.
+///     The service, its message shapes and every operation ship in the Windows client; only the
+///     backend is missing, so <c>GetState</c> answers unavailable with empty adapters and devices.
+///     Its handler exports are message descriptors rather than registration hooks, so the service
+///     cannot be implemented — the gate replaces the stub's methods instead, publishes one synthetic
+///     adapter to hang the radio toggle on, and invalidates the react-query the panel caches
+///     availability in, because that cache has an infinite stale time.
 /// </remarks>
 public static class SteamBluetoothSurface
 {
     /// <summary>The patch id this surface publishes under and answers commands for.</summary>
     public const string PatchId = "steam-ui.bluetooth";
+
+    private const string InvalidDevice = "The Bluetooth device payload is invalid.";
 
     /// <summary>The exact command vocabulary the injected gate sends.</summary>
     public static IReadOnlyList<string> Commands { get; } =
@@ -141,56 +147,58 @@ public static class SteamBluetoothSurface
         "disconnect",
         "forget",
         "setTrusted",
-        "setWakeAllowed",
+        "setWakeAllowed"
     ];
 
     /// <summary>The gate that replaces the stub methods behind Steam's own Bluetooth pairing UI.</summary>
     /// <remarks>
-    /// The query cache must be reachable: availability rides a react-query with infinite stale
-    /// time, so without an invalidation the row keeps reading the unavailable answer no matter what
-    /// the methods return.
+    ///     The query cache must be reachable: availability rides a react-query with infinite stale
+    ///     time, so without an invalidation the row keeps reading the unavailable answer no matter what
+    ///     the methods return.
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
-        id: PatchId,
-        resourceKey: "steam-ui.bluetooth-manager-service",
-        gateName: "bluetooth",
-        fingerprint: "steam-bluetooth-v1:operations+writable-stub+reachable-cache",
-        probeExpression: $$"""
-            {{SteamUiProbeJs.Preamble("steam_ui_bluetooth_probe_")}}
-              // The stub and the query client by what they are: the September 2026 beta renumbered
-              // modules 60517 and 21371, which this probe used to name.
-              let RF=null;
-              try{RF=req.exported(['BluetoothManager.GetState#1'],
-                v=>!!v&&typeof v==='object'&&typeof v.GetState==='function'&&typeof v.Pair==='function');}catch{}
-              if(!RF)return JSON.stringify({error:'bluetooth service stub unavailable'});
-              const ops=['GetState','SetDiscovering','Pair','CancelPair','Connect','Disconnect',
-                'Forget','SetTrusted','SetWakeAllowed','GetDeviceDetails'];
-              const missing=ops.filter(n=>typeof RF[n]!=='function');
-              const d=Object.getOwnPropertyDescriptor(RF,'GetState');
-              let cache=false;
-              try{cache=typeof req.exported(['ReactQueryDevtools','offlineFirst'],
-                v=>typeof v?.invalidateQueries==='function'&&typeof v?.getQueryState==='function').invalidateQueries==='function';}catch{}
-              return JSON.stringify({
-                operationsPresent:missing.length===0,
-                missing:missing,
-                methodsWritable:{{SteamUiProbeJs.Replaceable("d")}},
-                queryCacheReachable:cache
-              });
-            {{SteamUiProbeJs.Close}}
-            """,
-        compatible: root =>
+        PatchId,
+        "steam-ui.bluetooth-manager-service",
+        "bluetooth",
+        "steam-bluetooth-v1:operations+writable-stub+reachable-cache",
+        $$"""
+          {{SteamUiProbeJs.Preamble("steam_ui_bluetooth_probe_")}}
+            // The stub and the query client by what they are: the September 2026 beta renumbered
+            // modules 60517 and 21371, which this probe used to name.
+            let RF=null;
+            try{RF=req.exported(['BluetoothManager.GetState#1'],
+              v=>!!v&&typeof v==='object'&&typeof v.GetState==='function'&&typeof v.Pair==='function');}catch{}
+            if(!RF)return JSON.stringify({error:'bluetooth service stub unavailable'});
+            const ops=['GetState','SetDiscovering','Pair','CancelPair','Connect','Disconnect',
+              'Forget','SetTrusted','SetWakeAllowed','GetDeviceDetails'];
+            const missing=ops.filter(n=>typeof RF[n]!=='function');
+            const d=Object.getOwnPropertyDescriptor(RF,'GetState');
+            let cache=false;
+            try{cache=typeof req.exported(['ReactQueryDevtools','offlineFirst'],
+              v=>typeof v?.invalidateQueries==='function'&&typeof v?.getQueryState==='function').invalidateQueries==='function';}catch{}
+            return JSON.stringify({
+              operationsPresent:missing.length===0,
+              missing:missing,
+              methodsWritable:{{SteamUiProbeJs.Replaceable("d")}},
+              queryCacheReachable:cache
+            });
+          {{SteamUiProbeJs.Close}}
+          """,
+        root =>
             SteamUiPatchEvaluation.Flag(root, "operationsPresent")
             && SteamUiPatchEvaluation.Flag(root, "methodsWritable")
             && SteamUiPatchEvaluation.Flag(root, "queryCacheReachable"),
-        verifyOk: "status.installed&&status.replaced>0",
-        removeOk: "!status.installed",
-        subject: "Bluetooth service");
+        "status.installed&&status.replaced>0",
+        "!status.installed",
+        "Bluetooth service");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
     /// <param name="state">The state to serialize.</param>
     /// <returns>The wire payload.</returns>
-    public static JsonElement Serialize(SteamBluetoothState state) =>
-        JsonSerializer.SerializeToElement(state, SteamSurfaceJsonContext.Default.SteamBluetoothState);
+    public static JsonElement Serialize(SteamBluetoothState state)
+    {
+        return JsonSerializer.SerializeToElement(state, SteamSurfaceJsonContext.Default.SteamBluetoothState);
+    }
 
     /// <summary>Declares the surface as one module: the gate, the state, and the answers.</summary>
     /// <param name="enabled">Whether the state may be published right now.</param>
@@ -225,40 +233,42 @@ public static class SteamBluetoothSurface
                 Device("disconnect", backend.DisconnectAsync),
                 Device("forget", backend.ForgetAsync),
                 DeviceFlag("setTrusted", "trusted", backend.SetTrustedAsync),
-                DeviceFlag("setWakeAllowed", "allowed", backend.SetWakeAllowedAsync),
+                DeviceFlag("setWakeAllowed", "allowed", backend.SetWakeAllowedAsync)
             ]);
     }
 
-    private const string InvalidDevice = "The Bluetooth device payload is invalid.";
-
     private static SteamUiCommandHandler Device(
         string command,
-        Func<string, CancellationToken, Task<SteamUiCommandResult>> operation) =>
-        SteamSurfaceModule.Command(
+        Func<string, CancellationToken, Task<SteamUiCommandResult>> operation)
+    {
+        return SteamSurfaceModule.Command(
             PatchId,
             command,
-            static (JsonElement payload, out string deviceId) =>
+            static (payload, out deviceId) =>
                 SteamUiPayload.TryReadBoundedString(payload, "device", 256, out deviceId)
                 && SteamUiPayload.HasExactly(payload, 1),
             operation,
             InvalidDevice);
+    }
 
     private static SteamUiCommandHandler DeviceFlag(
         string command,
         string flagName,
-        Func<string, bool, CancellationToken, Task<SteamUiCommandResult>> operation) =>
-        SteamSurfaceModule.Command(
+        Func<string, bool, CancellationToken, Task<SteamUiCommandResult>> operation)
+    {
+        return SteamSurfaceModule.Command(
             PatchId,
             command,
             (JsonElement payload, out (string Device, bool Flag) value) =>
             {
-                bool flag = false;
-                bool read = SteamUiPayload.TryReadBoundedString(payload, "device", 256, out string device)
-                    && SteamUiPayload.TryReadBoolean(payload, flagName, out flag)
-                    && SteamUiPayload.HasExactly(payload, 2);
+                var flag = false;
+                var read = SteamUiPayload.TryReadBoundedString(payload, "device", 256, out var device)
+                           && SteamUiPayload.TryReadBoolean(payload, flagName, out flag)
+                           && SteamUiPayload.HasExactly(payload, 2);
                 value = (device, flag);
                 return read;
             },
             (value, cancellationToken) => operation(value.Device, value.Flag, cancellationToken),
             InvalidDevice);
+    }
 }

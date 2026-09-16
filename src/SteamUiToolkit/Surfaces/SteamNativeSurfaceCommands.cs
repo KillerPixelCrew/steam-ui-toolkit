@@ -10,10 +10,12 @@ public enum SteamNativeSurfaceAction
 {
     /// <summary>Steam's Quick Access button.</summary>
     QuickAccess,
+
     /// <summary>Steam's Home/Overlay button.</summary>
     Home,
+
     /// <summary>Shows Steam's native virtual keyboard without toggling an open keyboard closed.</summary>
-    Keyboard,
+    Keyboard
 }
 
 /// <summary>Replays semantic controller commands through Steam's existing window handlers.</summary>
@@ -32,16 +34,17 @@ public static class SteamNativeSurfaceCommands
         uint processId, uint appId, SteamUiGenerations generations, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(transport);
-        string expression = CreateExpression(action, processId, appId);
+        var expression = CreateExpression(action, processId, appId);
         if (!SteamSharedContext.IsReadyAt(transport, generations))
         {
             return false;
         }
+
         var result = await transport.EvaluateAsync(SteamUiTargetRole.SharedJsContext, expression,
             TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
         return result.Reachable && result.Generations == generations
-            && SteamSharedContext.IsReadyAt(transport, generations)
-            && result.Value == "true";
+                                && SteamSharedContext.IsReadyAt(transport, generations)
+                                && result.Value == "true";
     }
 
     internal static string CreateExpression(SteamNativeSurfaceAction action, uint processId, uint appId)
@@ -50,47 +53,51 @@ public static class SteamNativeSurfaceCommands
         {
             throw new ArgumentOutOfRangeException(nameof(action));
         }
-        string method = action == SteamNativeSurfaceAction.QuickAccess
-            ? "OnQuickAccessButtonPressed" : "OnHomeButtonPressed";
-        string invoke = action == SteamNativeSurfaceAction.Keyboard ? $$"""
-                const keyboard=target?.VirtualKeyboardManager;
-                if(typeof keyboard?.IsShowingVirtualKeyboard?.Value!=='boolean'
-                  ||typeof keyboard.SetDismissOnEnterKey!=='function'
-                  ||typeof keyboard.SetVirtualKeyboardVisible!=='function'
-                  ||typeof target?.MenuStore?.CloseSideMenus!=='function')return false;
-                if(keyboard.IsShowingVirtualKeyboard.Value)return true;
-                // The route table by what it holds, only for an overlay that needs it; module and
-                // export names change between client builds.
-                const route=pid===0?null:require.exported({{SteamUiProbeJs.RouteTableTokens}},
-                  v=>typeof v?.GamepadUI?.Keyboard==='function').GamepadUI.Keyboard;
-                if(pid!==0&&typeof target.NavigateWithoutChangingFocus!=='function')return false;
-                target.MenuStore.CloseSideMenus();
-                keyboard.SetDismissOnEnterKey(true);
-                if(pid!==0)target.NavigateWithoutChangingFocus(route(),true,true);
-                else keyboard.SetVirtualKeyboardVisible();
-                return true;
-            """ : $"if(typeof target?.{method}!=='function')return false;target.{method}();return true;";
+
+        var method = action == SteamNativeSurfaceAction.QuickAccess
+            ? "OnQuickAccessButtonPressed"
+            : "OnHomeButtonPressed";
+        var invoke = action == SteamNativeSurfaceAction.Keyboard
+            ? $$"""
+                    const keyboard=target?.VirtualKeyboardManager;
+                    if(typeof keyboard?.IsShowingVirtualKeyboard?.Value!=='boolean'
+                      ||typeof keyboard.SetDismissOnEnterKey!=='function'
+                      ||typeof keyboard.SetVirtualKeyboardVisible!=='function'
+                      ||typeof target?.MenuStore?.CloseSideMenus!=='function')return false;
+                    if(keyboard.IsShowingVirtualKeyboard.Value)return true;
+                    // The route table by what it holds, only for an overlay that needs it; module and
+                    // export names change between client builds.
+                    const route=pid===0?null:require.exported({{SteamUiProbeJs.RouteTableTokens}},
+                      v=>typeof v?.GamepadUI?.Keyboard==='function').GamepadUI.Keyboard;
+                    if(pid!==0&&typeof target.NavigateWithoutChangingFocus!=='function')return false;
+                    target.MenuStore.CloseSideMenus();
+                    keyboard.SetDismissOnEnterKey(true);
+                    if(pid!==0)target.NavigateWithoutChangingFocus(route(),true,true);
+                    else keyboard.SetVirtualKeyboardVisible();
+                    return true;
+                """
+            : $"if(typeof target?.{method}!=='function')return false;target.{method}();return true;";
         return $$"""
-            (()=>{
-              try {
-                const require={{SteamUiModuleResolver.CreateExpression("native_surface")}};
-                // Steam publishes its UI store as window.SteamUIStore; the module holding it is
-                // renumbered by client builds.
-                const ui=window.SteamUIStore,store=ui?.WindowStore;
-                const pid={{processId.ToString(CultureInfo.InvariantCulture)}},appid={{appId.ToString(CultureInfo.InvariantCulture)}};
-                if(typeof ui?.BHomeAndQuickAccessButtonsEnabled!=='function'||!ui.BHomeAndQuickAccessButtonsEnabled())return false;
-                let target;
-                if(pid===0)target=store?.MainWindowInstance;
-                else {
-                  const windows=store?.OverlayWindows;
-                  if(!Array.isArray(windows)||windows.length>32)return false;
-                  const matches=windows.filter(w=>w.params?.browserInfo?.m_unPID===pid&&w.params?.browserInfo?.m_unAppID===appid);
-                  if(matches.length!==1||matches[0].IsGamepadUIOverlayWindow?.()!==true)return false;
-                  target=matches[0];
-                }
-                {{invoke}}
-              }catch{return false;}
-            })()
-            """;
+                 (()=>{
+                   try {
+                     const require={{SteamUiModuleResolver.CreateExpression("native_surface")}};
+                     // Steam publishes its UI store as window.SteamUIStore; the module holding it is
+                     // renumbered by client builds.
+                     const ui=window.SteamUIStore,store=ui?.WindowStore;
+                     const pid={{processId.ToString(CultureInfo.InvariantCulture)}},appid={{appId.ToString(CultureInfo.InvariantCulture)}};
+                     if(typeof ui?.BHomeAndQuickAccessButtonsEnabled!=='function'||!ui.BHomeAndQuickAccessButtonsEnabled())return false;
+                     let target;
+                     if(pid===0)target=store?.MainWindowInstance;
+                     else {
+                       const windows=store?.OverlayWindows;
+                       if(!Array.isArray(windows)||windows.length>32)return false;
+                       const matches=windows.filter(w=>w.params?.browserInfo?.m_unPID===pid&&w.params?.browserInfo?.m_unAppID===appid);
+                       if(matches.length!==1||matches[0].IsGamepadUIOverlayWindow?.()!==true)return false;
+                       target=matches[0];
+                     }
+                     {{invoke}}
+                   }catch{return false;}
+                 })()
+                 """;
     }
 }

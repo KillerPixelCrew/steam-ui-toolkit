@@ -30,7 +30,9 @@ public sealed record SteamPowerLimitRangeState(
 /// <param name="CanSelectMode">Whether the backend supports manual mode selection.</param>
 public sealed record SteamPowerLimitState(
     SteamPowerLimitRangeState Sustained,
-    SteamPowerLimitRangeState Boost, bool Unified = false, bool CanSelectMode = false);
+    SteamPowerLimitRangeState Boost,
+    bool Unified = false,
+    bool CanSelectMode = false);
 
 /// <summary>Routes explicit power slider edits through the consumer's hardware coordinator.</summary>
 public interface ISteamPowerLimitBackend
@@ -39,8 +41,11 @@ public interface ISteamPowerLimitBackend
     /// <param name="unified">Whether to use coordinated power targets.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The persistence outcome.</returns>
-    Task<SteamUiCommandResult> SetUnifiedModeAsync(bool unified, CancellationToken cancellationToken) =>
-        Task.FromResult(SteamUiCommandResult.Refused);
+    Task<SteamUiCommandResult> SetUnifiedModeAsync(bool unified, CancellationToken cancellationToken)
+    {
+        return Task.FromResult(SteamUiCommandResult.Refused);
+    }
+
     /// <summary>Sets sustained power, PL1.</summary>
     /// <param name="watts">The requested wattage on a published step.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
@@ -56,8 +61,8 @@ public interface ISteamPowerLimitBackend
 
 /// <summary>Two hardware-backed power sliders built from Valve's field primitives.</summary>
 /// <remarks>
-/// Observations drive both sliders, including after profile changes. Only a completed user edit
-/// sends a command; publication and mounting never apply Steam's persisted TDP setting.
+///     Observations drive both sliders, including after profile changes. Only a completed user edit
+///     sends a command; publication and mounting never apply Steam's persisted TDP setting.
 /// </remarks>
 public static class SteamPowerLimitSurface
 {
@@ -77,8 +82,10 @@ public static class SteamPowerLimitSurface
     /// <summary>Serializes both independent limits for the injected controls.</summary>
     /// <param name="state">The observed state.</param>
     /// <returns>The wire payload.</returns>
-    public static JsonElement Serialize(SteamPowerLimitState state) =>
-        JsonSerializer.SerializeToElement(state, SteamSurfaceJsonContext.Default.SteamPowerLimitState);
+    public static JsonElement Serialize(SteamPowerLimitState state)
+    {
+        return JsonSerializer.SerializeToElement(state, SteamSurfaceJsonContext.Default.SteamPowerLimitState);
+    }
 
     /// <summary>Declares the rows, state publication and explicit write commands.</summary>
     /// <param name="enabled">Whether publication is enabled.</param>
@@ -108,7 +115,7 @@ public static class SteamPowerLimitSurface
                     {
                         unified = false;
                         return SteamUiPayload.HasExactly(payload, 1)
-                            && SteamUiPayload.TryReadBoolean(payload, "unified", out unified);
+                               && SteamUiPayload.TryReadBoolean(payload, "unified", out unified);
                     },
                     backend.SetUnifiedModeAsync,
                     "The manual power mode payload is invalid."),
@@ -123,7 +130,7 @@ public static class SteamPowerLimitSurface
                     "setBoostLimit",
                     TryReadWatts,
                     backend.SetBoostLimitAsync,
-                    "The boost power-limit payload is invalid."),
+                    "The boost power-limit payload is invalid.")
             ]);
     }
 
@@ -131,6 +138,6 @@ public static class SteamPowerLimitSurface
     {
         watts = default;
         return SteamUiPayload.HasExactly(payload, 1)
-            && SteamUiPayload.TryReadInt(payload, "watts", 1, 200, out watts);
+               && SteamUiPayload.TryReadInt(payload, "watts", 1, 200, out watts);
     }
 }

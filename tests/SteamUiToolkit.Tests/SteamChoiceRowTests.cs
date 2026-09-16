@@ -1,5 +1,3 @@
-using System.Text.Json;
-
 namespace SteamUiToolkit.Tests;
 
 /// <summary>The choice rows: Windows power profiles, power presets and hybrid core preference.</summary>
@@ -9,8 +7,9 @@ public sealed class SteamChoiceRowTests
     public void PowerProfileStateKeepsIdentitySeparateFromLocalizedLabels()
     {
         var state = new SteamPowerProfileState(true,
-            [new("a", "Ausbalanciert"), new("b", "Ausbalanciert")], "b", "Ready");
-        JsonElement json = SteamPowerProfileRow.Serialize(state);
+            [new SteamPowerProfileOption("a", "Ausbalanciert"), new SteamPowerProfileOption("b", "Ausbalanciert")], "b",
+            "Ready");
+        var json = SteamPowerProfileRow.Serialize(state);
         Assert.Equal("b", json.GetProperty("current").GetString());
         Assert.Equal("a", json.GetProperty("options")[0].GetProperty("id").GetString());
         Assert.Equal("Ausbalanciert", json.GetProperty("options")[1].GetProperty("label").GetString());
@@ -20,11 +19,14 @@ public sealed class SteamChoiceRowTests
     public void HybridCoreStateKeepsIdentitySeparateFromTheLabelTheUserReads()
     {
         var state = new SteamHybridCoreState(true,
-            [new("automatic", "Automatic"), new("prefer-performance", "Prefer performance cores")],
+            [
+                new SteamPowerProfileOption("automatic", "Automatic"),
+                new SteamPowerProfileOption("prefer-performance", "Prefer performance cores")
+            ],
             "prefer-performance",
             "4 performance and 4 efficiency cores.");
 
-        JsonElement json = SteamHybridCoreRow.Serialize(state);
+        var json = SteamHybridCoreRow.Serialize(state);
 
         Assert.Equal("prefer-performance", json.GetProperty("current").GetString());
         Assert.Equal("automatic", json.GetProperty("options")[0].GetProperty("id").GetString());
@@ -38,8 +40,10 @@ public sealed class SteamChoiceRowTests
     public async Task ClearingAnAssignmentForwardsNullToTheCorrectSource(string command, bool ac)
     {
         RecordingBackend backend = new();
-        SteamUiModuleSet modules = new([SteamPowerPresetRow.Module(SurfaceDispatch.Always,
-            () => new(null as SteamPowerPresetState), backend)]);
+        SteamUiModuleSet modules = new([
+            SteamPowerPresetRow.Module(SurfaceDispatch.Always,
+                () => new ValueTask<SteamPowerPresetState?>(null as SteamPowerPresetState), backend)
+        ]);
 
         Assert.True((await SurfaceDispatch.DispatchAsync(
             modules, SteamPowerPresetRow.PatchId, command, "{\"target\":null}")).Succeeded);
@@ -56,12 +60,14 @@ public sealed class SteamChoiceRowTests
     {
         RecordingBackend backend = new();
         SteamUiModuleSet modules = new([
-            SteamPowerProfileRow.Module(SurfaceDispatch.Always, () => new(null as SteamPowerProfileState), new RecordingBackend()),
-            SteamPowerPresetRow.Module(SurfaceDispatch.Always, () => new(null as SteamPowerPresetState), backend),
+            SteamPowerProfileRow.Module(SurfaceDispatch.Always,
+                () => new ValueTask<SteamPowerProfileState?>(null as SteamPowerProfileState), new RecordingBackend()),
+            SteamPowerPresetRow.Module(SurfaceDispatch.Always,
+                () => new ValueTask<SteamPowerPresetState?>(null as SteamPowerPresetState), backend)
         ]);
         using CancellationTokenSource cancellation = new();
 
-        SteamUiCommandResult result = await SurfaceDispatch.DispatchAsync(
+        var result = await SurfaceDispatch.DispatchAsync(
             modules, SteamPowerPresetRow.PatchId, "setAcPowerPreset", json, cancellation.Token);
 
         Assert.Equal(valid, result.Succeeded);
@@ -93,26 +99,28 @@ public sealed class SteamChoiceRowTests
         string row, string json, string? option)
     {
         RecordingBackend backend = new();
-        (ISteamUiModule module, string patchId, string command, string call, string error) = row switch
+        var (module, patchId, command, call, error) = row switch
         {
             "power-profile" => (
                 SteamPowerProfileRow.Module(
-                    SurfaceDispatch.Always, () => new(null as SteamPowerProfileState), backend),
+                    SurfaceDispatch.Always,
+                    () => new ValueTask<SteamPowerProfileState?>(null as SteamPowerProfileState), backend),
                 SteamPowerProfileRow.PatchId,
                 "setPowerProfile",
                 "profile",
                 "The power-profile payload is invalid."),
             _ => (
                 SteamHybridCoreRow.Module(
-                    SurfaceDispatch.Always, () => new(null as SteamHybridCoreState), backend),
+                    SurfaceDispatch.Always, () => new ValueTask<SteamHybridCoreState?>(null as SteamHybridCoreState),
+                    backend),
                 SteamHybridCoreRow.PatchId,
                 "setHybridCores",
                 "hybrid",
-                "The processor core preference payload is invalid."),
+                "The processor core preference payload is invalid.")
         };
         using CancellationTokenSource cancellation = new();
 
-        SteamUiCommandResult result = await SurfaceDispatch.DispatchAsync(
+        var result = await SurfaceDispatch.DispatchAsync(
             new SteamUiModuleSet([module]), patchId, command, json, cancellation.Token);
 
         Assert.Equal(option is not null, result.Succeeded);

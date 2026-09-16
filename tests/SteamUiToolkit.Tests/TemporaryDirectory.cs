@@ -15,11 +15,11 @@ internal sealed class TemporaryDirectory : IDisposable
 
     public void Dispose()
     {
-        for (int attempt = 0; attempt < 5 && Directory.Exists(Root); attempt++)
+        for (var attempt = 0; attempt < 5 && Directory.Exists(Root); attempt++)
         {
             try
             {
-                Directory.Delete(Root, recursive: true);
+                Directory.Delete(Root, true);
             }
             catch (Exception exception) when (
                 attempt < 4

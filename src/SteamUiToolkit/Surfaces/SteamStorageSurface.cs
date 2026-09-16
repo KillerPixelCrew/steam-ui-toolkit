@@ -8,24 +8,24 @@ namespace SteamUiToolkit;
 
 /// <summary>One physical drive as Steam's storage manager understands it.</summary>
 /// <param name="Id">
-/// The drive's identifier. A number, not a string: Steam declares it <c>uint32</c> and renders it
-/// through comparisons against a selected row id, so a string never matches and the row can never
-/// be selected.
+///     The drive's identifier. A number, not a string: Steam declares it <c>uint32</c> and renders it
+///     through comparisons against a selected row id, so a string never matches and the row can never
+///     be selected.
 /// </param>
 /// <param name="Model">The drive's model, which Steam shows as the row's name.</param>
 /// <param name="Vendor">The drive's vendor, shown beside the model.</param>
 /// <param name="SizeBytes">
-/// The drive's capacity. Omitting it is what renders the row as "NaN B of NaN B" — Steam formats
-/// the number it is given without checking that it got one.
+///     The drive's capacity. Omitting it is what renders the row as "NaN B of NaN B" — Steam formats
+///     the number it is given without checking that it got one.
 /// </param>
 /// <param name="Ejectable">Whether the drive can be removed, which also picks its icon.</param>
 /// <param name="Formattable">Whether Steam may offer to format it.</param>
 /// <param name="Unformatted">Whether it currently carries no usable filesystem.</param>
 /// <param name="MediaAvailable">Whether media is present in the reader.</param>
 /// <remarks>
-/// The gate publishes Steam's idle adopt stage (1, not 0 — 0 is its Invalid member) for every
-/// drive. Steam renders a spinner for any other stage, and an omitted field compares unequal to
-/// the idle value too, so a drive without it spins forever.
+///     The gate publishes Steam's idle adopt stage (1, not 0 — 0 is its Invalid member) for every
+///     drive. Steam renders a spinner for any other stage, and an omitted field compares unequal to
+///     the idle value too, so a drive without it spins forever.
 /// </remarks>
 public sealed record SteamStorageDrive(
     uint Id,
@@ -39,7 +39,7 @@ public sealed record SteamStorageDrive(
 
 /// <summary>One mounted volume on a drive.</summary>
 /// <param name="Id">The volume's identifier, numeric for the same reason the drive's is.</param>
-/// <param name="DriveId">The <see cref="SteamStorageDrive.Id"/> this volume sits on.</param>
+/// <param name="DriveId">The <see cref="SteamStorageDrive.Id" /> this volume sits on.</param>
 /// <param name="Label">The volume label, which Steam shows as the row's name.</param>
 /// <param name="FriendlyPath">The path as the user would recognise it, for example <c>D:\</c>.</param>
 /// <param name="SizeBytes">The volume's size.</param>
@@ -73,9 +73,9 @@ public sealed record SteamStorageState(
 
 /// <summary>What performs the storage actions Steam's pages invoke.</summary>
 /// <remarks>
-/// Every operation is the host's. The injected half owns no storage behaviour at all, which is what
-/// keeps one Windows implementation behind both Steam's pages and WSGM's own surfaces instead of
-/// two that can disagree.
+///     Every operation is the host's. The injected half owns no storage behaviour at all, which is what
+///     keeps one Windows implementation behind both Steam's pages and WSGM's own surfaces instead of
+///     two that can disagree.
 /// </remarks>
 public interface ISteamStorageBackend
 {
@@ -83,16 +83,16 @@ public interface ISteamStorageBackend
     /// <param name="driveId">The drive to adopt.</param>
     /// <param name="label">The name the user gave it in Steam's Format Drive modal, or empty.</param>
     /// <param name="validate">
-    /// Steam's validate flag from that modal. On this client it is preset from the media type and
-    /// the user can toggle it; the host decides what, if anything, it means for its own format.
+    ///     Steam's validate flag from that modal. On this client it is preset from the media type and
+    ///     the user can toggle it; the host decides what, if anything, it means for its own format.
     /// </param>
     /// <param name="cancellationToken">Cancels the operation.</param>
     /// <returns>The outcome.</returns>
     /// <remarks>
-    /// Steam's storage page never sends <c>Format</c>: its Format Drive modal sends Adopt with a
-    /// name. Adopt of a drive that carries no filesystem therefore means erase and register; adopt
-    /// of one that already has a filesystem means register what is there. The host owns that
-    /// distinction, and the destructive half of it stays behind the host's own switch.
+    ///     Steam's storage page never sends <c>Format</c>: its Format Drive modal sends Adopt with a
+    ///     name. Adopt of a drive that carries no filesystem therefore means erase and register; adopt
+    ///     of one that already has a filesystem means register what is there. The host owns that
+    ///     distinction, and the destructive half of it stays behind the host's own switch.
     /// </remarks>
     Task<SteamUiCommandResult> AdoptAsync(
         uint driveId, string label, bool validate, CancellationToken cancellationToken);
@@ -118,41 +118,41 @@ public interface ISteamStorageBackend
 }
 
 /// <summary>
-/// Steam's own SteamOS storage management, revived on Windows.
+///     Steam's own SteamOS storage management, revived on Windows.
 /// </summary>
 /// <remarks>
-/// Big Picture ships a complete storage UI — drives, volumes, format, adopt, eject, trim — that
-/// never appears on Windows. Mapped against the live client on 2026-09-10, the whole surface hangs
-/// off one question: its hooks ask <c>StorageDeviceManager.IsServiceAvailable#1</c> over the WebUI
-/// service transport, and every other query is gated on that answer. The Windows client has no
-/// service behind it, so the answer never comes and the pages stay inert.
-/// <para>
-/// The gate claims <c>SendMsg</c> on the live transport instance. The method is defined on the
-/// transport prototype as writable and configurable and the instance carries no own property, so
-/// the claim is an own property that removal deletes, leaving Valve's method showing through
-/// untouched. Every message not addressed to <c>StorageDeviceManager.</c> is forwarded to the
-/// original unexamined, which matters because that one method carries all of Steam's service
-/// traffic.
-/// </para>
-/// <para>
-/// The message vocabulary is read from the client's own generated classes rather than guessed:
-/// <c>IsServiceAvailable</c>, <c>GetState</c>, <c>Adopt</c>, <c>Unmount</c>, <c>Eject</c>,
-/// <c>Format</c>, <c>TrimAll</c>. <c>CStorageDeviceManagerDrive</c> carries <c>id</c>,
-/// <c>model</c>, <c>vendor</c>, <c>serial</c>, <c>is_ejectable</c>, <c>size_bytes</c>,
-/// <c>media_type</c>, <c>is_unformatted</c>, <c>adopt_stage</c>, <c>is_formattable</c> and
-/// <c>is_media_available</c>; <c>CStorageDeviceManagerBlockDevice</c> carries <c>id</c>,
-/// <c>drive_id</c>, <c>path</c>, <c>friendly_path</c>, <c>label</c>, <c>size_bytes</c>,
-/// <c>mount_paths</c>, <c>has_steam_library</c> and a few flags. Identifiers are <c>uint32</c>.
-/// </para>
-/// <para>
-/// Three things about the client that this surface exists to get right, each found by driving it:
-/// Steam asks <c>IsServiceAvailable</c> and <c>GetState</c> once and caches them forever, so the
-/// gate invalidates its query keys on install and on every changed publication; the library-folder
-/// row finds its volume by an exact match against <c>mount_paths</c>, so the library path has to
-/// be published beside the volume root; and the page never sends <c>Format</c> — its Format Drive
-/// modal sends <c>Adopt</c> with a label, because on SteamOS adopting a blank drive is what erases
-/// it. Requests arrive as an envelope whose <c>Body()</c> holds the message.
-/// </para>
+///     Big Picture ships a complete storage UI — drives, volumes, format, adopt, eject, trim — that
+///     never appears on Windows. Mapped against the live client on 2026-09-10, the whole surface hangs
+///     off one question: its hooks ask <c>StorageDeviceManager.IsServiceAvailable#1</c> over the WebUI
+///     service transport, and every other query is gated on that answer. The Windows client has no
+///     service behind it, so the answer never comes and the pages stay inert.
+///     <para>
+///         The gate claims <c>SendMsg</c> on the live transport instance. The method is defined on the
+///         transport prototype as writable and configurable and the instance carries no own property, so
+///         the claim is an own property that removal deletes, leaving Valve's method showing through
+///         untouched. Every message not addressed to <c>StorageDeviceManager.</c> is forwarded to the
+///         original unexamined, which matters because that one method carries all of Steam's service
+///         traffic.
+///     </para>
+///     <para>
+///         The message vocabulary is read from the client's own generated classes rather than guessed:
+///         <c>IsServiceAvailable</c>, <c>GetState</c>, <c>Adopt</c>, <c>Unmount</c>, <c>Eject</c>,
+///         <c>Format</c>, <c>TrimAll</c>. <c>CStorageDeviceManagerDrive</c> carries <c>id</c>,
+///         <c>model</c>, <c>vendor</c>, <c>serial</c>, <c>is_ejectable</c>, <c>size_bytes</c>,
+///         <c>media_type</c>, <c>is_unformatted</c>, <c>adopt_stage</c>, <c>is_formattable</c> and
+///         <c>is_media_available</c>; <c>CStorageDeviceManagerBlockDevice</c> carries <c>id</c>,
+///         <c>drive_id</c>, <c>path</c>, <c>friendly_path</c>, <c>label</c>, <c>size_bytes</c>,
+///         <c>mount_paths</c>, <c>has_steam_library</c> and a few flags. Identifiers are <c>uint32</c>.
+///     </para>
+///     <para>
+///         Three things about the client that this surface exists to get right, each found by driving it:
+///         Steam asks <c>IsServiceAvailable</c> and <c>GetState</c> once and caches them forever, so the
+///         gate invalidates its query keys on install and on every changed publication; the library-folder
+///         row finds its volume by an exact match against <c>mount_paths</c>, so the library path has to
+///         be published beside the volume root; and the page never sends <c>Format</c> — its Format Drive
+///         modal sends <c>Adopt</c> with a label, because on SteamOS adopting a blank drive is what erases
+///         it. Requests arrive as an envelope whose <c>Body()</c> holds the message.
+///     </para>
 /// </remarks>
 public static class SteamStorageSurface
 {
@@ -164,51 +164,53 @@ public static class SteamStorageSurface
 
     /// <summary>The gate that answers Steam's storage service and forwards its actions.</summary>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
-        id: PatchId,
-        resourceKey: "steam-ui.service-transport",
-        gateName: "storage",
-        fingerprint: "steam-storage-v1:unique-service+claimable-transport",
-        probeExpression: $$"""
-            {{SteamUiProbeJs.Preamble("steam_ui_storage_probe_")}}
-              const service=count(['StorageDeviceManager.IsServiceAvailable#1']);
-              const transportModule=req.findUnique(['GetDefaultTransport','m_transport']);
-              if(!transportModule)return JSON.stringify({service,transportModule:0});
-              const exports=req(transportModule[0]);
-              let transport=null;
-              for(const key of Object.keys(exports)){
-                if(typeof exports[key]!=='function')continue;
-                try{
-                  const candidate=exports[key]()?.GetDefaultTransport?.();
-                  if(candidate&&typeof candidate.SendMsg==='function'){transport=candidate;break;}
-                }catch{}
-              }
-              const proto=transport?Object.getOwnPropertyDescriptor(
-                Object.getPrototypeOf(transport),'SendMsg'):null;
-              return JSON.stringify({
-                service,
-                transportModule:1,
-                transportResolved:transport?1:0,
-                // Writable and configurable, or the claim could neither replace nor restore it.
-                claimable:{{SteamUiProbeJs.Replaceable("proto")}},
-                // Already ours is compatible; a successful apply must not fail its own next probe.
-                claimed:!!transport&&transport.SendMsg.__steamUiStorageClaimed===true
-              });
-            {{SteamUiProbeJs.Close}}
-            """,
-        compatible: root =>
+        PatchId,
+        "steam-ui.service-transport",
+        "storage",
+        "steam-storage-v1:unique-service+claimable-transport",
+        $$"""
+          {{SteamUiProbeJs.Preamble("steam_ui_storage_probe_")}}
+            const service=count(['StorageDeviceManager.IsServiceAvailable#1']);
+            const transportModule=req.findUnique(['GetDefaultTransport','m_transport']);
+            if(!transportModule)return JSON.stringify({service,transportModule:0});
+            const exports=req(transportModule[0]);
+            let transport=null;
+            for(const key of Object.keys(exports)){
+              if(typeof exports[key]!=='function')continue;
+              try{
+                const candidate=exports[key]()?.GetDefaultTransport?.();
+                if(candidate&&typeof candidate.SendMsg==='function'){transport=candidate;break;}
+              }catch{}
+            }
+            const proto=transport?Object.getOwnPropertyDescriptor(
+              Object.getPrototypeOf(transport),'SendMsg'):null;
+            return JSON.stringify({
+              service,
+              transportModule:1,
+              transportResolved:transport?1:0,
+              // Writable and configurable, or the claim could neither replace nor restore it.
+              claimable:{{SteamUiProbeJs.Replaceable("proto")}},
+              // Already ours is compatible; a successful apply must not fail its own next probe.
+              claimed:!!transport&&transport.SendMsg.__steamUiStorageClaimed===true
+            });
+          {{SteamUiProbeJs.Close}}
+          """,
+        root =>
             SteamUiPatchEvaluation.IsOne(root, "service")
             && SteamUiPatchEvaluation.IsOne(root, "transportModule")
             && SteamUiPatchEvaluation.IsOne(root, "transportResolved")
             && SteamUiPatchEvaluation.Flag(root, "claimable"),
-        verifyOk: "status.installed&&status.resolved&&status.claimed",
-        removeOk: "!status.claimed",
-        subject: "Storage service gate");
+        "status.installed&&status.resolved&&status.claimed",
+        "!status.claimed",
+        "Storage service gate");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
     /// <param name="state">The state to serialize.</param>
     /// <returns>The wire payload.</returns>
-    public static JsonElement Serialize(SteamStorageState state) =>
-        JsonSerializer.SerializeToElement(state, SteamSurfaceJsonContext.Default.SteamStorageState);
+    public static JsonElement Serialize(SteamStorageState state)
+    {
+        return JsonSerializer.SerializeToElement(state, SteamSurfaceJsonContext.Default.SteamStorageState);
+    }
 
     /// <summary>Declares the surface as one module: the gate, the state, and the actions.</summary>
     /// <param name="enabled">Whether the state may be published right now.</param>
@@ -234,20 +236,20 @@ public static class SteamStorageSurface
             SteamSurfaceJsonContext.Default.SteamStorageState,
             [Patch],
             [
-                new(PatchId, "adopt", (request, cancellationToken) =>
-                    TryReadId(request.Payload, "driveId", out uint drive)
+                new SteamUiCommandHandler(PatchId, "adopt", (request, cancellationToken) =>
+                    TryReadId(request.Payload, "driveId", out var drive)
                         ? backend.AdoptAsync(
                             drive, ReadLabel(request.Payload), ReadValidate(request.Payload), cancellationToken)
                         : SteamSurfaceModule.Invalid("The storage adopt payload is invalid.")),
-                new(PatchId, "unmount", eject),
-                new(PatchId, "eject", eject),
+                new SteamUiCommandHandler(PatchId, "unmount", eject),
+                new SteamUiCommandHandler(PatchId, "eject", eject),
                 SteamSurfaceModule.Command(
                     PatchId,
                     "format",
                     static (JsonElement payload, out uint drive) => TryReadId(payload, "driveId", out drive),
                     backend.FormatAsync,
                     "The storage format payload is invalid."),
-                SteamSurfaceModule.Command(PatchId, "trimall", backend.TrimAllAsync),
+                SteamSurfaceModule.Command(PatchId, "trimall", backend.TrimAllAsync)
             ]);
     }
 
@@ -256,8 +258,8 @@ public static class SteamStorageSurface
     {
         // Steam names one or the other depending on which row the user pressed, so neither alone is
         // required and both being absent is the only refusal.
-        _ = TryReadId(payload, "blockDeviceId", out uint device);
-        _ = TryReadId(payload, "driveId", out uint drive);
+        _ = TryReadId(payload, "blockDeviceId", out var device);
+        _ = TryReadId(payload, "driveId", out var drive);
         return device == 0 && drive == 0
             ? SteamSurfaceModule.Invalid("The storage eject payload named neither a volume nor a drive.")
             : backend.EjectAsync(device, drive, cancellationToken);
@@ -266,14 +268,18 @@ public static class SteamStorageSurface
     /// <summary>The name typed into Steam's Format Drive modal, or empty when there was none.</summary>
     /// <param name="payload">The request payload.</param>
     /// <returns>The label, bounded to what a volume label can hold.</returns>
-    private static string ReadLabel(JsonElement payload) =>
-        SteamUiPayload.TryReadBoundedString(payload, "label", 64, out string label) ? label : "";
+    private static string ReadLabel(JsonElement payload)
+    {
+        return SteamUiPayload.TryReadBoundedString(payload, "label", 64, out var label) ? label : "";
+    }
 
     /// <summary>Steam's validate flag from that modal; false when absent.</summary>
     /// <param name="payload">The request payload.</param>
     /// <returns>Whether the flag was set.</returns>
-    private static bool ReadValidate(JsonElement payload) =>
-        SteamUiPayload.TryReadBoolean(payload, "validate", out bool validate) && validate;
+    private static bool ReadValidate(JsonElement payload)
+    {
+        return SteamUiPayload.TryReadBoolean(payload, "validate", out var validate) && validate;
+    }
 
     /// <summary>Reads one of Steam's storage identifiers, which are unsigned and never zero.</summary>
     /// <param name="payload">The request payload.</param>
@@ -281,14 +287,14 @@ public static class SteamStorageSurface
     /// <param name="id">The identifier, or zero when absent.</param>
     /// <returns>Whether a usable identifier was present.</returns>
     /// <remarks>
-    /// Zero is treated as absent rather than as a drive. Steam numbers these from one, so nothing
-    /// answers to zero, and reading a missing property as a valid id would send the host looking
-    /// for a drive that was never named.
+    ///     Zero is treated as absent rather than as a drive. Steam numbers these from one, so nothing
+    ///     answers to zero, and reading a missing property as a valid id would send the host looking
+    ///     for a drive that was never named.
     /// </remarks>
     private static bool TryReadId(JsonElement payload, string propertyName, out uint id)
     {
         id = 0;
-        if (!SteamUiPayload.TryReadInt(payload, propertyName, 1, int.MaxValue, out int value))
+        if (!SteamUiPayload.TryReadInt(payload, propertyName, 1, int.MaxValue, out var value))
         {
             return false;
         }

@@ -14,8 +14,8 @@ public sealed record SteamTimeoutOption(int Seconds, string Label);
 
 /// <summary>One host-owned row in Steam's Screensaver settings.</summary>
 /// <param name="Id">
-/// Stable row identity: a lowercase letter, then up to 31 lowercase letters, digits or hyphens. The
-/// row's choices come back under it.
+///     Stable row identity: a lowercase letter, then up to 31 lowercase letters, digits or hyphens. The
+///     row's choices come back under it.
 /// </param>
 /// <param name="Label">The row's label.</param>
 /// <param name="Description">A line under the label, or empty.</param>
@@ -37,13 +37,13 @@ public sealed record SteamScreensaverState(IReadOnlyList<SteamTimeoutRow> Rows, 
 
 /// <summary>Steam's own screensaver timeouts, as its client settings hold them.</summary>
 /// <param name="PluggedInSeconds">
-/// <c>system_idle_screensaver_ac_sec</c>: the timeout the Screensaver section edits on a machine
-/// Steam believes has no battery, and the plugged-in one otherwise. Zero means disabled.
+///     <c>system_idle_screensaver_ac_sec</c>: the timeout the Screensaver section edits on a machine
+///     Steam believes has no battery, and the plugged-in one otherwise. Zero means disabled.
 /// </param>
 /// <param name="BatterySeconds"><c>system_idle_screensaver_battery_sec</c>, or null when Steam holds no value.</param>
 /// <param name="Battery">
-/// Whether Steam believes the machine has a battery, which is when it keeps the two timeouts apart
-/// on its Power page.
+///     Whether Steam believes the machine has a battery, which is when it keeps the two timeouts apart
+///     on its Power page.
 /// </param>
 public sealed record SteamScreensaverReport(int PluggedInSeconds, int? BatterySeconds, bool Battery);
 
@@ -52,8 +52,8 @@ public interface ISteamScreensaverBackend
 {
     /// <summary>Receives Steam's screensaver timeouts.</summary>
     /// <remarks>
-    /// Sent when the gate first reads them, whenever they change while the settings page is open,
-    /// and each time the page opens, so a host can refresh what it publishes.
+    ///     Sent when the gate first reads them, whenever they change while the settings page is open,
+    ///     and each time the page opens, so a host can refresh what it publishes.
     /// </remarks>
     /// <param name="report">The timeouts.</param>
     /// <param name="cancellationToken">Cancels the handling.</param>
@@ -61,7 +61,7 @@ public interface ISteamScreensaverBackend
     Task<SteamUiCommandResult> ReportAsync(SteamScreensaverReport report, CancellationToken cancellationToken);
 
     /// <summary>Applies a choice made in one of the host's rows.</summary>
-    /// <param name="row">The row's <see cref="SteamTimeoutRow.Id"/>.</param>
+    /// <param name="row">The row's <see cref="SteamTimeoutRow.Id" />.</param>
     /// <param name="seconds">The chosen timeout in seconds; zero means never.</param>
     /// <param name="cancellationToken">Cancels the change.</param>
     /// <returns>The outcome, with its reason when refused.</returns>
@@ -69,22 +69,22 @@ public interface ISteamScreensaverBackend
 }
 
 /// <summary>
-/// Big Picture's Screensaver settings, with host-owned timeout rows beside Steam's own screensaver
-/// timeout.
+///     Big Picture's Screensaver settings, with host-owned timeout rows beside Steam's own screensaver
+///     timeout.
 /// </summary>
 /// <remarks>
-/// The Settings root builds its page list through <c>React.useMemo</c>. The gate takes the shared
-/// useMemo claim, replaces the customization page's content with a wrapper that renders it, and in
-/// what the page renders replaces the Screensaver section, found by its label token and its
-/// <c>ForceScreensaver</c> call, with a wrapper that appends the host's rows. The rows use Valve's
-/// own dropdown field. Steam's screensaver timeouts are read from its client settings store inside
-/// Steam's mobx observer and reported to the host.
-/// <para>
-/// Mapped from the September 2026 client beta's bundle on 2026-09-11: the section's label token
-/// with <c>ForceScreensaver</c> occurs in exactly one module, the page list carries
-/// <c>/settings/customization</c> from Steam's route table, and the section's idle row writes
-/// <c>system_idle_screensaver_ac_sec</c>.
-/// </para>
+///     The Settings root builds its page list through <c>React.useMemo</c>. The gate takes the shared
+///     useMemo claim, replaces the customization page's content with a wrapper that renders it, and in
+///     what the page renders replaces the Screensaver section, found by its label token and its
+///     <c>ForceScreensaver</c> call, with a wrapper that appends the host's rows. The rows use Valve's
+///     own dropdown field. Steam's screensaver timeouts are read from its client settings store inside
+///     Steam's mobx observer and reported to the host.
+///     <para>
+///         Mapped from the September 2026 client beta's bundle on 2026-09-11: the section's label token
+///         with <c>ForceScreensaver</c> occurs in exactly one module, the page list carries
+///         <c>/settings/customization</c> from Steam's route table, and the section's idle row writes
+///         <c>system_idle_screensaver_ac_sec</c>.
+///     </para>
 /// </remarks>
 public static class SteamScreensaverSurface
 {
@@ -100,72 +100,74 @@ public static class SteamScreensaverSurface
     /// <summary>The most choices one row may offer.</summary>
     public const int MaximumOptions = 16;
 
+    private static readonly Regex RowId = new("^[a-z][a-z0-9-]{0,31}$", RegexOptions.CultureInvariant);
+
     /// <summary>The exact command vocabulary the injected gate sends.</summary>
     public static IReadOnlyList<string> Commands { get; } = ["report", "setTimeout"];
 
     /// <summary>The gate that adds the host's rows to Steam's Screensaver section.</summary>
     /// <remarks>
-    /// Each structural fact is reported separately, so an incompatible client says which one moved.
-    /// The observer hook is reported but not required. The useMemo claim is shared and never
-    /// examined here, so a claim this or another gate already holds stays compatible.
+    ///     Each structural fact is reported separately, so an incompatible client says which one moved.
+    ///     The observer hook is reported but not required. The useMemo claim is shared and never
+    ///     examined here, so a claim this or another gate already holds stays compatible.
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
-        id: PatchId,
-        resourceKey: "steam-ui.settings-pages",
-        gateName: "screensaver",
-        fingerprint: "steam-screensaver-v1:unique-section-module+customization-route+settings-store",
-        probeExpression: $$"""
-            {{SteamUiProbeJs.Preamble("steam_ui_screensaver_probe_")}}
-              let route='';
-              try{route=req.exported({{SteamUiProbeJs.RouteTableTokens}},
-                v=>typeof v?.Settings?.Customization==='function').Settings.Customization();}catch{}
-              let settings=false;
-              try{settings=!!req.exported({{SteamUiProbeJs.SettingsStoreTokens}},
-                v=>!!v&&typeof v==='object'&&typeof v.clientSettings==='object');}catch{}
-              return JSON.stringify({
-                react:count({{SteamUiProbeJs.ReactTokens}}),
-                fields:count({{SteamUiProbeJs.NativeFieldTokens}}),
-                section:count(['"#Settings_Customization_Screensaver"','ForceScreensaver']),
-                route:typeof route==='string'&&route.startsWith('/')?route:'',
-                settings:settings,
-                observer:count({{SteamUiProbeJs.ObserverTokens}})
-              });
-            {{SteamUiProbeJs.Close}}
-            """,
-        compatible: root =>
+        PatchId,
+        "steam-ui.settings-pages",
+        "screensaver",
+        "steam-screensaver-v1:unique-section-module+customization-route+settings-store",
+        $$"""
+          {{SteamUiProbeJs.Preamble("steam_ui_screensaver_probe_")}}
+            let route='';
+            try{route=req.exported({{SteamUiProbeJs.RouteTableTokens}},
+              v=>typeof v?.Settings?.Customization==='function').Settings.Customization();}catch{}
+            let settings=false;
+            try{settings=!!req.exported({{SteamUiProbeJs.SettingsStoreTokens}},
+              v=>!!v&&typeof v==='object'&&typeof v.clientSettings==='object');}catch{}
+            return JSON.stringify({
+              react:count({{SteamUiProbeJs.ReactTokens}}),
+              fields:count({{SteamUiProbeJs.NativeFieldTokens}}),
+              section:count(['"#Settings_Customization_Screensaver"','ForceScreensaver']),
+              route:typeof route==='string'&&route.startsWith('/')?route:'',
+              settings:settings,
+              observer:count({{SteamUiProbeJs.ObserverTokens}})
+            });
+          {{SteamUiProbeJs.Close}}
+          """,
+        root =>
             SteamUiPatchEvaluation.IsOne(root, "react")
             && SteamUiPatchEvaluation.IsOne(root, "fields")
             && SteamUiPatchEvaluation.IsOne(root, "section")
-            && root.TryGetProperty("route", out JsonElement route)
+            && root.TryGetProperty("route", out var route)
             && route.ValueKind == JsonValueKind.String
             && route.GetString() is { Length: > 0 }
             && SteamUiPatchEvaluation.Flag(root, "settings"),
-        verifyOk: "status.installed&&status.resolved&&status.claimed",
-        removeOk: "!status.claimed",
-        subject: "Screensaver settings gate");
-
-    private static readonly Regex RowId = new("^[a-z][a-z0-9-]{0,31}$", RegexOptions.CultureInvariant);
+        "status.installed&&status.resolved&&status.claimed",
+        "!status.claimed",
+        "Screensaver settings gate");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
     /// <param name="state">The state to serialize.</param>
     /// <returns>The wire payload.</returns>
-    public static JsonElement Serialize(SteamScreensaverState state) =>
-        JsonSerializer.SerializeToElement(state, SteamSurfaceJsonContext.Default.SteamScreensaverState);
+    public static JsonElement Serialize(SteamScreensaverState state)
+    {
+        return JsonSerializer.SerializeToElement(state, SteamSurfaceJsonContext.Default.SteamScreensaverState);
+    }
 
     /// <summary>
-    /// Reads the exact <c>report</c> payload: <c>acSeconds</c>, <c>batterySeconds</c> (a number or
-    /// null) and <c>battery</c>, nothing else.
+    ///     Reads the exact <c>report</c> payload: <c>acSeconds</c>, <c>batterySeconds</c> (a number or
+    ///     null) and <c>battery</c>, nothing else.
     /// </summary>
     /// <param name="payload">The request payload.</param>
     /// <param name="report">The report, when this returns true.</param>
     /// <returns>Whether the payload had that shape.</returns>
     public static bool TryReadReport(JsonElement payload, out SteamScreensaverReport report)
     {
-        report = new(0, null, false);
+        report = new SteamScreensaverReport(0, null, false);
         if (!SteamUiPayload.HasExactly(payload, 3)
-            || !SteamUiPayload.TryReadInt(payload, "acSeconds", 0, MaximumSeconds, out int pluggedIn)
-            || !payload.TryGetProperty("batterySeconds", out JsonElement battery)
-            || !SteamUiPayload.TryReadBoolean(payload, "battery", out bool hasBattery))
+            || !SteamUiPayload.TryReadInt(payload, "acSeconds", 0, MaximumSeconds, out var pluggedIn)
+            || !payload.TryGetProperty("batterySeconds", out var battery)
+            || !SteamUiPayload.TryReadBoolean(payload, "battery", out var hasBattery))
         {
             return false;
         }
@@ -173,14 +175,15 @@ public static class SteamScreensaverSurface
         int? batterySeconds = null;
         if (battery.ValueKind != JsonValueKind.Null)
         {
-            if (!SteamUiPayload.TryReadInt(payload, "batterySeconds", 0, MaximumSeconds, out int value))
+            if (!SteamUiPayload.TryReadInt(payload, "batterySeconds", 0, MaximumSeconds, out var value))
             {
                 return false;
             }
+
             batterySeconds = value;
         }
 
-        report = new(pluggedIn, batterySeconds, hasBattery);
+        report = new SteamScreensaverReport(pluggedIn, batterySeconds, hasBattery);
         return true;
     }
 
@@ -237,13 +240,13 @@ public static class SteamScreensaverSurface
                     "setTimeout",
                     static (JsonElement payload, out (string Row, int Seconds) timeout) =>
                     {
-                        bool read = TryReadTimeout(payload, out string row, out int seconds);
+                        var read = TryReadTimeout(payload, out var row, out var seconds);
                         timeout = (row, seconds);
                         return read;
                     },
                     (timeout, cancellationToken) =>
                         backend.SetTimeoutAsync(timeout.Row, timeout.Seconds, cancellationToken),
-                    "The timeout payload is invalid."),
+                    "The timeout payload is invalid.")
             ]);
     }
 }

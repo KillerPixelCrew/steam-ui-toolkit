@@ -8,11 +8,11 @@ internal static class TestJson
     /// <summary>Parses JSON into an element that outlives its document.</summary>
     internal static JsonElement Parse(string json)
     {
-        using JsonDocument document = JsonDocument.Parse(json);
+        using var document = JsonDocument.Parse(json);
         return document.RootElement.Clone();
     }
 
-    /// <summary>Polls until <paramref name="predicate"/> holds, failing after one second.</summary>
+    /// <summary>Polls until <paramref name="predicate" /> holds, failing after one second.</summary>
     internal static async Task WaitUntilAsync(Func<bool> predicate)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));

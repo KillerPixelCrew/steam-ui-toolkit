@@ -3,47 +3,48 @@ using System.Text.Json;
 namespace SteamUiToolkit.Tests;
 
 /// <summary>
-/// Host-side authorization of bridge requests, including the wire contract with the injected
-/// bootstrap.
+///     Host-side authorization of bridge requests, including the wire contract with the injected
+///     bootstrap.
 /// </summary>
 /// <remarks>
-/// The bootstrap serialises its envelope in camelCase. The host's source-generated context matched
-/// PascalCase with case-insensitivity explicitly disabled, so every property took its default:
-/// Version arrived as 0 and the request was refused as a schema version mismatch with an empty
-/// patch id. Every native-QAM command had been rejected since the bridge was written, and it stayed
-/// invisible because no row rendered to send one until the panel was fixed.
-/// <para>
-/// The captured envelope below is a real one from the live Runtime binding on the reference Claw,
-/// so the wire tests fail if either side of the contract moves.
-/// </para>
+///     The bootstrap serialises its envelope in camelCase. The host's source-generated context matched
+///     PascalCase with case-insensitivity explicitly disabled, so every property took its default:
+///     Version arrived as 0 and the request was refused as a schema version mismatch with an empty
+///     patch id. Every native-QAM command had been rejected since the bridge was written, and it stayed
+///     invisible because no row rendered to send one until the panel was fixed.
+///     <para>
+///         The captured envelope below is a real one from the live Runtime binding on the reference Claw,
+///         so the wire tests fail if either side of the contract moves.
+///     </para>
 /// </remarks>
 public sealed class SteamUiBridgeAuthorizerTests
 {
+    private const string CapturedEnvelope = """
+                                            {"version":1,"type":"request","patchId":"steam-ui.frame-limit",
+                                            "command":"setFrameLimit","sequence":6,"actionGeneration":99,
+                                            "contextGeneration":2,"documentGeneration":1,"payload":{"value":60}}
+                                            """;
+
     private static readonly SteamUiGenerations Generations = new(1, 2, 3, 4, 5, 6);
+
     private static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> Commands =
         new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
         {
             ["steam-ui.power-limit"] = ["setPrimaryLimit"],
-            ["steam-ui.frame-limit"] = ["setFrameLimit"],
+            ["steam-ui.frame-limit"] = ["setFrameLimit"]
         };
 
     /// <summary>The generations the captured envelope was produced under.</summary>
     /// <remarks>
-    /// Only the execution-context and document generations take part in authorization; the rest
-    /// identify the transport and are irrelevant to the envelope's validity.
+    ///     Only the execution-context and document generations take part in authorization; the rest
+    ///     identify the transport and are irrelevant to the envelope's validity.
     /// </remarks>
     private static readonly SteamUiGenerations CapturedGenerations = new(0, 0, 0, 0, 2, 1);
-
-    private const string CapturedEnvelope = """
-        {"version":1,"type":"request","patchId":"steam-ui.frame-limit",
-        "command":"setFrameLimit","sequence":6,"actionGeneration":99,
-        "contextGeneration":2,"documentGeneration":1,"payload":{"value":60}}
-        """;
 
     [Fact]
     public void TheBootstrapsCamelCaseEnvelopeDecodesIntoEveryField()
     {
-        SteamUiBridgeRequest? request = JsonSerializer.Deserialize(
+        var request = JsonSerializer.Deserialize(
             CapturedEnvelope,
             SteamUiBridgeJsonContext.Default.SteamUiBridgeRequest);
 
@@ -62,12 +63,12 @@ public sealed class SteamUiBridgeAuthorizerTests
     [Fact]
     public void ADecodedEnvelopeIsAuthorizedRatherThanRefusedAsAVersionMismatch()
     {
-        SteamUiBridgeRequest request = JsonSerializer.Deserialize(
+        var request = JsonSerializer.Deserialize(
             CapturedEnvelope,
             SteamUiBridgeJsonContext.Default.SteamUiBridgeRequest)!;
         SteamUiBridgeAuthorizer authorizer = new(CapturedGenerations, Commands);
 
-        SteamUiBridgeAuthorizationResult result = authorizer.Authorize(request);
+        var result = authorizer.Authorize(request);
 
         Assert.True(result.Accepted, result.Reason);
     }
@@ -95,7 +96,7 @@ public sealed class SteamUiBridgeAuthorizerTests
         Assert.False(authorizer.Authorize(
             Request("steam-ui.frame-limit", "setFrameLimit", 3, 21) with
             {
-                ContextGeneration = 99,
+                ContextGeneration = 99
             }).Accepted);
     }
 
@@ -106,20 +107,21 @@ public sealed class SteamUiBridgeAuthorizerTests
         Assert.False(authorizer.Authorize(
             Request("steam-ui.frame-limit", "setFrameLimit", 5, 30) with
             {
-                Type = "cancel",
+                Type = "cancel"
             }).Accepted);
         Assert.True(authorizer.Authorize(
             Request("steam-ui.frame-limit", "setFrameLimit", 5, 30)).Accepted);
         Assert.True(authorizer.Authorize(
             Request("steam-ui.frame-limit", "setFrameLimit", 5, 30) with
             {
-                Type = "cancel",
+                Type = "cancel"
             }).Accepted);
     }
 
     private static SteamUiBridgeRequest Request(
-        string patchId, string command, long sequence, long actionGeneration) =>
-        new(
+        string patchId, string command, long sequence, long actionGeneration)
+    {
+        return new SteamUiBridgeRequest(
             SteamUiBridgeHost.SchemaVersion,
             "request",
             patchId,
@@ -129,4 +131,5 @@ public sealed class SteamUiBridgeAuthorizerTests
             Generations.ExecutionContext,
             Generations.Document,
             TestJson.Parse("{\"value\":15}"));
+    }
 }

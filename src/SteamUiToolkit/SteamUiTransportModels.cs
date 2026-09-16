@@ -13,14 +13,14 @@ public enum SteamUiTargetRole
 
     /// <summary>The Big Picture window, which renders the pages the user is looking at.</summary>
     /// <remarks>
-    /// Distinct from <see cref="SharedJsContext"/>, which owns the route and the module registry but
-    /// almost no DOM: with the Steam Input page open on the reference Claw its body measured 218
-    /// bytes, while every element that page draws — and every Valve glyph image the stylesheet keys
-    /// off — was here. CSS is per document, so a stylesheet meant for what the user sees has to be
-    /// installed in this one. The glyph stylesheet was going to SharedJSContext, which is why half a
-    /// megabyte of correct CSS applied, verified, and changed nothing.
+    ///     Distinct from <see cref="SharedJsContext" />, which owns the route and the module registry but
+    ///     almost no DOM: with the Steam Input page open on the reference Claw its body measured 218
+    ///     bytes, while every element that page draws — and every Valve glyph image the stylesheet keys
+    ///     off — was here. CSS is per document, so a stylesheet meant for what the user sees has to be
+    ///     installed in this one. The glyph stylesheet was going to SharedJSContext, which is why half a
+    ///     megabyte of correct CSS applied, verified, and changed nothing.
     /// </remarks>
-    MainWindow,
+    MainWindow
 }
 
 /// <summary>Health of one persistent Steam UI target channel.</summary>
@@ -45,7 +45,7 @@ public enum SteamUiTransportHealth
     Retrying,
 
     /// <summary>The channel has been disposed.</summary>
-    Disposed,
+    Disposed
 }
 
 /// <summary>Generations that invalidate cached Steam UI state and commands.</summary>
@@ -93,7 +93,10 @@ public readonly record struct SteamUiEvaluationResult(
 {
     /// <summary>Creates an unavailable result without a JavaScript value.</summary>
     public static SteamUiEvaluationResult Unavailable(
-        string error, SteamUiGenerations generations) => new(false, null, error, generations);
+        string error, SteamUiGenerations generations)
+    {
+        return new SteamUiEvaluationResult(false, null, error, generations);
+    }
 }
 
 /// <summary>A bounded CDP notification emitted by a validated Steam UI channel.</summary>

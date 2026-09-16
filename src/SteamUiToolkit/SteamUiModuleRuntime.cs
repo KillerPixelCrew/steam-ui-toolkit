@@ -1,54 +1,63 @@
 using System;
 using System.Collections.Generic;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace SteamUiToolkit;
 
 /// <summary>
-/// Runs the two traffic directions between registered modules and the injected side: state pushed
-/// out, and commands answered back.
+///     Runs the two traffic directions between registered modules and the injected side: state pushed
+///     out, and commands answered back.
 /// </summary>
 /// <remarks>
-/// This is the half of hosting that is the same for any consumer. What it deliberately does NOT
-/// own is which patches should be applied when — that is the host's policy, it differs per
-/// application, and pulling it in here would mean a constructor full of predicates that only
-/// describe one host's rules.
-/// <para>
-/// One rule here is load-bearing rather than incidental: <b>every refusal is logged with its
-/// reason</b>. The reason is built by the module and handed straight back to the injected side,
-/// which has nowhere to put it, so a control the user operated that quietly did nothing would
-/// otherwise leave no trace at all on this side of the bridge. That defect cost a session — Steam
-/// had a 28 W limit stored, the gate had forwarded it, and the hardware was still at 30 W with not
-/// one line saying why.
-/// </para>
+///     This is the half of hosting that is the same for any consumer. What it deliberately does NOT
+///     own is which patches should be applied when — that is the host's policy, it differs per
+///     application, and pulling it in here would mean a constructor full of predicates that only
+///     describe one host's rules.
+///     <para>
+///         One rule here is load-bearing rather than incidental:
+///         <b>
+///             every refusal is logged with its
+///             reason
+///         </b>
+///         . The reason is built by the module and handed straight back to the injected side,
+///         which has nowhere to put it, so a control the user operated that quietly did nothing would
+///         otherwise leave no trace at all on this side of the bridge. That defect cost a session — Steam
+///         had a 28 W limit stored, the gate had forwarded it, and the hardware was still at 30 W with not
+///         one line saying why.
+///     </para>
 /// </remarks>
 public sealed class SteamUiModuleRuntime : IAsyncDisposable
 {
     private readonly SteamUiBridgeHost _bridge;
-    private readonly SteamUiModuleSet _modules;
+
     private readonly Func<bool> _commandsEnabled;
-    private readonly Func<bool> _publishEnabled;
-    private readonly CancellationTokenSource _shutdown = new();
-    private readonly SemaphoreSlim _publicationSignal = new(0, 1);
-    private readonly object _requestGate = new();
+
     // Sequences restart at 1 for every bridge generation, so a handler from the previous document
     // that has not yet observed cancellation would otherwise collide with the new document's first
     // request, and the new request would be dropped unanswered.
     private readonly Dictionary<InflightKey, CancellationTokenSource> _inflight = [];
-    private readonly HashSet<Task> _requestTasks = [];
+    private readonly SteamUiModuleSet _modules;
     private readonly Task _publication;
-    private int _publicationPending;
+    private readonly SemaphoreSlim _publicationSignal = new(0, 1);
+    private readonly Func<bool> _publishEnabled;
+    private readonly object _requestGate = new();
+    private readonly HashSet<Task> _requestTasks = [];
+    private readonly CancellationTokenSource _shutdown = new();
     private int _disposed;
+    private int _publicationPending;
 
     /// <summary>Starts the publication pump and begins answering bridge requests.</summary>
     /// <param name="bridge">The bridge this runtime publishes through and answers on.</param>
     /// <param name="modules">The registered modules supplying publications and command handlers.</param>
-    /// <param name="commandsEnabled">Whether commands may be answered at all right now. A command
-    /// arriving while this is false is refused with a reason rather than dropped.</param>
-    /// <param name="publishEnabled">Whether any state may be published this round. Evaluated once
-    /// per round; each publication's own gate is evaluated separately.</param>
+    /// <param name="commandsEnabled">
+    ///     Whether commands may be answered at all right now. A command
+    ///     arriving while this is false is refused with a reason rather than dropped.
+    /// </param>
+    /// <param name="publishEnabled">
+    ///     Whether any state may be published this round. Evaluated once
+    ///     per round; each publication's own gate is evaluated separately.
+    /// </param>
     public SteamUiModuleRuntime(
         SteamUiBridgeHost bridge,
         SteamUiModuleSet modules,
@@ -61,6 +70,45 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
         _publishEnabled = publishEnabled ?? throw new ArgumentNullException(nameof(publishEnabled));
         _bridge.RequestReceived += OnRequestReceived;
         _publication = Task.Run(PublishLoopAsync);
+    }
+
+    /// <summary>Stops answering, drains in-flight work, and releases the pump.</summary>
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        _bridge.RequestReceived -= OnRequestReceived;
+        CancelAllInflight();
+        _shutdown.Cancel();
+        try
+        {
+            await _publication.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+
+        Task[] requestTasks;
+        lock (_requestGate)
+        {
+            requestTasks = [.. _requestTasks];
+        }
+
+        try
+        {
+            await Task.WhenAll(requestTasks).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            SteamUiLog.Warn($"Steam UI semantic request cleanup failed: {ex.Message}");
+        }
+
+        // These managed synchronization objects are collected with the runtime. A bridge callback
+        // already dispatched just before unsubscription may still observe the cancelled token;
+        // disposing the source here would turn that harmless late callback into a teardown race.
     }
 
     /// <summary>Asks for one publication round, coalescing repeats into the pending one.</summary>
@@ -79,10 +127,10 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
 
     /// <summary>Cancels every request still in flight.</summary>
     /// <remarks>
-    /// Called when a generation is replaced. A semantic operation is authorized against one
-    /// execution-context and document pair, so letting it continue after either moved could apply
-    /// a result for a page that can no longer receive its response — replacement is cancellation,
-    /// exactly like an explicit cancel from the injected side.
+    ///     Called when a generation is replaced. A semantic operation is authorized against one
+    ///     execution-context and document pair, so letting it continue after either moved could apply
+    ///     a result for a page that can no longer receive its response — replacement is cancellation,
+    ///     exactly like an explicit cancel from the injected side.
     /// </remarks>
     public void CancelAllInflight()
     {
@@ -92,7 +140,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
             inflight = [.. _inflight.Values];
         }
 
-        foreach (CancellationTokenSource cancellation in inflight)
+        foreach (var cancellation in inflight)
         {
             SteamUiShared.CancelSafely(cancellation);
         }
@@ -104,32 +152,34 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
         {
             return;
         }
+
         if (request.Type == "cancel")
         {
             CancelInflight(InflightKey.Of(request));
             return;
         }
 
-        Task task = RespondAsync(request);
+        var task = RespondAsync(request);
         lock (_requestGate)
         {
             _requestTasks.Add(task);
         }
+
         _ = ObserveCompletionAsync(task);
     }
 
     private async Task RespondAsync(SteamUiBridgeRequest request)
     {
-        using CancellationTokenSource requestCancellation =
+        using var requestCancellation =
             CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
-        InflightKey key = InflightKey.Of(request);
+        var key = InflightKey.Of(request);
         lock (_requestGate)
         {
             if (!_inflight.TryAdd(key, requestCancellation))
             {
                 SteamUiLog.Warn(
                     $"Steam UI request {request.PatchId}/{request.Command} reused sequence "
-                        + $"{request.Sequence} while an earlier one was still running; not answered.");
+                    + $"{request.Sequence} while an earlier one was still running; not answered.");
                 return;
             }
         }
@@ -142,14 +192,15 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
                 RemoveInflight(key, requestCancellation);
                 return;
             }
+
             outcome = !_commandsEnabled()
-                || !_modules.TryGetCommand(
-                    request.PatchId,
-                    request.Command,
-                    out SteamUiCommandDelegate? handler)
-                || handler is null
-                    ? SteamUiCommandResult.Refused
-                    : await handler(request, requestCancellation.Token).ConfigureAwait(false);
+                      || !_modules.TryGetCommand(
+                          request.PatchId,
+                          request.Command,
+                          out var handler)
+                      || handler is null
+                ? SteamUiCommandResult.Refused
+                : await handler(request, requestCancellation.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (requestCancellation.IsCancellationRequested)
         {
@@ -172,9 +223,9 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
             SteamUiLog.Change(
                 $"steam.ui.request.{request.PatchId}.{request.Command}",
                 $"Steam UI request {request.PatchId}/{request.Command} did nothing: "
-                    + (outcome.Error ?? "no reason reported")
-                    + $" Payload: {request.Payload}",
-                warning: true);
+                + (outcome.Error ?? "no reason reported")
+                + $" Payload: {request.Payload}",
+                true);
         }
 
         try
@@ -184,7 +235,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
                 return;
             }
 
-            bool delivered = await _bridge.RespondAsync(
+            var delivered = await _bridge.RespondAsync(
                     request,
                     outcome.Succeeded,
                     outcome.Payload,
@@ -196,8 +247,8 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
                 SteamUiLog.Change(
                     $"steam.ui.response.{request.PatchId}.{request.Command}",
                     $"Steam UI response {request.PatchId}/{request.Command} was not accepted by "
-                        + "the current document.",
-                    warning: true);
+                    + "the current document.",
+                    true);
             }
         }
         catch (OperationCanceledException) when (requestCancellation.IsCancellationRequested)
@@ -226,7 +277,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
                     continue;
                 }
 
-                foreach (SteamUiStatePublication publication in _modules.Publications)
+                foreach (var publication in _modules.Publications)
                 {
                     try
                     {
@@ -234,7 +285,8 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
                         {
                             continue;
                         }
-                        JsonElement? payload = await publication.Read().ConfigureAwait(false);
+
+                        var payload = await publication.Read().ConfigureAwait(false);
                         // Null publishes nothing this round, which keeps a reading that is
                         // momentarily unavailable distinct from a zero.
                         if (payload is not { } state)
@@ -242,18 +294,18 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
                             continue;
                         }
 
-                        bool accepted = await _bridge.PublishStateAsync(
-                                    publication.PatchId,
-                                    state,
-                                    _shutdown.Token)
-                                .ConfigureAwait(false);
+                        var accepted = await _bridge.PublishStateAsync(
+                                publication.PatchId,
+                                state,
+                                _shutdown.Token)
+                            .ConfigureAwait(false);
                         if (!accepted)
                         {
                             SteamUiLog.Change(
                                 "steam.ui.publication." + publication.PatchId,
                                 $"Steam UI state publication {publication.PatchId} was not "
-                                    + "accepted by the current document.",
-                                warning: true);
+                                + "accepted by the current document.",
+                                true);
                         }
                     }
                     catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
@@ -265,7 +317,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
                         SteamUiLog.Change(
                             "steam.ui.publication." + publication.PatchId,
                             $"Steam UI state publication {publication.PatchId} failed: {ex.Message}",
-                            warning: true);
+                            true);
                     }
                 }
             }
@@ -295,18 +347,12 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
     {
         lock (_requestGate)
         {
-            if (_inflight.TryGetValue(key, out CancellationTokenSource? current)
+            if (_inflight.TryGetValue(key, out var current)
                 && ReferenceEquals(current, owner))
             {
                 _inflight.Remove(key);
             }
         }
-    }
-
-    private readonly record struct InflightKey(long Context, long Document, long Sequence)
-    {
-        internal static InflightKey Of(SteamUiBridgeRequest request) =>
-            new(request.ContextGeneration, request.DocumentGeneration, request.Sequence);
     }
 
     private async Task ObserveCompletionAsync(Task task)
@@ -328,40 +374,11 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
         }
     }
 
-    /// <summary>Stops answering, drains in-flight work, and releases the pump.</summary>
-    public async ValueTask DisposeAsync()
+    private readonly record struct InflightKey(long Context, long Document, long Sequence)
     {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        internal static InflightKey Of(SteamUiBridgeRequest request)
         {
-            return;
+            return new InflightKey(request.ContextGeneration, request.DocumentGeneration, request.Sequence);
         }
-        _bridge.RequestReceived -= OnRequestReceived;
-        CancelAllInflight();
-        _shutdown.Cancel();
-        try
-        {
-            await _publication.ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-        }
-
-        Task[] requestTasks;
-        lock (_requestGate)
-        {
-            requestTasks = [.. _requestTasks];
-        }
-        try
-        {
-            await Task.WhenAll(requestTasks).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            SteamUiLog.Warn($"Steam UI semantic request cleanup failed: {ex.Message}");
-        }
-
-        // These managed synchronization objects are collected with the runtime. A bridge callback
-        // already dispatched just before unsubscription may still observe the cancelled token;
-        // disposing the source here would turn that harmless late callback into a teardown race.
     }
 }

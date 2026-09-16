@@ -5,26 +5,18 @@ namespace SteamUiToolkit;
 
 /// <summary>Shared JavaScript fragments for read-only webpack structural probes.</summary>
 /// <remarks>
-/// A probe names the modules it touches. The preamble captures webpack's require by pushing an
-/// empty chunk, which evaluates nothing; a probe built on it then reads factory source as text and
-/// resolves only literal module ids. Iterating the registry and constructing exports is the one
-/// thing a probe must never do — it has restarted a machine and signed Steam out.
+///     A probe names the modules it touches. The preamble captures webpack's require by pushing an
+///     empty chunk, which evaluates nothing; a probe built on it then reads factory source as text and
+///     resolves only literal module ids. Iterating the registry and constructing exports is the one
+///     thing a probe must never do — it has restarted a machine and signed Steam out.
 /// </remarks>
 public static class SteamUiProbeJs
 {
-    /// <summary>Opens a probe IIFE, captures webpack's require and defines the token counter.</summary>
-    /// <param name="chunkLabel">The stable chunk-label prefix, kept per probe for live diagnostics.</param>
-    /// <returns>The opening of a probe expression that defines <c>req</c> and <c>count(tokens)</c>;
-    /// the caller closes it with <see cref="Close"/>.</returns>
-    public static string Preamble(string chunkLabel) => $$"""
-        (()=>{try{
-          const req={{SteamUiModuleResolver.CreateExpression(chunkLabel)}};
-          const count=req.count;
-        """;
-
-    /// <summary>Closes a probe opened by <see cref="Preamble"/>.</summary>
-    /// <remarks>A probe that throws answers with the error as its result, so the manager records
-    /// why the client is incompatible instead of a bare JavaScript exception.</remarks>
+    /// <summary>Closes a probe opened by <see cref="Preamble" />.</summary>
+    /// <remarks>
+    ///     A probe that throws answers with the error as its result, so the manager records
+    ///     why the client is incompatible instead of a bare JavaScript exception.
+    /// </remarks>
     public const string Close = "}catch(error){return JSON.stringify({error:String(error)}); } })()";
 
     /// <summary>The source tokens that identify React's own module.</summary>
@@ -55,32 +47,53 @@ public static class SteamUiProbeJs
     internal static IReadOnlyList<string> TdpPresentationTokens { get; } =
         ["#QuickAccess_Tab_Perf_TDPLimitEnabled", "steamos_tdp_limit", "showBookendLabels"];
 
+    /// <summary>Opens a probe IIFE, captures webpack's require and defines the token counter.</summary>
+    /// <param name="chunkLabel">The stable chunk-label prefix, kept per probe for live diagnostics.</param>
+    /// <returns>
+    ///     The opening of a probe expression that defines <c>req</c> and <c>count(tokens)</c>;
+    ///     the caller closes it with <see cref="Close" />.
+    /// </returns>
+    public static string Preamble(string chunkLabel)
+    {
+        return $$"""
+                 (()=>{try{
+                   const req={{SteamUiModuleResolver.CreateExpression(chunkLabel)}};
+                   const count=req.count;
+                 """;
+    }
+
     /// <summary>Writes a token list as the JavaScript array a probe's counter takes.</summary>
     /// <param name="tokens">The literal source tokens.</param>
     /// <returns>A JSON array literal, which JavaScript reads unchanged.</returns>
-    internal static string Tokens(IReadOnlyList<string> tokens) =>
-        JsonSerializer.Serialize(tokens, SteamSurfaceJsonContext.Default.IReadOnlyListString);
+    internal static string Tokens(IReadOnlyList<string> tokens)
+    {
+        return JsonSerializer.Serialize(tokens, SteamSurfaceJsonContext.Default.IReadOnlyListString);
+    }
 
     /// <summary>Whether a property descriptor could be replaced and later restored.</summary>
     /// <param name="descriptor">The JavaScript variable holding the descriptor, or null.</param>
     /// <returns>An expression that is true only for a writable, configurable descriptor.</returns>
-    internal static string Replaceable(string descriptor) =>
-        $"!!{descriptor}&&{descriptor}.writable===true&&{descriptor}.configurable===true";
+    internal static string Replaceable(string descriptor)
+    {
+        return $"!!{descriptor}&&{descriptor}.writable===true&&{descriptor}.configurable===true";
+    }
 
     /// <summary>Whether a <c>SteamClient.System</c> namespace is absent, or present and ours.</summary>
     /// <param name="name">The namespace under <c>SteamClient.System</c>, such as <c>Audio</c>.</param>
     /// <returns>An expression evaluating to that verdict.</returns>
     /// <remarks>
-    /// A namespace a gate installed is not evidence of a native backend. Treating it as one made the
-    /// audio patch declare itself incompatible five seconds after a successful install, tear down,
-    /// and orphan the namespace it had just defined, which left Steam's audio page empty until Steam
-    /// itself restarted. An orphaned Perf namespace is worse: it leaves <c>SystemPerfStore</c>
-    /// holding half-written state, which is what crashed the whole Performance tab. The
-    /// <c>__wsgm*</c> spelling is the marker a build before the rename wrote; it is read as ours so
-    /// that upgrade needs no Steam restart, and never written.
+    ///     A namespace a gate installed is not evidence of a native backend. Treating it as one made the
+    ///     audio patch declare itself incompatible five seconds after a successful install, tear down,
+    ///     and orphan the namespace it had just defined, which left Steam's audio page empty until Steam
+    ///     itself restarted. An orphaned Perf namespace is worse: it leaves <c>SystemPerfStore</c>
+    ///     holding half-written state, which is what crashed the whole Performance tab. The
+    ///     <c>__wsgm*</c> spelling is the marker a build before the rename wrote; it is read as ours so
+    ///     that upgrade needs no Steam restart, and never written.
     /// </remarks>
-    internal static string OwnedOrAbsentNamespace(string name) =>
-        "(()=>{const n=window.SteamClient&&window.SteamClient.System&&window.SteamClient.System."
-        + name
-        + ";return !n||n.__steamUiOwnedNamespace===true||n.__wsgmOwnedNamespace===true;})()";
+    internal static string OwnedOrAbsentNamespace(string name)
+    {
+        return "(()=>{const n=window.SteamClient&&window.SteamClient.System&&window.SteamClient.System."
+               + name
+               + ";return !n||n.__steamUiOwnedNamespace===true||n.__wsgmOwnedNamespace===true;})()";
+    }
 }

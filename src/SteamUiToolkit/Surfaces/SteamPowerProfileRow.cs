@@ -17,7 +17,10 @@ public sealed record SteamPowerProfileOption(string Id, string Label);
 /// <param name="Current">Observed profile id, or empty when unknown.</param>
 /// <param name="StatusText">Current state or the last failure.</param>
 public sealed record SteamPowerProfileState(
-    bool Available, IReadOnlyList<SteamPowerProfileOption> Options, string Current, string StatusText);
+    bool Available,
+    IReadOnlyList<SteamPowerProfileOption> Options,
+    string Current,
+    string StatusText);
 
 /// <summary>Applies a host's power profiles.</summary>
 public interface ISteamPowerProfileBackend
@@ -47,8 +50,10 @@ public static class SteamPowerProfileRow
     /// <summary>Serializes state for the injected component.</summary>
     /// <param name="state">State to publish.</param>
     /// <returns>The wire payload.</returns>
-    public static JsonElement Serialize(SteamPowerProfileState state) =>
-        JsonSerializer.SerializeToElement(state, SteamSurfaceJsonContext.Default.SteamPowerProfileState);
+    public static JsonElement Serialize(SteamPowerProfileState state)
+    {
+        return JsonSerializer.SerializeToElement(state, SteamSurfaceJsonContext.Default.SteamPowerProfileState);
+    }
 
     /// <summary>Declares the patch, state publication and command handler.</summary>
     /// <param name="enabled">Whether publication is enabled.</param>
@@ -63,7 +68,9 @@ public static class SteamPowerProfileRow
         ArgumentNullException.ThrowIfNull(backend);
         return SteamSurfaceModule.Declare(
             id, PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamPowerProfileState, [Patch],
-            [SteamSurfaceModule.Command<string>(PatchId, "setPowerProfile", SteamUiPayload.TryReadTarget,
-                backend.SetPowerProfileAsync, "The power-profile payload is invalid.")]);
+            [
+                SteamSurfaceModule.Command<string>(PatchId, "setPowerProfile", SteamUiPayload.TryReadTarget,
+                    backend.SetPowerProfileAsync, "The power-profile payload is invalid.")
+            ]);
     }
 }

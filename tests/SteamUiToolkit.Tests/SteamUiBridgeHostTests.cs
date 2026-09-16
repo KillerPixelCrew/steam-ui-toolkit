@@ -9,10 +9,11 @@ public sealed class SteamUiBridgeHostTests
     // still carries the placeholder is the honest fixture.
     private static readonly SteamUiInjectedAsset TestAsset =
         new("(()=>{return __STEAM_UI_CONFIGURATION_JSON__;})()", "TESTASSETHASH");
+
     private static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> TestVocabulary =
         new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
         {
-            ["example.performance"] = ["setLimit"],
+            ["example.performance"] = ["setLimit"]
         };
 
     [Fact]
@@ -24,13 +25,13 @@ public sealed class SteamUiBridgeHostTests
         host.RequestReceived += (_, request) => received.Add(request);
         Assert.True(await host.BootstrapAsync());
 
-        string request = RequestJson(transport.Generations, sequence: 1, actionGeneration: 1);
+        var request = RequestJson(transport.Generations, 1, 1);
         transport.EmitBindingPayload(request);
         transport.EmitBindingPayload(request);
         transport.EmitBindingPayload(RequestJson(
             transport.Generations,
-            sequence: 2,
-            actionGeneration: 2));
+            2,
+            2));
 
         await TestJson.WaitUntilAsync(() => received.Count == 2);
         Assert.Equal([1L, 2L], received.Select(item => item.Sequence));
@@ -63,28 +64,28 @@ public sealed class SteamUiBridgeHostTests
         host.RequestReceived += (_, _) => received++;
         Assert.True(await host.BootstrapAsync());
 
-        SteamUiGenerations previous = transport.Generations;
+        var previous = transport.Generations;
         transport.AdvanceDocumentGeneration();
-        int evaluationsAfterReplacement = transport.Expressions.Count;
+        var evaluationsAfterReplacement = transport.Expressions.Count;
 
         Assert.False(host.IsReady);
         Assert.False(await host.PublishStateAsync(
             "example.performance",
             TestJson.Parse("{\"watts\":15}")));
         Assert.False(await host.RespondAsync(
-            Request(previous, sequence: 1, actionGeneration: 1),
-            ok: true,
-            payload: null,
-            error: null));
+            Request(previous, 1, 1),
+            true,
+            null,
+            null));
         transport.EmitBindingPayload(RequestJson(
-            previous,
-            sequence: 1,
-            actionGeneration: 1),
+                previous,
+                1,
+                1),
             previous);
         transport.EmitBindingPayload(RequestJson(
             transport.Generations,
-            sequence: 1,
-            actionGeneration: 1));
+            1,
+            1));
 
         Assert.Equal(evaluationsAfterReplacement, transport.Expressions.Count);
         Assert.Equal(0, received);
@@ -92,8 +93,8 @@ public sealed class SteamUiBridgeHostTests
         Assert.True(await host.BootstrapAsync());
         transport.EmitBindingPayload(RequestJson(
             transport.Generations,
-            sequence: 1,
-            actionGeneration: 1));
+            1,
+            1));
 
         await TestJson.WaitUntilAsync(() => received == 1);
         Assert.Equal(1, received);
@@ -104,22 +105,22 @@ public sealed class SteamUiBridgeHostTests
     {
         await using var transport = new FakeSteamUiTransport();
         await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
-        SteamUiBridgeRequest request = Request(
+        var request = Request(
             transport.Generations,
-            sequence: 1,
-            actionGeneration: 1);
+            1,
+            1);
 
         Assert.False(await host.PublishStateAsync("example.performance", TestJson.Parse("{}")));
         Assert.False(await host.RespondAsync(request, true, null, null));
         Assert.Empty(transport.Expressions);
 
         Assert.True(await host.BootstrapAsync());
-        int afterBootstrap = transport.Expressions.Count;
+        var afterBootstrap = transport.Expressions.Count;
         Assert.False(await host.PublishStateAsync("not.allowlisted", TestJson.Parse("{}")));
         Assert.False(await host.PublishStateAsync(
             "example.performance",
             TestJson.Parse("{\"value\":\"" + new string('x', SteamUiBridgeHost.MaximumPayloadCharacters)
-                + "\"}")));
+                                           + "\"}")));
         Assert.Equal(afterBootstrap, transport.Expressions.Count);
 
         Assert.True(await host.PublishStateAsync(
@@ -152,10 +153,10 @@ public sealed class SteamUiBridgeHostTests
         await using var transport = new FakeSteamUiTransport();
         await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
         Assert.True(await host.BootstrapAsync());
-        int afterBootstrap = transport.Expressions.Count;
-        JsonElement oversized = TestJson.Parse(
+        var afterBootstrap = transport.Expressions.Count;
+        var oversized = TestJson.Parse(
             "{\"value\":\"" + new string('x', SteamUiBridgeHost.MaximumPayloadCharacters)
-                + "\"}");
+                            + "\"}");
 
         Assert.False(await host.RespondAsync(
             Request(transport.Generations, 1, 1), true, oversized, null));
@@ -194,13 +195,14 @@ public sealed class SteamUiBridgeHostTests
                 evaluationStarted.TrySetResult();
                 await releaseEvaluation.Task.WaitAsync(call.CancellationToken);
             }
+
             return transport.Reply(transport.EvaluationValue);
         };
         var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
 
-        Task<bool> bootstrap = host.BootstrapAsync();
+        var bootstrap = host.BootstrapAsync();
         await evaluationStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
-        Task dispose = host.DisposeAsync().AsTask();
+        var dispose = host.DisposeAsync().AsTask();
         Assert.False(dispose.IsCompleted);
 
         releaseEvaluation.TrySetResult();
@@ -234,8 +236,8 @@ public sealed class SteamUiBridgeHostTests
         await host.DisposeAsync();
         transport.EmitBindingPayload(RequestJson(
             transport.Generations,
-            sequence: 1,
-            actionGeneration: 1));
+            1,
+            1));
 
         Assert.Equal([true, false], transport.BindingStates);
         Assert.Equal(0, received);
@@ -245,7 +247,9 @@ public sealed class SteamUiBridgeHostTests
     private static SteamUiBridgeRequest Request(
         SteamUiGenerations generations,
         long sequence,
-        long actionGeneration) => new(
+        long actionGeneration)
+    {
+        return new SteamUiBridgeRequest(
             SteamUiBridgeHost.SchemaVersion,
             "request",
             "example.performance",
@@ -255,11 +259,14 @@ public sealed class SteamUiBridgeHostTests
             generations.ExecutionContext,
             generations.Document,
             TestJson.Parse("{\"watts\":15,\"enabled\":true}"));
+    }
 
     private static string RequestJson(
         SteamUiGenerations generations,
         long sequence,
-        long actionGeneration) => JsonSerializer.Serialize(new
+        long actionGeneration)
+    {
+        return JsonSerializer.Serialize(new
         {
             version = SteamUiBridgeHost.SchemaVersion,
             type = "request",
@@ -269,6 +276,7 @@ public sealed class SteamUiBridgeHostTests
             actionGeneration,
             contextGeneration = generations.ExecutionContext,
             documentGeneration = generations.Document,
-            payload = new { watts = 15, enabled = true },
+            payload = new { watts = 15, enabled = true }
         });
+    }
 }

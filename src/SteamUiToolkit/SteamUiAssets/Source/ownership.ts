@@ -37,28 +37,28 @@
 // meaning; a renamed key would orphan the marker a previous build left on a running client.
 
 type ClaimKeys = {
-  // Set to true on the claimed object. "Is this ours?"
-  readonly marker: string;
-  // Holds what was displaced. "What do we hand back?"
-  readonly original: string;
+    // Set to true on the claimed object. "Is this ours?"
+    readonly marker: string;
+    // Holds what was displaced. "What do we hand back?"
+    readonly original: string;
 };
 
 type ClaimOutcome = { ok: true; reclaimed: boolean } | { ok: false; error: string };
 
 type PropertySnapshot = Readonly<{
-  kind: "steam-ui-property-snapshot-v1";
-  hadOwn: boolean;
-  descriptor?: PropertyDescriptor;
-  value: unknown;
+    kind: "steam-ui-property-snapshot-v1";
+    hadOwn: boolean;
+    descriptor?: PropertyDescriptor;
+    value: unknown;
 }>;
 
 const defineHidden = (host: object, key: string, value: unknown) => {
-  Object.defineProperty(host, key, {
-    value,
-    configurable: true,
-    enumerable: false,
-    writable: false,
-  });
+    Object.defineProperty(host, key, {
+        value,
+        configurable: true,
+        enumerable: false,
+        writable: false,
+    });
 };
 
 // The names a previous build wrote the same markers under, before the library's identifiers left
@@ -68,44 +68,44 @@ const defineHidden = (host: object, key: string, value: unknown) => {
 const legacyKey = (key: string) => key.replace(/^__steamUi/u, "__wsgm");
 
 const claimed = (host: unknown, keys: ClaimKeys) =>
-  !!host &&
-  ((host as Record<string, unknown>)[keys.marker] === true ||
-    (host as Record<string, unknown>)[legacyKey(keys.marker)] === true);
+    !!host &&
+    ((host as Record<string, unknown>)[keys.marker] === true ||
+        (host as Record<string, unknown>)[legacyKey(keys.marker)] === true);
 
 // What a claim stored as the displaced original, under either spelling of the key.
 const storedOriginal = (host: unknown, keys: ClaimKeys): unknown => {
-  const record = host as Record<string, unknown>;
-  if (Object.hasOwn(record, keys.original)) return record[keys.original];
-  if (Object.hasOwn(record, legacyKey(keys.original))) return record[legacyKey(keys.original)];
-  return undefined;
+    const record = host as Record<string, unknown>;
+    if (Object.hasOwn(record, keys.original)) return record[keys.original];
+    if (Object.hasOwn(record, legacyKey(keys.original))) return record[legacyKey(keys.original)];
+    return undefined;
 };
 
 const hasStoredOriginal = (host: unknown, keys: ClaimKeys) =>
-  Object.hasOwn(host as object, keys.original) ||
-  Object.hasOwn(host as object, legacyKey(keys.original));
+    Object.hasOwn(host as object, keys.original) ||
+    Object.hasOwn(host as object, legacyKey(keys.original));
 
 // Removes both spellings of a claim's markers; releasing what an older build claimed must not
 // leave its keys behind for the next probe to read as a claim.
 const dropClaimKeys = (host: Record<string, unknown>, keys: ClaimKeys) => {
-  for (const key of [keys.marker, keys.original, legacyKey(keys.marker), legacyKey(keys.original)]) {
-    delete host[key];
-  }
+    for (const key of [keys.marker, keys.original, legacyKey(keys.marker), legacyKey(keys.original)]) {
+        delete host[key];
+    }
 };
 
 const captureProperty = (host: Record<string, unknown>, property: string): PropertySnapshot => ({
-  kind: "steam-ui-property-snapshot-v1",
-  hadOwn: Object.hasOwn(host, property),
-  descriptor: Object.getOwnPropertyDescriptor(host, property),
-  value: host[property],
+    kind: "steam-ui-property-snapshot-v1",
+    hadOwn: Object.hasOwn(host, property),
+    descriptor: Object.getOwnPropertyDescriptor(host, property),
+    value: host[property],
 });
 
 const isPropertySnapshot = (value: unknown): value is PropertySnapshot =>
-  !!value &&
-  typeof value === "object" &&
-  // Both spellings of the kind, for the same reason claimed() reads both marker spellings.
-  ((value as Partial<PropertySnapshot>).kind === "steam-ui-property-snapshot-v1" ||
-    ((value as { kind?: unknown }).kind === "wsgm-property-snapshot-v1")) &&
-  typeof (value as Partial<PropertySnapshot>).hadOwn === "boolean";
+    !!value &&
+    typeof value === "object" &&
+    // Both spellings of the kind, for the same reason claimed() reads both marker spellings.
+    ((value as Partial<PropertySnapshot>).kind === "steam-ui-property-snapshot-v1" ||
+        ((value as { kind?: unknown }).kind === "wsgm-property-snapshot-v1")) &&
+    typeof (value as Partial<PropertySnapshot>).hadOwn === "boolean";
 
 // An accessor-backed field is one whose value lives BEHIND the property — a MobX observable, a
 // store's computed flag — and the only safe way to change it is through its own setter.
@@ -114,76 +114,76 @@ const isPropertySnapshot = (value: unknown): value is PropertySnapshot =>
 // `Cannot read properties of undefined (reading 'get')` on every later read, which crashed the
 // Quick Access Menu until the client restarted (device-reproduced 2026-09-01, brightness flag).
 const accessorSetter = (host: object, property: string) => {
-  const current = Object.getOwnPropertyDescriptor(host, property);
-  if (!current || "value" in current) return null;
-  return typeof current.set === "function" ? current.set : undefined;
+    const current = Object.getOwnPropertyDescriptor(host, property);
+    if (!current || "value" in current) return null;
+    return typeof current.set === "function" ? current.set : undefined;
 };
 
 const restoreProperty = (
-  host: Record<string, unknown>,
-  property: string,
-  snapshot: PropertySnapshot,
+    host: Record<string, unknown>,
+    property: string,
+    snapshot: PropertySnapshot,
 ) => {
-  const setter = accessorSetter(host, property);
-  if (setter !== null) {
-    if (setter === undefined) {
-      throw new TypeError("restore target is a read-only accessor");
+    const setter = accessorSetter(host, property);
+    if (setter !== null) {
+        if (setter === undefined) {
+            throw new TypeError("restore target is a read-only accessor");
+        }
+        if (host[property] !== snapshot.value) host[property] = snapshot.value;
+        return;
     }
-    if (host[property] !== snapshot.value) host[property] = snapshot.value;
-    return;
-  }
-  if (snapshot.hadOwn && snapshot.descriptor) {
-    Object.defineProperty(host, property, snapshot.descriptor);
-  } else {
-    delete host[property];
-  }
+    if (snapshot.hadOwn && snapshot.descriptor) {
+        Object.defineProperty(host, property, snapshot.descriptor);
+    } else {
+        delete host[property];
+    }
 };
 
 const legacyValueSnapshot = (
-  host: Record<string, unknown>,
-  property: string,
-  value: unknown,
-  absentMeansMissing: boolean,
+    host: Record<string, unknown>,
+    property: string,
+    value: unknown,
+    absentMeansMissing: boolean,
 ): PropertySnapshot => {
-  const current = Object.getOwnPropertyDescriptor(host, property);
-  const hadOwn = !(absentMeansMissing && value === undefined) && !!current;
-  return {
-    kind: "steam-ui-property-snapshot-v1",
-    hadOwn,
-    descriptor:
-      hadOwn && current && "value" in current ? { ...current, value } : undefined,
-    value,
-  };
+    const current = Object.getOwnPropertyDescriptor(host, property);
+    const hadOwn = !(absentMeansMissing && value === undefined) && !!current;
+    return {
+        kind: "steam-ui-property-snapshot-v1",
+        hadOwn,
+        descriptor:
+            hadOwn && current && "value" in current ? {...current, value} : undefined,
+        value,
+    };
 };
 
 const installDataValue = (
-  host: Record<string, unknown>,
-  property: string,
-  value: unknown,
+    host: Record<string, unknown>,
+    property: string,
+    value: unknown,
 ) => {
-  const descriptor = Object.getOwnPropertyDescriptor(host, property);
-  if (descriptor) {
-    if (!("value" in descriptor)) {
-      // Through the setter, never by redefinition — see accessorSetter. Read back because a
-      // setter is free to ignore the write, and a claim that did not take must not be marked.
-      if (typeof descriptor.set !== "function") {
-        throw new TypeError("claim target is a read-only accessor");
-      }
-      host[property] = value;
-      if (host[property] !== value) {
-        throw new TypeError("claim target did not accept the value");
-      }
-      return;
+    const descriptor = Object.getOwnPropertyDescriptor(host, property);
+    if (descriptor) {
+        if (!("value" in descriptor)) {
+            // Through the setter, never by redefinition — see accessorSetter. Read back because a
+            // setter is free to ignore the write, and a claim that did not take must not be marked.
+            if (typeof descriptor.set !== "function") {
+                throw new TypeError("claim target is a read-only accessor");
+            }
+            host[property] = value;
+            if (host[property] !== value) {
+                throw new TypeError("claim target did not accept the value");
+            }
+            return;
+        }
+        Object.defineProperty(host, property, {...descriptor, value});
+    } else {
+        Object.defineProperty(host, property, {
+            value,
+            configurable: true,
+            enumerable: true,
+            writable: true,
+        });
     }
-    Object.defineProperty(host, property, { ...descriptor, value });
-  } else {
-    Object.defineProperty(host, property, {
-      value,
-      configurable: true,
-      enumerable: true,
-      writable: true,
-    });
-  }
 };
 
 // Claims a plain data field — a flag or value the client set, that a gate replaces.
@@ -192,137 +192,137 @@ const installDataValue = (
 // inferred: reclaiming a previous bridge's work has to restore what THAT bridge displaced, and when
 // the stored original is missing the only honest answer is the value the client would have had.
 const claimValue = (
-  host: Record<string, unknown> | null,
-  field: string,
-  keys: ClaimKeys,
-  next: unknown,
-  absent: unknown,
+    host: Record<string, unknown> | null,
+    field: string,
+    keys: ClaimKeys,
+    next: unknown,
+    absent: unknown,
 ): ClaimOutcome => {
-  if (!host || !(field in host)) {
-    return { ok: false, error: "claim target unavailable" };
-  }
-  const reclaimed = claimed(host, keys);
-  // Already at the target value and NOT marked means the client did this itself. Refusing is
-  // correct: there is nothing to add, and restoring later would hand back a value we invented.
-  if (!reclaimed && host[field] === next) {
-    return { ok: false, error: "already set by the client" };
-  }
-  const fieldBefore = captureProperty(host, field);
-  const markerBefore = Object.getOwnPropertyDescriptor(host, keys.marker);
-  const originalBefore = Object.getOwnPropertyDescriptor(host, keys.original);
-  try {
-    const stored = hasStoredOriginal(host, keys) ? storedOriginal(host, keys) : absent;
-    const original = reclaimed
-      ? isPropertySnapshot(stored)
-        ? stored
-        : legacyValueSnapshot(host, field, stored, false)
-      : fieldBefore;
-    installDataValue(host, field, next);
-    // Rewritten under the current spelling; an older build's keys are dropped so a probe from a
-    // separate evaluation reads one claim, not two.
-    dropClaimKeys(host, keys);
-    defineHidden(host, keys.marker, true);
-    defineHidden(host, keys.original, original);
-    return { ok: true, reclaimed };
-  } catch (error) {
-    try {
-      restoreProperty(host, field, fieldBefore);
-      if (markerBefore) Object.defineProperty(host, keys.marker, markerBefore);
-      else delete host[keys.marker];
-      if (originalBefore) Object.defineProperty(host, keys.original, originalBefore);
-      else delete host[keys.original];
-    } catch {
-      // The primary error remains the useful diagnosis; a hostile Proxy can also refuse rollback.
+    if (!host || !(field in host)) {
+        return {ok: false, error: "claim target unavailable"};
     }
-    return { ok: false, error: String(error) };
-  }
+    const reclaimed = claimed(host, keys);
+    // Already at the target value and NOT marked means the client did this itself. Refusing is
+    // correct: there is nothing to add, and restoring later would hand back a value we invented.
+    if (!reclaimed && host[field] === next) {
+        return {ok: false, error: "already set by the client"};
+    }
+    const fieldBefore = captureProperty(host, field);
+    const markerBefore = Object.getOwnPropertyDescriptor(host, keys.marker);
+    const originalBefore = Object.getOwnPropertyDescriptor(host, keys.original);
+    try {
+        const stored = hasStoredOriginal(host, keys) ? storedOriginal(host, keys) : absent;
+        const original = reclaimed
+            ? isPropertySnapshot(stored)
+                ? stored
+                : legacyValueSnapshot(host, field, stored, false)
+            : fieldBefore;
+        installDataValue(host, field, next);
+        // Rewritten under the current spelling; an older build's keys are dropped so a probe from a
+        // separate evaluation reads one claim, not two.
+        dropClaimKeys(host, keys);
+        defineHidden(host, keys.marker, true);
+        defineHidden(host, keys.original, original);
+        return {ok: true, reclaimed};
+    } catch (error) {
+        try {
+            restoreProperty(host, field, fieldBefore);
+            if (markerBefore) Object.defineProperty(host, keys.marker, markerBefore);
+            else delete host[keys.marker];
+            if (originalBefore) Object.defineProperty(host, keys.original, originalBefore);
+            else delete host[keys.original];
+        } catch {
+            // The primary error remains the useful diagnosis; a hostile Proxy can also refuse rollback.
+        }
+        return {ok: false, error: String(error)};
+    }
 };
 
 // Hands a claimed field back. Releasing something never claimed is success, not an error: a gate
 // that failed halfway must be able to unwind without knowing how far it got.
 const releaseValue = (
-  host: Record<string, unknown> | null,
-  field: string,
-  keys: ClaimKeys,
+    host: Record<string, unknown> | null,
+    field: string,
+    keys: ClaimKeys,
 ): { ok: boolean; error?: string } => {
-  if (!host || !claimed(host, keys)) return { ok: true };
-  try {
-    const stored = storedOriginal(host, keys);
-    const original = isPropertySnapshot(stored)
-      ? stored
-      : legacyValueSnapshot(host, field, stored, false);
-    restoreProperty(host, field, original);
-    dropClaimKeys(host, keys);
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, error: String(error) };
-  }
+    if (!host || !claimed(host, keys)) return {ok: true};
+    try {
+        const stored = storedOriginal(host, keys);
+        const original = isPropertySnapshot(stored)
+            ? stored
+            : legacyValueSnapshot(host, field, stored, false);
+        restoreProperty(host, field, original);
+        dropClaimKeys(host, keys);
+        return {ok: true};
+    } catch (error) {
+        return {ok: false, error: String(error)};
+    }
 };
 
 // Claims a member — a method a gate overlays, or a namespace it supplies where the client has
 // none. The marker goes on the REPLACEMENT rather than the host, so `status` can ask the live
 // object whether what is installed is ours without consulting any closure.
 const claimMember = (
-  host: Record<string, unknown> | null,
-  member: string,
-  keys: ClaimKeys,
-  replacement: (original: unknown) => unknown,
+    host: Record<string, unknown> | null,
+    member: string,
+    keys: ClaimKeys,
+    replacement: (original: unknown) => unknown,
 ): ClaimOutcome => {
-  if (!host) {
-    return { ok: false, error: "claim host unavailable" };
-  }
-  const current = host[member];
-  const reclaimed = claimed(current, keys);
-  try {
-    const stored = reclaimed ? storedOriginal(current, keys) : undefined;
-    const original = reclaimed
-      ? isPropertySnapshot(stored)
-        ? stored
-        : legacyValueSnapshot(host, member, stored, true)
-      : captureProperty(host, member);
-    const next = replacement(original.value) as Record<string, unknown>;
-    // Functions as well as objects: every member claim so far replaces a METHOD, and `typeof` a
-    // function is "function", not "object". Excluding it left the replacement unmarked, so the
-    // release found nothing of ours and handed nothing back — the overlay outlived its own
-    // removal.
-    if (!next || (typeof next !== "object" && typeof next !== "function")) {
-      return { ok: false, error: "claim replacement cannot carry its marker" };
+    if (!host) {
+        return {ok: false, error: "claim host unavailable"};
     }
-    defineHidden(next, keys.marker, true);
-    defineHidden(next, keys.original, original);
-    installDataValue(host, member, next);
-    return { ok: true, reclaimed };
-  } catch (error) {
-    return { ok: false, error: String(error) };
-  }
+    const current = host[member];
+    const reclaimed = claimed(current, keys);
+    try {
+        const stored = reclaimed ? storedOriginal(current, keys) : undefined;
+        const original = reclaimed
+            ? isPropertySnapshot(stored)
+                ? stored
+                : legacyValueSnapshot(host, member, stored, true)
+            : captureProperty(host, member);
+        const next = replacement(original.value) as Record<string, unknown>;
+        // Functions as well as objects: every member claim so far replaces a METHOD, and `typeof` a
+        // function is "function", not "object". Excluding it left the replacement unmarked, so the
+        // release found nothing of ours and handed nothing back — the overlay outlived its own
+        // removal.
+        if (!next || (typeof next !== "object" && typeof next !== "function")) {
+            return {ok: false, error: "claim replacement cannot carry its marker"};
+        }
+        defineHidden(next, keys.marker, true);
+        defineHidden(next, keys.original, original);
+        installDataValue(host, member, next);
+        return {ok: true, reclaimed};
+    } catch (error) {
+        return {ok: false, error: String(error)};
+    }
 };
 
 // Hands a claimed member back to whatever it displaced. A member that was absent before the claim
 // is deleted rather than set to undefined, so `member in host` reads as it did.
 const releaseMember = (
-  host: Record<string, unknown> | null,
-  member: string,
-  keys: ClaimKeys,
+    host: Record<string, unknown> | null,
+    member: string,
+    keys: ClaimKeys,
 ): { ok: boolean; error?: string } => {
-  if (!host) return { ok: true };
-  const current = host[member];
-  if (!claimed(current, keys)) return { ok: true };
-  try {
-    const stored = storedOriginal(current, keys);
-    const original = isPropertySnapshot(stored)
-      ? stored
-      : legacyValueSnapshot(host, member, stored, true);
-    restoreProperty(host, member, original);
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, error: String(error) };
-  }
+    if (!host) return {ok: true};
+    const current = host[member];
+    if (!claimed(current, keys)) return {ok: true};
+    try {
+        const stored = storedOriginal(current, keys);
+        const original = isPropertySnapshot(stored)
+            ? stored
+            : legacyValueSnapshot(host, member, stored, true);
+        restoreProperty(host, member, original);
+        return {ok: true};
+    } catch (error) {
+        return {ok: false, error: String(error)};
+    }
 };
 
 const memberClaimed = (
-  host: Record<string, unknown> | null | undefined,
-  member: string,
-  keys: ClaimKeys,
+    host: Record<string, unknown> | null | undefined,
+    member: string,
+    keys: ClaimKeys,
 ) => claimed(host?.[member], keys);
 
 // Supplies a namespace the client does not have — the Performance and audio backends Valve's own
@@ -345,47 +345,47 @@ const memberClaimed = (
 // Takes a marker alone rather than a ClaimKeys pair, because nothing is displaced: there is no
 // original to remember, and removal deletes.
 const supplyNamespace = (
-  host: Record<string, unknown> | null,
-  name: string,
-  marker: string,
-  factory: () => object,
+    host: Record<string, unknown> | null,
+    name: string,
+    marker: string,
+    factory: () => object,
 ): ClaimOutcome => {
-  if (!host) {
-    return { ok: false, error: "namespace host unavailable" };
-  }
-  const current = host[name];
-  if (current && !claimed(current, { marker, original: marker })) {
-    return { ok: false, error: `${name} already exists` };
-  }
-  try {
-    const api = factory();
-    defineHidden(api, marker, true);
-    Object.defineProperty(host, name, {
-      value: api,
-      configurable: true,
-      enumerable: true,
-      writable: false,
-    });
-    return { ok: true, reclaimed: !!current };
-  } catch (error) {
-    return { ok: false, error: String(error) };
-  }
+    if (!host) {
+        return {ok: false, error: "namespace host unavailable"};
+    }
+    const current = host[name];
+    if (current && !claimed(current, {marker, original: marker})) {
+        return {ok: false, error: `${name} already exists`};
+    }
+    try {
+        const api = factory();
+        defineHidden(api, marker, true);
+        Object.defineProperty(host, name, {
+            value: api,
+            configurable: true,
+            enumerable: true,
+            writable: false,
+        });
+        return {ok: true, reclaimed: !!current};
+    } catch (error) {
+        return {ok: false, error: String(error)};
+    }
 };
 
 // Withdraws a supplied namespace. Only ever deletes one this bridge marked, so a real backend that
 // appeared underneath is left alone.
 const withdrawNamespace = (
-  host: Record<string, unknown> | null | undefined,
-  name: string,
-  marker: string,
+    host: Record<string, unknown> | null | undefined,
+    name: string,
+    marker: string,
 ): { ok: boolean; error?: string } => {
-  if (!host || !claimed(host[name], { marker, original: marker })) return { ok: true };
-  try {
-    delete host[name];
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, error: String(error) };
-  }
+    if (!host || !claimed(host[name], {marker, original: marker})) return {ok: true};
+    try {
+        delete host[name];
+        return {ok: true};
+    } catch (error) {
+        return {ok: false, error: String(error)};
+    }
 };
 
 // Claims an accessor property — a getter the client computes, that a gate answers differently.
@@ -399,48 +399,48 @@ const withdrawNamespace = (
 // Refuses a non-configurable property rather than throwing: a client that locked it is a client
 // this gate stands aside for.
 const claimAccessor = (
-  host: object | null,
-  property: string,
-  keys: ClaimKeys,
-  getter: () => unknown,
+    host: object | null,
+    property: string,
+    keys: ClaimKeys,
+    getter: () => unknown,
 ): ClaimOutcome => {
-  if (!host) {
-    return { ok: false, error: "claim host unavailable" };
-  }
-  const descriptor = Object.getOwnPropertyDescriptor(host, property);
-  if (!descriptor || descriptor.configurable !== true) {
-    return { ok: false, error: "property is not configurable" };
-  }
-  try {
-    const reclaimed = claimed(descriptor.get, keys);
-    const original = reclaimed ? storedOriginal(descriptor.get, keys) : descriptor;
-    defineHidden(getter, keys.marker, true);
-    defineHidden(getter, keys.original, original);
-    Object.defineProperty(host, property, { get: getter, configurable: true });
-    return { ok: true, reclaimed };
-  } catch (error) {
-    return { ok: false, error: String(error) };
-  }
+    if (!host) {
+        return {ok: false, error: "claim host unavailable"};
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(host, property);
+    if (!descriptor || descriptor.configurable !== true) {
+        return {ok: false, error: "property is not configurable"};
+    }
+    try {
+        const reclaimed = claimed(descriptor.get, keys);
+        const original = reclaimed ? storedOriginal(descriptor.get, keys) : descriptor;
+        defineHidden(getter, keys.marker, true);
+        defineHidden(getter, keys.original, original);
+        Object.defineProperty(host, property, {get: getter, configurable: true});
+        return {ok: true, reclaimed};
+    } catch (error) {
+        return {ok: false, error: String(error)};
+    }
 };
 
 // Restores the descriptor a claimed accessor displaced.
 const releaseAccessor = (
-  host: object | null,
-  property: string,
-  keys: ClaimKeys,
+    host: object | null,
+    property: string,
+    keys: ClaimKeys,
 ): { ok: boolean; error?: string } => {
-  if (!host) return { ok: true };
-  try {
-    const descriptor = Object.getOwnPropertyDescriptor(host, property);
-    if (!claimed(descriptor?.get, keys)) return { ok: true };
-    const original = storedOriginal(descriptor!.get, keys);
-    if (original) {
-      Object.defineProperty(host, property, original as PropertyDescriptor);
+    if (!host) return {ok: true};
+    try {
+        const descriptor = Object.getOwnPropertyDescriptor(host, property);
+        if (!claimed(descriptor?.get, keys)) return {ok: true};
+        const original = storedOriginal(descriptor!.get, keys);
+        if (original) {
+            Object.defineProperty(host, property, original as PropertyDescriptor);
+        }
+        return {ok: true};
+    } catch (error) {
+        return {ok: false, error: String(error)};
     }
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, error: String(error) };
-  }
 };
 
 // One claim on a set of function members that several surfaces transform: taken with the first
@@ -449,62 +449,62 @@ const releaseAccessor = (
 // displaced original and reads the live transforms at call time. The claim's marker and original
 // live on the wrapper, so a bridge replaced in place reclaims rather than wraps its predecessor.
 const createSharedClaim = <Transform>(
-  keys: ClaimKeys,
-  members: readonly string[],
-  unavailable: string,
-  uninstallable: string,
-  wrap: (original: any, transforms: Map<string, Transform>) => unknown,
+    keys: ClaimKeys,
+    members: readonly string[],
+    unavailable: string,
+    uninstallable: string,
+    wrap: (original: any, transforms: Map<string, Transform>) => unknown,
 ) => {
-  const transforms = new Map<string, Transform>();
-  let wrappers: Record<string, unknown> | null = null;
-  const holds = (host: Record<string, unknown>) => {
-    const current = wrappers;
-    return !!current && members.every((member) => host[member] === current[member]);
-  };
+    const transforms = new Map<string, Transform>();
+    let wrappers: Record<string, unknown> | null = null;
+    const holds = (host: Record<string, unknown>) => {
+        const current = wrappers;
+        return !!current && members.every((member) => host[member] === current[member]);
+    };
 
-  const intercept = (
-    host: Record<string, unknown> | null | undefined,
-    name: string,
-    transform: Transform,
-  ): { ok: boolean; error?: string } => {
-    if (!host || members.some((member) => typeof host[member] !== "function")) {
-      return { ok: false, error: unavailable };
-    }
-    transforms.set(name, transform);
-    if (holds(host)) return { ok: true };
-    const installed: Record<string, unknown> = {};
-    for (const member of members) {
-      const claim = claimMember(host, member, keys, (original) => wrap(original, transforms));
-      if (!claim.ok || !memberClaimed(host, member, keys)) {
-        for (const done of Object.keys(installed)) releaseMember(host, done, keys);
+    const intercept = (
+        host: Record<string, unknown> | null | undefined,
+        name: string,
+        transform: Transform,
+    ): { ok: boolean; error?: string } => {
+        if (!host || members.some((member) => typeof host[member] !== "function")) {
+            return {ok: false, error: unavailable};
+        }
+        transforms.set(name, transform);
+        if (holds(host)) return {ok: true};
+        const installed: Record<string, unknown> = {};
+        for (const member of members) {
+            const claim = claimMember(host, member, keys, (original) => wrap(original, transforms));
+            if (!claim.ok || !memberClaimed(host, member, keys)) {
+                for (const done of Object.keys(installed)) releaseMember(host, done, keys);
+                transforms.delete(name);
+                return {ok: false, error: claim.ok ? uninstallable : claim.error};
+            }
+            installed[member] = host[member];
+        }
+        wrappers = installed;
+        return {ok: true};
+    };
+
+    // Withdraws one transform, and hands the members back once none is left.
+    const release = (
+        host: Record<string, unknown> | null | undefined,
+        name: string,
+    ): { ok: boolean; error?: string } => {
         transforms.delete(name);
-        return { ok: false, error: claim.ok ? uninstallable : claim.error };
-      }
-      installed[member] = host[member];
-    }
-    wrappers = installed;
-    return { ok: true };
-  };
+        if (transforms.size || !host) return {ok: true};
+        for (const member of members) {
+            const released = releaseMember(host, member, keys);
+            if (!released.ok) return released;
+        }
+        wrappers = null;
+        return {ok: true};
+    };
 
-  // Withdraws one transform, and hands the members back once none is left.
-  const release = (
-    host: Record<string, unknown> | null | undefined,
-    name: string,
-  ): { ok: boolean; error?: string } => {
-    transforms.delete(name);
-    if (transforms.size || !host) return { ok: true };
-    for (const member of members) {
-      const released = releaseMember(host, member, keys);
-      if (!released.ok) return released;
-    }
-    wrappers = null;
-    return { ok: true };
-  };
+    const intercepted = (host: Record<string, unknown> | null | undefined, name: string) =>
+        !!host && transforms.has(name) && holds(host);
 
-  const intercepted = (host: Record<string, unknown> | null | undefined, name: string) =>
-    !!host && transforms.has(name) && holds(host);
-
-  return { intercept, release, intercepted };
+    return {intercept, release, intercepted};
 };
 
 // Intercepts what React.useMemo returns, for every surface that needs to see an array Steam builds
@@ -512,22 +512,22 @@ const createSharedClaim = <Transform>(
 // one shared claim. Transforms run in registration order, each seeing the result of the one before,
 // and one that throws leaves the value as it found it.
 const memoClaim = createSharedClaim<(value: unknown) => unknown>(
-  { marker: "__steamUiOwnedUseMemo", original: "__steamUiOriginalUseMemo" },
-  ["useMemo"],
-  "React useMemo unavailable",
-  "React useMemo wrapper could not be installed",
-  (original, transforms) =>
-    function SteamUiUseMemo(factory, dependencies) {
-      let value = original(factory, dependencies);
-      for (const apply of transforms.values()) {
-        try {
-          value = apply(value);
-        } catch {
-          // A failing transform leaves what it was given.
-        }
-      }
-      return value;
-    },
+    {marker: "__steamUiOwnedUseMemo", original: "__steamUiOriginalUseMemo"},
+    ["useMemo"],
+    "React useMemo unavailable",
+    "React useMemo wrapper could not be installed",
+    (original, transforms) =>
+        function SteamUiUseMemo(factory, dependencies) {
+            let value = original(factory, dependencies);
+            for (const apply of transforms.values()) {
+                try {
+                    value = apply(value);
+                } catch {
+                    // A failing transform leaves what it was given.
+                }
+            }
+            return value;
+        },
 );
 const interceptMemo = memoClaim.intercept;
 const releaseMemo = memoClaim.release;
@@ -544,28 +544,28 @@ const memoIntercepted = memoClaim.intercepted;
 // wins, and one that throws is skipped. Every element Steam creates passes through here, so a
 // transform's first test has to be a cheap comparison.
 type ElementTransform = (
-  create: (...args: unknown[]) => unknown,
-  type: unknown,
-  props: any,
-  key: unknown,
+    create: (...args: unknown[]) => unknown,
+    type: unknown,
+    props: any,
+    key: unknown,
 ) => unknown;
 const elementClaim = createSharedClaim<ElementTransform>(
-  { marker: "__steamUiOwnedElements", original: "__steamUiOriginalElements" },
-  ["jsx", "jsxs"],
-  "JSX runtime unavailable",
-  "JSX runtime wrapper could not be installed",
-  (original, transforms) =>
-    function SteamUiElement(this: unknown, type, props, key) {
-      for (const apply of transforms.values()) {
-        try {
-          const replaced = apply(original, type, props, key);
-          if (replaced !== undefined) return replaced;
-        } catch {
-          // A failing transform leaves the element to the runtime.
-        }
-      }
-      return original.apply(this, arguments as any);
-    },
+    {marker: "__steamUiOwnedElements", original: "__steamUiOriginalElements"},
+    ["jsx", "jsxs"],
+    "JSX runtime unavailable",
+    "JSX runtime wrapper could not be installed",
+    (original, transforms) =>
+        function SteamUiElement(this: unknown, type, props, key) {
+            for (const apply of transforms.values()) {
+                try {
+                    const replaced = apply(original, type, props, key);
+                    if (replaced !== undefined) return replaced;
+                } catch {
+                    // A failing transform leaves the element to the runtime.
+                }
+            }
+            return original.apply(this, arguments as any);
+        },
 );
 const interceptElements = elementClaim.intercept;
 const releaseElements = elementClaim.release;

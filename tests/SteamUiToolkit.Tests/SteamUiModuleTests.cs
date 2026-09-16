@@ -15,14 +15,14 @@ public sealed class SteamUiModuleTests
         [
             new SteamUiModule(
                 "first",
-                patches: [Patch("p.one"), Patch("p.two")],
-                publications: [Publication("p.one")],
-                commands: [Command("p.one", "go")]),
+                [Patch("p.one"), Patch("p.two")],
+                [Publication("p.one")],
+                [Command("p.one", "go")]),
             new SteamUiModule(
                 "second",
-                patches: [Patch("p.three")],
-                publications: [Publication("p.three")],
-                commands: [Command("p.three", "go"), Command("p.three", "stop")]),
+                [Patch("p.three")],
+                [Publication("p.three")],
+                [Command("p.three", "go"), Command("p.three", "stop")])
         ]);
 
         Assert.Equal(["p.one", "p.two", "p.three"], set.Patches.Select(patch => patch.Id));
@@ -37,7 +37,7 @@ public sealed class SteamUiModuleTests
     {
         SteamUiModuleSet set = new(
         [
-            new SteamUiModule("state", publications: [Publication("p.state")]),
+            new SteamUiModule("state", publications: [Publication("p.state")])
         ]);
 
         Assert.Empty(set.AllowedCommands["p.state"]);
@@ -57,8 +57,8 @@ public sealed class SteamUiModuleTests
     {
         // Startup, not first use: the alternative is a surface that half-exists because whichever
         // declaration won the race is the one that registered.
-        InvalidOperationException error = Assert.Throws<InvalidOperationException>(
-            () => new SteamUiModuleSet([new SteamUiModule("same"), new SteamUiModule("same")]));
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            new SteamUiModuleSet([new SteamUiModule("same"), new SteamUiModule("same")]));
 
         Assert.Contains("same", error.Message);
     }
@@ -66,12 +66,11 @@ public sealed class SteamUiModuleTests
     [Fact]
     public void TwoModulesRegisteringOnePatchNameBothInTheFailure()
     {
-        InvalidOperationException error = Assert.Throws<InvalidOperationException>(
-            () => new SteamUiModuleSet(
-            [
-                new SteamUiModule("first", patches: [Patch("p.shared")]),
-                new SteamUiModule("second", patches: [Patch("p.shared")]),
-            ]));
+        var error = Assert.Throws<InvalidOperationException>(() => new SteamUiModuleSet(
+        [
+            new SteamUiModule("first", [Patch("p.shared")]),
+            new SteamUiModule("second", [Patch("p.shared")])
+        ]));
 
         // Both names, because "duplicate patch" without saying who is a search through the file.
         Assert.Contains("p.shared", error.Message);
@@ -81,12 +80,11 @@ public sealed class SteamUiModuleTests
     [Fact]
     public void TwoModulesAnsweringOneCommandFailRatherThanOneWinning()
     {
-        InvalidOperationException error = Assert.Throws<InvalidOperationException>(
-            () => new SteamUiModuleSet(
-            [
-                new SteamUiModule("first", commands: [Command("p", "go")]),
-                new SteamUiModule("second", commands: [Command("p", "go")]),
-            ]));
+        var error = Assert.Throws<InvalidOperationException>(() => new SteamUiModuleSet(
+        [
+            new SteamUiModule("first", commands: [Command("p", "go")]),
+            new SteamUiModule("second", commands: [Command("p", "go")])
+        ]));
 
         Assert.Contains("p/go", error.Message);
     }
@@ -98,8 +96,8 @@ public sealed class SteamUiModuleTests
         // gate and the row that writes through it are separate patches sharing one id space.
         SteamUiModuleSet set = new(
         [
-            new SteamUiModule("installer", patches: [Patch("p.one")]),
-            new SteamUiModule("answerer", commands: [Command("p.one", "go")]),
+            new SteamUiModule("installer", [Patch("p.one")]),
+            new SteamUiModule("answerer", commands: [Command("p.one", "go")])
         ]);
 
         Assert.Single(set.Patches);
@@ -131,8 +129,8 @@ public sealed class SteamUiModuleTests
                     new SteamUiStatePublication(
                         "fixture.good",
                         () => true,
-                        () => ValueTask.FromResult<JsonElement?>(TestJson.Parse("{\"value\":1}"))),
-                ]),
+                        () => ValueTask.FromResult<JsonElement?>(TestJson.Parse("{\"value\":1}")))
+                ])
         ]);
         await using var bridge = new SteamUiBridgeHost(
             transport,
@@ -158,7 +156,7 @@ public sealed class SteamUiModuleTests
         Queue<string> acknowledgements = new(["{\"ok\":false}", "{\"ok\":true}"]);
         transport.OnEvaluate = call =>
         {
-            string acknowledgement = "{\"ok\":true}";
+            var acknowledgement = "{\"ok\":true}";
             lock (acknowledgements)
             {
                 if (call.Expression.Contains("deliver", StringComparison.Ordinal)
@@ -167,6 +165,7 @@ public sealed class SteamUiModuleTests
                     acknowledgement = acknowledgements.Dequeue();
                 }
             }
+
             return Task.FromResult(transport.Reply(acknowledgement));
         };
         SteamUiModuleSet modules = new(
@@ -176,8 +175,8 @@ public sealed class SteamUiModuleTests
                 publications:
                 [
                     Publication("fixture.first", 1),
-                    Publication("fixture.second", 2),
-                ]),
+                    Publication("fixture.second", 2)
+                ])
         ]);
         await using var bridge = new SteamUiBridgeHost(
             transport,
@@ -197,19 +196,31 @@ public sealed class SteamUiModuleTests
         Assert.Contains("fixture.second", Deliveries(transport)[1], StringComparison.Ordinal);
     }
 
-    private static List<string> Deliveries(FakeSteamUiTransport transport) =>
-        [.. transport.Expressions.Where(expression => expression.Contains("deliver", StringComparison.Ordinal))];
+    private static List<string> Deliveries(FakeSteamUiTransport transport)
+    {
+        return [.. transport.Expressions.Where(expression => expression.Contains("deliver", StringComparison.Ordinal))];
+    }
 
-    private static ISteamUiPatch Patch(string id) => new FakePatch(id, id);
+    private static ISteamUiPatch Patch(string id)
+    {
+        return new FakePatch(id, id);
+    }
 
-    private static SteamUiStatePublication Publication(string patchId) =>
-        new(patchId, () => true, () => ValueTask.FromResult<JsonElement?>(null));
+    private static SteamUiStatePublication Publication(string patchId)
+    {
+        return new SteamUiStatePublication(patchId, () => true, () => ValueTask.FromResult<JsonElement?>(null));
+    }
 
-    private static SteamUiStatePublication Publication(string patchId, int value) => new(
-        patchId,
-        () => true,
-        () => ValueTask.FromResult<JsonElement?>(TestJson.Parse($"{{\"value\":{value}}}")));
+    private static SteamUiStatePublication Publication(string patchId, int value)
+    {
+        return new SteamUiStatePublication(
+            patchId,
+            () => true,
+            () => ValueTask.FromResult<JsonElement?>(TestJson.Parse($"{{\"value\":{value}}}")));
+    }
 
-    private static SteamUiCommandHandler Command(string patchId, string command) =>
-        new(patchId, command, (_, _) => Task.FromResult(SteamUiCommandResult.Applied));
+    private static SteamUiCommandHandler Command(string patchId, string command)
+    {
+        return new SteamUiCommandHandler(patchId, command, (_, _) => Task.FromResult(SteamUiCommandResult.Applied));
+    }
 }

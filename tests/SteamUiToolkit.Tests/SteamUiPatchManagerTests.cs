@@ -8,9 +8,9 @@ public sealed class SteamUiPatchManagerTests
     public void PatchBoundsPreservePublishedNamedArguments()
     {
         SteamUiPatchBounds bounds = new(
-            OperationTimeout: TimeSpan.FromSeconds(1),
-            MaximumExpressionCharacters: 4096,
-            MaximumDiagnosticCharacters: 512);
+            TimeSpan.FromSeconds(1),
+            4096,
+            512);
 
         Assert.Equal(TimeSpan.FromSeconds(1), bounds.OperationTimeout);
         Assert.Equal(4096, bounds.MaximumExpressionCharacters);
@@ -70,8 +70,7 @@ public sealed class SteamUiPatchManagerTests
         manager.SetPatchEnabled(patch.Id, false);
 
         await patch.RemoveStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
-        await TestJson.WaitUntilAsync(
-            () => Assert.Single(manager.GetSnapshots()).State == SteamUiPatchState.Disabled);
+        await TestJson.WaitUntilAsync(() => Assert.Single(manager.GetSnapshots()).State == SteamUiPatchState.Disabled);
         Assert.Equal(1, transport.ReleasedSubscriptions);
     }
 
@@ -82,15 +81,14 @@ public sealed class SteamUiPatchManagerTests
         await using var manager = new SteamUiPatchManager(transport);
         var patch = new FakePatch { Bounds = FixtureBounds, BlockVerification = true };
         manager.Register(patch);
-        Task applying = manager.SynchronizeAsync();
+        var applying = manager.SynchronizeAsync();
         await patch.VerifyStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
 
         manager.SetPatchEnabled(patch.Id, false);
 
         await patch.RemoveStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
         await applying;
-        await TestJson.WaitUntilAsync(
-            () => Assert.Single(manager.GetSnapshots()).State == SteamUiPatchState.Disabled);
+        await TestJson.WaitUntilAsync(() => Assert.Single(manager.GetSnapshots()).State == SteamUiPatchState.Disabled);
     }
 
     [Fact]
@@ -105,7 +103,7 @@ public sealed class SteamUiPatchManagerTests
 
         await manager.SynchronizeAsync();
 
-        SteamUiPatchSnapshot snapshot = Assert.Single(manager.GetSnapshots());
+        var snapshot = Assert.Single(manager.GetSnapshots());
         Assert.Equal(SteamUiPatchState.Incompatible, snapshot.State);
         Assert.Equal(1, patch.RemoveCalls);
     }
@@ -134,7 +132,7 @@ public sealed class SteamUiPatchManagerTests
         var patch = new FakePatch { Bounds = FixtureBounds, BlockVerification = true };
         manager.Register(patch);
 
-        Task synchronization = manager.SynchronizeAsync();
+        var synchronization = manager.SynchronizeAsync();
         await patch.VerifyStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
         transport.AdvanceDocumentGeneration();
         patch.ReleaseVerification.TrySetResult();
@@ -170,7 +168,7 @@ public sealed class SteamUiPatchManagerTests
         await manager.SynchronizeAsync();
         transport.EmitCurrentGeneration();
 
-        SteamUiPatchSnapshot snapshot = Assert.Single(manager.GetSnapshots());
+        var snapshot = Assert.Single(manager.GetSnapshots());
         Assert.Equal(SteamUiPatchState.Verified, snapshot.State);
         Assert.Equal(2, patch.ApplyCalls);
         Assert.Equal(transport.Generations, snapshot.Generations);
@@ -240,7 +238,7 @@ public sealed class SteamUiPatchManagerTests
 
         await manager.SynchronizeAsync();
 
-        SteamUiPatchSnapshot snapshot = Assert.Single(manager.GetSnapshots());
+        var snapshot = Assert.Single(manager.GetSnapshots());
         Assert.Equal(SteamUiPatchState.Degraded, snapshot.State);
         Assert.Equal(1, patch.RemoveCalls);
     }
@@ -255,7 +253,7 @@ public sealed class SteamUiPatchManagerTests
 
         await manager.SynchronizeAsync();
 
-        SteamUiPatchSnapshot snapshot = Assert.Single(manager.GetSnapshots());
+        var snapshot = Assert.Single(manager.GetSnapshots());
         Assert.Equal(SteamUiPatchState.RemoveFailed, snapshot.State);
     }
 
@@ -270,13 +268,13 @@ public sealed class SteamUiPatchManagerTests
         FakePatch patch = new()
         {
             Bounds = new SteamUiPatchBounds(TimeSpan.FromMilliseconds(400), 4096, 512),
-            PhaseDelay = TimeSpan.FromMilliseconds(250),
+            PhaseDelay = TimeSpan.FromMilliseconds(250)
         };
         manager.Register(patch);
 
         await manager.SynchronizeAsync();
 
-        SteamUiPatchSnapshot snapshot = Assert.Single(manager.GetSnapshots());
+        var snapshot = Assert.Single(manager.GetSnapshots());
         Assert.Equal(SteamUiPatchState.Verified, snapshot.State);
     }
 }

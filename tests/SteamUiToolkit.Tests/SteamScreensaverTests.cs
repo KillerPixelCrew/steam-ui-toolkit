@@ -4,13 +4,13 @@ using static SteamUiToolkit.Tests.Fakes.SurfaceDispatch;
 namespace SteamUiToolkit.Tests;
 
 /// <summary>
-/// The Screensaver settings surface's own contract: what the probe demands before the page list is
-/// intercepted, what a publication puts on the wire, and the exact shapes of the report and a choice.
+///     The Screensaver settings surface's own contract: what the probe demands before the page list is
+///     intercepted, what a publication puts on the wire, and the exact shapes of the report and a choice.
 /// </summary>
 /// <remarks>
-/// The structural facts were read from the September 2026 client beta's bundle on 2026-09-11: the
-/// Screensaver section's label token with <c>ForceScreensaver</c> occurs in one module, and the route
-/// table's <c>Settings.Customization()</c> is <c>/settings/customization</c>.
+///     The structural facts were read from the September 2026 client beta's bundle on 2026-09-11: the
+///     Screensaver section's label token with <c>ForceScreensaver</c> occurs in one module, and the route
+///     table's <c>Settings.Customization()</c> is <c>/settings/customization</c>.
 /// </remarks>
 public sealed class SteamScreensaverTests
 {
@@ -19,7 +19,7 @@ public sealed class SteamScreensaverTests
     [Fact]
     public void TheProbeNamesEveryStructuralFactTheGateResolvesOn()
     {
-        string probe = Gate.ProbeExpression;
+        var probe = Gate.ProbeExpression;
 
         Assert.Contains("\"#Settings_Customization_Screensaver\"", probe, StringComparison.Ordinal);
         Assert.Contains("ForceScreensaver", probe, StringComparison.Ordinal);
@@ -33,7 +33,7 @@ public sealed class SteamScreensaverTests
     {
         // The route table was module 80344, export B, and the settings store module 39828, export
         // rV, on the beta this was mapped against. Both change with a client build.
-        string probe = Gate.ProbeExpression;
+        var probe = Gate.ProbeExpression;
 
         Assert.DoesNotContain("80344", probe, StringComparison.Ordinal);
         Assert.DoesNotContain("39828", probe, StringComparison.Ordinal);
@@ -42,18 +42,25 @@ public sealed class SteamScreensaverTests
     }
 
     [Theory]
-    [InlineData("""{"react":1,"fields":1,"section":1,"route":"/settings/customization","settings":true,"observer":1}""", true)]
+    [InlineData("""{"react":1,"fields":1,"section":1,"route":"/settings/customization","settings":true,"observer":1}""",
+        true)]
     // The observer hook is wanted, not required.
-    [InlineData("""{"react":1,"fields":1,"section":1,"route":"/settings/customization","settings":true,"observer":0}""", true)]
-    [InlineData("""{"react":1,"fields":1,"section":2,"route":"/settings/customization","settings":true,"observer":1}""", false)]
-    [InlineData("""{"react":1,"fields":1,"section":0,"route":"/settings/customization","settings":true,"observer":1}""", false)]
+    [InlineData("""{"react":1,"fields":1,"section":1,"route":"/settings/customization","settings":true,"observer":0}""",
+        true)]
+    [InlineData("""{"react":1,"fields":1,"section":2,"route":"/settings/customization","settings":true,"observer":1}""",
+        false)]
+    [InlineData("""{"react":1,"fields":1,"section":0,"route":"/settings/customization","settings":true,"observer":1}""",
+        false)]
     [InlineData("""{"react":1,"fields":1,"section":1,"route":"","settings":true,"observer":1}""", false)]
-    [InlineData("""{"react":1,"fields":1,"section":1,"route":"/settings/customization","settings":false,"observer":1}""", false)]
-    [InlineData("""{"react":2,"fields":1,"section":1,"route":"/settings/customization","settings":true,"observer":1}""", false)]
+    [InlineData(
+        """{"react":1,"fields":1,"section":1,"route":"/settings/customization","settings":false,"observer":1}""",
+        false)]
+    [InlineData("""{"react":2,"fields":1,"section":1,"route":"/settings/customization","settings":true,"observer":1}""",
+        false)]
     [InlineData("""{"error":"Steam modules unavailable"}""", false)]
     public void CompatibilityRequiresEveryFactAndAUniqueMatchForEachOne(string json, bool expected)
     {
-        using JsonDocument document = JsonDocument.Parse(json);
+        using var document = JsonDocument.Parse(json);
 
         Assert.Equal(expected, Gate.Compatible(document.RootElement));
     }
@@ -62,19 +69,19 @@ public sealed class SteamScreensaverTests
     public void RowsReachTheWireWithTheirChoices()
     {
         SteamScreensaverState state = new(
-        [
-            new SteamTimeoutRow(
-                "plugged-in",
-                "Turn display off after",
-                "Not before the screensaver starts",
-                600,
-                [new SteamTimeoutOption(300, "5 min"), new SteamTimeoutOption(0, "Never")],
-                Available: true),
-        ],
-            Revision: 7);
+            [
+                new SteamTimeoutRow(
+                    "plugged-in",
+                    "Turn display off after",
+                    "Not before the screensaver starts",
+                    600,
+                    [new SteamTimeoutOption(300, "5 min"), new SteamTimeoutOption(0, "Never")],
+                    true)
+            ],
+            7);
 
-        JsonElement wire = SteamScreensaverSurface.Serialize(state);
-        JsonElement row = wire.GetProperty("rows")[0];
+        var wire = SteamScreensaverSurface.Serialize(state);
+        var row = wire.GetProperty("rows")[0];
 
         Assert.Equal("plugged-in", row.GetProperty("id").GetString());
         Assert.Equal(600, row.GetProperty("seconds").GetInt32());
@@ -98,9 +105,9 @@ public sealed class SteamScreensaverTests
     public void TheReportIsExactlyTwoTimeoutsAndABatteryFlag(
         string json, bool valid, int pluggedIn, int? battery, bool hasBattery)
     {
-        using JsonDocument payload = JsonDocument.Parse(json);
+        using var payload = JsonDocument.Parse(json);
 
-        Assert.Equal(valid, SteamScreensaverSurface.TryReadReport(payload.RootElement, out SteamScreensaverReport report));
+        Assert.Equal(valid, SteamScreensaverSurface.TryReadReport(payload.RootElement, out var report));
         if (valid)
         {
             Assert.Equal(new SteamScreensaverReport(pluggedIn, battery, hasBattery), report);
@@ -117,9 +124,10 @@ public sealed class SteamScreensaverTests
     [InlineData("""{"row":"battery"}""", false, "", 0)]
     public void AChoiceIsExactlyARowAndSeconds(string json, bool valid, string row, int seconds)
     {
-        using JsonDocument payload = JsonDocument.Parse(json);
+        using var payload = JsonDocument.Parse(json);
 
-        Assert.Equal(valid, SteamScreensaverSurface.TryReadTimeout(payload.RootElement, out string readRow, out int readSeconds));
+        Assert.Equal(valid,
+            SteamScreensaverSurface.TryReadTimeout(payload.RootElement, out var readRow, out var readSeconds));
         Assert.Equal(row, readRow);
         Assert.Equal(seconds, readSeconds);
     }
@@ -130,11 +138,13 @@ public sealed class SteamScreensaverTests
         RecordingBackend backend = new();
         SteamUiModuleSet set = new(
         [
-            SteamScreensaverSurface.Module(Always, () => new(null as SteamScreensaverState), backend),
+            SteamScreensaverSurface.Module(Always,
+                () => new ValueTask<SteamScreensaverState?>(null as SteamScreensaverState), backend)
         ]);
-        string patchId = SteamScreensaverSurface.PatchId;
+        var patchId = SteamScreensaverSurface.PatchId;
 
-        Assert.True((await DispatchAsync(set, patchId, "report", """{"acSeconds":300,"batterySeconds":null,"battery":false}""")).Succeeded);
+        Assert.True((await DispatchAsync(set, patchId, "report",
+            """{"acSeconds":300,"batterySeconds":null,"battery":false}""")).Succeeded);
         Assert.True((await DispatchAsync(set, patchId, "setTimeout", """{"row":"battery","seconds":900}""")).Succeeded);
         Assert.Equal(
             "The screensaver report is invalid.",

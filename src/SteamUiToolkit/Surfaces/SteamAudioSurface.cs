@@ -7,8 +7,10 @@ using System.Threading.Tasks;
 namespace SteamUiToolkit;
 
 /// <summary>One audio endpoint as Steam's own device picker renders it.</summary>
-/// <param name="Id">Stable endpoint identifier. Any string; the injected side mints the numeric
-/// identity Steam's store keys by and translates back on every command.</param>
+/// <param name="Id">
+///     Stable endpoint identifier. Any string; the injected side mints the numeric
+///     identity Steam's store keys by and translates back on every command.
+/// </param>
 /// <param name="Name">Endpoint name as the platform reports it.</param>
 /// <param name="HasOutput">Whether the endpoint can render.</param>
 /// <param name="HasInput">Whether the endpoint can capture.</param>
@@ -20,12 +22,12 @@ public sealed record SteamAudioDevice(
 
 /// <summary>Audio as Steam's own menu renders it.</summary>
 /// <remarks>
-/// Volume and mute follow the default endpoint independently for render and capture. Steam's model
-/// allows values per device, but the injected side gives every endpoint of a direction that
-/// direction's current default, because a per-device number for an inactive endpoint would be
-/// invented. An endpoint present in both directions is one entry carrying both flags: Steam's
-/// device model is one entry with a direction test, and listing it twice puts the same hardware in
-/// the picker under two identities.
+///     Volume and mute follow the default endpoint independently for render and capture. Steam's model
+///     allows values per device, but the injected side gives every endpoint of a direction that
+///     direction's current default, because a per-device number for an inactive endpoint would be
+///     invented. An endpoint present in both directions is one entry carrying both flags: Steam's
+///     device model is one entry with a direction test, and listing it twice puts the same hardware in
+///     the picker under two identities.
 /// </remarks>
 /// <param name="Available">Whether audio can be observed and changed at all.</param>
 /// <param name="Devices">Every endpoint, output and input.</param>
@@ -49,9 +51,9 @@ public sealed record SteamAudioState(
 
 /// <summary>What answers Steam's audio page: the default-device and volume writes.</summary>
 /// <remarks>
-/// Reads come from the state the consumer publishes, so the backend only has to act. Every method
-/// returns the truthful outcome; a refusal must carry its reason because the page has nowhere to
-/// put one and the user otherwise sees a control that did nothing.
+///     Reads come from the state the consumer publishes, so the backend only has to act. Every method
+///     returns the truthful outcome; a refusal must carry its reason because the page has nowhere to
+///     put one and the user otherwise sees a control that did nothing.
 /// </remarks>
 public interface ISteamAudioBackend
 {
@@ -77,14 +79,14 @@ public interface ISteamAudioBackend
 }
 
 /// <summary>
-/// Steam's own audio page and Quick Settings audio section, backed by the consumer's endpoints.
+///     Steam's own audio page and Quick Settings audio section, backed by the consumer's endpoints.
 /// </summary>
 /// <remarks>
-/// The Windows client ships the whole surface and gates it on <c>SteamClient.System.Audio</c>
-/// existing. The injected gate supplies that namespace, feeds the running store through its own
-/// <c>RegisterOrUpdateDevice</c> path, and turns its device-volume writes into the commands the
-/// backend answers. The consumer supplies <see cref="SteamAudioState"/> and an
-/// <see cref="ISteamAudioBackend"/>; everything Steam-shaped stays here.
+///     The Windows client ships the whole surface and gates it on <c>SteamClient.System.Audio</c>
+///     existing. The injected gate supplies that namespace, feeds the running store through its own
+///     <c>RegisterOrUpdateDevice</c> path, and turns its device-volume writes into the commands the
+///     backend answers. The consumer supplies <see cref="SteamAudioState" /> and an
+///     <see cref="ISteamAudioBackend" />; everything Steam-shaped stays here.
 /// </remarks>
 public static class SteamAudioSurface
 {
@@ -97,41 +99,43 @@ public static class SteamAudioSurface
 
     /// <summary>The gate that supplies the audio backend behind <c>SteamClient.System.Audio</c>.</summary>
     /// <remarks>
-    /// The store caches <c>m_bAvailable = null != SteamClient.System.Audio</c> at construction,
-    /// which already ran; the singleton has to be reachable so it can be written to directly.
+    ///     The store caches <c>m_bAvailable = null != SteamClient.System.Audio</c> at construction,
+    ///     which already ran; the singleton has to be reachable so it can be written to directly.
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
-        id: PatchId,
-        resourceKey: "steam-ui.audio-namespace",
-        gateName: "audio",
-        fingerprint: "native-qam-audio-v1:store+absent-namespace+reachable-singleton",
-        probeExpression: $$"""
-            {{SteamUiProbeJs.Preamble("steam_ui_audio_probe_")}}
-              let singleton=false;
-              // The store by what it is, never by module id or export name: the September 2026 beta
-              // renumbered module 1409 and this probe refused audio until it stopped naming it.
-              try{singleton=!!req.exported(['SteamClient.System.Audio','RegisterForDeviceAdded','m_bAvailable'],
-                v=>!!v&&typeof v==='object'&&'m_bAvailable' in v&&typeof v.RegisterOrUpdateDevice==='function');}catch{}
-              return JSON.stringify({
-                audioStore:count(['SteamClient.System.Audio','RegisterForDeviceAdded','m_bAvailable']),
-                audioNamespaceAbsent:{{SteamUiProbeJs.OwnedOrAbsentNamespace("Audio")}},
-                storeSingletonReachable:singleton
-              });
-            {{SteamUiProbeJs.Close}}
-            """,
-        compatible: root =>
+        PatchId,
+        "steam-ui.audio-namespace",
+        "audio",
+        "native-qam-audio-v1:store+absent-namespace+reachable-singleton",
+        $$"""
+          {{SteamUiProbeJs.Preamble("steam_ui_audio_probe_")}}
+            let singleton=false;
+            // The store by what it is, never by module id or export name: the September 2026 beta
+            // renumbered module 1409 and this probe refused audio until it stopped naming it.
+            try{singleton=!!req.exported(['SteamClient.System.Audio','RegisterForDeviceAdded','m_bAvailable'],
+              v=>!!v&&typeof v==='object'&&'m_bAvailable' in v&&typeof v.RegisterOrUpdateDevice==='function');}catch{}
+            return JSON.stringify({
+              audioStore:count(['SteamClient.System.Audio','RegisterForDeviceAdded','m_bAvailable']),
+              audioNamespaceAbsent:{{SteamUiProbeJs.OwnedOrAbsentNamespace("Audio")}},
+              storeSingletonReachable:singleton
+            });
+          {{SteamUiProbeJs.Close}}
+          """,
+        root =>
             SteamUiPatchEvaluation.IsOne(root, "audioStore")
             && SteamUiPatchEvaluation.Flag(root, "audioNamespaceAbsent")
             && SteamUiPatchEvaluation.Flag(root, "storeSingletonReachable"),
-        verifyOk: "status.installed&&status.namespacePresent",
-        removeOk: "!status.namespacePresent",
-        subject: "Audio namespace");
+        "status.installed&&status.namespacePresent",
+        "!status.namespacePresent",
+        "Audio namespace");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
     /// <param name="state">The state to serialize.</param>
     /// <returns>The wire payload.</returns>
-    public static JsonElement Serialize(SteamAudioState state) =>
-        JsonSerializer.SerializeToElement(state, SteamSurfaceJsonContext.Default.SteamAudioState);
+    public static JsonElement Serialize(SteamAudioState state)
+    {
+        return JsonSerializer.SerializeToElement(state, SteamSurfaceJsonContext.Default.SteamAudioState);
+    }
 
     /// <summary>Declares the surface as one module: the gate, the state, and the answers.</summary>
     /// <param name="enabled">Whether the state may be published right now.</param>
@@ -140,8 +144,8 @@ public static class SteamAudioSurface
     /// <param name="id">The module id, for diagnostics and duplicate detection.</param>
     /// <returns>The module to register.</returns>
     /// <remarks>
-    /// Publish once after the gate installs: the running store's availability was cached when
-    /// Steam started, before the namespace existed, and the first publication is what flips it.
+    ///     Publish once after the gate installs: the running store's availability was cached when
+    ///     Steam started, before the namespace existed, and the first publication is what flips it.
     /// </remarks>
     public static ISteamUiModule Module(
         Func<bool> enabled,
@@ -159,9 +163,9 @@ public static class SteamAudioSurface
             SteamSurfaceJsonContext.Default.SteamAudioState,
             [Patch],
             [
-                new(PatchId, "getDevices", async (_, _) =>
+                new SteamUiCommandHandler(PatchId, "getDevices", async (_, _) =>
                 {
-                    SteamAudioState? state = await read().ConfigureAwait(false);
+                    var state = await read().ConfigureAwait(false);
                     return state is null
                         ? new SteamUiCommandResult(false, "Audio is not currently observable.")
                         : new SteamUiCommandResult(true, null, Serialize(state));
@@ -179,17 +183,17 @@ public static class SteamAudioSurface
                     TryReadVolumePayload,
                     (volume, cancellationToken) =>
                         backend.SetVolumeAsync(volume.Percent, volume.Input, cancellationToken),
-                    "The audio volume payload is invalid."),
+                    "The audio volume payload is invalid.")
             ]);
     }
 
     /// <summary>Reads the endpoint and direction of a default-device change.</summary>
     private static bool TryReadDevicePayload(JsonElement payload, out (string Id, bool Input) device)
     {
-        bool input = false;
-        bool read = SteamUiPayload.TryReadBoundedString(payload, "id", 512, out string id)
-            && SteamUiPayload.TryReadBoolean(payload, "input", out input)
-            && SteamUiPayload.HasExactly(payload, 2);
+        var input = false;
+        var read = SteamUiPayload.TryReadBoundedString(payload, "id", 512, out var id)
+                   && SteamUiPayload.TryReadBoolean(payload, "input", out input)
+                   && SteamUiPayload.HasExactly(payload, 2);
         device = (id, input);
         return read;
     }
@@ -198,7 +202,7 @@ public static class SteamAudioSurface
     private static bool TryReadVolumePayload(JsonElement payload, out (int Percent, bool Input) volume)
     {
         volume = default;
-        if (!SteamUiPayload.TryReadInt(payload, "percent", 0, 100, out int percent))
+        if (!SteamUiPayload.TryReadInt(payload, "percent", 0, 100, out var percent))
         {
             return false;
         }
@@ -208,7 +212,8 @@ public static class SteamAudioSurface
             volume = (percent, false);
             return SteamUiPayload.HasExactly(payload, 1);
         }
-        if (!SteamUiPayload.TryReadBoolean(payload, "input", out bool input))
+
+        if (!SteamUiPayload.TryReadBoolean(payload, "input", out var input))
         {
             return false;
         }

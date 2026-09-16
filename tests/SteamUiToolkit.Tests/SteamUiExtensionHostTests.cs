@@ -10,7 +10,7 @@ public sealed class SteamUiExtensionHostTests
         using TemporaryDirectory root = new();
         Install(root, "com.example.tidy", script: "function tidy() {}");
 
-        SteamUiExtension extension = Assert.Single(SteamUiExtensionHost.Discover(root.Root));
+        var extension = Assert.Single(SteamUiExtensionHost.Discover(root.Root));
 
         Assert.True(extension.Loaded);
         Assert.Equal("com.example.tidy", extension.Id);
@@ -37,7 +37,7 @@ public sealed class SteamUiExtensionHostTests
             Path.Combine(root.Root, "broken-one", SteamUiExtensionHost.ManifestFileName),
             "{ this is not json");
 
-        SteamUiExtension extension = Assert.Single(SteamUiExtensionHost.Discover(root.Root));
+        var extension = Assert.Single(SteamUiExtensionHost.Discover(root.Root));
 
         Assert.False(extension.Loaded);
         Assert.Equal(SteamUiExtensionRejection.UnreadableManifest, extension.Rejection);
@@ -52,7 +52,7 @@ public sealed class SteamUiExtensionHostTests
         using TemporaryDirectory root = new();
         Install(root, "com.example.old", apiVersion: SteamUiExtensionHost.ApiVersion + 1);
 
-        SteamUiExtension extension = Assert.Single(SteamUiExtensionHost.Discover(root.Root));
+        var extension = Assert.Single(SteamUiExtensionHost.Discover(root.Root));
 
         Assert.Equal(SteamUiExtensionRejection.ApiVersionMismatch, extension.Rejection);
     }
@@ -69,9 +69,9 @@ public sealed class SteamUiExtensionHostTests
         // The id prefixes every patch the extension may claim, so a permissive one would let an
         // extension scope its patches under a name that is not really its own.
         using TemporaryDirectory root = new();
-        Install(root, id, directory: "candidate");
+        Install(root, id, "candidate");
 
-        SteamUiExtension extension = Assert.Single(SteamUiExtensionHost.Discover(root.Root));
+        var extension = Assert.Single(SteamUiExtensionHost.Discover(root.Root));
 
         Assert.Equal(SteamUiExtensionRejection.InvalidManifest, extension.Rejection);
     }
@@ -82,7 +82,7 @@ public sealed class SteamUiExtensionHostTests
         using TemporaryDirectory root = new();
         Install(root, "com.example.greedy", patches: ["steam-ui.power-limit"]);
 
-        SteamUiExtension extension = Assert.Single(SteamUiExtensionHost.Discover(root.Root));
+        var extension = Assert.Single(SteamUiExtensionHost.Discover(root.Root));
 
         Assert.Equal(SteamUiExtensionRejection.UnscopedPatch, extension.Rejection);
     }
@@ -105,7 +105,7 @@ public sealed class SteamUiExtensionHostTests
         File.WriteAllText(Path.Combine(root.Root, "outside.js"), "stolen();");
         Install(root, "com.example.escape", script: null, scriptPath: "../outside.js");
 
-        SteamUiExtension extension = Assert.Single(SteamUiExtensionHost.Discover(root.Root));
+        var extension = Assert.Single(SteamUiExtensionHost.Discover(root.Root));
 
         Assert.Equal(SteamUiExtensionRejection.UnreadableScript, extension.Rejection);
         Assert.Contains("leaves the package", extension.Detail);
@@ -133,7 +133,7 @@ public sealed class SteamUiExtensionHostTests
             "com.example.huge",
             script: new string('x', SteamUiExtensionHost.MaximumScriptCharacters + 1));
 
-        SteamUiExtension extension = Assert.Single(SteamUiExtensionHost.Discover(root.Root));
+        var extension = Assert.Single(SteamUiExtensionHost.Discover(root.Root));
 
         Assert.Equal(SteamUiExtensionRejection.UnreadableScript, extension.Rejection);
         Assert.Null(extension.Script);
@@ -148,7 +148,7 @@ public sealed class SteamUiExtensionHostTests
             "com.example.utf8",
             script: new string('\u00e9', SteamUiExtensionHost.MaximumScriptCharacters / 2 + 1));
 
-        SteamUiExtension extension = Assert.Single(SteamUiExtensionHost.Discover(root.Root));
+        var extension = Assert.Single(SteamUiExtensionHost.Discover(root.Root));
 
         Assert.Equal(SteamUiExtensionRejection.UnreadableScript, extension.Rejection);
         Assert.Contains("UTF-8 bytes", extension.Detail);
@@ -158,10 +158,10 @@ public sealed class SteamUiExtensionHostTests
     public void TwoExtensionsClaimingOneIdKeepTheFirstAndNameTheSecond()
     {
         using TemporaryDirectory root = new();
-        Install(root, "com.example.dup", directory: "a-first");
-        Install(root, "com.example.dup", directory: "b-second");
+        Install(root, "com.example.dup", "a-first");
+        Install(root, "com.example.dup", "b-second");
 
-        IReadOnlyList<SteamUiExtension> found = SteamUiExtensionHost.Discover(root.Root);
+        var found = SteamUiExtensionHost.Discover(root.Root);
 
         Assert.Equal(2, found.Count);
         Assert.True(found[0].Loaded);
@@ -176,10 +176,10 @@ public sealed class SteamUiExtensionHostTests
         // prefix, and so may "com.example.a.b" — two distinct, individually valid ids reaching the
         // same patch. Without this check the later one would silently displace the earlier's work.
         using TemporaryDirectory root = new();
-        Install(root, "com.example.a", directory: "a", patches: ["com.example.a.b.row"]);
-        Install(root, "com.example.a.b", directory: "b", patches: ["com.example.a.b.row"]);
+        Install(root, "com.example.a", "a", patches: ["com.example.a.b.row"]);
+        Install(root, "com.example.a.b", "b", patches: ["com.example.a.b.row"]);
 
-        IReadOnlyList<SteamUiExtension> found = SteamUiExtensionHost.Discover(root.Root);
+        var found = SteamUiExtensionHost.Discover(root.Root);
 
         Assert.True(found[0].Loaded);
         Assert.Equal(SteamUiExtensionRejection.Conflict, found[1].Rejection);
@@ -193,20 +193,20 @@ public sealed class SteamUiExtensionHostTests
         Install(
             root,
             "com.example.a",
-            directory: "a-first",
+            "a-first",
             patches: ["com.example.a.b.shared"]);
         Install(
             root,
             "com.example.a.b",
-            directory: "b-rejected",
+            "b-rejected",
             patches: ["com.example.a.b.reserve.row", "com.example.a.b.shared"]);
         Install(
             root,
             "com.example.a.b.reserve",
-            directory: "c-valid",
+            "c-valid",
             patches: ["com.example.a.b.reserve.row"]);
 
-        IReadOnlyList<SteamUiExtension> found = SteamUiExtensionHost.Discover(root.Root);
+        var found = SteamUiExtensionHost.Discover(root.Root);
 
         Assert.True(found[0].Loaded);
         Assert.Equal(SteamUiExtensionRejection.Conflict, found[1].Rejection);
@@ -219,24 +219,24 @@ public sealed class SteamUiExtensionHostTests
     public void NullPatchDeclarationsRejectOnlyTheirOwnExtension(string patchesJson)
     {
         using TemporaryDirectory root = new();
-        string broken = Path.Combine(root.Root, "a-broken");
+        var broken = Path.Combine(root.Root, "a-broken");
         Directory.CreateDirectory(broken);
         File.WriteAllText(Path.Combine(broken, "extension.js"), "broken();");
         File.WriteAllText(
             Path.Combine(broken, SteamUiExtensionHost.ManifestFileName),
             $$"""
-            {
-              "id": "com.example.broken",
-              "name": "Broken",
-              "version": "1.0.0",
-              "apiVersion": {{SteamUiExtensionHost.ApiVersion}},
-              "script": "extension.js",
-              "patches": {{patchesJson}}
-            }
-            """);
-        Install(root, "com.example.valid", directory: "b-valid");
+              {
+                "id": "com.example.broken",
+                "name": "Broken",
+                "version": "1.0.0",
+                "apiVersion": {{SteamUiExtensionHost.ApiVersion}},
+                "script": "extension.js",
+                "patches": {{patchesJson}}
+              }
+              """);
+        Install(root, "com.example.valid", "b-valid");
 
-        IReadOnlyList<SteamUiExtension> found = SteamUiExtensionHost.Discover(root.Root);
+        var found = SteamUiExtensionHost.Discover(root.Root);
 
         Assert.Equal(SteamUiExtensionRejection.InvalidManifest, found[0].Rejection);
         Assert.True(found[1].Loaded);
@@ -258,10 +258,10 @@ public sealed class SteamUiExtensionHostTests
     public void DiscoveryIsOrderedSoTheSameInstallAlwaysGivesTheSameWinner()
     {
         using TemporaryDirectory root = new();
-        Install(root, "com.example.z", directory: "zeta");
-        Install(root, "com.example.a", directory: "alpha");
+        Install(root, "com.example.z", "zeta");
+        Install(root, "com.example.a", "alpha");
 
-        IReadOnlyList<SteamUiExtension> found = SteamUiExtensionHost.Discover(root.Root);
+        var found = SteamUiExtensionHost.Discover(root.Root);
 
         Assert.Equal(["com.example.a", "com.example.z"], found.Select(e => e.Id));
     }
@@ -275,7 +275,7 @@ public sealed class SteamUiExtensionHostTests
         string? scriptPath = null,
         string[]? patches = null)
     {
-        string packageDirectory = Path.Combine(root.Root, directory ?? id);
+        var packageDirectory = Path.Combine(root.Root, directory ?? id);
         Directory.CreateDirectory(packageDirectory);
         if (script is not null && scriptPath is null)
         {
@@ -289,7 +289,7 @@ public sealed class SteamUiExtensionHostTests
             Version = "1.0.0",
             ApiVersion = apiVersion ?? SteamUiExtensionHost.ApiVersion,
             Script = scriptPath ?? "extension.js",
-            Patches = [.. patches ?? []],
+            Patches = [.. patches ?? []]
         };
         File.WriteAllText(
             Path.Combine(packageDirectory, SteamUiExtensionHost.ManifestFileName),

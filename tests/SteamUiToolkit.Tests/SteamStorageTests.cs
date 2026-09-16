@@ -4,14 +4,14 @@ using static SteamUiToolkit.Tests.Fakes.SurfaceDispatch;
 namespace SteamUiToolkit.Tests;
 
 /// <summary>
-/// The storage surface's contract: what the probe demands before claiming a transport that carries
-/// every service call Steam makes, and what a publication puts on the wire.
+///     The storage surface's contract: what the probe demands before claiming a transport that carries
+///     every service call Steam makes, and what a publication puts on the wire.
 /// </summary>
 /// <remarks>
-/// Measured against the live client on 2026-09-10. Exactly one module names
-/// <c>StorageDeviceManager.IsServiceAvailable#1</c>, exactly one exports the transport provider, and
-/// <c>SendMsg</c> is a writable, configurable prototype property with no own property on the
-/// instance — which is what lets removal delete the claim and leave Valve's method showing through.
+///     Measured against the live client on 2026-09-10. Exactly one module names
+///     <c>StorageDeviceManager.IsServiceAvailable#1</c>, exactly one exports the transport provider, and
+///     <c>SendMsg</c> is a writable, configurable prototype property with no own property on the
+///     instance — which is what lets removal delete the claim and leave Valve's method showing through.
 /// </remarks>
 public sealed class SteamStorageTests
 {
@@ -28,7 +28,7 @@ public sealed class SteamStorageTests
     [Fact]
     public void TheProbePinsTheServiceAndTheTransportSeparately()
     {
-        string probe = Gate.ProbeExpression;
+        var probe = Gate.ProbeExpression;
 
         Assert.Contains("StorageDeviceManager.IsServiceAvailable#1", probe, StringComparison.Ordinal);
         Assert.Contains("GetDefaultTransport", probe, StringComparison.Ordinal);
@@ -48,7 +48,7 @@ public sealed class SteamStorageTests
     [InlineData("""{"error":"Steam modules unavailable"}""", false)]
     public void CompatibilityRequiresAUniqueServiceAndAClaimableTransport(string json, bool expected)
     {
-        using JsonDocument document = JsonDocument.Parse(json);
+        using var document = JsonDocument.Parse(json);
 
         Assert.Equal(expected, Gate.Compatible(document.RootElement));
     }
@@ -57,26 +57,30 @@ public sealed class SteamStorageTests
     public void TheStateReachesTheWireWithSteamsOwnFieldNames()
     {
         SteamStorageState state = new(
-            [new SteamStorageDrive(
-                Id: 1,
-                Model: "Realtek PCIE CardReader",
-                Vendor: "",
-                SizeBytes: 256_003_538_944,
-                Ejectable: true,
-                Formattable: true,
-                Unformatted: false)],
-            [new SteamStorageBlockDevice(
-                Id: 2,
-                DriveId: 1,
-                Label: "SDCard1",
-                FriendlyPath: "D:\\",
-                SizeBytes: 256_002_359_296,
-                MountPaths: ["D:\\", "D:\\SteamLibrary"],
-                HasSteamLibrary: true)],
-            AdoptSupported: true,
-            UnmountSupported: true);
+            [
+                new SteamStorageDrive(
+                    1,
+                    "Realtek PCIE CardReader",
+                    "",
+                    256_003_538_944,
+                    true,
+                    true,
+                    false)
+            ],
+            [
+                new SteamStorageBlockDevice(
+                    2,
+                    1,
+                    "SDCard1",
+                    "D:\\",
+                    256_002_359_296,
+                    ["D:\\", "D:\\SteamLibrary"],
+                    true)
+            ],
+            true,
+            true);
 
-        JsonElement wire = SteamStorageSurface.Serialize(state);
+        var wire = SteamStorageSurface.Serialize(state);
 
         Assert.Equal(1u, wire.GetProperty("drives")[0].GetProperty("id").GetUInt32());
         Assert.True(wire.GetProperty("drives")[0].GetProperty("formattable").GetBoolean());
@@ -105,18 +109,19 @@ public sealed class SteamStorageTests
         RecordingBackend backend = new();
         SteamUiModuleSet set = new(
         [
-            SteamStorageSurface.Module(Always, () => new(null as SteamStorageState), backend),
+            SteamStorageSurface.Module(Always, () => new ValueTask<SteamStorageState?>(null as SteamStorageState),
+                backend)
         ]);
-        string patchId = SteamStorageSurface.PatchId;
+        var patchId = SteamStorageSurface.PatchId;
 
         Assert.True((await DispatchAsync(set, patchId, "eject", """{"blockDeviceId":2}""")).Succeeded);
         Assert.True((await DispatchAsync(set, patchId, "unmount", """{"driveId":1}""")).Succeeded);
-        SteamUiCommandResult refused = await DispatchAsync(set, patchId, "eject", """{}""");
+        var refused = await DispatchAsync(set, patchId, "eject", """{}""");
 
         Assert.Equal("The storage eject payload named neither a volume nor a drive.", refused.Error);
 
         // Zero is Steam's "not named" rather than a drive, so it refuses like an absent property.
-        SteamUiCommandResult zero = await DispatchAsync(
+        var zero = await DispatchAsync(
             set, patchId, "eject", """{"blockDeviceId":0,"driveId":0}""");
         Assert.Equal("The storage eject payload named neither a volume nor a drive.", zero.Error);
         Assert.Equal(["eject 2/0", "eject 0/1"], backend.Calls);
@@ -128,9 +133,10 @@ public sealed class SteamStorageTests
         RecordingBackend backend = new();
         SteamUiModuleSet set = new(
         [
-            SteamStorageSurface.Module(Always, () => new(null as SteamStorageState), backend),
+            SteamStorageSurface.Module(Always, () => new ValueTask<SteamStorageState?>(null as SteamStorageState),
+                backend)
         ]);
-        string patchId = SteamStorageSurface.PatchId;
+        var patchId = SteamStorageSurface.PatchId;
 
         // Steam's Format Drive modal sends Adopt with the typed name and its validate flag, so
         // both have to survive the trip; a bare adopt still works with neither.
@@ -138,7 +144,7 @@ public sealed class SteamStorageTests
             set, patchId, "adopt", """{"driveId":1,"label":"Games","validate":true}""")).Succeeded);
         Assert.True((await DispatchAsync(set, patchId, "adopt", """{"driveId":1}""")).Succeeded);
         Assert.True((await DispatchAsync(set, patchId, "trimall", """{}""")).Succeeded);
-        SteamUiCommandResult refused = await DispatchAsync(set, patchId, "format", """{"driveId":0}""");
+        var refused = await DispatchAsync(set, patchId, "format", """{"driveId":0}""");
 
         Assert.Equal("The storage format payload is invalid.", refused.Error);
         Assert.Equal(
