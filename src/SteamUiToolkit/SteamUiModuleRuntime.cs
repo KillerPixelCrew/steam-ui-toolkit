@@ -33,7 +33,10 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
     private readonly CancellationTokenSource _shutdown = new();
     private readonly SemaphoreSlim _publicationSignal = new(0, 1);
     private readonly object _requestGate = new();
-    private readonly Dictionary<long, CancellationTokenSource> _inflight = [];
+    // Sequences restart at 1 for every bridge generation, so a handler from the previous document
+    // that has not yet observed cancellation would otherwise collide with the new document's first
+    // request, and the new request would be dropped unanswered.
+    private readonly Dictionary<InflightKey, CancellationTokenSource> _inflight = [];
     private readonly HashSet<Task> _requestTasks = [];
     private readonly Task _publication;
     private int _publicationPending;
@@ -103,7 +106,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
         }
         if (request.Type == "cancel")
         {
-            CancelInflight(request.Sequence);
+            CancelInflight(InflightKey.Of(request));
             return;
         }
 
@@ -119,10 +122,14 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
     {
         using CancellationTokenSource requestCancellation =
             CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
+        InflightKey key = InflightKey.Of(request);
         lock (_requestGate)
         {
-            if (!_inflight.TryAdd(request.Sequence, requestCancellation))
+            if (!_inflight.TryAdd(key, requestCancellation))
             {
+                SteamUiLog.Warn(
+                    $"Steam UI request {request.PatchId}/{request.Command} reused sequence "
+                        + $"{request.Sequence} while an earlier one was still running; not answered.");
                 return;
             }
         }
@@ -132,7 +139,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
         {
             if (requestCancellation.IsCancellationRequested)
             {
-                RemoveInflight(request.Sequence);
+                RemoveInflight(key, requestCancellation);
                 return;
             }
             outcome = !_commandsEnabled()
@@ -146,7 +153,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
         }
         catch (OperationCanceledException) when (requestCancellation.IsCancellationRequested)
         {
-            RemoveInflight(request.Sequence);
+            RemoveInflight(key, requestCancellation);
             return;
         }
         catch (Exception ex)
@@ -202,7 +209,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
         }
         finally
         {
-            RemoveInflight(request.Sequence);
+            RemoveInflight(key, requestCancellation);
         }
     }
 
@@ -273,23 +280,33 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
         }
     }
 
-    private void CancelInflight(long sequence)
+    private void CancelInflight(InflightKey key)
     {
         CancellationTokenSource? cancellation;
         lock (_requestGate)
         {
-            _inflight.TryGetValue(sequence, out cancellation);
+            _inflight.TryGetValue(key, out cancellation);
         }
 
         SteamUiShared.CancelSafely(cancellation);
     }
 
-    private void RemoveInflight(long sequence)
+    private void RemoveInflight(InflightKey key, CancellationTokenSource owner)
     {
         lock (_requestGate)
         {
-            _inflight.Remove(sequence);
+            if (_inflight.TryGetValue(key, out CancellationTokenSource? current)
+                && ReferenceEquals(current, owner))
+            {
+                _inflight.Remove(key);
+            }
         }
+    }
+
+    private readonly record struct InflightKey(long Context, long Document, long Sequence)
+    {
+        internal static InflightKey Of(SteamUiBridgeRequest request) =>
+            new(request.ContextGeneration, request.DocumentGeneration, request.Sequence);
     }
 
     private async Task ObserveCompletionAsync(Task task)
