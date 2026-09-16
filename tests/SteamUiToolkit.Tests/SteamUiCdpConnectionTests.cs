@@ -112,12 +112,16 @@ public sealed class SteamUiCdpConnectionTests
             (_, _) => { });
         connection.Start();
 
+        // Generous budgets: the handler parks a pool thread, and a busy CI runner can take a
+        // while to start the next one. The contract is only that the reply arrives while the
+        // handler is still blocked.
         Task<string?> evaluation = connection.EvaluateAsync(
-            "'ok'", TimeSpan.FromSeconds(1), CancellationToken.None);
-        await handlerStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+            "'ok'", TimeSpan.FromSeconds(15), CancellationToken.None);
+        await handlerStarted.Task.WaitAsync(TimeSpan.FromSeconds(15));
         try
         {
-            Assert.Equal("ok", await evaluation.WaitAsync(TimeSpan.FromSeconds(1)));
+            Assert.Equal("ok", await evaluation.WaitAsync(TimeSpan.FromSeconds(15)));
+            Assert.False(releaseHandler.Task.IsCompleted);
         }
         finally
         {
