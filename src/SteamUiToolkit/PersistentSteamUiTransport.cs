@@ -699,7 +699,11 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         Func<EventHandler<T>?> handlers,
         string failure)
     {
-        await foreach (T item in reader.ReadAllAsync())
+        // Both pumps start in the constructor, which a consumer may well run on its UI thread.
+        // Without this the loop captures that SynchronizationContext and posts every handler back
+        // to it, so a busy UI thread stalls generation and notification delivery instead of the
+        // other way round.
+        await foreach (T item in reader.ReadAllAsync().ConfigureAwait(false))
         {
             EventHandler<T>? current = handlers();
             if (current is null)

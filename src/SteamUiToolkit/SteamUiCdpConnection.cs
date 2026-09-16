@@ -348,7 +348,10 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
 
     private async Task DispatchNotificationsAsync()
     {
-        await foreach ((string method, string parameters) in _notifications.Reader.ReadAllAsync())
+        // Started from the constructor like the transport pumps, so the notification handler must
+        // not inherit the constructing thread's context.
+        await foreach ((string method, string parameters)
+            in _notifications.Reader.ReadAllAsync().ConfigureAwait(false))
         {
             try
             {
