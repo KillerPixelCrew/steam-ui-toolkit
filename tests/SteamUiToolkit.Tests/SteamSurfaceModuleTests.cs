@@ -270,61 +270,61 @@ public sealed class SteamSurfaceModuleTests
         switch (surface)
         {
             case "brightness":
-            {
-                SteamBrightnessState? state = null;
-                return new(
-                    SteamBrightnessSurface.Module(Always, () => new(state), backend),
-                    () => state = new SteamBrightnessState(42),
-                    wire => Assert.Equal(42, wire.GetProperty("percent").GetInt32()));
-            }
+                {
+                    SteamBrightnessState? state = null;
+                    return new(
+                        SteamBrightnessSurface.Module(Always, () => new(state), backend),
+                        () => state = new SteamBrightnessState(42),
+                        wire => Assert.Equal(42, wire.GetProperty("percent").GetInt32()));
+                }
             case "home-carousel":
-            {
-                SteamHomeCarouselState? state = null;
-                return new(
-                    SteamHomeCarouselSurface.Module(Always, () => new(state), backend),
-                    () => state = new SteamHomeCarouselState(false, []),
-                    wire => Assert.Equal(0, wire.GetProperty("disconnectedAppIds").GetArrayLength()));
-            }
+                {
+                    SteamHomeCarouselState? state = null;
+                    return new(
+                        SteamHomeCarouselSurface.Module(Always, () => new(state), backend),
+                        () => state = new SteamHomeCarouselState(false, []),
+                        wire => Assert.Equal(0, wire.GetProperty("disconnectedAppIds").GetArrayLength()));
+                }
             case "library-badge":
-            {
-                SteamLibraryBadgeState? state = null;
-                return new(
-                    SteamLibraryBadgeSurface.Module(Always, () => new(state), backend),
-                    () => state = new SteamLibraryBadgeState([]),
-                    wire => Assert.Equal(0, wire.GetProperty("libraries").GetArrayLength()));
-            }
+                {
+                    SteamLibraryBadgeState? state = null;
+                    return new(
+                        SteamLibraryBadgeSurface.Module(Always, () => new(state), backend),
+                        () => state = new SteamLibraryBadgeState([]),
+                        wire => Assert.Equal(0, wire.GetProperty("libraries").GetArrayLength()));
+                }
             case "navigation-panel":
-            {
-                SteamNavigationPanelState? state = null;
-                return new(
-                    SteamNavigationPanelSurface.Module(Always, () => new(state), backend),
-                    () => state = new SteamNavigationPanelState([], ["power"]),
-                    wire => Assert.Equal("power", wire.GetProperty("hidden")[0].GetString()));
-            }
+                {
+                    SteamNavigationPanelState? state = null;
+                    return new(
+                        SteamNavigationPanelSurface.Module(Always, () => new(state), backend),
+                        () => state = new SteamNavigationPanelState([], ["power"]),
+                        wire => Assert.Equal("power", wire.GetProperty("hidden")[0].GetString()));
+                }
             case "page":
-            {
-                SteamPageState? state = null;
-                return new(
-                    SteamPageSurface.Module(Always, () => new(state)),
-                    () => state = new SteamPageState([new SteamPage("artwork", "/wsgm/artwork", "Artwork")]),
-                    wire => Assert.Equal("artwork", wire.GetProperty("pages")[0].GetProperty("id").GetString()));
-            }
+                {
+                    SteamPageState? state = null;
+                    return new(
+                        SteamPageSurface.Module(Always, () => new(state)),
+                        () => state = new SteamPageState([new SteamPage("artwork", "/wsgm/artwork", "Artwork")]),
+                        wire => Assert.Equal("artwork", wire.GetProperty("pages")[0].GetProperty("id").GetString()));
+                }
             case "screensaver":
-            {
-                SteamScreensaverState? state = null;
-                return new(
-                    SteamScreensaverSurface.Module(Always, () => new(state), backend),
-                    () => state = new SteamScreensaverState([]),
-                    wire => Assert.Equal(0, wire.GetProperty("rows").GetArrayLength()));
-            }
+                {
+                    SteamScreensaverState? state = null;
+                    return new(
+                        SteamScreensaverSurface.Module(Always, () => new(state), backend),
+                        () => state = new SteamScreensaverState([]),
+                        wire => Assert.Equal(0, wire.GetProperty("rows").GetArrayLength()));
+                }
             case "storage":
-            {
-                SteamStorageState? state = null;
-                return new(
-                    SteamStorageSurface.Module(Always, () => new(state), backend),
-                    () => state = new SteamStorageState([], []),
-                    wire => Assert.Equal(0, wire.GetProperty("drives").GetArrayLength()));
-            }
+                {
+                    SteamStorageState? state = null;
+                    return new(
+                        SteamStorageSurface.Module(Always, () => new(state), backend),
+                        () => state = new SteamStorageState([], []),
+                        wire => Assert.Equal(0, wire.GetProperty("drives").GetArrayLength()));
+                }
             default:
                 throw new ArgumentOutOfRangeException(nameof(surface));
         }
