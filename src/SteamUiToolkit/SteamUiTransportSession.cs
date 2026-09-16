@@ -48,10 +48,20 @@ public static class SteamUiTransportSession
     /// <param name="enabled">Whether integration is permitted.</param>
     public static void SetEnabled(bool enabled)
     {
-        _enabled = enabled;
         lock (Gate)
         {
-            _transport?.SetEnabled(enabled);
+            _enabled = enabled;
+            try
+            {
+                _transport?.SetEnabled(enabled);
+            }
+            catch (ObjectDisposedException)
+            {
+                // A transport disposed without Detach can serve nothing. Dropping it keeps the
+                // switch and the attachment consistent instead of throwing out of a settings toggle
+                // after the switch had already flipped.
+                _transport = null;
+            }
         }
     }
 
