@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -18,6 +19,10 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         TimeSpan.FromSeconds(16),
         TimeSpan.FromSeconds(30),
     ];
+
+    // As long as the longest retry delay, so a connection that outlives one full backoff step is
+    // treated as healthy.
+    private static readonly TimeSpan StableConnectionUptime = TimeSpan.FromSeconds(30);
 
     private readonly ISteamUiEndpointDiscovery _discovery;
     private readonly ISteamUiCdpWireFactory _wireFactory;
@@ -358,7 +363,7 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
 
             if (connection is not null)
             {
-                attempt = 0;
+                long connectedAt = Stopwatch.GetTimestamp();
                 try
                 {
                     await connection.Completion.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -369,6 +374,13 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
                 }
                 catch
                 {
+                }
+                // Only a session that stayed up resets the backoff. A CEF that accepts the socket
+                // and drops it at once (normal during a Steam update or crash loop) otherwise pinned
+                // this loop at the 1 s delay, rediscovering and re-running every patch each second.
+                if (Stopwatch.GetElapsedTime(connectedAt) >= StableConnectionUptime)
+                {
+                    attempt = 0;
                 }
             }
 
