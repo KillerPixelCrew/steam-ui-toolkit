@@ -24,6 +24,10 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
     private readonly bool _ownsDiscovery;
     private readonly Dictionary<SteamUiTargetRole, TargetChannel> _channels;
     private readonly CancellationTokenSource _shutdown = new();
+    // Generation-changing notifications are hints a later one supersedes, so evicting the oldest is
+    // harmless. A Runtime.bindingCalled frame is a user action, so it has its own lane that refuses
+    // (and logs) a write when full instead of silently evicting an earlier action, and a burst of
+    // navigation notifications can never push one out.
     private readonly Channel<SteamUiNotification> _notificationEvents =
         Channel.CreateBounded<SteamUiNotification>(
             new BoundedChannelOptions(256)
@@ -31,6 +35,14 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
                 SingleReader = true,
                 SingleWriter = false,
                 FullMode = BoundedChannelFullMode.DropOldest,
+            });
+    private readonly Channel<SteamUiNotification> _bindingEvents =
+        Channel.CreateBounded<SteamUiNotification>(
+            new BoundedChannelOptions(256)
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                FullMode = BoundedChannelFullMode.Wait,
             });
     private readonly Channel<SteamUiTransportSnapshot> _generationEvents =
         Channel.CreateBounded<SteamUiTransportSnapshot>(
@@ -41,6 +53,7 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
                 FullMode = BoundedChannelFullMode.DropOldest,
             });
     private readonly Task _notificationEventPump;
+    private readonly Task _bindingEventPump;
     private readonly Task _generationEventPump;
     private volatile bool _enabled = true;
     private int _disposed;
@@ -83,6 +96,10 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
             _notificationEvents.Reader,
             () => NotificationReceived,
             "Steam UI notification handler failed");
+        _bindingEventPump = PumpAsync(
+            _bindingEvents.Reader,
+            () => NotificationReceived,
+            "Steam UI binding handler failed");
         _generationEventPump = PumpAsync(
             _generationEvents.Reader,
             () => GenerationChanged,
@@ -589,8 +606,12 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
 
         if (!generationMethod)
         {
-            RaiseNotificationReceived(
-                new SteamUiNotification(channel.Role, method, parameters, generations));
+            if (!_bindingEvents.Writer.TryWrite(
+                    new SteamUiNotification(channel.Role, method, parameters, generations)))
+            {
+                SteamUiLog.Warn(
+                    $"Steam UI {channel.Role} binding queue was full; a Runtime binding call was refused.");
+            }
             return;
         }
         var snapshot = Snapshot(channel);
@@ -787,10 +808,11 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
             }
         }
         _notificationEvents.Writer.TryComplete();
+        _bindingEvents.Writer.TryComplete();
         _generationEvents.Writer.TryComplete();
         try
         {
-            await Task.WhenAll(_notificationEventPump, _generationEventPump)
+            await Task.WhenAll(_notificationEventPump, _bindingEventPump, _generationEventPump)
                 .WaitAsync(TimeSpan.FromSeconds(1))
                 .ConfigureAwait(false);
         }
