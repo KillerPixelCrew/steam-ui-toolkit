@@ -262,13 +262,15 @@ public sealed class SteamUiPatchManagerTests
     {
         // The bound is documented as the maximum duration of one phase. Sharing one source across
         // probe, apply and verify let a slow client spend most of it probing and have its otherwise
-        // in-budget apply cancelled underneath it.
+        // in-budget apply cancelled underneath it. Three phases of 500 ms against a 1 s bound:
+        // a shared budget would need 1.5 s and fail, while each phase keeps 500 ms of slack for a
+        // busy runner.
         await using var transport = new FakeSteamUiTransport();
         await using SteamUiPatchManager manager = new(transport);
         FakePatch patch = new()
         {
-            Bounds = new SteamUiPatchBounds(TimeSpan.FromMilliseconds(400), 4096, 512),
-            PhaseDelay = TimeSpan.FromMilliseconds(250)
+            Bounds = new SteamUiPatchBounds(TimeSpan.FromSeconds(1), 4096, 512),
+            PhaseDelay = TimeSpan.FromMilliseconds(500)
         };
         manager.Register(patch);
 
