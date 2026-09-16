@@ -1,0 +1,5 @@
+# .editorconfig requires CRLF and the Roslyn formatter enforces it inside comments. Check the
+# C# family out with CRLF everywhere so Linux and macOS builds pass the same style gate as Windows.
+*.cs text eol=crlf
+*.csproj text eol=crlf
+*.props text eol=crlf
