@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -216,8 +218,14 @@ public sealed record SteamUiPatchSnapshot(
 public sealed class SteamUiPatchManager : IAsyncDisposable
 {
     private readonly ISteamUiTransport _transport;
-    private readonly SortedDictionary<string, PatchEntry> _patches = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, SemaphoreSlim> _resourceGates = new(StringComparer.Ordinal);
+    // The manager subscribes to transport events in its constructor, so a generation change can be
+    // enumerating patches on the pump thread while the host is still registering them. Registration
+    // therefore publishes a new immutable map instead of mutating the one a reader may be walking.
+    private readonly object _registrationSync = new();
+    private volatile ImmutableSortedDictionary<string, PatchEntry> _patches =
+        ImmutableSortedDictionary.Create<string, PatchEntry>(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _resourceGates =
+        new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _schedulerGate = new(1, 1);
     private bool _globalEnabled = true;
     private int _queuedSynchronizationPending;
@@ -247,14 +255,20 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
             throw new ArgumentException(
                 "Steam UI patch identity, version, target, resource, and bounds are required.");
         }
-        if (_patches.ContainsKey(patch.Id))
+        lock (_registrationSync)
         {
-            throw new InvalidOperationException($"Steam UI patch '{patch.Id}' is already registered.");
+            if (_patches.ContainsKey(patch.Id))
+            {
+                throw new InvalidOperationException(
+                    $"Steam UI patch '{patch.Id}' is already registered.");
+            }
+            // The gate exists before the patch is published, so no reader can find the patch
+            // without its gate.
+            _resourceGates.TryAdd(patch.ResourceKey, new SemaphoreSlim(1, 1));
+            _patches = _patches.Add(
+                patch.Id,
+                new PatchEntry(patch, new SteamUiPatchContext(_transport, patch.Bounds)));
         }
-        _patches.Add(
-            patch.Id,
-            new PatchEntry(patch, new SteamUiPatchContext(_transport, patch.Bounds)));
-        _resourceGates.TryAdd(patch.ResourceKey, new SemaphoreSlim(1, 1));
     }
 
     /// <summary>Enables or disables the global emergency kill switch.</summary>
