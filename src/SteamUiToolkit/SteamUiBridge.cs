@@ -558,8 +558,16 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         }
         lock (_stateSync)
         {
-            if (snapshot.Generations.ExecutionContext != _generations.ExecutionContext
-                || snapshot.Generations.Document != _generations.Document)
+            // A pure transport reconnect moves only Browser, Target or Session: the enable chatter
+            // on the new socket is ignored before it is published, so context and document stay put.
+            // Runtime.addBinding was registered on the old session, though, so no binding call can
+            // arrive until bootstrap runs again, and staying ready would make IsReady lie.
+            SteamUiGenerations current = snapshot.Generations;
+            if (current.Browser != _generations.Browser
+                || current.Target != _generations.Target
+                || current.Session != _generations.Session
+                || current.ExecutionContext != _generations.ExecutionContext
+                || current.Document != _generations.Document)
             {
                 _generationEpoch++;
                 _ready = false;
