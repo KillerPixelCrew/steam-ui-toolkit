@@ -166,6 +166,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
     private int _disposed;
     private int _wireDisposed;
     private int _orphanResponses;
+    private int _malformedFrames;
     private int _started;
 
     internal SteamUiCdpConnection(
@@ -364,13 +365,36 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
         }
     }
 
+    // Runtime.enable routes all of Steam's console chatter through here, so one malformed or huge
+    // frame is not a reason to drop the socket: that bumped the Session generation and made every
+    // patch, badge and Quick Access row vanish and slowly return. Such a frame is dropped and
+    // logged instead; only the notification queue overflowing remains terminal.
+    private void DropMalformed(string reason)
+    {
+        if (Interlocked.Increment(ref _malformedFrames) <= 3)
+        {
+            SteamUiLog.Warn($"Steam UI CDP dropped a frame: {reason}");
+        }
+    }
+
     private void ProcessMessage(ReadOnlyMemory<byte> message)
     {
-        using var document = JsonDocument.Parse(message);
-        var root = document.RootElement;
+        JsonDocument document;
+        try
+        {
+            document = JsonDocument.Parse(message);
+        }
+        catch (JsonException ex)
+        {
+            DropMalformed($"not JSON ({ex.Message})");
+            return;
+        }
+        using var parsed = document;
+        var root = parsed.RootElement;
         if (root.ValueKind != JsonValueKind.Object)
         {
-            throw new InvalidDataException("Steam UI CDP message was not an object.");
+            DropMalformed("not an object");
+            return;
         }
 
         if (root.TryGetProperty("id", out var idElement))
@@ -379,7 +403,8 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
                 || !idElement.TryGetInt32(out var id)
                 || id <= 0)
             {
-                throw new InvalidDataException("Steam UI CDP response carried an invalid id.");
+                DropMalformed("response carried an invalid id");
+                return;
             }
             if (!TryTakePending(id, out var completion))
             {
@@ -408,20 +433,25 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
         if (!root.TryGetProperty("method", out var methodElement)
             || methodElement.ValueKind != JsonValueKind.String)
         {
-            throw new InvalidDataException("Steam UI CDP notification lacked a method.");
+            DropMalformed("notification lacked a method");
+            return;
         }
         var method = methodElement.GetString()!;
         var parameters = "{}";
         if (root.TryGetProperty("params", out var value))
         {
             // The raw UTF-8 is exactly what the byte bound measures, so an oversized notification
-            // is refused before its text is materialized or its bytes are counted again.
+            // is refused before its text is materialized or its bytes are counted again. The method
+            // still goes through with empty parameters: a generation change is carried by the
+            // method alone, and no consumer accepts a binding payload anywhere near this size.
             if (JsonMarshal.GetRawUtf8Value(value).Length > MaximumNotificationBytes)
             {
-                throw new InvalidDataException(
-                    "Steam UI CDP notification exceeded its byte limit.");
+                DropMalformed($"{method} parameters exceeded the byte limit");
             }
-            parameters = value.GetRawText();
+            else
+            {
+                parameters = value.GetRawText();
+            }
         }
         if (!_notifications.Writer.TryWrite((method, parameters)))
         {

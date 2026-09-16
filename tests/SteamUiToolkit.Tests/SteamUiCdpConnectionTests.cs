@@ -26,20 +26,39 @@ public sealed class SteamUiCdpConnectionTests
     }
 
     [Fact]
-    public async Task MalformedFrameFaultsPendingRequestAndChannel()
+    public async Task MalformedFramesAreDroppedWithoutClosingTheChannel()
     {
+        var oversized = "{\"method\":\"Page.frameNavigated\",\"params\":{\"frame\":\""
+            + new string('x', 1024 * 1024) + "\"}}";
         var wire = new QueueWire();
-        wire.Sent = _ => wire.Enqueue("[]");
-        Exception? closed = null;
+        wire.Sent = request =>
+        {
+            wire.Enqueue("[]");
+            wire.Enqueue("not json");
+            wire.Enqueue("{\"params\":{}}");
+            wire.Enqueue(oversized);
+            wire.Enqueue(StringResult(QueueWire.RequestId(request), "ok"));
+        };
+        var delivered = new TaskCompletionSource<(string Method, string Parameters)>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var closes = 0;
         await using var connection = new SteamUiCdpConnection(
-            wire, (_, _) => { }, (_, error) => closed = error);
+            wire,
+            (method, parameters) => delivered.TrySetResult((method, parameters)),
+            (_, _) => Interlocked.Increment(ref closes));
         connection.Start();
 
-        await Assert.ThrowsAnyAsync<Exception>(() => connection.EvaluateAsync(
-            "'x'", TimeSpan.FromSeconds(1), CancellationToken.None));
-        await connection.Completion.WaitAsync(TimeSpan.FromSeconds(1));
+        var value = await connection.EvaluateAsync(
+            "'x'", TimeSpan.FromSeconds(1), CancellationToken.None);
 
-        Assert.IsType<InvalidDataException>(closed);
+        Assert.Equal("ok", value);
+        Assert.False(connection.Completion.IsCompleted);
+        Assert.Equal(0, closes);
+        // The oversized notification still counts as a navigation, without its parameters, and is
+        // the only one that reaches the handler.
+        Assert.Equal(
+            ("Page.frameNavigated", "{}"),
+            await delivered.Task.WaitAsync(TimeSpan.FromSeconds(1)));
     }
 
     [Fact]
