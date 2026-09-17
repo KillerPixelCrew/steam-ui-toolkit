@@ -109,11 +109,19 @@ transport, and each separates "Steam was never reached" from "Steam refused", be
 application can react to a game launching or closing without watching processes:
 
 ```csharp
+// Steam opens its debug port only with this flag file present, so write it before Steam starts.
+SteamCef.EnsureRemoteDebuggingEnabled(steamInstallDirectory, enabled: true);
+
+await using var transport = new PersistentSteamUiTransport();
 await using var games = new SteamAppLifetimeMonitor(transport);
 games.AppStarted += (_, e) => Console.WriteLine($"{e.AppId} started");
 games.AppStopped += (_, e) => Console.WriteLine($"{e.AppId} stopped");
 games.Start();
 ```
+
+Nothing above needs the injected script, the bridge or a patch: these calls evaluate and read, so a consumer that only
+wants to know what Steam is doing needs the transport and nothing else. `IsShortcut` on an event tells a non-Steam
+shortcut from a store title, whose id has no store page.
 
 The in-page observer keeps a numbered log of the last 64 notifications, so a game that starts and stops between two
 polls still raises both events in order. `Resynchronized` marks a change derived from comparing running sets instead:
