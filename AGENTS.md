@@ -26,6 +26,8 @@ enabled; this repository supplies mechanisms and truthful state.
 - `SteamUiModule.cs`, `SteamUiModuleRuntime.cs`: state publication and semantic command routing.
 - `SteamUiExtension*.cs`: package discovery, validation, and claim conflict handling.
 - `src/SteamUiToolkit/Surfaces`: typed states, backend contracts, patches, and modules.
+- `src/SteamUiToolkit/Client`: one-shot reads and writes against `SteamClient.*` and Steam's stores,
+  and the running-app observer behind the app lifetime events.
 - `SteamUiAssets/Source`: TypeScript bridge, ownership helpers, RPC support, shared gate helpers,
   gates, and component host.
 - `eng/build-prelude.mjs`: deterministic source composition and TypeScript validation.

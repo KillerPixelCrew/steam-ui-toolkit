@@ -116,6 +116,7 @@ its patches reach them through `window[namespace].gate(name)`, exactly as the sh
 | Modules    | `ISteamUiModule`, `SteamUiModule`, `SteamUiModuleSet`, `SteamUiStatePublication`, `SteamUiCommandHandler`, `SteamUiCommandDelegate`, `SteamUiCommandResult`, `SteamUiModuleRuntime`                                                                                                                                                                         |
 | Extensions | `SteamUiExtensionHost` (static), `SteamUiExtension`, `SteamUiExtensionManifest`, `SteamUiExtensionRejection`                                                                                                                                                                                                                                                 |
 | Logging    | `ISteamUiLog { Info, Warn, Change(key, message, warning) }`, static `SteamUiLog` with a discarding default                                                                                                                                                                                                                                                   |
+| Client     | `SteamApps`, `SteamAppDetails`, `SteamArtworkSlot`, `SteamArtworkFormat`, `SteamClientWriteResult`, `SteamInstallFolders` with its add/remove/label result types, `SteamDownloadActivity`, `SteamDownloadOverview`, `SteamLibraryData`, `SteamCollectionInfo`, `SteamLibraryApp`, `SteamStoreTag`, `SteamCurrentPage`, `SteamCurrentApp`, `SteamRunningAppsProbe`, `SteamRunningAppsObservation`, `SteamAppLifetimeEvent`, `SteamAppLifetimeMonitor` (§16) |
 | Surfaces   | `SteamAudioSurface`, `SteamNetworkSurface`, `SteamBluetoothSurface`, `SteamBrightnessSurface`, `SteamPerformanceSurface`, `SteamPowerLimitSurface`, `SteamFrameLimitRow`, `SteamVariableRefreshRow`, `SteamResolutionRow`, `SteamAutoTdpRow`, `SteamControllerTargetRow`, `SteamDeviceControlsRow`, `SteamNavigationPanelSurface`, `SteamPageSurface`, `SteamStorageSurface`, `SteamLibraryBadgeSurface`, `SteamHomeCarouselSurface`, each with a state record and `ISteam*Backend` (§15) |
 | Patch helpers | `SteamUiBridgePatch`, `SteamGatePatch`, `SteamQuickAccessRowPatch`; readers `SteamUiPayload`, `SteamPerformanceDeltaReader`, `SteamOverlayLevelWire`; `SteamUiProbeJs`, `SteamUiText`, `SteamSettingPersistence`                                                                                                                                         |
 | Assets     | `SteamUiAssets/Source/types.ts`, `bridge.ts`, `ownership.ts`, `rpc.ts`, `gate-helpers.ts`, `icons.ts`, `module-resolver.ts`, `gates/*.ts`, `components.ts`, `epilogue.ts`; built by `eng/build-prelude.mjs`, checked by `eng/check-*.mjs`                                                                                                                                           |
@@ -668,6 +669,10 @@ evaluated and its place among the discovered fragments does not matter.
 | Configuration placeholder, bundle marker                          | `__STEAM_UI_CONFIGURATION_JSON__`, `// @steam-ui-bundle-start` |
 | Property snapshot kind                                            | `steam-ui-property-snapshot-v1`                           |
 | Extension API version, script cap, identifier                     | 1, 256 KiB, ≤ 96 of `[a-z0-9._-]`                         |
+| Client call budgets: app write, install folder, library read, page read, running apps | 20 s, 10 s, 12 s, 8 s, 4 s |
+| App-details subscription bound, setter settle, artwork clear settle | 3 s, 400 ms, 500 ms                     |
+| Running-app observer, reported apps, event log                    | `window.__steamUiRunningApps_v2`, 32, 64                  |
+| Lifetime monitor poll interval (default, minimum)                 | 1 s, 250 ms                                               |
 
 ## 14. Tests
 
@@ -680,6 +685,7 @@ evaluated and its place among the discovered fragments does not matter.
 | `SteamUiModuleTests`                               | module set rules, publication isolation                                                                                                                                                  |
 | `SteamUiEndpointDiscoveryTests`                    | the two role matchers against real URLs                                                                                                                                                  |
 | `NativeTcpTests`, `SteamCefTests`                  | the table decoder; the debug-flag opt-in, the URL gate, the four port-owner reasons                                                                                                     |
+| `SteamClientTests`                                 | the client layer: unreachable against refused, app-id normalization, the details and library parsers, install-folder script selection and reply statuses, download activity, the running-app observer's event log and lease, and the lifetime tracker's ordering, resynchronization and outage rules |
 | `SteamSurfaceModuleTests`                          | each surface's `Commands` against its module's vocabulary, each refusal reason against its payload, a null reading publishing nothing                                                   |
 | `SteamGatePatchContractTests`                      | each claiming gate's verify and remove predicates, and already-claimed compatibility                                                                                                     |
 | `SteamChoiceRowTests`, `SteamWindowSurfaceTests`   | power-profile, preset and core-preference serialization and dispatch; side-menu observation, native button replay, game-window and overlay activation                                     |
@@ -1096,3 +1102,46 @@ Power-limit state additionally carries unified and canSelectMode. The optional m
 setUnifiedMode with exactly one boolean unified property. Consumers own persistence and paired
 hardware dispatch. Unified presentation hides the independent boost slider while showing both
 observed values in the TDP description. Default state retains the existing split presentation.
+
+## 16. The client layer
+
+`Client/` reads and drives the running client through `SteamClient.*` and Steam's own stores. These
+are one-shot calls over the session transport, not patches: nothing is installed in the page and
+nothing has to be removed, except the one resident observer described below. Every call reports an
+unreachable client separately from a refusal, because a client that was never reached changed
+nothing and the caller may offer the request again.
+
+| Type | What it does |
+| ---- | ------------ |
+| `SteamApps` | reads one app's details (`RegisterForAppDetails`), writes a title's launch options or a shortcut's Target and arguments, and sets or clears custom artwork. `NormalizeAppId` converts a stored signed id; `IsShortcutAppId` splits the two kinds. |
+| `SteamInstallFolders` | adds, removes and relabels library folders. Selects every registration at a path, never the first, and `NormalizePath` is the C# twin of the script's own normalizer. |
+| `SteamDownloadActivity` | one snapshot of the download queue, with `IsActive` as the live-verified activity rule. |
+| `SteamLibraryData` | collections, games and shortcuts, and the store tags in use. `IsLoadedAsync` answers whether the stores exist yet. |
+| `SteamCurrentPage` | which game page is in view: the focused React fiber, then the largest wide library image, then the library route. |
+| `SteamRunningAppsProbe` | which apps Steam is running, and the log of starts and stops behind `SteamAppLifetimeMonitor`. |
+
+### Running apps and lifetime events
+
+The probe installs one resident observer in SharedJSContext under
+`window.__steamUiRunningApps_v2`. It seeds the running set from the app store
+(`display_status` 4) and follows `SteamClient.GameSessions.RegisterForAppLifetimeNotifications`;
+focus is never used to infer what is running. Each notification is appended to a numbered log of the
+last 64, so a reader that passes the sequence it last saw gets every transition in between, in
+order. Reading does not consume the log, so several readers can share one observer, and disposing
+any reader's lease removes it: the others resynchronize from the fresh observer their next read
+installs. A reading carries the observer's id, and a different id means Steam replaced its context
+and every earlier sequence number is meaningless.
+
+`SteamAppLifetimeMonitor` turns those readings into `AppStarted` and `AppStopped`, polling once a
+second by default. Latency is at most one poll interval, and a game that starts and stops inside one
+interval still produces both events. `Resynchronized` marks a change the monitor derived by
+comparing running sets rather than reading Steam's notification: the first reading (where everything
+already running is reported as started), a replaced context, or more changes than the log retains.
+An unreachable client raises `AvailabilityChanged` and no stop events, because an unreachable client
+is not a closed game; the known set is kept and reconciled when readings return. Handlers run on the
+monitor's worker thread, one at a time, in order, and a throwing handler is logged without stopping
+the monitor.
+
+A disabled transport is reported as reachable with no apps rather than as a failure, so a consumer's
+own non-Steam detection keeps working while Steam integration is switched off. The lifetime monitor
+treats that state as unavailable, because it can see no transitions there.

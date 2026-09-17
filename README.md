@@ -97,6 +97,30 @@ settings itself.
 Performance controls use titled native sections. Quick Settings places display controls before Steam's common settings,
 then separate Charging and RGB lighting sections.
 
+## Reading and driving the client
+
+Beyond changing the front-end, the library reads and drives the running client: app details, launch options and custom
+artwork (`SteamApps`), library folders (`SteamInstallFolders`), the download queue
+(`SteamDownloadActivity`), collections, games and store tags (`SteamLibraryData`), the game page in view
+(`SteamCurrentPage`) and the apps Steam is running (`SteamRunningAppsProbe`). These are one-shot calls over the same
+transport, and each separates "Steam was never reached" from "Steam refused", because only the second one is an answer.
+
+**`SteamAppLifetimeMonitor`** raises `AppStarted` and `AppStopped` from Steam's own lifetime notifications, so an
+application can react to a game launching or closing without watching processes:
+
+```csharp
+await using var games = new SteamAppLifetimeMonitor(transport);
+games.AppStarted += (_, e) => Console.WriteLine($"{e.AppId} started");
+games.AppStopped += (_, e) => Console.WriteLine($"{e.AppId} stopped");
+games.Start();
+```
+
+The in-page observer keeps a numbered log of the last 64 notifications, so a game that starts and stops between two
+polls still raises both events in order. `Resynchronized` marks a change derived from comparing running sets instead:
+the first reading, a replaced Steam context, or more changes than the log holds. An unreachable client raises
+`AvailabilityChanged` rather than stop events, because Steam being gone is not a game being closed. See §16 of the
+reference.
+
 ## Windows, keyboards and menu state
 
 **`SteamGameWindowActivation.RaiseAsync`** requests Steam activation for exactly one existing overlay process. Your host
