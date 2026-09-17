@@ -106,28 +106,66 @@ artwork (`SteamApps`), library folders (`SteamInstallFolders`), the download que
 transport, and each separates "Steam was never reached" from "Steam refused", because only the second one is an answer.
 
 **`SteamAppLifetimeMonitor`** raises `AppStarted` and `AppStopped` from Steam's own lifetime notifications, so an
-application can react to a game launching or closing without watching processes:
+application can react to a game launching or closing without watching processes.
+
+### Game state, end to end
+
+A complete program. It needs a `net10.0-windows` target and a reference to this package, and nothing else: these calls
+evaluate and read, so knowing what Steam is doing costs you the transport and no injected script, bridge or patch.
 
 ```csharp
-// Steam opens its debug port only with this flag file present, so write it before Steam starts.
-SteamCef.EnsureRemoteDebuggingEnabled(steamInstallDirectory, enabled: true);
+using System;
+using System.Linq;
+using Microsoft.Win32;
+using SteamUiToolkit;
 
+// 1. Find Steam. The library never guesses this: it is the host's machine, not its own.
+//    HKCU stores the path with forward slashes.
+var steamPath = Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamPath", null) as string;
+
+// 2. Opt Steam into its debug port. Steam reads this file when it starts, so a client that is
+//    already running must be restarted once before anything below can reach it.
+SteamCef.EnsureRemoteDebuggingEnabled(steamPath?.Replace('/', '\\'), enabled: true);
+
+// 3. One transport for the process. It connects on first use and reconnects by itself.
 await using var transport = new PersistentSteamUiTransport();
+
+// 4. Attach it to the session that the one-shot calls borrow. Without this they answer
+//    "Steam UI transport is not active" and nothing else works.
+SteamUiTransportSession.Attach(transport);
+
+// 5. Read the library once, so a running app can be named rather than numbered.
+var names = (await SteamLibraryData.ListGamesAsync())
+    .ToDictionary(app => (uint)app.AppId, app => app.Name);
+
+// 6. Watch games start and stop. Handlers run on the monitor's worker thread and block its
+//    next poll, so keep them short and hand real work to your own queue.
 await using var games = new SteamAppLifetimeMonitor(transport);
-games.AppStarted += (_, e) => Console.WriteLine($"{e.AppId} started");
-games.AppStopped += (_, e) => Console.WriteLine($"{e.AppId} stopped");
+games.AvailabilityChanged += (_, e) =>
+    Console.WriteLine(e.Available ? "Steam is readable." : $"Steam is unreadable: {e.Diagnostic}");
+games.AppStarted += (_, e) => Console.WriteLine(
+    $"started: {Name(e.AppId)}{(e.Resynchronized ? " (already running)" : "")}");
+games.AppStopped += (_, e) => Console.WriteLine($"stopped: {Name(e.AppId)}");
 games.Start();
+
+Console.WriteLine("Watching Steam. Press enter to stop.");
+Console.ReadLine();
+
+string Name(uint appId)
+{
+    return names.TryGetValue(appId, out var name) ? name : appId.ToString();
+}
 ```
 
-Nothing above needs the injected script, the bridge or a patch: these calls evaluate and read, so a consumer that only
-wants to know what Steam is doing needs the transport and nothing else. `IsShortcut` on an event tells a non-Steam
-shortcut from a store title, whose id has no store page.
+Steam must be running for readings to arrive, and its debug port exists only after a restart following the first flag
+write. Until then the monitor reports itself unavailable with a reason rather than failing.
 
 The in-page observer keeps a numbered log of the last 64 notifications, so a game that starts and stops between two
 polls still raises both events in order. `Resynchronized` marks a change derived from comparing running sets instead:
-the first reading, a replaced Steam context, or more changes than the log holds. An unreachable client raises
-`AvailabilityChanged` rather than stop events, because Steam being gone is not a game being closed. See §16 of the
-reference.
+the first reading, where everything already running is reported as started, a replaced Steam context, or more changes
+than the log holds. An unreachable client raises `AvailabilityChanged` rather than stop events, because Steam being gone
+is not a game being closed. `IsShortcut` on an event separates a non-Steam shortcut, whose generated id has no store
+page, from a store title. See §16 of the reference.
 
 ## Windows, keyboards and menu state
 
