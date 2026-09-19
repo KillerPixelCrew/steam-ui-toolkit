@@ -191,9 +191,55 @@ public sealed class SteamUiModuleTests
 
         runtime.QueuePublication();
 
+        // Both go out in one round through Task.WhenAll, so which lands first is not a contract. What
+        // is: the refused one does not take the other down with it.
         await TestJson.WaitUntilAsync(() => Deliveries(transport).Count == 2);
-        Assert.Contains("fixture.first", Deliveries(transport)[0], StringComparison.Ordinal);
-        Assert.Contains("fixture.second", Deliveries(transport)[1], StringComparison.Ordinal);
+        var deliveries = Deliveries(transport);
+        Assert.Contains(deliveries, sent => sent.Contains("fixture.first", StringComparison.Ordinal));
+        Assert.Contains(deliveries, sent => sent.Contains("fixture.second", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task UnchangedStateIsNotDeliveredAgainButAChangeIs()
+    {
+        await using var transport = new FakeSteamUiTransport();
+        var value = 1;
+        SteamUiModuleSet modules = new(
+        [
+            new SteamUiModule(
+                "fixture",
+                publications:
+                [
+                    new SteamUiStatePublication(
+                        "fixture.only",
+                        () => true,
+                        () => ValueTask.FromResult<JsonElement?>(
+                            TestJson.Parse($"{{\"value\":{value}}}")))
+                ])
+        ]);
+        await using var bridge = new SteamUiBridgeHost(
+            transport,
+            Asset,
+            modules.AllowedCommands);
+        Assert.True(await bridge.BootstrapAsync());
+        await using var runtime = new SteamUiModuleRuntime(
+            bridge,
+            modules,
+            () => true,
+            () => true);
+
+        runtime.QueuePublication();
+        await TestJson.WaitUntilAsync(() => Deliveries(transport).Count == 1);
+
+        // The publication signal is raised by fixed polls, so an unchanged round is the common one.
+        runtime.QueuePublication();
+        await Task.Delay(100);
+        Assert.Single(Deliveries(transport));
+
+        value = 2;
+        runtime.QueuePublication();
+        await TestJson.WaitUntilAsync(() => Deliveries(transport).Count == 2);
+        Assert.NotEqual(Deliveries(transport)[0], Deliveries(transport)[1]);
     }
 
     private static List<string> Deliveries(FakeSteamUiTransport transport)

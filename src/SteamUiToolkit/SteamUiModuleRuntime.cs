@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -277,6 +278,10 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
                     continue;
                 }
 
+                // Reads stay sequential: several of them reach Win32 or the registry and nothing here
+                // promises them a thread. It is the deliveries that were the serial cost, one
+                // Runtime.evaluate at a time under the operation timeout, so those go out together.
+                List<Task> deliveries = [];
                 foreach (var publication in _modules.Publications)
                 {
                     try
@@ -294,19 +299,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
                             continue;
                         }
 
-                        var accepted = await _bridge.PublishStateAsync(
-                                publication.PatchId,
-                                state,
-                                _shutdown.Token)
-                            .ConfigureAwait(false);
-                        if (!accepted)
-                        {
-                            SteamUiLog.Change(
-                                "steam.ui.publication." + publication.PatchId,
-                                $"Steam UI state publication {publication.PatchId} was not "
-                                + "accepted by the current document.",
-                                true);
-                        }
+                        deliveries.Add(PublishOneAsync(publication.PatchId, state));
                     }
                     catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
                     {
@@ -320,6 +313,14 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
                             true);
                     }
                 }
+
+                // PublishOneAsync reports every publication's own outcome and never faults, so one
+                // failing surface cannot cancel the others or escape into the round's own handler.
+                await Task.WhenAll(deliveries).ConfigureAwait(false);
+                if (_shutdown.IsCancellationRequested)
+                {
+                    return;
+                }
             }
             catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
             {
@@ -329,6 +330,40 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
             {
                 SteamUiLog.Warn($"Steam UI semantic state publication failed: {ex.Message}");
             }
+        }
+    }
+
+    /// <summary>Delivers one publication's state and reports only its own outcome.</summary>
+    /// <param name="patchId">The publishing patch.</param>
+    /// <param name="state">The semantic state to deliver.</param>
+    /// <remarks>
+    ///     Deliberately faultless. These run together under one <see cref="Task.WhenAll(Task[])" />,
+    ///     which surfaces a single exception and would otherwise let the first failing surface stand in
+    ///     for the rest, hiding which one actually broke.
+    /// </remarks>
+    private async Task PublishOneAsync(string patchId, JsonElement state)
+    {
+        try
+        {
+            var accepted = await _bridge.PublishStateAsync(patchId, state, _shutdown.Token)
+                .ConfigureAwait(false);
+            if (!accepted)
+            {
+                SteamUiLog.Change(
+                    "steam.ui.publication." + patchId,
+                    $"Steam UI state publication {patchId} was not accepted by the current document.",
+                    true);
+            }
+        }
+        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            SteamUiLog.Change(
+                "steam.ui.publication." + patchId,
+                $"Steam UI state publication {patchId} failed: {ex.Message}",
+                true);
         }
     }
 

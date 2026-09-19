@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -236,6 +237,11 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
                 FullMode = BoundedChannelFullMode.Wait
             });
 
+    // The last envelope each patch id actually landed in the current document. The envelope carries
+    // both generations, so a new document or execution context is a different string and republishes
+    // everything without this needing to be consulted about it.
+    private readonly ConcurrentDictionary<string, string> _published = new(StringComparer.Ordinal);
+
     private readonly object _stateSync = new();
     private readonly ISteamUiTransport _transport;
     private int _disposed;
@@ -447,11 +453,30 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             return false;
         }
 
-        return await DeliverAsync(
-                BuildState(patchId, payload, generations),
-                generations,
-                cancellationToken)
+        // Unchanged state is the common case: the publication signal is raised by fixed polls, not by
+        // anything actually changing, so most rounds would re-escape and re-send envelopes the
+        // document already holds. Re-sending one is not free, it is a Runtime.evaluate round trip
+        // under the operation timeout.
+        var envelope = BuildState(patchId, payload, generations);
+        if (_published.TryGetValue(patchId, out var delivered)
+            && string.Equals(delivered, envelope, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var accepted = await DeliverAsync(envelope, generations, cancellationToken)
             .ConfigureAwait(false);
+        if (accepted)
+        {
+            _published[patchId] = envelope;
+        }
+        else
+        {
+            // A refused envelope was never taken, so the next round has to offer it again.
+            _published.TryRemove(patchId, out _);
+        }
+
+        return accepted;
     }
 
     /// <summary>Hands one envelope to the injected bridge of the expected generation.</summary>
@@ -681,6 +706,11 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         {
             _ready = false;
         }
+
+        // Nothing survives in a document that is gone. The generations in each envelope would force a
+        // republish anyway; dropping them here keeps a stale document's state out of the comparison
+        // rather than relying on that.
+        _published.Clear();
     }
 
     private bool TryGetReadyGenerations(out SteamUiGenerations generations)
