@@ -97,6 +97,65 @@ public static class SteamUiPatchEvaluation
         }
     }
 
+    /// <summary>Evaluates a probe expression and turns its answer into a probe result.</summary>
+    /// <param name="context">The patch context to evaluate through.</param>
+    /// <param name="role">Which Steam target to evaluate in.</param>
+    /// <param name="expression">The self-contained probe expression to evaluate.</param>
+    /// <param name="compatible">Reads the parsed answer and decides whether the target is compatible.</param>
+    /// <param name="fingerprint">Semantic fingerprint recorded for a compatible target.</param>
+    /// <param name="unreachable">Diagnostic used when the target could not be evaluated at all.</param>
+    /// <param name="cancellationToken">Cancels the evaluation.</param>
+    /// <returns>The patch probe result.</returns>
+    /// <remarks>
+    ///     The probe counterpart of <see cref="EvaluateOutcomeAsync(SteamUiPatchContext,
+    ///     SteamUiTargetRole, string, string, CancellationToken)" />. An unreachable target and a
+    ///     target that answered something unexpected are different states: the first reports no target
+    ///     present, the second reports a present but incompatible one and keeps the page's own answer
+    ///     as the diagnostic, which is what a remote log needs in order to tell a closed window from a
+    ///     Steam build that moved.
+    /// </remarks>
+    public static async Task<SteamUiPatchProbeResult> EvaluateProbeAsync(
+        SteamUiPatchContext context,
+        SteamUiTargetRole role,
+        string expression,
+        Func<JsonElement, bool> compatible,
+        string fingerprint,
+        string unreachable,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(compatible);
+        var result = await context.EvaluateAsync(
+            role,
+            expression,
+            cancellationToken).ConfigureAwait(false);
+        if (!result.Reachable || result.Value is null)
+        {
+            return new SteamUiPatchProbeResult(
+                false,
+                false,
+                false,
+                null,
+                result.Error ?? unreachable);
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(result.Value);
+            var matched = compatible(document.RootElement);
+            return new SteamUiPatchProbeResult(
+                true,
+                matched,
+                matched,
+                matched ? fingerprint : null,
+                matched ? null : Bounded(result.Value));
+        }
+        catch (JsonException ex)
+        {
+            return new SteamUiPatchProbeResult(true, false, false, null, ex.Message);
+        }
+    }
+
     /// <summary>Whether a probe counted exactly one match for a required structural token set.</summary>
     /// <param name="root">The parsed probe result.</param>
     /// <param name="property">The count property to check.</param>
