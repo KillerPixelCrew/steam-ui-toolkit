@@ -39,6 +39,8 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
     // request, and the new request would be dropped unanswered.
     private readonly Dictionary<InflightKey, CancellationTokenSource> _inflight = [];
     private readonly SteamUiModuleSet _modules;
+    private readonly HashSet<string> _failedModules = new(StringComparer.Ordinal);
+    private readonly object _moduleGate = new();
     private readonly Task _publication;
     private readonly SemaphoreSlim _publicationSignal = new(0, 1);
     private readonly Func<bool> _publishEnabled;
@@ -47,6 +49,9 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
     private readonly CancellationTokenSource _shutdown = new();
     private int _disposed;
     private int _publicationPending;
+
+    /// <summary>Raised once when a module's callback or publication throws.</summary>
+    public event EventHandler<SteamUiModuleFailure>? ModuleFailed;
 
     /// <summary>Starts the publication pump and begins answering bridge requests.</summary>
     /// <param name="bridge">The bridge this runtime publishes through and answers on.</param>
@@ -195,6 +200,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
             }
 
             outcome = !_commandsEnabled()
+                      || IsModuleFailed(request.PatchId)
                       || !_modules.TryGetCommand(
                           request.PatchId,
                           request.Command,
@@ -210,6 +216,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
         }
         catch (Exception ex)
         {
+            FailModule(request.PatchId, "command " + request.Command, ex);
             outcome = new SteamUiCommandResult(false, ex.Message);
         }
 
@@ -286,7 +293,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
                 {
                     try
                     {
-                        if (!publication.Enabled())
+                        if (IsModuleFailed(publication.PatchId) || !publication.Enabled())
                         {
                             continue;
                         }
@@ -307,6 +314,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
                     }
                     catch (Exception ex)
                     {
+                        FailModule(publication.PatchId, "state publication", ex);
                         SteamUiLog.Change(
                             "steam.ui.publication." + publication.PatchId,
                             $"Steam UI state publication {publication.PatchId} failed: {ex.Message}",
@@ -416,4 +424,44 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
             return new InflightKey(request.ContextGeneration, request.DocumentGeneration, request.Sequence);
         }
     }
+
+    private void FailModule(string patchId, string operation, Exception error)
+    {
+        if (!_modules.TryGetModule(patchId, out var module) || module is null)
+        {
+            SteamUiLog.Warn($"Steam UI {operation} for unknown module {patchId} failed: {error.Message}");
+            return;
+        }
+
+        lock (_moduleGate)
+        {
+            if (!_failedModules.Add(module.Id))
+            {
+                return;
+            }
+        }
+
+        SteamUiLog.Warn($"Steam UI module {module.Id} failed during {operation}: {error}");
+        ModuleFailed?.Invoke(this, new SteamUiModuleFailure(module, operation, error.Message, error.StackTrace));
+    }
+
+    private bool IsModuleFailed(string patchId)
+    {
+        if (!_modules.TryGetModule(patchId, out var module) || module is null)
+        {
+            return false;
+        }
+
+        lock (_moduleGate)
+        {
+            return _failedModules.Contains(module.Id);
+        }
+    }
 }
+
+/// <summary>One module failure isolated by the semantic runtime.</summary>
+/// <param name="Module">The module that failed.</param>
+/// <param name="Operation">The callback or publication that threw.</param>
+/// <param name="Error">The failure message.</param>
+/// <param name="Stack">The managed stack when available.</param>
+public sealed record SteamUiModuleFailure(ISteamUiModule Module, string Operation, string Error, string? Stack);

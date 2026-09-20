@@ -133,6 +133,7 @@ public sealed class SteamUiModule : ISteamUiModule
 public sealed class SteamUiModuleSet
 {
     private readonly Dictionary<(string PatchId, string Command), SteamUiCommandDelegate> _commands;
+    private readonly Dictionary<string, ISteamUiModule> _modulesByPatch = new(StringComparer.Ordinal);
 
     /// <summary>Flattens a module list, rejecting duplicate identity.</summary>
     /// <param name="modules">The declared modules.</param>
@@ -170,16 +171,19 @@ public sealed class SteamUiModuleSet
                 }
 
                 patches.Add(patch);
+                _modulesByPatch.Add(patch.Id, module);
             }
 
             foreach (var publication in module.Publications)
             {
                 publications.Add(publication);
+                _modulesByPatch.TryAdd(publication.PatchId, module);
                 allowedCommands.TryAdd(publication.PatchId, []);
             }
 
             foreach (var command in module.Commands)
             {
+                _modulesByPatch.TryAdd(command.PatchId, module);
                 if (!_commands.TryAdd((command.PatchId, command.Command), command.Handle))
                 {
                     throw new InvalidOperationException(
@@ -236,6 +240,15 @@ public sealed class SteamUiModuleSet
         out SteamUiCommandDelegate? handler)
     {
         return _commands.TryGetValue((patchId, command), out handler);
+    }
+
+    /// <summary>Finds the owning module for a bridge patch identity.</summary>
+    /// <param name="patchId">The patch identity.</param>
+    /// <param name="module">The owning module, when registered.</param>
+    /// <returns>Whether the identity belongs to a module.</returns>
+    public bool TryGetModule(string patchId, out ISteamUiModule? module)
+    {
+        return _modulesByPatch.TryGetValue(patchId, out module);
     }
 
     /// <summary>Registers every module's patches with the patch manager.</summary>
