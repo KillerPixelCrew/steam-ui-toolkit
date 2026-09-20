@@ -12,6 +12,7 @@ namespace SteamUiToolkit;
 /// </remarks>
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(SteamAudioState))]
+[JsonSerializable(typeof(SteamAudioFormatState))]
 [JsonSerializable(typeof(SteamNetworkState))]
 [JsonSerializable(typeof(SteamBluetoothState))]
 [JsonSerializable(typeof(SteamBrightnessState))]

@@ -10,46 +10,45 @@ Big Picture, which surfaces it registers) is on the WSGM side in `docs/steam-cef
 `SteamGameWindowActivation.RaiseAsync` borrows an already subscribed transport and requires a ready
 SharedJSContext. It resolves exactly one `OverlayWindows` entry with the requested nonzero PID,
 requires a gamepad overlay, valid nonzero AppID and decimal 64-bit GameID string, then awaits
-`SteamClient.Apps.RaiseWindowForGame` with that GameID. It never converts shortcut GameIDs to Number.
-The one-second request budget includes an in-page expiry check before dispatch. A replaced generation,
-missing method, missing/ambiguous overlay or JavaScript failure reports false. There is no launch,
-retry, main-window fallback or DLL injection. True means the call completed, regardless of Steam's
-native result code; it does not establish focus or overlay recovery. The host must select and
-verify its exact native HWND because Steam may raise a launcher console. Cancellation cannot recall
-a native operation already dispatched. Tests execute the expression in isolated Node fixtures and
-cover generation replacement and cancellation with a fake transport. Live Windows overlay recovery
-after task switching remains unverified. Offline inspection of the installed Windows Steam bundle
-on 2026-09-13 confirmed that its own return-to-game path passes `gameid`, and its overlay browser
-information maps `gameID` into `m_gameID`.
+`SteamClient.Apps.RaiseWindowForGame` with that GameID. It never converts shortcut GameIDs to
+Number. The one-second request budget includes an in-page expiry check before dispatch. A replaced
+generation, missing method, missing/ambiguous overlay or JavaScript failure reports false. There is
+no launch, retry, main-window fallback or DLL injection. True means the call completed, regardless
+of Steam's native result code; it does not establish focus or overlay recovery. The host must select
+and verify its exact native HWND because Steam may raise a launcher console. Cancellation cannot
+recall a native operation already dispatched. Tests execute the expression in isolated Node fixtures
+and cover generation replacement and cancellation with a fake transport. Live Windows overlay
+recovery after task switching remains unverified. Offline inspection of the installed Windows Steam
+bundle on 2026-09-13 confirmed that its own return-to-game path passes `gameid`, and its overlay
+browser information maps `gameID` into `m_gameID`.
 
-| Fact                | Value                                                                                                       |
-| ------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Package             | `SteamUiToolkit` 0.1.0, pre-1.0 on purpose                                                                  |
-| Target framework    | `net10.0-windows`                                                                                           |
-| Licence             | MIT                                                                                                         |
-| Documentation gate  | every public member is documented; an undocumented one fails the build                                      |
-| CI                  | build, tests, `npm ci`, `npm run prelude:claims` against the emitted prelude                                |
-| Consumer supplies   | an `ISteamUiLog`, a `SteamUiInjectedAsset`, its `ISteamUiModule`s, and the Steam install directory          |
+| Fact               | Value                                                                                              |
+| ------------------ | -------------------------------------------------------------------------------------------------- |
+| Package            | `SteamUiToolkit` 0.1.0, pre-1.0 on purpose                                                         |
+| Target framework   | `net10.0-windows`                                                                                  |
+| Licence            | MIT                                                                                                |
+| Documentation gate | every public member is documented; an undocumented one fails the build                             |
+| CI                 | build, tests, `npm ci`, `npm run prelude:claims` against the emitted prelude                       |
+| Consumer supplies  | an `ISteamUiLog`, a `SteamUiInjectedAsset`, its `ISteamUiModule`s, and the Steam install directory |
 
 ## 1. The shape
 
 ### Steam surface observations
 
-`SteamNativeSurfaceCommands.ReplayAsync` replays `QuickAccess` or `Home` through the existing
-window handler. Supply the process/app identity and CEF generations from the target observation;
-zero/zero identifies the main window. Overlay targets must match exactly one gamepad overlay.
-Missing, ambiguous, desktop-overlay and stale-generation targets are refused without fallback.
-The result means the handler was invoked, not that its surface opened; Steam keeps its native
-debounce and availability policy. Consumers observe the resulting surface separately and must
-not retry an uncertain dispatch. On 2026-09-09, the compiled main-window Quick Access command
-was observed opening and closing live Big Picture QAM (0 to 2 to 0). No live game-overlay dispatch
-was exercised.
+`SteamNativeSurfaceCommands.ReplayAsync` replays `QuickAccess` or `Home` through the existing window
+handler. Supply the process/app identity and CEF generations from the target observation; zero/zero
+identifies the main window. Overlay targets must match exactly one gamepad overlay. Missing,
+ambiguous, desktop-overlay and stale-generation targets are refused without fallback. The result
+means the handler was invoked, not that its surface opened; Steam keeps its native debounce and
+availability policy. Consumers observe the resulting surface separately and must not retry an
+uncertain dispatch. On 2026-09-09, the compiled main-window Quick Access command was observed
+opening and closing live Big Picture QAM (0 to 2 to 0). No live game-overlay dispatch was exercised.
 
 `Keyboard` uses the same exact target and generation checks. It closes side menus, enables dismissal
-on Enter and shows the window keyboard, using Steam's native `/keyboard` route for game overlays.
-It returns true for an already visible keyboard without toggling it. Missing keyboard methods refuse
-the request before mutation. The installed main-window methods and route were inspected on 2026-09-09;
-actual keyboard interaction remains a field check.
+on Enter and shows the window keyboard, using Steam's native `/keyboard` route for game overlays. It
+returns true for an already visible keyboard without toggling it. Missing keyboard methods refuse
+the request before mutation. The installed main-window methods and route were inspected on
+2026-09-09; actual keyboard interaction remains a field check.
 
 `SteamUiToolkit.Surfaces.SteamSideMenuObserver` reads the known window/menu stores through an
 existing subscribed `ISteamUiTransport`. It does not create a transport or control input ownership.
@@ -60,8 +59,8 @@ generations change.
 
 Register `SteamOverlayActivationPatch` through the normal patch manager lifecycle. It owns one
 `RegisterForOverlayActivated` subscription, replaces only a recognized older observer, and ignores
-late callbacks after cleanup. Events are bounded to 32 identities; overflow or malformed events
-make activation unknown until reattachment. No synthetic closed event is supplied at startup.
+late callbacks after cleanup. Events are bounded to 32 identities; overflow or malformed events make
+activation unknown until reattachment. No synthetic closed event is supplied at startup.
 `AllSideMenusClosed` concerns menus only. `AllSteamSurfacesClosed` additionally requires confirmed
 inactive overlays and a confirmed closed keyboard on every window. Missing keyboard state remains
 unknown. Controller leases, HidHide and recovery policy remain the consumer's responsibility.
@@ -85,41 +84,41 @@ SteamUiExtensionHost         discovers and validates JavaScript extension packag
 ```
 
 Every Steam-shaped fact (a literal module id, a store's field names, a localization token, a row's
-placement) lives in a surface (§15), never in the machinery. The bridge's vocabulary is derived
-from whichever modules the consumer registers. A consumer's own fragments call `registerGate`, and
-its patches reach them through `window[namespace].gate(name)`, exactly as the shipped surfaces do.
+placement) lives in a surface (§15), never in the machinery. The bridge's vocabulary is derived from
+whichever modules the consumer registers. A consumer's own fragments call `registerGate`, and its
+patches reach them through `window[namespace].gate(name)`, exactly as the shipped surfaces do.
 
 ## 2. Public surface
 
 ### Transport
 
-| Type                                                                          | Role                                                                                                                                   |
-| ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `SteamCef` (static)                                                           | `EnsureRemoteDebuggingEnabled(steamDirectory, enabled)`, `JsString`, and the pure gates `IsAllowedDebuggerUrl` and `IsSteamPortOwner`.        |
-| `SteamUiEndpoint`                                                             | One validated target: `BrowserId`, `TargetId`, `Role`, `SocketUri`, `Type`, `Title`, `Url`.                                            |
-| `ISteamUiEndpointDiscovery`                                                   | `DiscoverAsync(role, ct)` returning an endpoint or null. Public so a consumer can test above it.                                       |
-| `ISteamUiCdpWire`, `ISteamUiCdpWireFactory`                                   | The framed message channel and its connector; the seam for testing generations, correlation and the patch lifecycle on a fake wire. |
-| `SteamUiTargetRole`                                                           | `SharedJsContext`, `MainWindow`.                                                                                                       |
-| `SteamUiTransportHealth`                                                      | `Idle`, `Connecting`, `Ready`, `Unavailable`, `Incompatible`, `Retrying`, `Disposed`.                                                  |
-| `SteamUiGenerations`                                                          | `Browser`, `Target`, `Session`, `Frame`, `ExecutionContext`, `Document`.                                                               |
-| `SteamUiTransportSnapshot`, `SteamUiEvaluationResult`, `SteamUiNotification`  | Sanitized state, evaluation result, bounded CDP notification.                                                                          |
-| `ISteamUiTransport`                                                           | `NotificationReceived`, `GenerationChanged`, `SubscribeAsync`, `EvaluateAsync`, `SetRuntimeBindingAsync`, `GetSnapshots`, `SetEnabled`. |
-| `PersistentSteamUiTransport`                                                  | The production implementation.                                                                                                         |
-| `SteamUiTransportSession` (static)                                            | The session-wide master switch and the attach point for one-shot evaluation; `CefEvalResult` is its never-throwing result.            |
+| Type                                                                         | Role                                                                                                                                    |
+| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `SteamCef` (static)                                                          | `EnsureRemoteDebuggingEnabled(steamDirectory, enabled)`, `JsString`, and the pure gates `IsAllowedDebuggerUrl` and `IsSteamPortOwner`.  |
+| `SteamUiEndpoint`                                                            | One validated target: `BrowserId`, `TargetId`, `Role`, `SocketUri`, `Type`, `Title`, `Url`.                                             |
+| `ISteamUiEndpointDiscovery`                                                  | `DiscoverAsync(role, ct)` returning an endpoint or null. Public so a consumer can test above it.                                        |
+| `ISteamUiCdpWire`, `ISteamUiCdpWireFactory`                                  | The framed message channel and its connector; the seam for testing generations, correlation and the patch lifecycle on a fake wire.     |
+| `SteamUiTargetRole`                                                          | `SharedJsContext`, `MainWindow`.                                                                                                        |
+| `SteamUiTransportHealth`                                                     | `Idle`, `Connecting`, `Ready`, `Unavailable`, `Incompatible`, `Retrying`, `Disposed`.                                                   |
+| `SteamUiGenerations`                                                         | `Browser`, `Target`, `Session`, `Frame`, `ExecutionContext`, `Document`.                                                                |
+| `SteamUiTransportSnapshot`, `SteamUiEvaluationResult`, `SteamUiNotification` | Sanitized state, evaluation result, bounded CDP notification.                                                                           |
+| `ISteamUiTransport`                                                          | `NotificationReceived`, `GenerationChanged`, `SubscribeAsync`, `EvaluateAsync`, `SetRuntimeBindingAsync`, `GetSnapshots`, `SetEnabled`. |
+| `PersistentSteamUiTransport`                                                 | The production implementation.                                                                                                          |
+| `SteamUiTransportSession` (static)                                           | The session-wide master switch and the attach point for one-shot evaluation; `CefEvalResult` is its never-throwing result.              |
 
 ### Other groups
 
-| Group      | Types                                                                                                                                                                                                                                                                                                                                                        |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Patches    | `ISteamUiPatch`, `SteamUiPatchBounds`, `SteamUiPatchProbeResult`, `SteamUiPatchOperationResult`, `SteamUiPatchContext`, `SteamUiPatchState`, `SteamUiPatchSnapshot`, `SteamUiPatchManager`, `SteamUiPatchEvaluation`                                                                                                                                       |
-| Bridge     | `SteamUiBridgeHost`, `SteamUiBridgeRequest`, `SteamUiBridgeAuthorizer`, `SteamUiBridgeAuthorizationResult`, `SteamUiBridgeIdentity`, `SteamUiInjectedAsset`                                                                                                                                                                                                 |
-| Modules    | `ISteamUiModule`, `SteamUiModule`, `SteamUiModuleSet`, `SteamUiStatePublication`, `SteamUiCommandHandler`, `SteamUiCommandDelegate`, `SteamUiCommandResult`, `SteamUiModuleRuntime`                                                                                                                                                                         |
-| Extensions | `SteamUiExtensionHost` (static), `SteamUiExtension`, `SteamUiExtensionManifest`, `SteamUiExtensionRejection`                                                                                                                                                                                                                                                 |
-| Logging    | `ISteamUiLog { Info, Warn, Change(key, message, warning) }`, static `SteamUiLog` with a discarding default                                                                                                                                                                                                                                                   |
-| Client     | `SteamApps`, `SteamAppDetails`, `SteamArtworkSlot`, `SteamArtworkFormat`, `SteamClientWriteResult`, `SteamInstallFolders` with its add/remove/label result types, `SteamDownloadActivity`, `SteamDownloadOverview`, `SteamLibraryData`, `SteamCollectionInfo`, `SteamLibraryApp`, `SteamStoreTag`, `SteamCurrentPage`, `SteamCurrentApp`, `SteamRunningAppsProbe`, `SteamRunningAppsObservation`, `SteamAppLifetimeEvent`, `SteamAppLifetimeMonitor` (§16) |
-| Surfaces   | `SteamAudioSurface`, `SteamNetworkSurface`, `SteamBluetoothSurface`, `SteamBrightnessSurface`, `SteamPerformanceSurface`, `SteamPowerLimitSurface`, `SteamFrameLimitRow`, `SteamVariableRefreshRow`, `SteamResolutionRow`, `SteamAutoTdpRow`, `SteamControllerTargetRow`, `SteamDeviceControlsRow`, `SteamNavigationPanelSurface`, `SteamPageSurface`, `SteamStorageSurface`, `SteamLibraryBadgeSurface`, `SteamHomeCarouselSurface`, each with a state record and `ISteam*Backend` (§15) |
-| Patch helpers | `SteamUiBridgePatch`, `SteamGatePatch`, `SteamQuickAccessRowPatch`; readers `SteamUiPayload`, `SteamPerformanceDeltaReader`, `SteamOverlayLevelWire`; `SteamUiProbeJs`, `SteamUiText`, `SteamSettingPersistence`                                                                                                                                         |
-| Assets     | `SteamUiAssets/Source/types.ts`, `bridge.ts`, `ownership.ts`, `rpc.ts`, `gate-helpers.ts`, `icons.ts`, `module-resolver.ts`, `gates/*.ts`, `components.ts`, `epilogue.ts`; built by `eng/build-prelude.mjs`, checked by `eng/check-*.mjs`                                                                                                                                           |
+| Group         | Types                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Patches       | `ISteamUiPatch`, `SteamUiPatchBounds`, `SteamUiPatchProbeResult`, `SteamUiPatchOperationResult`, `SteamUiPatchContext`, `SteamUiPatchState`, `SteamUiPatchSnapshot`, `SteamUiPatchManager`, `SteamUiPatchEvaluation`                                                                                                                                                                                                                                                                                             |
+| Bridge        | `SteamUiBridgeHost`, `SteamUiBridgeRequest`, `SteamUiBridgeAuthorizer`, `SteamUiBridgeAuthorizationResult`, `SteamUiBridgeIdentity`, `SteamUiInjectedAsset`                                                                                                                                                                                                                                                                                                                                                      |
+| Modules       | `ISteamUiModule`, `SteamUiModule`, `SteamUiModuleSet`, `SteamUiStatePublication`, `SteamUiCommandHandler`, `SteamUiCommandDelegate`, `SteamUiCommandResult`, `SteamUiModuleRuntime`                                                                                                                                                                                                                                                                                                                              |
+| Extensions    | `SteamUiExtensionHost` (static), `SteamUiExtension`, `SteamUiExtensionManifest`, `SteamUiExtensionRejection`                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Logging       | `ISteamUiLog { Info, Warn, Change(key, message, warning) }`, static `SteamUiLog` with a discarding default                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Client        | `SteamApps`, `SteamAppDetails`, `SteamArtworkSlot`, `SteamArtworkFormat`, `SteamClientWriteResult`, `SteamInstallFolders` with its add/remove/label result types, `SteamDownloadActivity`, `SteamDownloadOverview`, `SteamLibraryData`, `SteamCollectionInfo`, `SteamLibraryApp`, `SteamStoreTag`, `SteamCurrentPage`, `SteamCurrentApp`, `SteamRunningAppsProbe`, `SteamRunningAppsObservation`, `SteamAppLifetimeEvent`, `SteamAppLifetimeMonitor` (§16)                                                       |
+| Surfaces      | `SteamAudioSurface`, `SteamNetworkSurface`, `SteamBluetoothSurface`, `SteamBrightnessSurface`, `SteamPerformanceSurface`, `SteamPowerLimitSurface`, `SteamFrameLimitRow`, `SteamVariableRefreshRow`, `SteamResolutionRow`, `SteamAudioFormatRow`, `SteamAutoTdpRow`, `SteamControllerTargetRow`, `SteamDeviceControlsRow`, `SteamNavigationPanelSurface`, `SteamPageSurface`, `SteamStorageSurface`, `SteamLibraryBadgeSurface`, `SteamHomeCarouselSurface`, each with a state record and `ISteam*Backend` (§15) |
+| Patch helpers | `SteamUiBridgePatch`, `SteamGatePatch`, `SteamQuickAccessRowPatch`; readers `SteamUiPayload`, `SteamPerformanceDeltaReader`, `SteamOverlayLevelWire`; `SteamUiProbeJs`, `SteamUiText`, `SteamSettingPersistence`                                                                                                                                                                                                                                                                                                 |
+| Assets        | `SteamUiAssets/Source/types.ts`, `bridge.ts`, `ownership.ts`, `rpc.ts`, `gate-helpers.ts`, `icons.ts`, `module-resolver.ts`, `gates/*.ts`, `components.ts`, `epilogue.ts`; built by `eng/build-prelude.mjs`, checked by `eng/check-*.mjs`                                                                                                                                                                                                                                                                        |
 
 `SteamUiLog` is a settable static rather than a constructor parameter because there is one sink per
 process. `Change` is the poll-loop primitive: a line is written once per transition of its key, and
@@ -133,16 +132,16 @@ for a consumer with none.
 
 `SteamCef.EnsureRemoteDebuggingEnabled(steamDirectory, enabled)` creates an empty
 `.cef-enable-remote-debugging` file in Steam's directory when it is missing and logs
-`Steam CEF remote-debugging enabled (<path>).`. It writes nothing when the explicit configured switch is
-off or the directory is null. It never deletes an existing flag: the file is shared with other
-tools, and the library cannot know who created it. The flag takes effect on Steam's next cold start.
-The transport's temporary readiness hold does not control this write.
+`Steam CEF remote-debugging enabled (<path>).`. It writes nothing when the explicit configured
+switch is off or the directory is null. It never deletes an existing flag: the file is shared with
+other tools, and the library cannot know who created it. The flag takes effect on Steam's next cold
+start. The transport's temporary readiness hold does not control this write.
 
 ### Port ownership
 
 Before any HTTP probe, discovery verifies that TCP port 8080 is owned by Steam. `NativeTcp` reads
-`iphlpapi!GetExtendedTcpTable` directly (address family 2, owner-PID listener table class 3,
-24-byte rows with the address at offset 4, the port at 8, the PID at 20), retrying three times on
+`iphlpapi!GetExtendedTcpTable` directly (address family 2, owner-PID listener table class 3, 24-byte
+rows with the address at offset 4, the port at 8, the PID at 20), retrying three times on
 `ERROR_INSUFFICIENT_BUFFER`. netstat is not used because its state column is localized, so a literal
 match on `LISTENING` fails closed on a non-English machine. An unreadable table returns null, not an
 empty list.
@@ -151,15 +150,15 @@ empty list.
 behind Steam's wildcard row, skips rows whose process has exited, accepts `steamwebhelper` and
 `steam`, and reports one of four reasons:
 
-| Reason                                                                     | Meaning                              |
-| -------------------------------------------------------------------------- | ------------------------------------ |
-| the TCP listener table was unavailable                                     | the owner could not be verified      |
-| nothing is listening on port 8080                                          | Steam is not up, or the flag is absent |
-| port 8080 is owned by `<name>` (pid n), not Steam                          | decisive refusal                     |
-| n listener(s) on port 8080 could not be attributed to a running process    | stale rows only                      |
+| Reason                                                                  | Meaning                                |
+| ----------------------------------------------------------------------- | -------------------------------------- |
+| the TCP listener table was unavailable                                  | the owner could not be verified        |
+| nothing is listening on port 8080                                       | Steam is not up, or the flag is absent |
+| port 8080 is owned by `<name>` (pid n), not Steam                       | decisive refusal                       |
+| n listener(s) on port 8080 could not be attributed to a running process | stale rows only                        |
 
-A refusal logs `Change("steam.ui.discovery", "Steam UI discovery for <role> refused: <reason>.")`
-as a warning.
+A refusal logs `Change("steam.ui.discovery", "Steam UI discovery for <role> refused: <reason>.")` as
+a warning.
 
 ### HTTP discovery
 
@@ -175,17 +174,16 @@ constructor preserves the default discovery behavior. Hosts still own game-mode 
 as a standalone expression. The same source is compiled into the bridge. The returned function
 refuses a missing factory before invoking webpack. `resolve(tokens)` loads exports only for a unique
 source match. `exported(tokens, predicate)` resolves the same way and returns the one distinct
-export the predicate accepts, counting aliases of a value once and throwing `Steam export absent`
-or `Steam export ambiguous` otherwise; a getter or predicate that throws counts as no fit.
-`count(tokens)` and `findUnique(tokens)` inspect
-source without invoking factories. `findUnique` returns an id/source pair or null. Invalid
-fingerprints, absent/ambiguous resolution and load failures throw diagnostic errors. Fingerprints
-have 1 to 16 nonempty tokens of at most 512 characters; discovery accepts at most 32,768 factories.
-A resolver reads each factory's source once and remembers it, and a gate that looks a module up
-after installation (a store singleton, the JSX runtime) keeps one resolver for its lifetime rather
-than pushing a new chunk on every publication.
-A resolver does not repeat a factory call that threw through that resolver. It exposes no raw
-registry or loader. This is not a sandbox for arbitrary page JavaScript, nor proof that a factory's
+export the predicate accepts, counting aliases of a value once and throwing `Steam export absent` or
+`Steam export ambiguous` otherwise; a getter or predicate that throws counts as no fit.
+`count(tokens)` and `findUnique(tokens)` inspect source without invoking factories. `findUnique`
+returns an id/source pair or null. Invalid fingerprints, absent/ambiguous resolution and load
+failures throw diagnostic errors. Fingerprints have 1 to 16 nonempty tokens of at most 512
+characters; discovery accepts at most 32,768 factories. A resolver reads each factory's source once
+and remembers it, and a gate that looks a module up after installation (a store singleton, the JSX
+runtime) keeps one resolver for its lifetime rather than pushing a new chunk on every publication. A
+resolver does not repeat a factory call that threw through that resolver. It exposes no raw registry
+or loader. This is not a sandbox for arbitrary page JavaScript, nor proof that a factory's
 dependencies have initialized; hosts must enforce startup readiness as well.
 
 Probes and gates share this resolver. The network surface instead reads Steam's published
@@ -201,9 +199,9 @@ that matches it alone and an export by its shape; WSGM's `eng/check-steam-finger
 every fingerprint's matches in an installed client's bundle without attaching to Steam.
 `eng/check-startup.mjs` exercises both the standalone source and emitted asset against the loader
 failure shape that leaves empty exports cached after a missing-factory call. Native-component
-installation catches discovery and dependency-resolution exceptions before installing the React
-hook or registering a row. It returns `ok: false` and records the refusal in `status().lastError`.
-The emitted-host checks cover missing webpack, early and late load failures, and successful removal.
+installation catches discovery and dependency-resolution exceptions before installing the React hook
+or registering a row. It returns `ok: false` and records the refusal in `status().lastError`. The
+emitted-host checks cover missing webpack, early and late load failures, and successful removal.
 
 ### Endpoint validation
 
@@ -217,9 +215,9 @@ matches for one role raise `Steam UI reported multiple <role> targets.`
 
 ### Target roles
 
-| Role              | Match                                                                                                                                                   |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SharedJsContext` | `type == "page"`, title `SharedJSContext`, URL under `https://steamloopback.host/`. Headless: stores, webpack modules, React.                            |
+| Role              | Match                                                                                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SharedJsContext` | `type == "page"`, title `SharedJSContext`, URL under `https://steamloopback.host/`. Headless: stores, webpack modules, React.                                       |
 | `MainWindow`      | `type == "page"`, URL starting `about:blank?` containing `createflags` and `minwidth`, and not containing `browserviewpopup` or `openerid`. The Big Picture window. |
 
 The main window is matched by its creation URL, not its title, because the title is localized
@@ -227,11 +225,11 @@ The main window is matched by its creation URL, not its title, because the title
 
 ## 4. The CDP connection
 
-`SteamUiWebSocketWireFactory` opens a `ClientWebSocket` with a 20 s keep-alive. The wire
-accumulates text frames in 16 KiB chunks until end-of-message, treats a close frame as null,
-refuses a non-text frame, and caps a response at 8 MiB. There is deliberately no cap on what is
-sent: a 96 KiB expression cap once rejected the glyph stylesheet and the Steam Input page silently
-kept Valve's artwork. Disposal sends a normal close with a 500 ms budget.
+`SteamUiWebSocketWireFactory` opens a `ClientWebSocket` with a 20 s keep-alive. The wire accumulates
+text frames in 16 KiB chunks until end-of-message, treats a close frame as null, refuses a non-text
+frame, and caps a response at 8 MiB. There is deliberately no cap on what is sent: a 96 KiB
+expression cap once rejected the glyph stylesheet and the Steam Input page silently kept Valve's
+artwork. Disposal sends a normal close with a 500 ms budget.
 
 `SteamUiCdpConnection` correlates JSON-RPC by integer id with at most 32 outstanding requests, a
 256-slot notification channel and a 1 MiB cap on notification parameters. `EvaluateAsync` sends
@@ -241,11 +239,11 @@ kept Valve's artwork. Disposal sends a normal close with a 500 ms budget.
 request requires a timeout in `(0, 30 s]`. A send failure cancels the whole connection.
 
 Inbound faults that end the connection: a non-object message, an invalid id, an `error` member, a
-reply with neither `result` nor `error`, a notification without a method, oversized parameters, or
-a full notification queue. An orphan response is only logged, three times at most. Teardown drains
-the notification pump with a 1 s budget, fails every pending request with the failure or
-`IOException("Steam UI CDP channel closed.")`, disposes the wire and invokes the closed callback.
-A notification handler that throws is logged and does not poison the channel.
+reply with neither `result` nor `error`, a notification without a method, oversized parameters, or a
+full notification queue. An orphan response is only logged, three times at most. Teardown drains the
+notification pump with a 1 s budget, fails every pending request with the failure or
+`IOException("Steam UI CDP channel closed.")`, disposes the wire and invokes the closed callback. A
+notification handler that throws is logged and does not poison the channel.
 
 ## 5. `PersistentSteamUiTransport`
 
@@ -260,28 +258,29 @@ completion, then sleeps 1 s, 4 s, 16 s, 30 s (clamped). Connecting runs discover
 with `Steam UI <role> target is absent.` when it returns null), enables `Runtime`, `Page` and `DOM`
 with 5 s each, and only then publishes the connection, so an in-place document replacement is
 observable from the first moment a channel claims to be ready. Ownership is re-checked before
-publishing and again after the domains are enabled; a connection that completes after its owner
-left logs `Steam UI <role> connection completed after its owner left; discarding it.` and throws
+publishing and again after the domains are enabled; a connection that completes after its owner left
+logs `Steam UI <role> connection completed after its owner left; discarding it.` and throws
 `OperationCanceledException`.
 
 ### Generations
 
-| Event                                                                     | Advances                                        |
-| ------------------------------------------------------------------------- | ----------------------------------------------- |
-| New browser id on connect                                                 | Browser, Target, Frame, ExecutionContext, Document |
-| New target id on connect                                                  | Target, Frame, ExecutionContext, Document       |
-| Every attachment                                                          | Session                                         |
-| `Page.frameNavigated`                                                     | Frame, Document                                 |
-| `Runtime.executionContextCreated`                                         | ExecutionContext                                |
-| `Runtime.executionContextDestroyed`, `Runtime.executionContextsCleared`   | ExecutionContext, Document                      |
-| `DOM.documentUpdated`                                                     | Document                                        |
+| Event                                                                   | Advances                                           |
+| ----------------------------------------------------------------------- | -------------------------------------------------- |
+| New browser id on connect                                               | Browser, Target, Frame, ExecutionContext, Document |
+| New target id on connect                                                | Target, Frame, ExecutionContext, Document          |
+| Every attachment                                                        | Session                                            |
+| `Page.frameNavigated`                                                   | Frame, Document                                    |
+| `Runtime.executionContextCreated`                                       | ExecutionContext                                   |
+| `Runtime.executionContextDestroyed`, `Runtime.executionContextsCleared` | ExecutionContext, Document                         |
+| `DOM.documentUpdated`                                                   | Document                                           |
 
 `NotificationReceived` fires only for the generation notifications above and
 `Runtime.bindingCalled`, the one notification the bridge consumes; other domain chatter is dropped
-before it takes the channel lock. `GenerationChanged` fires only when a generation changed. Both go through bounded drop-oldest channels (256 and 64) and handler exceptions are
-logged. A Steam restart is detected through nothing more than this: the socket closes, the loop
-backs off, discovery refuses while the port is closed, and the reconnect brings a new browser id
-that advances every generation, which invalidates every patch and the bridge.
+before it takes the channel lock. `GenerationChanged` fires only when a generation changed. Both go
+through bounded drop-oldest channels (256 and 64) and handler exceptions are logged. A Steam restart
+is detected through nothing more than this: the socket closes, the loop backs off, discovery refuses
+while the port is closed, and the reconnect brings a new browser id that advances every generation,
+which invalidates every patch and the bridge.
 
 ### Evaluation
 
@@ -289,12 +288,12 @@ that advances every generation, which invalidates every patch and the bridge.
 `Unavailable("Steam CEF integration disabled in settings.")` when disabled, takes a temporary
 subscription for the call, and maps failures:
 
-| Caught                                                     | Result                                              | Health         |
-| ---------------------------------------------------------- | --------------------------------------------------- | -------------- |
-| caller cancellation                                        | `Unavailable("Steam UI evaluation was cancelled.")` | unchanged      |
-| deadline                                                   | `Unavailable("Steam UI evaluation timed out.")`     | unchanged      |
-| `InvalidDataException` (CDP error, JS exception, framing)  | `Reachable = true` with `Error`                     | `Incompatible` |
-| anything else                                              | `Unavailable(message)`                              | `Retrying`     |
+| Caught                                                    | Result                                              | Health         |
+| --------------------------------------------------------- | --------------------------------------------------- | -------------- |
+| caller cancellation                                       | `Unavailable("Steam UI evaluation was cancelled.")` | unchanged      |
+| deadline                                                  | `Unavailable("Steam UI evaluation timed out.")`     | unchanged      |
+| `InvalidDataException` (CDP error, JS exception, framing) | `Reachable = true` with `Error`                     | `Incompatible` |
+| anything else                                             | `Unavailable(message)`                              | `Retrying`     |
 
 The `Reachable` distinction matters: Steam answered, so a caller must not diagnose a renamed API as
 a closed client. A later success restores `Ready`.
@@ -313,32 +312,33 @@ reconnects for channels with subscribers. `EvaluateAsync` targets `SharedJsConte
 `EvaluateOnVisibleWindowAsync` targets `MainWindow`. Both never throw and answer with
 `CefEvalResult { Reachable, Value, Error }`, using one of:
 
-| Error                                             |
-| ------------------------------------------------- |
-| `Steam CEF integration disabled in settings.`     |
-| `Steam UI transport is not active.`               |
-| `Steam CEF evaluation cancelled.`                 |
-| `Timed out talking to Steam's debug port.`        |
+| Error                                         |
+| --------------------------------------------- |
+| `Steam CEF integration disabled in settings.` |
+| `Steam UI transport is not active.`           |
+| `Steam CEF evaluation cancelled.`             |
+| `Timed out talking to Steam's debug port.`    |
 
 ## 6. Patch lifecycle
 
 ### Declaring a patch
 
-| `ISteamUiPatch` member   | Contract                                                                                                                                                               |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Id`, `Version` (> 0)    | Stable identity; the log key is `steam.ui.patch.<id>`.                                                                                                                 |
-| `TargetRole`             | Which target the phases evaluate on.                                                                                                                                   |
-| `ResourceKey`            | Patches sharing a key serialize on one gate.                                                                                                                           |
-| `Bounds`                 | `SteamUiPatchBounds(OperationTimeout ≤ 30 s, MaximumExpressionCharacters > 0, MaximumDiagnosticCharacters 1…65536)`; default 8 s, 96 KiB, 2048.                        |
-| `ProbeAsync`             | Read-only. Returns `SteamUiPatchProbeResult(TargetPresent, Compatible, Unique, Fingerprint, Diagnostic)`. The fingerprint is a semantic identity, never a module id alone. |
-| `ApplyAsync`             | Touches only resources the patch owns.                                                                                                                                 |
-| `VerifyAsync`            | Proves the applied work is functional.                                                                                                                                 |
-| `RemoveAsync`            | Removes and verifies removal of only the patch's own work.                                                                                                             |
+| `ISteamUiPatch` member | Contract                                                                                                                                                                   |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Id`, `Version` (> 0)  | Stable identity; the log key is `steam.ui.patch.<id>`.                                                                                                                     |
+| `TargetRole`           | Which target the phases evaluate on.                                                                                                                                       |
+| `ResourceKey`          | Patches sharing a key serialize on one gate.                                                                                                                               |
+| `Bounds`               | `SteamUiPatchBounds(OperationTimeout ≤ 30 s, MaximumExpressionCharacters > 0, MaximumDiagnosticCharacters 1…65536)`; default 8 s, 96 KiB, 2048.                            |
+| `ProbeAsync`           | Read-only. Returns `SteamUiPatchProbeResult(TargetPresent, Compatible, Unique, Fingerprint, Diagnostic)`. The fingerprint is a semantic identity, never a module id alone. |
+| `ApplyAsync`           | Touches only resources the patch owns.                                                                                                                                     |
+| `VerifyAsync`          | Proves the applied work is functional.                                                                                                                                     |
+| `RemoveAsync`          | Removes and verifies removal of only the patch's own work.                                                                                                                 |
 
-`SteamUiPatchContext.EvaluateAsync` enforces the expression bound (`Patch expression exceeded its
-declared bound.`) and passes the operation timeout to the transport. Registration refuses missing
-identity, version, resource or bounds and duplicate ids. Patches are kept sorted by id; there are
-no declared dependencies between patches, and mutual exclusion comes from the resource key.
+`SteamUiPatchContext.EvaluateAsync` enforces the expression bound
+(`Patch expression exceeded its declared bound.`) and passes the operation timeout to the transport.
+Registration refuses missing identity, version, resource or bounds and duplicate ids. Patches are
+kept sorted by id; there are no declared dependencies between patches, and mutual exclusion comes
+from the resource key.
 
 ### States
 
@@ -360,8 +360,8 @@ no declared dependencies between patches, and mutual exclusion comes from the re
    without reapplying.
 5. `Applying`: apply; failure is `Degraded` with the diagnostic.
 6. `Applied`: verify; success is `Verified`.
-7. Verify failure: `Steam UI patch <id> applied but did not verify; removing it: …`, then remove.
-   An applied-but-unverified mutation is never left in the client.
+7. Verify failure: `Steam UI patch <id> applied but did not verify; removing it: …`, then remove. An
+   applied-but-unverified mutation is never left in the client.
 8. A phase timeout is `Retrying` with `Patch operation timed out.`; any other exception is
    `Degraded`.
 
@@ -370,8 +370,8 @@ cancelled an in-budget apply with nothing wrong.
 
 ### Generation events and kill switches
 
-`OnGenerationChanged` compares the published snapshot's generations against the event for patches
-on that role; on a difference it bumps the epoch, cancels the active phase and moves live states to
+`OnGenerationChanged` compares the published snapshot's generations against the event for patches on
+that role; on a difference it bumps the epoch, cancels the active phase and moves live states to
 `Retrying`. Every state write goes through an epoch check so a stale phase cannot publish a result
 for a replaced document.
 
@@ -389,22 +389,22 @@ unless the state is `Applying`, `Applied`, `Verified` or `Disabled`.
 
 `EvaluateOutcomeAsync` parses the page's `JSON.stringify({ok, error})`: unreachable is a failure
 with the transport's error or the fallback; `ok: true` succeeds; otherwise the page's error, the
-bounded raw value, or the fallback. `IsSuccessful(value, requiredFlags)` treats an unparseable
-value as failure, never as an optimistic success, and requires each named boolean, if any, to be
-true. `IsOne` demands exactly one structural match, because a second match means the Steam
-build has two candidate components and the patch cannot tell which it would modify.
+bounded raw value, or the fallback. `IsSuccessful(value, requiredFlags)` treats an unparseable value
+as failure, never as an optimistic success, and requires each named boolean, if any, to be true.
+`IsOne` demands exactly one structural match, because a second match means the Steam build has two
+candidate components and the patch cannot tell which it would modify.
 
 ## 7. Modules and the runtime
 
-A module here is a surface: the patches that install it, the state it publishes, and the commands
-it answers. It is not a Steam webpack module.
+A module here is a surface: the patches that install it, the state it publishes, and the commands it
+answers. It is not a Steam webpack module.
 
-| Type                                                              | Contract                                                                                                                                                                                                                                                                                                    |
-| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SteamUiStatePublication(PatchId, Read, Enabled)`                 | `Read` returning null publishes nothing that round, keeping "momentarily unavailable" distinct from zero.                                                                                                                                                                                                  |
-| `SteamUiCommandHandler(PatchId, Command, Handle)`                 | `Handle` returns `SteamUiCommandResult(Succeeded, Error, Payload)`; `Error` is never null on failure. `Refused` carries `The requested semantic service is not active.`                                                                                                                                     |
-| `SteamUiModuleSet(modules)`                                       | Flattens once. Throws on a duplicate module id, a patch registered by two modules (naming the second), or a `(patchId, command)` answered twice. `AllowedCommands` maps every patch id to its commands; a publication-only patch appears with an empty list because subscriptions are guarded by the same vocabulary. |
-| `SteamUiModuleRuntime(bridge, modules, commandsEnabled, publishEnabled)` | Runs both directions.                                                                                                                                                                                                                                                                                |
+| Type                                                                     | Contract                                                                                                                                                                                                                                                                                                              |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SteamUiStatePublication(PatchId, Read, Enabled)`                        | `Read` returning null publishes nothing that round, keeping "momentarily unavailable" distinct from zero.                                                                                                                                                                                                             |
+| `SteamUiCommandHandler(PatchId, Command, Handle)`                        | `Handle` returns `SteamUiCommandResult(Succeeded, Error, Payload)`; `Error` is never null on failure. `Refused` carries `The requested semantic service is not active.`                                                                                                                                               |
+| `SteamUiModuleSet(modules)`                                              | Flattens once. Throws on a duplicate module id, a patch registered by two modules (naming the second), or a `(patchId, command)` answered twice. `AllowedCommands` maps every patch id to its commands; a publication-only patch appears with an empty list because subscriptions are guarded by the same vocabulary. |
+| `SteamUiModuleRuntime(bridge, modules, commandsEnabled, publishEnabled)` | Runs both directions.                                                                                                                                                                                                                                                                                                 |
 
 Runtime behaviour: a `cancel` request cancels the in-flight source by sequence; duplicate sequences
 are ignored; commands are `Refused` when disabled or unhandled; a handler exception becomes a
@@ -419,9 +419,9 @@ generation-replacement path.
 
 The toolkit touches webpack in exactly two places: `getWebpackRuntime(scope)` captures the runtime
 by pushing an empty chunk and never evaluates an unknown module, and `rpc.ts` names the one literal
-module it needs. The same constraint binds consumers: never iterate the module registry
-constructing exports; name literal ids and inspect factory or prototype source. Enumerating and
-calling everything once restarted a machine and signed Steam out.
+module it needs. The same constraint binds consumers: never iterate the module registry constructing
+exports; name literal ids and inspect factory or prototype source. Enumerating and calling
+everything once restarted a machine and signed Steam out.
 
 ## 8. The bridge
 
@@ -444,15 +444,15 @@ restarted.
 
 ### The injected side (`bridge.ts`)
 
-| Member                                                  | Behaviour                                                                                                                                                                                                                                                                                                                                                                       |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| reuse check                                             | If `window[namespace]` exists with equal `version`, `assetHash`, `contextGeneration`, `documentGeneration` and a `gate` function, return `{ok:true, reused:true}` before any fragment runs. Otherwise a prior bridge is unwound: its known gates get `remove()`, then `dispose("generation replaced")`.                                                                          |
+| Member                                                  | Behaviour                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| reuse check                                             | If `window[namespace]` exists with equal `version`, `assetHash`, `contextGeneration`, `documentGeneration` and a `gate` function, return `{ok:true, reused:true}` before any fragment runs. Otherwise a prior bridge is unwound: its known gates get `remove()`, then `dispose("generation replaced")`.                                                                                  |
 | `request(patchId, command, payload, actionGeneration?)` | Rejects `command not allowlisted` and `bridge busy` (≥ `maximumPending`). Allocates a positive action generation when the caller passes none or zero, because the host rejects zero and several gates once passed exactly that. Sends the envelope through `window[binding](JSON.stringify(...))`; on timeout sends a `cancel` envelope and rejects `Steam UI bridge request timed out`. |
-| `subscribe(patchId, callback)`                          | Throws `subscription not allowlisted` unless the patch id is a key of `allowed`; replays the latest state.                                                                                                                                                                                                                                                                      |
-| `deliver(envelope)`                                     | Accepts only `response` and `state` envelopes whose version and generations match; a response resolves or rejects the pending promise by sequence and patch/command; a state is stored and fanned out.                                                                                                                                                                          |
-| `dispose(reason)`                                       | Calls `remove?.()` then `dispose?.()` on every registered gate, rejects pending requests, clears maps.                                                                                                                                                                                                                                                                          |
-| `gate(name)`                                            | Returns null for an unknown gate so a failed fragment reads as "gate absent".                                                                                                                                                                                                                                                                                                   |
-| `registerGate(name, gate)`                              | What consumer fragments call.                                                                                                                                                                                                                                                                                                                                                   |
+| `subscribe(patchId, callback)`                          | Throws `subscription not allowlisted` unless the patch id is a key of `allowed`; replays the latest state.                                                                                                                                                                                                                                                                               |
+| `deliver(envelope)`                                     | Accepts only `response` and `state` envelopes whose version and generations match; a response resolves or rejects the pending promise by sequence and patch/command; a state is stored and fanned out.                                                                                                                                                                                   |
+| `dispose(reason)`                                       | Calls `remove?.()` then `dispose?.()` on every registered gate, rejects pending requests, clears maps.                                                                                                                                                                                                                                                                                   |
+| `gate(name)`                                            | Returns null for an unknown gate so a failed fragment reads as "gate absent".                                                                                                                                                                                                                                                                                                            |
+| `registerGate(name, gate)`                              | What consumer fragments call.                                                                                                                                                                                                                                                                                                                                                            |
 
 Subscriber exceptions are isolated during cached replay as well as later delivery. A throwing
 callback cannot prevent `subscribe` from returning its cleanup handle or stop another subscriber.
@@ -461,9 +461,9 @@ The emitted `eng/check-startup.mjs` fixtures exercise both paths across the buil
 `SteamPowerLimitSurface` publishes independent sustained (PL1) and boost (PL2) ranges with
 availability, minimum/maximum/step watts, observed watts, progress and status. Its `powerLimit`
 control uses Valve slider primitives, following hardware readback after profile or external edits.
-Only a completed slider edit sends `setPrimaryLimit` or `setBoostLimit` with exactly `{watts}`
-(an integer from 1 through 200). The host validates the current descriptor and performs readback.
-The sliders share a pending-command guard, show refusals and never retry automatically. Mounting,
+Only a completed slider edit sends `setPrimaryLimit` or `setBoostLimit` with exactly `{watts}` (an
+integer from 1 through 200). The host validates the current descriptor and performs readback. The
+sliders share a pending-command guard, show refusals and never retry automatically. Mounting,
 publication and profile changes issue no writes. The former SteamOS Manager overlay and settings
 watcher are removed; Steam's persisted TDP setting has no authority over this surface.
 `eng/check-power-profile.mjs` exercises profile updates, drag echoes, independent commands,
@@ -478,23 +478,23 @@ patch still verified.
 
 `SteamUiBridgeAuthorizer.Authorize` rejects, in order:
 
-| Rejection                                   | Rule                                                        |
-| ------------------------------------------- | ----------------------------------------------------------- |
-| `schema version mismatch`                   | `version` must equal `SchemaVersion`                        |
-| `message type is not allowlisted`           | only `request` and `cancel`                                 |
-| `patch command is not allowlisted`          | `(patchId, command)` must be in `allowed`                   |
-| `sequence or action generation is invalid`  | both must be positive                                       |
-| `payload exceeded its limit`                | 16 KiB                                                      |
-| `stale bridge generation`                   | generations must match the current snapshot                 |
-| `cancel references an unknown request`      | a `cancel` sequence above the last accepted one             |
-| `request sequence was replayed`             | sequences are monotonic                                     |
-| `action generation was replayed`            | action generations are monotonic                            |
+| Rejection                                  | Rule                                            |
+| ------------------------------------------ | ----------------------------------------------- |
+| `schema version mismatch`                  | `version` must equal `SchemaVersion`            |
+| `message type is not allowlisted`          | only `request` and `cancel`                     |
+| `patch command is not allowlisted`         | `(patchId, command)` must be in `allowed`       |
+| `sequence or action generation is invalid` | both must be positive                           |
+| `payload exceeded its limit`               | 16 KiB                                          |
+| `stale bridge generation`                  | generations must match the current snapshot     |
+| `cancel references an unknown request`     | a `cancel` sequence above the last accepted one |
+| `request sequence was replayed`            | sequences are monotonic                         |
+| `action generation was replayed`           | action generations are monotonic                |
 
 The authorizer resets on every generation change. Only `Runtime.bindingCalled` notifications from
-`SharedJsContext` with matching generations, the binding name and a string payload of at most
-16 KiB are accepted, deserialized with a camelCase source-generated context (PascalCase once
-rejected every command). Rejections log `Change("steam.ui.bridge.rejected", …)` with the first 200
-characters of the payload.
+`SharedJsContext` with matching generations, the binding name and a string payload of at most 16 KiB
+are accepted, deserialized with a camelCase source-generated context (PascalCase once rejected every
+command). Rejections log `Change("steam.ui.bridge.rejected", …)` with the first 200 characters of
+the payload.
 
 `RespondAsync` and `PublishStateAsync` require readiness and matching generations, then evaluate
 `b.deliver(JSON.parse("..."))` and accept only a structured `{ok:true}`. Response envelopes carry
@@ -509,11 +509,11 @@ pump.
 
 The three ways to change the client, and what removal owes:
 
-| API                   | Primitives                                                                | Removal owes                                       |
-| --------------------- | ------------------------------------------------------------------------- | -------------------------------------------------- |
-| Feed a data construct | `supplyNamespace`, `withdrawNamespace`                                    | delete it                                          |
-| Answer an RPC         | `claimMember`, `releaseMember`, `memberClaimed`, plus `rpc.ts`            | restore what was displaced                         |
-| Reveal what is gated  | `claimValue`, `releaseValue`, `claimAccessor`, `releaseAccessor`          | restore the original; never the platform constant  |
+| API                   | Primitives                                                       | Removal owes                                      |
+| --------------------- | ---------------------------------------------------------------- | ------------------------------------------------- |
+| Feed a data construct | `supplyNamespace`, `withdrawNamespace`                           | delete it                                         |
+| Answer an RPC         | `claimMember`, `releaseMember`, `memberClaimed`, plus `rpc.ts`   | restore what was displaced                        |
+| Reveal what is gated  | `claimValue`, `releaseValue`, `claimAccessor`, `releaseAccessor` | restore the original; never the platform constant |
 
 Three invariants: a claim must recognise its own work, must hand back exactly what was there, and
 both facts must survive a separate CDP evaluation, which is why markers are string-keyed
@@ -521,13 +521,13 @@ non-enumerable fields rather than Symbols. Every claim writes `keys.marker = tru
 `keys.original = { kind: "steam-ui-property-snapshot-v1", hadOwn, descriptor, value }`; the caller
 supplies the key names so a renamed key cannot orphan a marker a previous build left.
 
-| Primitive                                            | Behaviour                                                                                                                                                                                                                                                                                                                       |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `claimValue(host, field, keys, next, absent)`        | Refuses `claim target unavailable` when the field is not in the host and `already set by the client` when the unmarked value already equals `next` (restoring later would hand back an invented value). Writes through an accessor's setter and reads back; throws `claim target is a read-only accessor`; rolls back field, marker and original on any failure. |
-| `releaseValue`                                       | Restores through the setter, by redefining the saved descriptor, or by deleting so an inherited value shows through, then deletes both keys. Releasing an unclaimed field succeeds.                                                                                                                                             |
-| `claimMember(host, member, keys, replacement(original))` | Puts the marker on the replacement, which may be an object or a function; a `typeof === "object"` check once let an overlaid method outlive its own removal. A reclaim passes the underlying original to the factory so wrappers never stack.                                                                                |
-| `supplyNamespace(host, name, marker, factory)`       | Refuses a real backend (`<name> already exists`), reclaims its own orphan (a namespace on `SteamClient` outlives the bridge that dies with the context), and defines non-writable rather than assigning, because assignment throws against a previous bridge's definition under strict mode. `withdrawNamespace` deletes only a marked one. |
-| `claimAccessor(host, property, keys, getter)`        | Refuses a non-configurable property and marks the replacement getter with the whole original descriptor; `releaseAccessor` redefines it.                                                                                                                                                                                       |
+| Primitive                                                | Behaviour                                                                                                                                                                                                                                                                                                                                                        |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `claimValue(host, field, keys, next, absent)`            | Refuses `claim target unavailable` when the field is not in the host and `already set by the client` when the unmarked value already equals `next` (restoring later would hand back an invented value). Writes through an accessor's setter and reads back; throws `claim target is a read-only accessor`; rolls back field, marker and original on any failure. |
+| `releaseValue`                                           | Restores through the setter, by redefining the saved descriptor, or by deleting so an inherited value shows through, then deletes both keys. Releasing an unclaimed field succeeds.                                                                                                                                                                              |
+| `claimMember(host, member, keys, replacement(original))` | Puts the marker on the replacement, which may be an object or a function; a `typeof === "object"` check once let an overlaid method outlive its own removal. A reclaim passes the underlying original to the factory so wrappers never stack.                                                                                                                    |
+| `supplyNamespace(host, name, marker, factory)`           | Refuses a real backend (`<name> already exists`), reclaims its own orphan (a namespace on `SteamClient` outlives the bridge that dies with the context), and defines non-writable rather than assigning, because assignment throws against a previous bridge's definition under strict mode. `withdrawNamespace` deletes only a marked one.                      |
+| `claimAccessor(host, property, keys, getter)`            | Refuses a non-configurable property and marks the replacement getter with the whole original descriptor; `releaseAccessor` redefines it.                                                                                                                                                                                                                         |
 
 The accessor rule in `claimValue` comes from a MobX crash in the Quick Access Menu.
 
@@ -547,43 +547,45 @@ the value as it was. A surface never wraps `useMemo` itself, because two wrapper
 other's originals back on removal.
 
 The JSX runtime's `jsx` and `jsxs` are shared the same way, for what is drawn inside mobx observer
-classes that no claim on a type or prototype can reach. `interceptElements(runtime, name, transform)`
-claims both with the first transform, `releaseElements(runtime, name)` hands both back with the last,
-and `elementsIntercepted(runtime, name)` checks a named transform against the installed wrappers. A
-transform receives `(create, type, props, key)` and returns the element to use, or undefined to leave
-the call to the runtime; `create` is the runtime's own function, so a replacement never passes
-through the transforms again. The first transform to answer wins and a throwing one is skipped. Every
-element Steam creates passes through, so a transform tests a cheap property first. Both are instances
-of one `createSharedClaim(keys, members, …)`, which owns the transform map, the installed wrappers and
-the take-with-first, release-with-last rule.
+classes that no claim on a type or prototype can reach.
+`interceptElements(runtime, name, transform)` claims both with the first transform,
+`releaseElements(runtime, name)` hands both back with the last, and
+`elementsIntercepted(runtime, name)` checks a named transform against the installed wrappers. A
+transform receives `(create, type, props, key)` and returns the element to use, or undefined to
+leave the call to the runtime; `create` is the runtime's own function, so a replacement never passes
+through the transforms again. The first transform to answer wins and a throwing one is skipped.
+Every element Steam creates passes through, so a transform tests a cheap property first. Both are
+instances of one `createSharedClaim(keys, members, …)`, which owns the transform map, the installed
+wrappers and the take-with-first, release-with-last rule.
 
-A script outside the bundle cannot reach those functions from its own evaluation. The `elements` gate
-is their front door: `gate("elements").register(name, transform)`, `unregister(name)` and
+A script outside the bundle cannot reach those functions from its own evaluation. The `elements`
+gate is their front door: `gate("elements").register(name, transform)`, `unregister(name)` and
 `registered(name)`, with names of at most 64 characters. WSGM's download sort registers there rather
 than wrapping the runtime itself, which would put a second wrapper on `jsx`.
 
-`rpc.ts` supplies `transportReply(body)` (the `{BSuccess, BFailed, GetEResult: 1, Body().toObject()}`
-shape a Steam transport RPC answer takes), `transportFailure(body)` (the same shape refused, with
-`GetEResult: 2`), `resolveQueryClient(req)`, which finds the client's query client in the provider
-module carrying `ReactQueryDevtools` and `offlineFirst` by its `invalidateQueries` and
-`getQueryState` and answers null otherwise, and `invalidateQuery(req, queryKey)`, which calls
-`invalidateQueries` on it, swallowing every failure. The Bluetooth and storage gates use all of them.
+`rpc.ts` supplies `transportReply(body)` (the
+`{BSuccess, BFailed, GetEResult: 1, Body().toObject()}` shape a Steam transport RPC answer takes),
+`transportFailure(body)` (the same shape refused, with `GetEResult: 2`), `resolveQueryClient(req)`,
+which finds the client's query client in the provider module carrying `ReactQueryDevtools` and
+`offlineFirst` by its `invalidateQueries` and `getQueryState` and answers null otherwise, and
+`invalidateQuery(req, queryKey)`, which calls `invalidateQueries` on it, swallowing every failure.
+The Bluetooth and storage gates use all of them.
 
 ## 10. The extension host
 
 An extension is a module discovered from a package instead of compiled in: same patch lifecycle,
-same ownership rules, same clean removal. It is not a sandbox: injected script has the same reach
-as the consumer's gates, and the checks are about identity and collision only. The host reads and
-validates; it loads no assembly and executes nothing. The returned script is text until the
-consumer builds it into the injected asset.
+same ownership rules, same clean removal. It is not a sandbox: injected script has the same reach as
+the consumer's gates, and the checks are about identity and collision only. The host reads and
+validates; it loads no assembly and executes nothing. The returned script is text until the consumer
+builds it into the injected asset.
 
-| Manifest field (`extension.steam-ui.json`) | Rule                                                                                                          |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| `id`                                       | 1–96 characters of `[a-z0-9._-]`, no leading or trailing separator                                            |
-| `name`, `version`                          | free text                                                                                                     |
-| `apiVersion`                               | must equal `SteamUiExtensionHost.ApiVersion` (1) exactly                                                      |
+| Manifest field (`extension.steam-ui.json`) | Rule                                                                                                            |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `id`                                       | 1–96 characters of `[a-z0-9._-]`, no leading or trailing separator                                              |
+| `name`, `version`                          | free text                                                                                                       |
+| `apiVersion`                               | must equal `SteamUiExtensionHost.ApiVersion` (1) exactly                                                        |
 | `script`                                   | relative path that stays inside the package, exists, is at most 256 KiB of strict UTF-8 measured before reading |
-| `patches`                                  | safe, distinct ids each prefixed `<id>.`                                                                      |
+| `patches`                                  | safe, distinct ids each prefixed `<id>.`                                                                        |
 
 `Discover(root)` returns every package in deterministic order, loaded or refused with a
 `SteamUiExtensionRejection` (`UnreadableManifest`, `InvalidManifest`, `ApiVersionMismatch`,
@@ -594,15 +596,15 @@ one look conflicting. Log keys: `steam.ui.extensions.root`, `steam.ui.extension.
 
 ## 11. The prelude build and the composition contract
 
-`eng/build-prelude.mjs` concatenates `types.ts`, `bridge.ts`, `ownership.ts` and `rpc.ts`, then every
-other top-level fragment sorted by name (`icons.ts`, `module-resolver.ts`, …), then `gates/*.ts`
-sorted, then `components.ts` and `epilogue.ts`. That is the order WSGM's `build-steam-assets.mjs`
-discovers, so the checks run against the prelude see the shipped layout. The build appends the IIFE
-close only for the compile, type-checks with TypeScript 7 under a strict, ES2022, type-stripping-only
-configuration, and emits `dist/prelude.js` from the `// @steam-ui-bundle-start`
-marker onward with the IIFE left open. `types.ts` sits above the marker so it types the compile and
-ships nothing. Compiling the prelude alone is what proves it stands on its own: it stopped compiling
-the moment the bridge still named a consumer's gates.
+`eng/build-prelude.mjs` concatenates `types.ts`, `bridge.ts`, `ownership.ts` and `rpc.ts`, then
+every other top-level fragment sorted by name (`icons.ts`, `module-resolver.ts`, …), then
+`gates/*.ts` sorted, then `components.ts` and `epilogue.ts`. That is the order WSGM's
+`build-steam-assets.mjs` discovers, so the checks run against the prelude see the shipped layout.
+The build appends the IIFE close only for the compile, type-checks with TypeScript 7 under a strict,
+ES2022, type-stripping-only configuration, and emits `dist/prelude.js` from the
+`// @steam-ui-bundle-start` marker onward with the IIFE left open. `types.ts` sits above the marker
+so it types the compile and ships nothing. Compiling the prelude alone is what proves it stands on
+its own: it stopped compiling the moment the bridge still named a consumer's gates.
 
 A consumer composes one script:
 
@@ -632,114 +634,115 @@ evaluated and its place among the discovered fragments does not matter.
   pre-patch condition its own apply invalidates tears itself down on every poll.
 - Removal restores exactly what was displaced, read from the object rather than from the closure
   that installed it.
-- Reveal the surface, never the platform: overriding a store getter is allowed; setting Steam's
-  "is this SteamOS" constant is not.
+- Reveal the surface, never the platform: overriding a store getter is allowed; setting Steam's "is
+  this SteamOS" constant is not.
 - Never iterate the webpack module registry constructing exports.
 - Every refusal is logged with its reason, because the injected side has nowhere to put an error.
 - Every patch fails open to Valve behaviour, and a successful patch must not invalidate its own next
   probe.
 
-| Gate                     | Example                          | Allowed response           |
-| ------------------------ | -------------------------------- | -------------------------- |
-| Absent JS namespace      | `SteamClient.System.Perf`        | supply it                  |
-| Absent RPC response      | a manager's `GetState`           | supply it                  |
-| RPC stub with no backend | a service whose methods refuse   | replace the stub's methods |
-| Deck-only store getter   | `networkManagementAvailable`     | override that one getter   |
-| Global platform constant | `TS.IS_STEAMOS`                  | never                      |
+| Gate                     | Example                        | Allowed response           |
+| ------------------------ | ------------------------------ | -------------------------- |
+| Absent JS namespace      | `SteamClient.System.Perf`      | supply it                  |
+| Absent RPC response      | a manager's `GetState`         | supply it                  |
+| RPC stub with no backend | a service whose methods refuse | replace the stub's methods |
+| Deck-only store getter   | `networkManagementAvailable`   | override that one getter   |
+| Global platform constant | `TS.IS_STEAMOS`                | never                      |
 
 ## 13. Constants
 
-| Constant                                                          | Value                                                     |
-| ----------------------------------------------------------------- | --------------------------------------------------------- |
-| Debug port, flag file                                             | 8080, `.cef-enable-remote-debugging`                      |
-| Accepted port owners                                              | `steamwebhelper`, `steam`                                 |
-| Discovery timeout, response cap                                   | 5 s, 1 MiB                                                |
-| WebSocket keep-alive, receive chunk, max response, close budget   | 20 s, 16 KiB, 8 MiB, 500 ms                               |
-| Outstanding requests, notification queue, notification params     | 32, 256, 1 MiB                                            |
-| Per-request timeout bound                                         | (0, 30 s]                                                 |
-| Diagnostic bounds                                                 | 2048 characters                                           |
-| Reconnect backoff                                                 | 1, 4, 16, 30 s                                            |
-| Domain enable timeout                                             | 5 s each                                                  |
-| Transport event channels                                          | 256 notifications, 64 generations, drop oldest            |
-| Patch bounds default                                              | 8 s, 96 KiB, 2048                                         |
-| Fingerprint bound                                                 | 512                                                       |
-| Bridge schema, payload cap, operation timeout, request channel    | 1, 16 KiB, 5 s, 64                                        |
-| Injected `maximumPending`, `timeoutMilliseconds`                  | 32, 5000                                                  |
-| Bridge namespace, binding                                         | `__steamUi_v1_28d7c54a`, `__steamUiBridge_v1_7b24d11c`    |
-| Configuration placeholder, bundle marker                          | `__STEAM_UI_CONFIGURATION_JSON__`, `// @steam-ui-bundle-start` |
-| Property snapshot kind                                            | `steam-ui-property-snapshot-v1`                           |
-| Extension API version, script cap, identifier                     | 1, 256 KiB, ≤ 96 of `[a-z0-9._-]`                         |
-| Client call budgets: app write, install folder, library read, page read, running apps | 20 s, 10 s, 12 s, 8 s, 4 s |
-| App-details subscription bound, setter settle, artwork clear settle | 3 s, 400 ms, 500 ms                     |
-| Running-app observer, reported apps, event log                    | `window.__steamUiRunningApps_v2`, 32, 64                  |
-| Lifetime monitor poll interval (default, minimum)                 | 1 s, 250 ms                                               |
+| Constant                                                                              | Value                                                          |
+| ------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Debug port, flag file                                                                 | 8080, `.cef-enable-remote-debugging`                           |
+| Accepted port owners                                                                  | `steamwebhelper`, `steam`                                      |
+| Discovery timeout, response cap                                                       | 5 s, 1 MiB                                                     |
+| WebSocket keep-alive, receive chunk, max response, close budget                       | 20 s, 16 KiB, 8 MiB, 500 ms                                    |
+| Outstanding requests, notification queue, notification params                         | 32, 256, 1 MiB                                                 |
+| Per-request timeout bound                                                             | (0, 30 s]                                                      |
+| Diagnostic bounds                                                                     | 2048 characters                                                |
+| Reconnect backoff                                                                     | 1, 4, 16, 30 s                                                 |
+| Domain enable timeout                                                                 | 5 s each                                                       |
+| Transport event channels                                                              | 256 notifications, 64 generations, drop oldest                 |
+| Patch bounds default                                                                  | 8 s, 96 KiB, 2048                                              |
+| Fingerprint bound                                                                     | 512                                                            |
+| Bridge schema, payload cap, operation timeout, request channel                        | 1, 16 KiB, 5 s, 64                                             |
+| Injected `maximumPending`, `timeoutMilliseconds`                                      | 32, 5000                                                       |
+| Bridge namespace, binding                                                             | `__steamUi_v1_28d7c54a`, `__steamUiBridge_v1_7b24d11c`         |
+| Configuration placeholder, bundle marker                                              | `__STEAM_UI_CONFIGURATION_JSON__`, `// @steam-ui-bundle-start` |
+| Property snapshot kind                                                                | `steam-ui-property-snapshot-v1`                                |
+| Extension API version, script cap, identifier                                         | 1, 256 KiB, ≤ 96 of `[a-z0-9._-]`                              |
+| Client call budgets: app write, install folder, library read, page read, running apps | 20 s, 10 s, 12 s, 8 s, 4 s                                     |
+| App-details subscription bound, setter settle, artwork clear settle                   | 3 s, 400 ms, 500 ms                                            |
+| Running-app observer, reported apps, event log                                        | `window.__steamUiRunningApps_v2`, 32, 64                       |
+| Lifetime monitor poll interval (default, minimum)                                     | 1 s, 250 ms                                                    |
 
 ## 14. Tests
 
-| Suite                                              | Locks                                                                                                                                                                                    |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SteamUiCdpConnectionTests`, `PersistentSteamUiTransportTests` | CDP connection (orphan ids, malformed frames, cancellation, slow and throwing handlers); persistent transport (domains before publication, generation advances, one-shot leases, discarded late connections, master switch, health restoration, backoff, invalid deadlines) |
-| `SteamUiPatchManagerTests`                         | bounds, kill switches, retraction of an incompatible or unverified patch, removal failure, per-phase budgets, failure isolation between patches, re-verification without reapplying, generation epoch guards, required structural flags |
-| `SteamUiBridgeHostTests`, `SteamUiBridgeAuthorizerTests` | replay, malformed and oversized notifications, generation replacement, structured acknowledgements, disposal; the authorizer's allowlist, replay, stale generation and cancel rules, and the real camelCase envelope captured from a live client |
-| `SteamUiExtensionHostTests`                        | every rejection reason and conflict rule                                                                                                                                                 |
-| `SteamUiModuleTests`                               | module set rules, publication isolation                                                                                                                                                  |
-| `SteamUiEndpointDiscoveryTests`                    | the two role matchers against real URLs                                                                                                                                                  |
-| `NativeTcpTests`, `SteamCefTests`                  | the table decoder; the debug-flag opt-in, the URL gate, the four port-owner reasons                                                                                                     |
-| `SteamClientTests`                                 | the client layer: unreachable against refused, app-id normalization, the details and library parsers, install-folder script selection and reply statuses, download activity, the running-app observer's event log and lease, and the lifetime tracker's ordering, resynchronization and outage rules |
-| `SteamSurfaceModuleTests`                          | each surface's `Commands` against its module's vocabulary, each refusal reason against its payload, a null reading publishing nothing                                                   |
-| `SteamGatePatchContractTests`                      | each claiming gate's verify and remove predicates, and already-claimed compatibility                                                                                                     |
-| `SteamChoiceRowTests`, `SteamWindowSurfaceTests`   | power-profile, preset and core-preference serialization and dispatch; side-menu observation, native button replay, game-window and overlay activation                                     |
-| `SteamNavigationPanelTests`                        | the panel probe's separate structural facts, selection by what an export draws rather than by its minified name, already-claimed compatibility, the published wire shape                 |
-| `eng/check-navigation-panel.mjs`                   | the emitted gate against an inert React fixture: descent to the panel root, anchoring by route and by descriptor key, orphan reporting, hiding before insertion, activation, exact restoration, reinstall |
-| `SteamPageTests`, `eng/check-pages.mjs`            | the page probe's separate facts and its rendered-tree search; the emitted gate's route-list discovery by content, an addition losing to Steam's own route and an override winning, path validation, exact restoration, reinstall |
-| `SteamStorageTests`, `eng/check-storage.mjs`       | the storage probe's service and transport facts and every action having a command; the emitted gate's availability answer, Steam's own state field names, action forwarding, unrelated service traffic passing through with its arguments and receiver, and restoration putting Valve's method back |
-| `SteamHomeCarouselTests`, `eng/check-home-carousel.mjs` | the Home probe's separate facts, finding Home by content rather than name, already-claimed compatibility, the published wire shape, the exact report payload; the emitted gate finding Home through the route list, replacing `games` for the carousel and the background, clearing the whole-list overscan, the documented order, disconnected games leaving, uninstalled games greyed, no rebuild or report without a change, the fallback to Steam's list, bounded publications, a mounted wrapper passing through after removal, exact restoration, reinstall |
-| `SteamScreensaverTests`, `eng/check-screensaver.mjs` | the probe's separate facts and that it names no module id or export, the published wire shape, the exact report and choice payloads and their refusals; the emitted gate wrapping only the customization page and only its Screensaver section, appending the rows after Steam's own, reporting on first read, on change and on page open, sending a choice once and disabling the row while pending, refusing a malformed state whole, the bounded first-report retry, keeping the shared `useMemo` claim for another surface on removal and handing it back with the last |
-| `eng/check-startup.mjs` (resolver) | missing factories staying uncached, unique resolution, and `exported` counting aliases once, refusing two distinct fits, no fit, a missing module and an invalid predicate |
-| `SteamLibraryBadgeTests`, `eng/check-library.mjs` (details) | the stat patch's compatibility, its Valve-named row lookup and shared runtime resource, the module declaring both patches under one publication; the emitted stat only on the stats row, Valve's classes and the localized label, the badge's naming rules and dimming, no duplicate, an `elements` gate transform coexisting on the one claim, a throwing transform skipped, and `jsx` and `jsxs` handed back only with the last transform |
-| `SteamLibraryBadgeTests`, `eng/check-library.mjs` (badge) | the badge probe's separate structural facts, selection of the tile and the badge by what they are rather than by name, the published wire shape, the exact layout payload; the emitted gate placing the badge left of Valve's in one row, naming the library or the internal label, green for installed and grey otherwise, no badge for a game installed nowhere, an anchorless tile left untouched, Big Art reported once per change, exact restoration, reinstall |
+| Suite                                                          | Locks                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SteamUiCdpConnectionTests`, `PersistentSteamUiTransportTests` | CDP connection (orphan ids, malformed frames, cancellation, slow and throwing handlers); persistent transport (domains before publication, generation advances, one-shot leases, discarded late connections, master switch, health restoration, backoff, invalid deadlines)                                                                                                                                                                                                                                                                                                 |
+| `SteamUiPatchManagerTests`                                     | bounds, kill switches, retraction of an incompatible or unverified patch, removal failure, per-phase budgets, failure isolation between patches, re-verification without reapplying, generation epoch guards, required structural flags                                                                                                                                                                                                                                                                                                                                     |
+| `SteamUiBridgeHostTests`, `SteamUiBridgeAuthorizerTests`       | replay, malformed and oversized notifications, generation replacement, structured acknowledgements, disposal; the authorizer's allowlist, replay, stale generation and cancel rules, and the real camelCase envelope captured from a live client                                                                                                                                                                                                                                                                                                                            |
+| `SteamUiExtensionHostTests`                                    | every rejection reason and conflict rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `SteamUiModuleTests`                                           | module set rules, publication isolation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `SteamUiEndpointDiscoveryTests`                                | the two role matchers against real URLs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `NativeTcpTests`, `SteamCefTests`                              | the table decoder; the debug-flag opt-in, the URL gate, the four port-owner reasons                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `SteamClientTests`                                             | the client layer: unreachable against refused, app-id normalization, the details and library parsers, install-folder script selection and reply statuses, download activity, the running-app observer's event log and lease, and the lifetime tracker's ordering, resynchronization and outage rules                                                                                                                                                                                                                                                                        |
+| `SteamSurfaceModuleTests`                                      | each surface's `Commands` against its module's vocabulary, each refusal reason against its payload, a null reading publishing nothing                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `SteamGatePatchContractTests`                                  | each claiming gate's verify and remove predicates, and already-claimed compatibility                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `SteamChoiceRowTests`, `SteamWindowSurfaceTests`               | power-profile, preset and core-preference serialization and dispatch; side-menu observation, native button replay, game-window and overlay activation                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `SteamNavigationPanelTests`                                    | the panel probe's separate structural facts, selection by what an export draws rather than by its minified name, already-claimed compatibility, the published wire shape                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `eng/check-navigation-panel.mjs`                               | the emitted gate against an inert React fixture: descent to the panel root, anchoring by route and by descriptor key, orphan reporting, hiding before insertion, activation, exact restoration, reinstall                                                                                                                                                                                                                                                                                                                                                                   |
+| `SteamPageTests`, `eng/check-pages.mjs`                        | the page probe's separate facts and its rendered-tree search; the emitted gate's route-list discovery by content, an addition losing to Steam's own route and an override winning, path validation, exact restoration, reinstall                                                                                                                                                                                                                                                                                                                                            |
+| `SteamStorageTests`, `eng/check-storage.mjs`                   | the storage probe's service and transport facts and every action having a command; the emitted gate's availability answer, Steam's own state field names, action forwarding, unrelated service traffic passing through with its arguments and receiver, and restoration putting Valve's method back                                                                                                                                                                                                                                                                         |
+| `SteamHomeCarouselTests`, `eng/check-home-carousel.mjs`        | the Home probe's separate facts, finding Home by content rather than name, already-claimed compatibility, the published wire shape, the exact report payload; the emitted gate finding Home through the route list, replacing `games` for the carousel and the background, clearing the whole-list overscan, the documented order, disconnected games leaving, uninstalled games greyed, no rebuild or report without a change, the fallback to Steam's list, bounded publications, a mounted wrapper passing through after removal, exact restoration, reinstall           |
+| `SteamScreensaverTests`, `eng/check-screensaver.mjs`           | the probe's separate facts and that it names no module id or export, the published wire shape, the exact report and choice payloads and their refusals; the emitted gate wrapping only the customization page and only its Screensaver section, appending the rows after Steam's own, reporting on first read, on change and on page open, sending a choice once and disabling the row while pending, refusing a malformed state whole, the bounded first-report retry, keeping the shared `useMemo` claim for another surface on removal and handing it back with the last |
+| `eng/check-startup.mjs` (resolver)                             | missing factories staying uncached, unique resolution, and `exported` counting aliases once, refusing two distinct fits, no fit, a missing module and an invalid predicate                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `SteamLibraryBadgeTests`, `eng/check-library.mjs` (details)    | the stat patch's compatibility, its Valve-named row lookup and shared runtime resource, the module declaring both patches under one publication; the emitted stat only on the stats row, Valve's classes and the localized label, the badge's naming rules and dimming, no duplicate, an `elements` gate transform coexisting on the one claim, a throwing transform skipped, and `jsx` and `jsxs` handed back only with the last transform                                                                                                                                 |
+| `SteamLibraryBadgeTests`, `eng/check-library.mjs` (badge)      | the badge probe's separate structural facts, selection of the tile and the badge by what they are rather than by name, the published wire shape, the exact layout payload; the emitted gate placing the badge left of Valve's in one row, naming the library or the internal label, green for installed and grey otherwise, no badge for a game installed nowhere, an anchorless tile left untouched, Big Art reported once per change, exact restoration, reinstall                                                                                                        |
 
 ## 15. Surfaces
 
-A surface is one Valve feature the Windows client ships inert, revived end to end: the injected
-gate that supplies or reveals it, the C# patch that probes, applies, verifies and removes it, the
-typed state a consumer feeds, and the backend interface a consumer implements. Every literal module
-id, store field name, localization token and row placement lives here, in `Surfaces/` and
+A surface is one Valve feature the Windows client ships inert, revived end to end: the injected gate
+that supplies or reveals it, the C# patch that probes, applies, verifies and removes it, the typed
+state a consumer feeds, and the backend interface a consumer implements. Every literal module id,
+store field name, localization token and row placement lives here, in `Surfaces/` and
 `SteamUiAssets/Source/gates/` plus `components.ts`, so a consumer never reads the client's bundle.
 
 Each surface class has the same four members:
 
-| Member                               | Meaning                                                                                       |
-| ------------------------------------ | --------------------------------------------------------------------------------------------- |
-| `PatchId`                            | The id its state is published under and its commands are addressed to.                        |
-| `Commands`                           | The exact command vocabulary its injected side sends; what the module puts on the bridge.     |
-| `Patch` (rows: also `*Row` patches)  | The `ISteamUiPatch`(es) that install it.                                                      |
-| `Module(enabled, read, backend, id)` | One `ISteamUiModule` from a publication gate, a state reading and a backend.                  |
+| Member                               | Meaning                                                                                   |
+| ------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `PatchId`                            | The id its state is published under and its commands are addressed to.                    |
+| `Commands`                           | The exact command vocabulary its injected side sends; what the module puts on the bridge. |
+| `Patch` (rows: also `*Row` patches)  | The `ISteamUiPatch`(es) that install it.                                                  |
+| `Module(enabled, read, backend, id)` | One `ISteamUiModule` from a publication gate, a state reading and a backend.              |
 
 `read` returns the state or null; null publishes nothing that round, which keeps "momentarily
 unavailable" distinct from a zero. `Serialize(state)` on each surface emits the exact wire payload,
 for fixtures and diagnostics.
 
-| Surface                    | Valve feature                                 | Gate kind                                                             | State                        | Backend answers                                                                            |
-| -------------------------- | --------------------------------------------- | --------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------ |
-| `SteamAudioSurface`        | audio page and Quick Settings audio           | supplies `SteamClient.System.Audio`, feeds the running store          | `SteamAudioState`            | default device, volume                                                                     |
-| `SteamNetworkSurface`      | Internet page and header Wi-Fi indicator      | overrides `networkManagementAvailable`, feeds the network store       | `SteamNetworkState`          | scan start/stop                                                                            |
-| `SteamBluetoothSurface`    | Bluetooth page and panel                      | replaces the service stub's methods, invalidates the query            | `SteamBluetoothState`        | discovery, pair, connect, disconnect, forget; trusted and wake-allowed accepted by default |
-| `SteamBrightnessSurface`   | brightness slider                             | reveals the flag, claims `SetBrightness`, feeds the observable        | `SteamBrightnessState`       | set brightness                                                                             |
-| `SteamPerformanceSurface`  | Performance tab and its Valve rows            | supplies `SteamClient.System.Perf`, writes the store, decodes deltas  | `SteamPerformanceState`      | apply a `SteamPerformanceDelta`                                                            |
-| `SteamPowerLimitSurface` | Sustained and boost power sliders | Valve field primitives driven by hardware readback | `SteamPowerLimitState` | set PL1 or PL2 independently |
-| `SteamFrameLimitRow`       | unified frame-limit row                       | row on Valve's slider and toggle                                      | `SteamFrameLimitState`       | frame cap, refresh rate                                                                    |
-| `SteamVariableRefreshRow`  | VRR switch                                    | row on Valve's toggle                                                 | `SteamVariableRefreshState`  | VRR on/off                                                                                 |
-| `SteamResolutionRow`       | resolution dropdown (Quick Settings)          | row on Valve's dropdown                                               | `SteamResolutionState`       | apply a mode                                                                               |
-| `SteamAutoTdpRow`          | automatic power-limit switch                  | row on Valve's toggle                                                 | `SteamAutoTdpState`          | setting on/off                                                                             |
-| `SteamControllerTargetRow` | controller-target dropdown                    | row on Valve's dropdown                                               | `SteamControllerTargetState` | choose a target                                                                            |
-| `SteamDeviceControlsRow`   | charge limit, lighting brightness and colour  | rows on Valve's slider and dropdown                                   | `SteamDeviceControlsState`   | three writes                                                                               |
-| `SteamNavigationPanelSurface` | left slideout navigation panel             | claims the exported memo's `type`, reaches the panel root by rendering | `SteamNavigationPanelState`  | activate an added entry                                                                    |
-| `SteamPageSurface`         | custom pages in Steam's router                | claims the router memo's `type`, inserts routes into the route list   | `SteamPageState`             | none: a page is declared, not commanded                                                    |
-| `SteamStorageSurface`      | SteamOS storage management pages              | claims `SendMsg` on the service transport, answers `StorageDeviceManager.*` | `SteamStorageState`     | adopt, unmount, eject, format, trim                                                        |
-| `SteamLibraryBadgeSurface` | a library badge on every library tile         | claims the tile memo's `type`, replaces the Steam Input badge element with a row of two | `SteamLibraryBadgeState` | hears the Home layout (Big Art Mode) report                                          |
-| `SteamHomeCarouselSurface` | Big Picture Home's carousel                    | claims Home's memo `type`, replaces the carousel's `games` array and bounds its overscan | `SteamHomeCarouselState` | hears what the carousel holds after each rebuild                                   |
-| `SteamScreensaverSurface`  | host rows in the Screensaver settings section  | a transform on the shared `useMemo` claim wraps the customization page and its Screensaver section | `SteamScreensaverState` | hears Steam's screensaver timeouts; applies a row's choice                          |
+| Surface                       | Valve feature                                             | Gate kind                                                                                          | State                        | Backend answers                                                                            |
+| ----------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------ |
+| `SteamAudioSurface`           | audio page and Quick Settings audio                       | supplies `SteamClient.System.Audio`, feeds the running store                                       | `SteamAudioState`            | default device, volume                                                                     |
+| `SteamNetworkSurface`         | Internet page and header Wi-Fi indicator                  | overrides `networkManagementAvailable`, feeds the network store                                    | `SteamNetworkState`          | scan start/stop                                                                            |
+| `SteamBluetoothSurface`       | Bluetooth page and panel                                  | replaces the service stub's methods, invalidates the query                                         | `SteamBluetoothState`        | discovery, pair, connect, disconnect, forget; trusted and wake-allowed accepted by default |
+| `SteamBrightnessSurface`      | brightness slider                                         | reveals the flag, claims `SetBrightness`, feeds the observable                                     | `SteamBrightnessState`       | set brightness                                                                             |
+| `SteamPerformanceSurface`     | Performance tab and its Valve rows                        | supplies `SteamClient.System.Perf`, writes the store, decodes deltas                               | `SteamPerformanceState`      | apply a `SteamPerformanceDelta`                                                            |
+| `SteamPowerLimitSurface`      | Sustained and boost power sliders                         | Valve field primitives driven by hardware readback                                                 | `SteamPowerLimitState`       | set PL1 or PL2 independently                                                               |
+| `SteamFrameLimitRow`          | unified frame-limit row                                   | row on Valve's slider and toggle                                                                   | `SteamFrameLimitState`       | frame cap, refresh rate                                                                    |
+| `SteamVariableRefreshRow`     | VRR switch                                                | row on Valve's toggle                                                                              | `SteamVariableRefreshState`  | VRR on/off                                                                                 |
+| `SteamResolutionRow`          | resolution dropdown (Quick Settings)                      | row on Valve's dropdown                                                                            | `SteamResolutionState`       | apply a mode                                                                               |
+| `SteamAudioFormatRow`         | channel/default-format and spatial sound (Quick Settings) | rows on Valve's dropdown                                                                           | `SteamAudioFormatState`      | apply a format or spatial sound choice                                                     |
+| `SteamAutoTdpRow`             | automatic power-limit switch                              | row on Valve's toggle                                                                              | `SteamAutoTdpState`          | setting on/off                                                                             |
+| `SteamControllerTargetRow`    | controller-target dropdown                                | row on Valve's dropdown                                                                            | `SteamControllerTargetState` | choose a target                                                                            |
+| `SteamDeviceControlsRow`      | charge limit, lighting brightness and colour              | rows on Valve's slider and dropdown                                                                | `SteamDeviceControlsState`   | three writes                                                                               |
+| `SteamNavigationPanelSurface` | left slideout navigation panel                            | claims the exported memo's `type`, reaches the panel root by rendering                             | `SteamNavigationPanelState`  | activate an added entry                                                                    |
+| `SteamPageSurface`            | custom pages in Steam's router                            | claims the router memo's `type`, inserts routes into the route list                                | `SteamPageState`             | none: a page is declared, not commanded                                                    |
+| `SteamStorageSurface`         | SteamOS storage management pages                          | claims `SendMsg` on the service transport, answers `StorageDeviceManager.*`                        | `SteamStorageState`          | adopt, unmount, eject, format, trim                                                        |
+| `SteamLibraryBadgeSurface`    | a library badge on every library tile                     | claims the tile memo's `type`, replaces the Steam Input badge element with a row of two            | `SteamLibraryBadgeState`     | hears the Home layout (Big Art Mode) report                                                |
+| `SteamHomeCarouselSurface`    | Big Picture Home's carousel                               | claims Home's memo `type`, replaces the carousel's `games` array and bounds its overscan           | `SteamHomeCarouselState`     | hears what the carousel holds after each rebuild                                           |
+| `SteamScreensaverSurface`     | host rows in the Screensaver settings section             | a transform on the shared `useMemo` claim wraps the customization page and its Screensaver section | `SteamScreensaverState`      | hears Steam's screensaver timeouts; applies a row's choice                                 |
 
 ### SteamOS storage management
 
@@ -760,11 +763,11 @@ storage message goes to Valve like any other.
 
 The message vocabulary is read from the client's own generated classes rather than guessed:
 
-| Class | Fields |
-| --- | --- |
-| `CStorageDeviceManagerDrive` | `id`, `is_formattable`, `is_unformatted` |
-| `CStorageDeviceManagerBlockDevice` | `block_device_id`, `drive_id`, `mount_paths`, `has_steam_library` |
-| `CStorageDeviceManagerState` | `drives`, `block_devices`, `is_adopt_supported`, `is_unmount_supported`, `is_trim_supported`, `is_trim_running` |
+| Class                              | Fields                                                                                                          |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `CStorageDeviceManagerDrive`       | `id`, `is_formattable`, `is_unformatted`                                                                        |
+| `CStorageDeviceManagerBlockDevice` | `block_device_id`, `drive_id`, `mount_paths`, `has_steam_library`                                               |
+| `CStorageDeviceManagerState`       | `drives`, `block_devices`, `is_adopt_supported`, `is_unmount_supported`, `is_trim_supported`, `is_trim_running` |
 
 Responses are duck-typed to the two things Steam's callers ask of them — `BSuccess()` and `Body()` —
 rather than built as protobuf messages. The wire format is the client's business, and mirroring it
@@ -790,37 +793,37 @@ Valve shows the icon row's badge on the focused or hovered tile only, by an opac
 against the badge's own class, so a plain box beside it would show on every tile. The box therefore
 wears two of Valve's classes, read by name from the tile stylesheet's class map — the module
 carrying `ControllerSupportIcon:"`, `LibraryItemIcons:"` and `LibraryItemBox:"` — with the
-glyph-sized geometry overridden inline: the badge class for the fade and the end-of-row margin,
-the row class so Valve's icon stays a direct child of a row, which its pill background is written
-against. No hash is written down anywhere. Without the map the box is plain and always visible,
-and `status.classesResolved` says so.
+glyph-sized geometry overridden inline: the badge class for the fade and the end-of-row margin, the
+row class so Valve's icon stays a direct child of a row, which its pill background is written
+against. No hash is written down anywhere. Without the map the box is plain and always visible, and
+`status.classesResolved` says so.
 
 The walk is over props alone: the tile's whole icon row is host elements and fragments below its
 Focusable root, so nothing has to be rendered to reach the anchor, and function components on the
 way keep every identity Valve's reconciler holds. It is bounded at twelve levels and sixty-four
-children per level. A tile whose tree has no anchor — a music album, a tile with compat icons
-hidden — renders exactly what Valve shipped and is counted in `lastOutcome` as unanchored.
+children per level. A tile whose tree has no anchor — a music album, a tile with compat icons hidden
+— renders exactly what Valve shipped and is counted in `lastOutcome` as unanchored.
 
-The badge text is the library's name alone, and its colour is Steam's own installed flag on the
-app overview: green installed, grey not, which is what a disconnected card amounts to. The
-published `connected` stands in only for an overview that cannot say. A game no published library
-holds is on the internal library by definition and is labelled with `internalLabel` while it is
-installed; one installed nowhere gets no badge, because there is no library to name. The
-publication is bounded at 64 libraries, 4096 app ids and 64-character names.
+The badge text is the library's name alone, and its colour is Steam's own installed flag on the app
+overview: green installed, grey not, which is what a disconnected card amounts to. The published
+`connected` stands in only for an overview that cannot say. A game no published library holds is on
+the internal library by definition and is labelled with `internalLabel` while it is installed; one
+installed nowhere gets no badge, because there is no library to name. The publication is bounded at
+64 libraries, 4096 app ids and 64-character names.
 
-Big Art Mode is `library_home_big_art`, a client setting the Home component reads through a
-settings hook. The gate resolves the settings store by its own class body — the module carrying
+Big Art Mode is `library_home_big_art`, a client setting the Home component reads through a settings
+hook. The gate resolves the settings store by its own class body — the module carrying
 `get clientSettings()` and `m_setDeferredSettings` — and the one export carrying `clientSettings`.
-It reads the flag on every tile render and sends `homeLayout { bigArt }` once when it first
-resolves and once per change, so a host learns of a toggle without a subscription into Valve's
-store; `status.bigArt` carries the current reading and `null` when the store did not resolve. The
-store is wanted, not required: the badge is tile-relative and draws the same in either layout.
+It reads the flag on every tile render and sends `homeLayout { bigArt }` once when it first resolves
+and once per change, so a host learns of a toggle without a subscription into Valve's store;
+`status.bigArt` carries the current reading and `null` when the store did not resolve. The store is
+wanted, not required: the badge is tile-relative and draws the same in either layout.
 
-Mapped against the September 2026 client beta on 2026-09-11: `appportrait_` occurs in exactly one
-of the 2622 loaded modules, that module has exactly one memo export and exactly one function
-export whose source draws the controller-support icon, five modules render the tile through the
-export, and the memo's `type` is a writable and configurable own property. The probe checks each
-of those separately and accepts a tile this gate already claimed.
+Mapped against the September 2026 client beta on 2026-09-11: `appportrait_` occurs in exactly one of
+the 2622 loaded modules, that module has exactly one memo export and exactly one function export
+whose source draws the controller-support icon, five modules render the tile through the export, and
+the memo's `type` is a writable and configurable own property. The probe checks each of those
+separately and accepts a tile this gate already claimed.
 
 ### The library on a game's page
 
@@ -841,10 +844,10 @@ child, unless it already has one with the stat's key. The app is the overview th
 are given.
 
 The stat is Valve's markup for Last Played without its tooltip: `GameStat LastPlayed`, then
-`GameStatRight`, then a `PlayBarLabel` and a `PlayBarDetailLabel LastPlayedInfo`, every class read by
-name from the class map carrying `GameStatsSection:"`, `PlayBarDetailLabel:"` and `LastPlayedInfo:"`.
-The label is Steam's `#Settings_Page_Library` through the localizer export chosen as the Quick Access
-host chooses it, and "Library" without one.
+`GameStatRight`, then a `PlayBarLabel` and a `PlayBarDetailLabel LastPlayedInfo`, every class read
+by name from the class map carrying `GameStatsSection:"`, `PlayBarDetailLabel:"` and
+`LastPlayedInfo:"`. The label is Steam's `#Settings_Page_Library` through the localizer export
+chosen as the Quick Access host chooses it, and "Library" without one.
 
 Read from the Stable client (UI build of 2026-09-06) and the September 2026 beta on 2026-09-11: the
 app-details module is the same in both, the class map occurs once, the JSX runtime module occurs
@@ -854,20 +857,20 @@ once, and the probe requires the React, runtime and class map matches while repo
 
 Home's carousel draws one array of app ids, passed as `games` to both the carousel and the hero
 background behind it. Steam builds that array in a module-local hook from four collections
-(`local-played`, `recent-purchased`, `local-install`, `recent`) and caps it at 20. Home, the carousel
-and the hook are all module-local, so the handle is the page element under the `/library/home` route
-— the route list found by content in SharedJSContext's React tree — and the gate claims that Home
-memo's `type`. Until Big Picture has built that tree there is no route list to find: on 2026-09-11
-two probes during startup refused with the Home module, both stores and the observer hook resolved
-but no Home, and the manager's next probe verified. The walk is breadth-first over the fiber child
-and sibling links, bounded at 250,000 nodes, because a router sits near the top of its tree and a
-depth-first walk can spend its bound inside a mounted library grid. A miss reports the roots
-searched, the nodes visited, how many route lists held `/library/home` and what that route renders,
-in the probe's diagnostic and in `status.search`. In what Home renders it finds the carousel memo by its
-source (`#Showcase_RecentGames`, `RecentGamesContainer`) and replaces it with a memo of its own over
-the same inner function and comparison. In what the carousel renders it replaces `games` on the two
-elements that take it, told apart by shape: the background takes `refOnItemFocus`, the carousel
-`onItemFocus`.
+(`local-played`, `recent-purchased`, `local-install`, `recent`) and caps it at 20. Home, the
+carousel and the hook are all module-local, so the handle is the page element under the
+`/library/home` route — the route list found by content in SharedJSContext's React tree — and the
+gate claims that Home memo's `type`. Until Big Picture has built that tree there is no route list to
+find: on 2026-09-11 two probes during startup refused with the Home module, both stores and the
+observer hook resolved but no Home, and the manager's next probe verified. The walk is breadth-first
+over the fiber child and sibling links, bounded at 250,000 nodes, because a router sits near the top
+of its tree and a depth-first walk can spend its bound inside a mounted library grid. A miss reports
+the roots searched, the nodes visited, how many route lists held `/library/home` and what that route
+renders, in the probe's diagnostic and in `status.search`. In what Home renders it finds the
+carousel memo by its source (`#Showcase_RecentGames`, `RecentGamesContainer`) and replaces it with a
+memo of its own over the same inner function and comparison. In what the carousel renders it
+replaces `games` on the two elements that take it, told apart by shape: the background takes
+`refOnItemFocus`, the carousel `onItemFocus`.
 
 The carousel is a react-virtualized grid whose overscan defaults to 3 columns. Home passes
 `overscan: games.length`, which mounts every tile; harmless at 20, a memory flood at a library. The
@@ -905,20 +908,21 @@ startup check occurs once. The probe checks each separately and accepts a Home i
 
 ### Screensaver settings
 
-The September 2026 beta ships Big Picture's screensaver on Windows. Its settings are a section of the
-Customization page, and on a machine Steam believes has no battery the section's last row is the
+The September 2026 beta ships Big Picture's screensaver on Windows. Its settings are a section of
+the Customization page, and on a machine Steam believes has no battery the section's last row is the
 idle timeout, `system_idle_screensaver_ac_sec`. Steam keeps per-source timeouts on a Power page it
 shows only with a battery or under gamescope. The surface appends host-owned timeout rows to that
 section and reports Steam's timeouts, so a host can keep a timeout of its own in order with them.
 
-The Settings root builds its page list with `React.useMemo`: `{ visible, title, icon, route, content }`
-per page. A transform on the shared claim (§9) replaces the content of the entry whose `route` is
-the route table's `Settings.Customization()` with a wrapper that renders the page. In what the page
-renders, the one child whose type's source carries `"#Settings_Customization_Screensaver"` and
-`ForceScreensaver` is replaced by a wrapper that renders the section and appends the rows. Both
-wrappers are cached by what they wrap and pass Steam's tree through once the gate is removed; the
-same input list always maps to the same output list. Two customization entries, or a page without
-exactly one such section, is left as Steam drew it and says so in `status.lastOutcome`.
+The Settings root builds its page list with `React.useMemo`:
+`{ visible, title, icon, route, content }` per page. A transform on the shared claim (§9) replaces
+the content of the entry whose `route` is the route table's `Settings.Customization()` with a
+wrapper that renders the page. In what the page renders, the one child whose type's source carries
+`"#Settings_Customization_Screensaver"` and `ForceScreensaver` is replaced by a wrapper that renders
+the section and appends the rows. Both wrappers are cached by what they wrap and pass Steam's tree
+through once the gate is removed; the same input list always maps to the same output list. Two
+customization entries, or a page without exactly one such section, is left as Steam drew it and says
+so in `status.lastOutcome`.
 
 The rows are Valve's `DropDownField`, controlled, one per published row: label, optional
 description, the host's options and the observed value. A choice sends `setTimeout { row, seconds }`
@@ -928,11 +932,11 @@ lowercase letter then up to 31 lowercase letters, digits or hyphens, unique, at 
 each, every value 0 to 604,800 seconds and every option labelled. A state that fails keeps the last
 good rows.
 
-The report is `{ acSeconds, batterySeconds, battery }`: the two client settings, the second null when
-unset, and whether Steam's power store has a battery. It is read inside Steam's own mobx-react-lite
-observer, so a change on the page re-renders the rows, and sent when it first becomes readable (a
-bounded retry, 60 attempts two seconds apart, while the settings store is still empty), on every
-change, and each time the page opens.
+The report is `{ acSeconds, batterySeconds, battery }`: the two client settings, the second null
+when unset, and whether Steam's power store has a battery. It is read inside Steam's own
+mobx-react-lite observer, so a change on the page re-renders the rows, and sent when it first
+becomes readable (a bounded retry, 60 attempts two seconds apart, while the settings store is still
+empty), on every change, and each time the page opens.
 
 Read from the September 2026 beta's bundle on 2026-09-11: the section token with `ForceScreensaver`
 occurs in one module, the route table's customization route is `/settings/customization`, and the
@@ -941,9 +945,9 @@ screensaver's own services are `Screensaver.GetActiveState`, `ForceScreensaver`,
 
 ### Custom pages
 
-Steam's router renders its routes as the children of its own switch, so registering a page is a
-list operation on props rather than DOM work — unlike the navigation panel, whose entries do not
-exist until its root renders.
+Steam's router renders its routes as the children of its own switch, so registering a page is a list
+operation on props rather than DOM work — unlike the navigation panel, whose entries do not exist
+until its root renders.
 
 Three facts decide the API, and all three were measured against the live client on 2026-09-10:
 
@@ -1012,12 +1016,13 @@ emitted echo hook with an inert React fixture.
 `powerProfile`, and command `setPowerProfile`. Payloads are exactly `{ target: "id" }`, validated
 with `TryReadTarget`. `SteamPowerProfileState` carries up to 64 unique id/label options, observed
 `Current`, `Available` and `StatusText`. Unknown current ids select nothing. Labels are bounded to
-240 characters by the shared text normalizer. Unavailable state with options stays
-visible but disabled; a state with no options hides the row and records its status text in
-`renderOutcomes`. Selection is also disabled while its request is pending. The host owns
-validation, OS writes, persistence and readback. `SteamChoiceRowTests` covers serialization and
-dispatch, `SteamSurfaceModuleTests` the module vocabulary; `eng/check-power-profile.mjs` checks the emitted dropdown, rejected choices,
-malformed states and Performance placement with inert React/bridge fixtures.
+240 characters by the shared text normalizer. Unavailable state with options stays visible but
+disabled; a state with no options hides the row and records its status text in `renderOutcomes`.
+Selection is also disabled while its request is pending. The host owns validation, OS writes,
+persistence and readback. `SteamChoiceRowTests` covers serialization and dispatch,
+`SteamSurfaceModuleTests` the module vocabulary; `eng/check-power-profile.mjs` checks the emitted
+dropdown, rejected choices, malformed states and Performance placement with inert React/bridge
+fixtures.
 
 `SteamHybridCoreRow` adds a second dropdown on Performance through patch `steam-ui.hybrid-cores`,
 kind `hybridCores`, and command `setHybridCores`. `SteamHybridCoreState` is the same shape as the
@@ -1037,22 +1042,22 @@ AC/battery assignment IDs, scope, unset label and status. `ISteamPowerPresetBack
 policy. Its patch `steam-ui.power-preset` and kind `powerPreset` accept only `setAcPowerPreset` and
 `setBatteryPowerPreset`. Each payload has exactly one `target`: a bounded ID or null to clear the
 local assignment. A host may publish a `custom` option for a saved Custom assignment on AC or
-battery. It appears only in the source dropdown already assigned Custom and is read-only; the
-bridge still rejects it as a command target. Empty options hide the controls. The
-C# tests cover routing, cancellation forwarding and payload refusals; emitted tests cover both
-source selectors, clearing, disabled state and malformed publications.
+battery. It appears only in the source dropdown already assigned Custom and is read-only; the bridge
+still rejects it as a command target. Empty options hide the controls. The C# tests cover routing,
+cancellation forwarding and payload refusals; emitted tests cover both source selectors, clearing,
+disabled state and malformed publications.
 
 The shared row host uses Valve's titled `PanelSection` containers to group Performance controls by
 profile scope, power profiles, display/frame rate, power limits, controller and reset. Quick
 Settings places its Display section before Valve's common controls, with Charging and RGB lighting
-sections after them. RGB brightness stays visible; an Edit color toggle reveals the zone and HSV controls.
-If Valve's toggle component is unavailable, the color editor is omitted while charging and brightness remain usable.
-A group with no registered row is omitted. A group whose host rows all render nothing, such as
-Power limits and Controller without a device, stays mounted inside a `display: none` wrapper so its
-rows keep their subscriptions; a shown group's wrapper is `display: contents`. Rows report drawing
-through `drew` and not drawing through `note`, and a change queues one re-render of the panel roots.
-Valve's own rows report nothing and count as drawn. Each control retains the existing bridge and
-patch ownership.
+sections after them. RGB brightness stays visible; an Edit color toggle reveals the zone and HSV
+controls. If Valve's toggle component is unavailable, the color editor is omitted while charging and
+brightness remain usable. A group with no registered row is omitted. A group whose host rows all
+render nothing, such as Power limits and Controller without a device, stays mounted inside a
+`display: none` wrapper so its rows keep their subscriptions; a shown group's wrapper is
+`display: contents`. Rows report drawing through `drew` and not drawing through `note`, and a change
+queues one re-render of the panel roots. Valve's own rows report nothing and count as drawn. Each
+control retains the existing bridge and patch ownership.
 
 Rows and section headers carry a glyph. `icons.ts` holds the drawings — the toolkit's own, on a
 24x24 grid, filled with `currentColor` and cut with `fill-rule="evenodd"`, because the client's
@@ -1093,10 +1098,10 @@ Every gate's payload is read with `SteamUiPayload` (exact object shape, bounded 
 and a malformed one is refused with a fixed reason before the backend runs. `SteamUiBridgePatch`
 installs the bridge; register it in the same manager as dependent surfaces, but do not rely on call
 order because the manager synchronizes patches by stable id and retries unmet conditions. Every row
-shares the resource key `steam-ui.performance-root` so the mounted set serializes. Patch ids and resource keys are
-`steam-ui.*`, the markers the live client carries are `__steamUi*`, and both are public constants:
-a consumer's kill-switch policy names patches by them and a probe from a separate CDP call reads
-the markers back.
+shares the resource key `steam-ui.performance-root` so the mounted set serializes. Patch ids and
+resource keys are `steam-ui.*`, the markers the live client carries are `__steamUi*`, and both are
+public constants: a consumer's kill-switch policy names patches by them and a probe from a separate
+CDP call reads the markers back.
 
 Power-limit state additionally carries unified and canSelectMode. The optional mode toggle sends
 setUnifiedMode with exactly one boolean unified property. Consumers own persistence and paired
@@ -1111,26 +1116,26 @@ nothing has to be removed, except the one resident observer described below. Eve
 unreachable client separately from a refusal, because a client that was never reached changed
 nothing and the caller may offer the request again.
 
-| Type | What it does |
-| ---- | ------------ |
-| `SteamApps` | reads one app's details (`RegisterForAppDetails`), writes a title's launch options or a shortcut's Target and arguments, and sets or clears custom artwork. `NormalizeAppId` converts a stored signed id; `IsShortcutAppId` splits the two kinds. |
-| `SteamInstallFolders` | adds, removes and relabels library folders. Selects every registration at a path, never the first, and `NormalizePath` is the C# twin of the script's own normalizer. |
-| `SteamDownloadActivity` | one snapshot of the download queue, with `IsActive` as the live-verified activity rule. |
-| `SteamLibraryData` | collections, games and shortcuts, and the store tags in use. `IsLoadedAsync` answers whether the stores exist yet. |
-| `SteamCurrentPage` | which game page is in view: the focused React fiber, then the largest wide library image, then the library route. |
-| `SteamRunningAppsProbe` | which apps Steam is running, and the log of starts and stops behind `SteamAppLifetimeMonitor`. |
+| Type                    | What it does                                                                                                                                                                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SteamApps`             | reads one app's details (`RegisterForAppDetails`), writes a title's launch options or a shortcut's Target and arguments, and sets or clears custom artwork. `NormalizeAppId` converts a stored signed id; `IsShortcutAppId` splits the two kinds. |
+| `SteamInstallFolders`   | adds, removes and relabels library folders. Selects every registration at a path, never the first, and `NormalizePath` is the C# twin of the script's own normalizer.                                                                             |
+| `SteamDownloadActivity` | one snapshot of the download queue, with `IsActive` as the live-verified activity rule.                                                                                                                                                           |
+| `SteamLibraryData`      | collections, games and shortcuts, and the store tags in use. `IsLoadedAsync` answers whether the stores exist yet.                                                                                                                                |
+| `SteamCurrentPage`      | which game page is in view: the focused React fiber, then the largest wide library image, then the library route.                                                                                                                                 |
+| `SteamRunningAppsProbe` | which apps Steam is running, and the log of starts and stops behind `SteamAppLifetimeMonitor`.                                                                                                                                                    |
 
 ### Running apps and lifetime events
 
-The probe installs one resident observer in SharedJSContext under
-`window.__steamUiRunningApps_v2`. It seeds the running set from the app store
-(`display_status` 4) and follows `SteamClient.GameSessions.RegisterForAppLifetimeNotifications`;
-focus is never used to infer what is running. Each notification is appended to a numbered log of the
-last 64, so a reader that passes the sequence it last saw gets every transition in between, in
-order. Reading does not consume the log, so several readers can share one observer, and disposing
-any reader's lease removes it: the others resynchronize from the fresh observer their next read
-installs. A reading carries the observer's id, and a different id means Steam replaced its context
-and every earlier sequence number is meaningless.
+The probe installs one resident observer in SharedJSContext under `window.__steamUiRunningApps_v2`.
+It seeds the running set from the app store (`display_status` 4) and follows
+`SteamClient.GameSessions.RegisterForAppLifetimeNotifications`; focus is never used to infer what is
+running. Each notification is appended to a numbered log of the last 64, so a reader that passes the
+sequence it last saw gets every transition in between, in order. Reading does not consume the log,
+so several readers can share one observer, and disposing any reader's lease removes it: the others
+resynchronize from the fresh observer their next read installs. A reading carries the observer's id,
+and a different id means Steam replaced its context and every earlier sequence number is
+meaningless.
 
 `SteamAppLifetimeMonitor` turns those readings into `AppStarted` and `AppStopped`, polling once a
 second by default. Latency is at most one poll interval, and a game that starts and stops inside one

@@ -112,6 +112,7 @@ public sealed class SteamQuickAccessRowPatchTests
             SteamFrameLimitRow.Patch,
             SteamVariableRefreshRow.Patch,
             SteamResolutionRow.Patch,
+            SteamAudioFormatRow.Patch,
             SteamAutoTdpRow.Patch,
             SteamControllerTargetRow.Patch,
             SteamDeviceControlsRow.Patch,

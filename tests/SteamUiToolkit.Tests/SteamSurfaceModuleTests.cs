@@ -17,6 +17,8 @@ public sealed class SteamSurfaceModuleTests
         SteamUiModuleSet set = new(
         [
             SteamAudioSurface.Module(Always, () => new ValueTask<SteamAudioState?>(null as SteamAudioState), backend),
+            SteamAudioFormatRow.Module(Always,
+                () => new ValueTask<SteamAudioFormatState?>(null as SteamAudioFormatState), backend),
             SteamNetworkSurface.Module(Always, () => new ValueTask<SteamNetworkState?>(null as SteamNetworkState),
                 backend),
             SteamBluetoothSurface.Module(Always, () => new ValueTask<SteamBluetoothState?>(null as SteamBluetoothState),
@@ -53,6 +55,7 @@ public sealed class SteamSurfaceModuleTests
         ]);
 
         Assert.Equal(SteamAudioSurface.Commands, set.AllowedCommands[SteamAudioSurface.PatchId]);
+        Assert.Equal(SteamAudioFormatRow.Commands, set.AllowedCommands[SteamAudioFormatRow.PatchId]);
         Assert.Equal(SteamNetworkSurface.Commands, set.AllowedCommands[SteamNetworkSurface.PatchId]);
         Assert.Equal(SteamBluetoothSurface.Commands, set.AllowedCommands[SteamBluetoothSurface.PatchId]);
         Assert.Equal(SteamBrightnessSurface.Commands, set.AllowedCommands[SteamBrightnessSurface.PatchId]);
@@ -83,7 +86,7 @@ public sealed class SteamSurfaceModuleTests
 
         // The full set registers together without an identity collision, which is what a consumer
         // declaring every surface at once relies on.
-        Assert.Equal(18, set.Modules.Count);
+        Assert.Equal(19, set.Modules.Count);
     }
 
     [Fact]
