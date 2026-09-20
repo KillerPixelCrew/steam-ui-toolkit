@@ -56,8 +56,14 @@ public enum SteamArtworkFormat
     Png,
 
     /// <summary>JPEG.</summary>
-    Jpeg
+    Jpeg,
+
+    /// <summary>WebP.</summary>
+    Webp
 }
+
+/// <summary>A custom logo placement in Steam's app-details store.</summary>
+public sealed record SteamLogoPosition(string Anchor, int WidthPercent, int HeightPercent);
 
 /// <summary>
 ///     Reads and changes per-app configuration in the running client through
@@ -186,7 +192,13 @@ public static class SteamApps
 
         var base64 = await Task.Run(() => Convert.ToBase64String(image.Span), cancellationToken)
             .ConfigureAwait(false);
-        var extension = format == SteamArtworkFormat.Jpeg ? "\"jpg\"" : "\"png\"";
+        var extension = format switch
+        {
+            SteamArtworkFormat.Jpeg => "\"jpg\"",
+            SteamArtworkFormat.Webp => "\"webp\"",
+            SteamArtworkFormat.Png => "\"png\"",
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unknown artwork format.")
+        };
         var expression = SteamClientScript.Write(
             "const app=" + SteamClientScript.AppId(appId) + ",type=" + SlotLiteral(slot) + ";" +
             "await SteamClient.Apps.ClearCustomArtworkForApp(app,type);" +
@@ -209,6 +221,137 @@ public static class SteamApps
             "await SteamClient.Apps.ClearCustomArtworkForApp(" + SteamClientScript.AppId(appId) + "," +
             SlotLiteral(slot) + ");");
         return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Points a non-Steam shortcut at a local icon file through Steam's own API.</summary>
+    public static async Task<SteamClientWriteResult> SetShortcutIconAsync(
+        uint appId, string path, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        var expression = SteamClientScript.Write(
+            "await SteamClient.Apps.SetShortcutIcon(" + SteamClientScript.AppId(appId) + "," +
+            SteamCef.JsString(path) + ");" + SteamClientScript.Settle(WriteSettleMs));
+        return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Clears a non-Steam shortcut's custom icon through Steam's own API.</summary>
+    public static async Task<SteamClientWriteResult> ClearShortcutIconAsync(
+        uint appId, CancellationToken cancellationToken = default)
+    {
+        var expression = SteamClientScript.Write(
+            "await SteamClient.Apps.SetShortcutIcon(" + SteamClientScript.AppId(appId) + ",'');" +
+            SteamClientScript.Settle(WriteSettleMs));
+        return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Asks Steam to refresh cached icon data for a store app.</summary>
+    public static async Task<SteamClientWriteResult> RefreshIconAsync(
+        uint appId, CancellationToken cancellationToken = default)
+    {
+        var expression = SteamClientScript.Write(
+            "await SteamClient.Apps.RequestIconDataForApp(" + SteamClientScript.AppId(appId) + ");");
+        return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Reads Steam's official icon URL for an app.</summary>
+    public static async Task<string?> ReadOfficialIconUrlAsync(
+        uint appId, CancellationToken cancellationToken = default)
+    {
+        var expression = SteamClientScript.Read(
+            "const a=window.appStore?.GetAppOverviewByAppID?.(" + SteamClientScript.AppId(appId) + ");" +
+            "const u=a?window.appStore?.GetIconURLForApp?.(a):null;" +
+            "return JSON.stringify({ok:typeof u==='string'&&u.length>0,value:u||''});");
+        return await ReadStringAsync(expression, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Reads the active Steam account id used for the userdata directory.</summary>
+    public static async Task<uint?> ReadAccountIdAsync(CancellationToken cancellationToken = default)
+    {
+        var expression = SteamClientScript.Read(
+            "const s=window.App?.m_CurrentUser?.strSteamID||'';" +
+            "if(!/^\\d{17}$/.test(s))return JSON.stringify({ok:false});" +
+            "return JSON.stringify({ok:true,value:String(BigInt(s)&0xffffffffn)});");
+        var value = await ReadStringAsync(expression, cancellationToken).ConfigureAwait(false);
+        return uint.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var accountId)
+            ? accountId
+            : null;
+    }
+
+    /// <summary>Saves a custom logo position through Steam's app-details store.</summary>
+    public static async Task<SteamClientWriteResult> SaveLogoPositionAsync(
+        uint appId, SteamLogoPosition position, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(position);
+        if (position.WidthPercent is < 5 or > 100 || position.HeightPercent is < 5 or > 100)
+        {
+            throw new ArgumentOutOfRangeException(nameof(position));
+        }
+
+        var expression = SteamClientScript.Write(
+            "const a=window.appStore?.GetAppOverviewByAppID?.(" + SteamClientScript.AppId(appId) + ");" +
+            "if(!a||!window.appDetailsStore?.SaveCustomLogoPosition)throw new Error('logo position unavailable');" +
+            "await window.appDetailsStore.SaveCustomLogoPosition(a,{pinnedPosition:" +
+            SteamCef.JsString(position.Anchor) + ",nWidthPct:" +
+            position.WidthPercent.ToString(CultureInfo.InvariantCulture) + ",nHeightPct:" +
+            position.HeightPercent.ToString(CultureInfo.InvariantCulture) + "});");
+        return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Clears a custom logo position through Steam's app-details store.</summary>
+    public static async Task<SteamClientWriteResult> ClearLogoPositionAsync(
+        uint appId, CancellationToken cancellationToken = default)
+    {
+        var expression = SteamClientScript.Write(
+            "const a=window.appStore?.GetAppOverviewByAppID?.(" + SteamClientScript.AppId(appId) + ");" +
+            "if(!a||!window.appDetailsStore?.ClearCustomLogoPosition)throw new Error('logo position unavailable');" +
+            "await window.appDetailsStore.ClearCustomLogoPosition(a);");
+        return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     Reads the current custom logo position, or null when Steam has none and when the stored
+    ///     dimensions are outside the 5 to 100 percent range <see cref="SaveLogoPositionAsync" /> accepts.
+    /// </summary>
+    public static async Task<SteamLogoPosition?> ReadLogoPositionAsync(
+        uint appId, CancellationToken cancellationToken = default)
+    {
+        var expression = SteamClientScript.Read(
+            "const a=window.appStore?.GetAppOverviewByAppID?.(" + SteamClientScript.AppId(appId) + ");" +
+            "const p=a&&window.appDetailsStore?.GetCustomLogoPosition?" +
+            "window.appDetailsStore.GetCustomLogoPosition(a):null;" +
+            "return JSON.stringify({ok:true,anchor:p?.pinnedPosition||'',width:p?.nWidthPct||0,height:p?.nHeightPct||0});");
+        var result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
+            .ConfigureAwait(false);
+        if (!result.Reachable || result.Value is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(result.Value);
+            var root = document.RootElement;
+            var anchor = SteamClientScript.StringOf(root, "anchor");
+            if (!SteamClientScript.IsOk(root) || anchor.Length == 0
+                                                || !root.TryGetProperty("width", out var width)
+                                                || !width.TryGetInt32(out var widthValue)
+                                                || !root.TryGetProperty("height", out var height)
+                                                || !height.TryGetInt32(out var heightValue))
+            {
+                return null;
+            }
+
+            // Steam reports 0 for an app that has no stored position, and the save path accepts
+            // only 5 through 100. Anything outside that is not a position this library can hand
+            // straight back to SaveLogoPositionAsync, so it reads as none rather than as a value.
+            return widthValue is >= 5 and <= 100 && heightValue is >= 5 and <= 100
+                ? new SteamLogoPosition(anchor, widthValue, heightValue)
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Reads one app's details through a specific transport, or the session's.</summary>
@@ -302,5 +445,27 @@ public static class SteamApps
         }
 
         return outcome;
+    }
+
+    private static async Task<string?> ReadStringAsync(
+        string expression, CancellationToken cancellationToken)
+    {
+        var result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
+            .ConfigureAwait(false);
+        if (!result.Reachable || result.Value is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(result.Value);
+            var root = document.RootElement;
+            return SteamClientScript.IsOk(root) ? SteamClientScript.StringOf(root, "value") : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 }

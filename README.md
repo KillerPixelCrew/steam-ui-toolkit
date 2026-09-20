@@ -35,7 +35,8 @@ verified.
 | Answer an RPC         | overlay a method the client already has                                   | restore what was displaced                        |
 | Reveal what is gated  | flip the one flag or getter hiding a surface the client can already serve | restore the original, never the platform constant |
 
-**An extension host,** so a consumer can let third parties add surfaces of their own.
+**Host-rendered extension surfaces,** so a consumer can let third-party packages publish bounded
+commands without handing them Steam objects or an injection API.
 
 ## The revived surfaces
 
@@ -59,11 +60,16 @@ removal.
 
 **`SteamPageSurface.Module`** registers custom pages with Steam's own router. Publish
 `SteamPageState` with a path, a title and an id. The path goes to Steam's matcher, so
-`/wsgm/artwork/:appid` takes parameters the way Valve's routes do. Pages are built with Steam's
+`/my-plugin/page/:id` takes parameters the way Valve's routes do. Pages are built with Steam's
 back-stack `Route` rather than react-router's, so they push and pop the back stack like a native
 page instead of rendering correctly and losing B. `Override` decides whether a page replaces a Steam
 route of the same path or adds a new one: Steam's switch takes the first match, so an override is
 inserted ahead of Valve's routes and an addition behind them. Adding is the default.
+
+Consumers may compile a bounded renderer fragment beside the toolkit and register it with
+`registerSteamPageRenderer(template, render)`. `SteamPageState.Template` selects that renderer while
+the router, ownership and back-stack mechanism stay generic. The toolkit intentionally contains no
+product page or artwork browser.
 
 **`SteamLibraryBadgeSurface.Module`** draws a library badge on every library tile, immediately left
 of Valve's Steam Input badge in the tile's icon row: the name of the library holding the game, green
@@ -82,6 +88,17 @@ in `DisconnectedAppIds` leave the list. The gate replaces the one app-id array H
 carousel and background, so Steam's own components draw it, and puts the virtualized carousel's
 overscan back to the component's default, since Home otherwise mounts every tile. Implement
 `ISteamHomeCarouselBackend` to hear what the carousel holds after each rebuild.
+
+**`SteamExtensionsTabSurface.Module`** adds one shared Quick Access tab whose plugin sections,
+actions and primitive settings are supplied by `SteamExtensionsTabState`; implement
+`ISteamExtensionsTabBackend` to receive exact action and configuration requests. Secret values are
+write-only and must not be published back. The tab is host-rendered and limits publication to 64
+plugins. **`SteamGameContextMenuSurface.Module`** adds host-owned commands to the selected game's
+library and gear menu. Its backend receives Steam's positive app ID and an exact command ID, after
+the surface has rejected every other payload shape. The shared JSX interceptor recognizes the
+private menu class before its first render, so the first opening includes the commands without a
+visible-DOM scan. Extensions-tab actions use Steam's native focusable Panel for controller and
+pointer activation; the probe recognizes its own installed wrapper.
 
 **`SteamStorageSurface.Module`** revives Steam's own SteamOS storage management on Windows. The
 whole UI hangs off one unanswered service question, so the gate claims `SendMsg` on the service
@@ -261,6 +278,11 @@ resolver's `resolve(tokens)` loads a module by a unique source fingerprint, and
 `count(tokens)` and `findUnique(tokens)` inspect source without loading exports. Missing factories
 never enter webpack's loader, and ambiguous or failed resolution is explicit. Feature scripts must
 not implement their own registry scan; the bridge and the built-in probes use this same source.
+
+Consumer-owned native pages can use the public `SteamUiProbeJs` token constants for preflight and
+the composed asset's shared `resolveSteamUiComponents` helper for Steam's focusable, tabs, dialog
+buttons, fields and modal manager. Missing or ambiguous controls are capabilities to refuse, not a
+reason to draw lookalike controls.
 
 The library is the machinery and the surfaces, and the data behind them is yours. You supply:
 

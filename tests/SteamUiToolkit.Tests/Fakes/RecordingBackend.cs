@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace SteamUiToolkit.Tests.Fakes;
 
 /// <summary>One backend for every surface, recording what reached it in a readable form.</summary>
@@ -22,7 +24,9 @@ internal sealed class RecordingBackend :
     ISteamStorageBackend,
     ISteamPowerProfileBackend,
     ISteamPowerPresetBackend,
-    ISteamHybridCoreBackend
+    ISteamHybridCoreBackend,
+    ISteamExtensionsTabBackend,
+    ISteamGameContextMenuBackend
 {
     internal List<string> Calls { get; } = [];
 
@@ -131,6 +135,16 @@ internal sealed class RecordingBackend :
         return Record($"activate {id}", cancellationToken);
     }
 
+    public Task<SteamUiCommandResult> ConfigureAsync(
+        string id,
+        string key,
+        JsonElement value,
+        long expectedRevision,
+        CancellationToken cancellationToken)
+    {
+        return Record($"configure {id} {key} {value} {expectedRevision}", cancellationToken);
+    }
+
     public Task<SteamUiCommandResult> StartScanAsync(CancellationToken cancellationToken)
     {
         return Record("scan on", cancellationToken);
@@ -220,6 +234,11 @@ internal sealed class RecordingBackend :
     public Task<SteamUiCommandResult> SetVariableRefreshRateAsync(bool enabled, CancellationToken cancellationToken)
     {
         return Record($"vrr {enabled}", cancellationToken);
+    }
+
+    public Task<SteamUiCommandResult> ActivateAsync(uint appId, string id, CancellationToken cancellationToken)
+    {
+        return Record($"game-menu {appId} {id}", cancellationToken);
     }
 
     private Task<SteamUiCommandResult> Record(string call, CancellationToken cancellationToken)
