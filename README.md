@@ -44,9 +44,10 @@ Valve's audio page, Internet page, Bluetooth page, brightness slider, Performanc
 all ship in the Windows client and are inert only because nothing answers behind them. Each one is a
 `Steam*Surface`: the injected gate that supplies or reveals it, the patch that probes and verifies
 it, a typed state record you fill in, and a backend interface you implement. Quick Access rows built
-on Valve's own field primitives (frame limit, variable refresh, resolution, automatic power limit,
-controller target, charge and lighting) are `Steam*Row`s of the same shape. You say "this is our
-data, and it maps to that feature", and the CEF work stays in here.
+on Valve's own field primitives (frame limit, variable refresh, resolution, advanced audio format
+and spatial sound, automatic power limit, controller target, charge and lighting) are `Steam*Row`s
+of the same shape. You say "this is our data, and it maps to that feature", and the CEF work stays
+in here.
 
 **`SteamNavigationPanelSurface.Module`** makes Steam's left slideout navigation panel an extension
 surface. Publish `SteamNavigationPanelState` to add entries and hide Steam's own, and implement

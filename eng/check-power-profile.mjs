@@ -292,6 +292,7 @@ console.log("Device controls retain charging and brightness without the optional
   const controlNames = ["valveProfileHeaderControl", "valveProfileToggleControl",
     "valveOverlayLevelControl", "frameLimitControl", "powerProfileControl", "hybridCoreControl",
     "powerPresetControl", "vrrControl", "powerLimitControl", "autoTdpControl", "resolutionControl",
+    "audioFormatControl",
     "valveRefreshRateControl", "controllerControl", "valveResetControl"];
   const registrations = new Map();
   const drawnKinds = new Set();
