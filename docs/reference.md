@@ -200,8 +200,12 @@ every fingerprint's matches in an installed client's bundle without attaching to
 `eng/check-startup.mjs` exercises both the standalone source and emitted asset against the loader
 failure shape that leaves empty exports cached after a missing-factory call. Native-component
 installation catches discovery and dependency-resolution exceptions before installing the React hook
-or registering a row. It returns `ok: false` and records the refusal in `status().lastError`. The
-emitted-host checks cover missing webpack, early and late load failures, and successful removal.
+or registering a row. It returns `ok: false` and records the refusal in `status().lastError`.
+
+The semantic runtime isolates a throwing publication or command callback by module identity. It
+stops future traffic for that module and raises `ModuleFailed` with the module, operation, message
+and managed stack so the consumer can retract that module's patches without interrupting the others.
+The emitted-host checks cover missing webpack, early and late load failures, and successful removal.
 
 ### Endpoint validation
 
