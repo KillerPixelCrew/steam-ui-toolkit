@@ -3,6 +3,7 @@ namespace SteamUiToolkit.Tests.Fakes;
 /// <summary>One backend for every surface, recording what reached it in a readable form.</summary>
 internal sealed class RecordingBackend :
     ISteamAudioBackend,
+    ISteamAudioFormatBackend,
     ISteamNetworkBackend,
     ISteamBluetoothBackend,
     ISteamBrightnessBackend,
@@ -171,6 +172,16 @@ internal sealed class RecordingBackend :
     public Task<SteamUiCommandResult> SetResolutionAsync(string option, CancellationToken cancellationToken)
     {
         return Record($"resolution {option}", cancellationToken);
+    }
+
+    public Task<SteamUiCommandResult> SetFormatAsync(string formatId, CancellationToken cancellationToken)
+    {
+        return Record($"audio format {formatId}", cancellationToken);
+    }
+
+    public Task<SteamUiCommandResult> SetSpatialAsync(string spatialId, CancellationToken cancellationToken)
+    {
+        return Record($"spatial audio {spatialId}", cancellationToken);
     }
 
     public Task<SteamUiCommandResult> ReportAsync(SteamScreensaverReport report, CancellationToken cancellationToken)
