@@ -18,6 +18,7 @@ const checks = [
   "check-library.mjs",
   "check-home-carousel.mjs",
   "check-screensaver.mjs",
+  "check-extension-surfaces.mjs",
 ];
 
 const run = (script, args) =>

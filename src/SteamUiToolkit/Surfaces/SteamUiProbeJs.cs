@@ -19,12 +19,22 @@ public static class SteamUiProbeJs
     /// </remarks>
     public const string Close = "}catch(error){return JSON.stringify({error:String(error)}); } })()";
 
-    /// <summary>The source tokens that identify React's own module.</summary>
-    internal const string ReactTokens =
+    /// <summary>Structural source tokens used to prove the React export is a unique match.</summary>
+    public const string ReactTokens =
         "['react.transitional.element','useState','cloneElement','createElement']";
 
     /// <summary>The source tokens of the module exporting Valve's slider and dropdown fields.</summary>
-    internal const string NativeFieldTokens = "['DialogSlider_Container','DropDownField','SliderField']";
+    public const string NativeFieldTokens = "['DialogSlider_Container','DropDownField','SliderField']";
+
+    /// <summary>The source tokens of Steam's native tab-page component provider.</summary>
+    public const string NativeTabsTokens = "['.TabRowTabs','activeTab:']";
+
+    /// <summary>The source token of Steam's current native generic-dialog component provider.</summary>
+    public const string NativeModalTokens =
+        "['Either closeModal or onCancel should be passed to GenericDialog. Classes: ']";
+
+    /// <summary>The source token of Steam's native modal-manager entry point.</summary>
+    public const string NativeShowModalTokens = "['props.bDisableBackgroundDismiss']";
 
     /// <summary>The source tokens of Steam's localizer module.</summary>
     internal const string LocalizationTokens =

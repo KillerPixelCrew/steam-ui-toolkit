@@ -12,6 +12,7 @@ import {
   gateSource,
   instantiate,
   loadAsset,
+  slice,
   sharedFragments,
 } from "./check-harness.mjs";
 
@@ -44,6 +45,9 @@ function RouteSwitch(props) {
   const first = props.children.find((child) => child.props?.path === props.location);
   return first ?? null;
 }
+Object.defineProperty(RouteSwitch, "toString", {
+  value: () => 'function fd(){ "computedMatch"; "TopLevelTransition"; }',
+});
 // One intermediate component, so the gate has to descend rather than read a fixed index.
 const Middle = (props) => element("div", { children: [element(RouteSwitch, props)] });
 function Router(props) {
@@ -55,7 +59,14 @@ Object.defineProperty(Router, "toString", {
 
 const memo = { $$typeof: Symbol.for("react.memo"), type: Router, compare: null };
 // The gate finds the router through the React root, so the fixture provides one.
-const rootNode = { type: Router, elementType: memo, child: null, sibling: null };
+const routeSwitchNode = {
+  type: RouteSwitch,
+  elementType: RouteSwitch,
+  child: null,
+  sibling: null,
+  alternate: { type: RouteSwitch },
+};
+const rootNode = { type: Router, elementType: memo, child: routeSwitchNode, sibling: null };
 globalThis.document = {
   getElementById: (id) => (id === "root" ? { __reactContainer$fixture: rootNode } : null),
 };
@@ -85,7 +96,7 @@ const globals = {
 
 const gate = instantiate(
   globals,
-  `${sharedFragments(asset)}\n${gateSource(asset, "createPageHost", "pages")}`,
+  `${sharedFragments(asset)}\n${slice(asset, "const steamPageRenderers", "function createPageHost()")}\n${gateSource(asset, "createPageHost", "pages")}`,
   "createPageHost()",
 );
 
@@ -121,7 +132,11 @@ globals.publish({ pages: [{ id: "artwork", path: "/wsgm/artwork", title: "Artwor
 const added = selected("/wsgm/artwork");
 assert.ok(added, "a registered page must resolve");
 assert.equal(added.type, SteamRoute, "a page must be built with Steam's own back-stack Route");
-assert.equal(selected("/settings")?.props.path, "/settings", "an addition must not shadow Steam's routes");
+assert.equal(
+  selected("/settings")?.props.path,
+  "/settings",
+  "an addition must not shadow Steam's routes",
+);
 assert.match(gate.status().lastOutcome, /additions=1/);
 
 // An addition must NOT win against a Steam route of the same path, because it goes behind them.
@@ -163,10 +178,16 @@ assert.ok(removed.ok, `remove failed: ${removed.error}`);
 assert.equal(memo.type, Router, "removal must hand back exactly what was displaced");
 assert.ok(!gate.status().claimed);
 assert.equal(selected("/wsgm/ok"), null, "removal must unregister every page");
-assert.equal(selected("/settings")?.props.path, "/settings", "removal must restore Steam's routing");
+assert.equal(
+  selected("/settings")?.props.path,
+  "/settings",
+  "removal must restore Steam's routing",
+);
 
 assert.ok(gate.install().ok, "the gate must be reinstallable");
 assert.ok(gate.remove().ok);
 assert.equal(memo.type, Router);
 
-console.log("Custom pages: route-list discovery, override vs addition, validation and restoration passed.");
+console.log(
+  "Custom pages: route-list discovery, override vs addition, validation and restoration passed.",
+);

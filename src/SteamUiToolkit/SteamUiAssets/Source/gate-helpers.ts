@@ -40,6 +40,161 @@ const resolveReact = (runtime) => {
     return factory ? runtime(factory[0]) : null;
 };
 
+// Steam's Panel joins its navigation graph and maps onActivate to mouse and gamepad OK.
+// Generic button forwardRefs have identical closure bodies, so their source cannot identify them.
+const NativeFocusableTokens = ["focusableIfEmpty", "onActivate", '"Panel"'] as const;
+const resolveNativeFocusable = (runtime) =>
+    runtime.exported([...NativeFocusableTokens], (value) => {
+        if (typeof value !== "function") return false;
+        const source = String(value);
+        return ["onActivate", "onCancel", "focusableIfEmpty", "focusClassName"].every((token) =>
+            source.includes(token),
+        );
+    });
+
+// Native Steam controls shared by plugin pages and toolkit-owned surfaces. Component export names
+// are minified and change between client builds, so every control is selected from a uniquely
+// fingerprinted provider by its own behavior. Consumers must treat a null optional control as an
+// unavailable capability rather than replacing it with an imitation.
+const uniqueSteamExport = (exports, predicate) => {
+    const matches = new Set<any>();
+    for (const name of Object.keys(exports ?? {})) {
+        try {
+            const value = exports[name];
+            if (predicate(value)) matches.add(value);
+        } catch {
+            // An export whose getter or shape test throws is not the requested component.
+        }
+    }
+    return matches.size === 1 ? [...matches][0] : null;
+};
+
+const sourceOfSteamComponent = (value) => {
+    if (typeof value === "function") return String(value);
+    return typeof value?.render === "function" ? String(value.render) : "";
+};
+
+const optionalSteamExport = (runtime, tokens, predicate) => {
+    try {
+        return runtime.exported(tokens, predicate);
+    } catch {
+        return null;
+    }
+};
+
+const resolveSteamFieldComponents = (runtime) => {
+    const react = resolveReact(runtime);
+    const fieldsFactory = runtime.findUnique(FieldTokens);
+    if (!react || !fieldsFactory) return null;
+
+    const fields = runtime(fieldsFactory[0]);
+    const sliderField = uniqueSteamExport(fields, (value) => {
+        if (typeof value !== "function") return false;
+        const source = String(value);
+        return ["onChangeComplete", "notchCount", "valueSuffix", "explainerTitle"].every((token) =>
+            source.includes(token),
+        );
+    });
+    const dropdown = uniqueSteamExport(fields, (value) => {
+        if (typeof value !== "function") return false;
+        const source = String(value);
+        return DropdownMarkers.every((token) => source.includes(token));
+    });
+    const toggleField = uniqueSteamExport(fields, (value) => {
+        const source = sourceOfSteamComponent(value);
+        return source.includes("OnToggleChange") && source.includes("this.Toggle()");
+    });
+    const dialogButton = uniqueSteamExport(fields, (value) =>
+        sourceOfSteamComponent(value).includes('"DialogButton","_DialogLayout","Secondary"'),
+    );
+    const dialogButtonPrimary = uniqueSteamExport(fields, (value) =>
+        sourceOfSteamComponent(value).includes('"DialogButton","_DialogLayout","Primary"'),
+    );
+    const textField = uniqueSteamExport(
+        fields,
+        (value) =>
+            typeof value?.validateUrl === "function" && typeof value?.validateEmail === "function",
+    );
+
+    return {
+        react,
+        sliderField,
+        dropdown,
+        toggleField,
+        dialogButton,
+        dialogButtonPrimary,
+        textField,
+    };
+};
+
+const resolveSteamUiComponents = (runtime) => {
+    const fields = resolveSteamFieldComponents(runtime);
+    if (!fields) return null;
+
+    const focusable = resolveNativeFocusable(runtime);
+
+    const tabsFactory = runtime.findUnique([".TabRowTabs", "activeTab:"]);
+    const tabs = tabsFactory
+        ? uniqueSteamExport(
+              runtime(tabsFactory[0]),
+              (value) => value?.type && String(value.type).includes("(function()"),
+          )
+        : null;
+    const modalRoot = optionalSteamExport(
+        runtime,
+        ["Either closeModal or onCancel should be passed to GenericDialog. Classes: "],
+        (value) =>
+            typeof value === "function" &&
+            String(value).includes(
+                "Either closeModal or onCancel should be passed to GenericDialog",
+            ),
+    );
+    const showModalRaw = optionalSteamExport(
+        runtime,
+        ["props.bDisableBackgroundDismiss"],
+        (value) =>
+            typeof value === "function" &&
+            String(value).includes("props.bDisableBackgroundDismiss") &&
+            !value?.prototype?.Cancel,
+    );
+    const showModal = showModalRaw
+        ? (modal, parent = window, props: any = {}) =>
+              showModalRaw(
+                  modal,
+                  parent,
+                  props.strTitle ?? "",
+                  {bHideMainWindowForPopouts: false, ...props},
+                  undefined,
+                  {bHideActions: props.bHideActionIcons},
+              )
+        : null;
+
+    return {
+        ...fields,
+        focusable,
+        tabs,
+        modalRoot,
+        showModal,
+    };
+};
+
+// Only a route returned by a successful host command is followed. Publications cannot inject a
+// target, and the bounds keep this a router operation rather than an open-ended navigation API.
+const navigateSteamRoute = (route) => {
+    if (
+        typeof route !== "string" ||
+        !route.startsWith("/") ||
+        route === "/" ||
+        route.length > 256
+    ) {
+        return false;
+    }
+    const history = window.tempNavStore?.m_history;
+    if (!history || typeof history.push !== "function") return false;
+    history.push(route);
+    return true;
+};
+
 // Valve's localize-with-fallback, chosen by what its source does rather than by parameter names:
 // it passes the token alone to LocalizeString and returns the token when no string exists. The
 // tokens "LocalizeString(e)" and "void 0===r?e" held until the September 2026 beta's minifier
@@ -61,7 +216,11 @@ const findUseObserver = (runtime) => {
     const exports = runtime(observer[0]);
     const hooks = Object.keys(exports).filter((name) => {
         const value = exports[name];
-        return typeof value === "function" && value.length === 2 && String(value).includes('"observed"');
+        return (
+            typeof value === "function" &&
+            value.length === 2 &&
+            String(value).includes('"observed"')
+        );
     });
     return hooks.length === 1 ? exports[hooks[0]] : null;
 };

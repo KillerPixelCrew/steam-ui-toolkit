@@ -224,28 +224,21 @@ function createNativeComponentHost() {
         return matches.length === 1 ? matches[0] : null;
     };
     const createControlRuntime = () => {
-        const reactFactory = runtime.findUnique(ReactTokens);
-        const fieldsFactory = runtime.findUnique(FieldTokens);
+        const controls = resolveSteamFieldComponents(runtime);
         const layoutFactory = runtime.findUnique(["PanelSectionTitle", "PanelSectionRow", "spinner"]);
         const localizationFactory = runtime.findUnique(LocalizationTokens);
-        if (!reactFactory || !fieldsFactory || !layoutFactory || !localizationFactory) return null;
+        if (!controls || !layoutFactory || !localizationFactory) return null;
 
-        const react = runtime(reactFactory[0]);
-        const fields = runtime(fieldsFactory[0]);
+        const react = controls.react;
         const layout = runtime(layoutFactory[0]);
         const localization = runtime(localizationFactory[0]);
-        const slider = uniqueFunction(fields, [
-            "onChangeComplete",
-            "notchCount",
-            "valueSuffix",
-            "explainerTitle",
-        ]);
-        const dropdown = uniqueFunction(fields, DropdownMarkers);
+        const slider = controls.sliderField;
+        const dropdown = controls.dropdown;
         // Steam's own ToggleField, from the same module as the slider and dropdown above. Selected by
         // the two markers of its class body rather than by its export name, which is minified and
         // changes with every client build. Live-verified 2026-08-29: exactly one export matches, and
         // the provider that names the module's fields lists that same class as ToggleField.
-        const toggle = uniqueFunction(fields, ["OnToggleChange", "this.Toggle()"]);
+        const toggle = controls.toggleField;
         // Valve's read-only label/value row, from the Field module rather than the fields module: it
         // is what a figure the panel only reports — the profile actually in effect — is supposed to
         // look like. Without it that line was a bare div with none of Steam's type, spacing or

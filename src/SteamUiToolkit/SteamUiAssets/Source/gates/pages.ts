@@ -21,279 +21,371 @@
 // never react-router's. That is what gives a custom page native back-navigation: Steam's Route
 // registers the match with the back stack, so B and the back gesture pop the page the way they pop
 // /settings. Using react-router's Route renders the same content and silently loses that.
+const steamPageRenderers = new Map<string, (react: any, page: any) => any>();
+const registerSteamPageRenderer = (
+  template: string,
+  render: (react: any, page: any) => any,
+) => {
+  if (!template || template === "default" || steamPageRenderers.has(template)) {
+    throw new Error(`Steam page renderer '${template}' is invalid or already registered.`);
+  }
+  steamPageRenderers.set(template, render);
+};
+
 function createPageHost() {
-    const patchId = "steam-ui.pages";
-    const claimKeys = {
-        marker: "__steamUiPageHostClaimed",
-        original: "__steamUiPageHostOriginal",
-    } as const;
+  const patchId = "steam-ui.pages";
+  const claimKeys = {
+    marker: "__steamUiPageHostClaimed",
+    original: "__steamUiPageHostOriginal",
+  } as const;
 
-    // The router, unique on this pair. "Settings.Root()" alone matches six modules and
-    // "TopLevelTransition" is the switch's own; together they name exactly one.
-    const RouterTokens = ["Settings.Root()", "TopLevelTransition"] as const;
-    const BackstackToken = "router-backstack";
-    // decky-loader's fingerprint for Steam's back-stack Route, confirmed against this client: the
-    // export whose body threads the match's path into routePath.
-    const RoutePattern = /routePath:.\.match\?\.path./u;
+  // The router, unique on this pair. "Settings.Root()" alone matches six modules and
+  // "TopLevelTransition" is the switch's own; together they name exactly one.
+  const RouterTokens = ["Settings.Root()", "TopLevelTransition"] as const;
+  const BackstackToken = "router-backstack";
+  // decky-loader's fingerprint for Steam's back-stack Route, confirmed against this client: the
+  // export whose body threads the match's path into routePath.
+  const RoutePattern = /routePath:.\.match\?\.path./u;
 
-    // A path every build of the client has and no consumer would register, used to recognise the
-    // route list among the router's children.
-    const KnownRoute = "/library/home";
-    const MaximumPages = 32;
-    const MaximumDescent = 8;
-    // The router sits about a hundred levels down the live tree, so the bound is generous; it exists
-    // to stop a cyclic or pathological tree, not to limit a legitimate search.
-    const MaximumNodesVisited = 60000;
+  // A path every build of the client has and no consumer would register, used to recognise the
+  // route list among the router's children.
+  const KnownRoute = "/library/home";
+  const MaximumPages = 32;
+  const MaximumDescent = 8;
+  // The router sits about a hundred levels down the live tree, so the bound is generous; it exists
+  // to stop a cyclic or pathological tree, not to limit a legitimate search.
+  const MaximumNodesVisited = 60000;
 
-    let runtime;
-    let react;
-    let RouteComponent = null;
-    let memo = null;
-    let installed = false;
-    let lastError = "";
-    let unsubscribe: (() => void) | null = null;
+  let runtime;
+  let react;
+  let RouteComponent = null;
+  let memo: any = null;
+  let routerFiber: any = null;
+  let routeSwitchFiber: any = null;
+  let routeSwitchWrapper: any = null;
+  let installed = false;
+  let lastError = "";
+  let unsubscribe: (() => void) | null = null;
 
-    let pages: { id: string; path: string; title: string; override?: boolean }[] = [];
-    let lastOutcome = "never rendered";
-    let observedRoutes: string[] = [];
+  let pages: { id: string; path: string; title: string; override?: boolean; template?: string }[] =
+    [];
+  let lastOutcome = "never rendered";
+  let observedRoutes: string[] = [];
 
-    const descendCache = new Map();
+  const descendCache = new Map();
 
-    // One registered page. The content is described by the host rather than supplied as a component:
-    // a consumer's React lives in its own process, not in this asset, so what crosses the bridge is
-    // data. A page renders its title and asks the host for its body, which is the same shape the
-    // Quick Access rows already use.
-    const renderPage = (page) =>
-        react.createElement(
-            "div",
-            {
-                className: "steam-ui-page",
-                role: "region",
-                "aria-label": page.title,
-            },
-            react.createElement("h1", null, page.title),
-            react.createElement("div", {id: `steam-ui-page-body-${page.id}`}),
-        );
+  // One registered page. The content is described by the host rather than supplied as a component:
+  // a consumer's React lives in its own process, not in this asset, so what crosses the bridge is
+  // data. A page renders its title and asks the host for its body, which is the same shape the
+  // Quick Access rows already use.
+  const renderPage = (page) => {
+    const renderer = steamPageRenderers.get(page.template);
+    if (renderer) return renderer(react, page);
+    return react.createElement(
+      "div",
+      {
+        className: "steam-ui-page",
+        role: "region",
+        "aria-label": page.title,
+      },
+      react.createElement("h1", null, page.title),
+      react.createElement("div", { id: `steam-ui-page-body-${page.id}` }),
+    );
+  };
 
-    const buildRoute = (page) =>
-        react.createElement(
-            RouteComponent,
-            {path: page.path, key: `steam-ui-page-${page.id}`},
-            renderPage(page),
-        );
+  const buildRoute = (page) =>
+    react.createElement(
+      RouteComponent,
+      { path: page.path, key: `steam-ui-page-${page.id}` },
+      renderPage(page),
+    );
 
-    // Whether an array of elements is the router's route list.
-    const isRouteList = (value) =>
-        Array.isArray(value) &&
-        value.length > 2 &&
-        value.length < 512 &&
-        value.some((item) => react.isValidElement(item) && item.props?.path === KnownRoute);
+  // Whether an array of elements is the router's route list.
+  const isRouteList = (value) =>
+    Array.isArray(value) &&
+    value.length > 2 &&
+    value.length < 512 &&
+    value.some((item) => react.isValidElement(item) && item.props?.path === KnownRoute);
 
-    // Inserts the registered pages into the route list.
-    //
-    // Overrides go in front of Steam's own routes and additions behind them, because the switch takes
-    // the first match. Both keep their relative order, so two overrides of the same path resolve in
-    // registration order rather than arbitrarily.
-    const applyPages = (routes) => {
-        observedRoutes = routes
-            .filter((route) => react.isValidElement(route) && typeof route.props?.path === "string")
-            .map((route) => route.props.path);
+  // Inserts the registered pages into the route list.
+  //
+  // Overrides go in front of Steam's own routes and additions behind them, because the switch takes
+  // the first match. Both keep their relative order, so two overrides of the same path resolve in
+  // registration order rather than arbitrarily.
+  const applyPages = (routes) => {
+    observedRoutes = routes
+      .filter((route) => react.isValidElement(route) && typeof route.props?.path === "string")
+      .map((route) => route.props.path);
 
-        const wanted = pages.slice(0, MaximumPages);
-        if (!wanted.length) {
-            lastOutcome = `routes=${routes.length} pages=0`;
-            return routes;
-        }
+    const wanted = pages.slice(0, MaximumPages);
+    if (!wanted.length) {
+      lastOutcome = `routes=${routes.length} pages=0`;
+      return routes;
+    }
 
-        const overrides = wanted.filter((page) => page.override === true).map(buildRoute);
-        const additions = wanted.filter((page) => page.override !== true).map(buildRoute);
-        lastOutcome = `routes=${routes.length} overrides=${overrides.length} additions=${additions.length}`;
-        return [...overrides, ...routes, ...additions];
+    const overrides = wanted.filter((page) => page.override === true).map(buildRoute);
+    const additions = wanted.filter((page) => page.override !== true).map(buildRoute);
+    lastOutcome = `routes=${routes.length} overrides=${overrides.length} additions=${additions.length}`;
+    return [...overrides, ...routes, ...additions];
+  };
+
+  // Finds the route list in the router's returned element tree and replaces it.
+  //
+  // The list is found by content — the array holding a route for a path the client always has —
+  // rather than by an index chain into props. decky-loader's gamepad path indexes
+  // children.props.children[0].props.children, which is exactly the kind of selector that breaks on
+  // a client update with no diagnostic; its own desktop path searches by /library/home instead, and
+  // that is the half worth following.
+  const replaceRouteList = (element, depth) => {
+    if (depth > MaximumDescent || !react.isValidElement(element)) return element;
+
+    const children = element.props?.children;
+    if (isRouteList(children)) {
+      return react.cloneElement(element, { children: applyPages(children) });
+    }
+
+    return mapChildren(react, element, (kid) => replaceRouteList(kid, depth + 1));
+  };
+
+  const pageDescender = (type) =>
+    function SteamUiPageDescend(props) {
+      return descend(type(props), 0);
     };
+  const descend = (element, depth) => {
+    if (depth > MaximumDescent || !react.isValidElement(element)) return element;
+    const replaced = replaceRouteList(element, 0);
+    if (replaced !== element) return replaced;
+    return descendInto(react, element, descendCache, pageDescender) ?? element;
+  };
 
-    // Finds the route list in the router's returned element tree and replaces it.
-    //
-    // The list is found by content — the array holding a route for a path the client always has —
-    // rather than by an index chain into props. decky-loader's gamepad path indexes
-    // children.props.children[0].props.children, which is exactly the kind of selector that breaks on
-    // a client update with no diagnostic; its own desktop path searches by /library/home instead, and
-    // that is the half worth following.
-    const replaceRouteList = (element, depth) => {
-        if (depth > MaximumDescent || !react.isValidElement(element)) return element;
+  const resolve = () => {
+    runtime = getWebpackRuntime("pages");
+    const resolvedReact = resolveReact(runtime);
+    if (!resolvedReact) {
+      lastError = "React runtime was not a unique match";
+      return false;
+    }
+    react = resolvedReact;
 
-        const children = element.props?.children;
-        if (isRouteList(children)) {
-            return react.cloneElement(element, {children: applyPages(children)});
-        }
+    const backstack = runtime.findUnique([BackstackToken]);
+    if (!backstack) {
+      lastError = "router-backstack module was not a unique match";
+      return false;
+    }
+    const backstackExports = runtime(backstack[0]);
+    const routes = Object.keys(backstackExports).filter(
+      (name) =>
+        typeof backstackExports[name] === "function" &&
+        RoutePattern.test(String(backstackExports[name])),
+    );
+    if (routes.length !== 1) {
+      lastError = `Steam's Route export was ${routes.length ? "ambiguous" : "absent"}`;
+      return false;
+    }
+    RouteComponent = backstackExports[routes[0]];
 
-        return mapChildren(react, element, (kid) => replaceRouteList(kid, depth + 1));
-    };
+    // The router module is confirmed to exist and to be unique, but it exports nothing that
+    // reaches the router: the memo is built locally inside the module. Verified against the live
+    // client on 2026-09-10 — every export of that module was inspected and none is a memo whose
+    // type carries the marker. So the handle comes from the rendered tree instead, which is also
+    // where decky-loader gets it. Checking the module anyway keeps the failure specific: "Steam
+    // moved the router" and "the tree has not been built yet" are different problems.
+    if (!runtime.findUnique([RouterTokens[0], RouterTokens[1]])) {
+      lastError = "router module was not a unique match";
+      return false;
+    }
 
-    const pageDescender = (type) =>
-        function SteamUiPageDescend(props) {
-            return descend(type(props), 0);
-        };
-    const descend = (element, depth) => {
-        if (depth > MaximumDescent || !react.isValidElement(element)) return element;
-        const replaced = replaceRouteList(element, 0);
-        if (replaced !== element) return replaced;
-        return descendInto(react, element, descendCache, pageDescender) ?? element;
-    };
+    memo = findRouterMemo();
+    if (!memo) {
+      lastError = "router was not found in the rendered tree";
+      return false;
+    }
+    return true;
+  };
 
-    const resolve = () => {
-        runtime = getWebpackRuntime("pages");
-        const resolvedReact = resolveReact(runtime);
-        if (!resolvedReact) {
-            lastError = "React runtime was not a unique match";
-            return false;
-        }
-        react = resolvedReact;
+  // Finds the router's memo through SharedJSContext's own React root.
+  //
+  // SharedJSContext holds the tree that every Steam window renders from, which is why a claim made
+  // here reaches the Big Picture window and the menu window alike. The search is bounded in both
+  // nodes visited and depth so a pathological tree cannot hang the injection, and it matches on the
+  // component's source rather than on a path through the tree.
+  //
+  // Breadth-first over the child and sibling links, as the Home carousel walks the same tree. A
+  // recursive walk nests a frame for every sibling, so a long sibling chain could exhaust the stack
+  // before the node bound was ever reached.
+  const findRouterMemo = () => {
+    const host = document.getElementById("root");
+    if (!host) return null;
+    const key = Object.keys(host).find((name) => name.startsWith("__reactContainer$"));
+    if (!key) return null;
 
-        const backstack = runtime.findUnique([BackstackToken]);
-        if (!backstack) {
-            lastError = "router-backstack module was not a unique match";
-            return false;
-        }
-        const backstackExports = runtime(backstack[0]);
-        const routes = Object.keys(backstackExports).filter(
-            (name) =>
-                typeof backstackExports[name] === "function" &&
-                RoutePattern.test(String(backstackExports[name])),
-        );
-        if (routes.length !== 1) {
-            lastError = `Steam's Route export was ${routes.length ? "ambiguous" : "absent"}`;
-            return false;
-        }
-        RouteComponent = backstackExports[routes[0]];
+    const seen = new Set();
+    const queue: any[] = [host[key]];
+    let visited = 0;
+    for (let head = 0; head < queue.length && visited <= MaximumNodesVisited; head++) {
+      const node = queue[head];
+      if (!node || seen.has(node)) continue;
+      seen.add(node);
+      visited++;
+      const current = node.elementType?.type;
+      const stored = current?.[claimKeys.marker] === true ? current[claimKeys.original] : current;
+      const original = stored?.kind === "steam-ui-property-snapshot-v1" ? stored.value : stored;
+      if (
+        typeof original === "function" &&
+        String(original).includes(RouterTokens[0]) &&
+        node.elementType &&
+        typeof node.elementType === "object"
+      ) {
+        routerFiber = node;
+        return node.elementType;
+      }
+      queue.push(node.child, node.sibling);
+    }
+    return null;
+  };
 
-        // The router module is confirmed to exist and to be unique, but it exports nothing that
-        // reaches the router: the memo is built locally inside the module. Verified against the live
-        // client on 2026-09-10 — every export of that module was inspected and none is a memo whose
-        // type carries the marker. So the handle comes from the rendered tree instead, which is also
-        // where decky-loader gets it. Checking the module anyway keeps the failure specific: "Steam
-        // moved the router" and "the tree has not been built yet" are different problems.
-        if (!runtime.findUnique([RouterTokens[0], RouterTokens[1]])) {
-            lastError = "router module was not a unique match";
-            return false;
-        }
+  const findRouteSwitchFiber = () => {
+    const host = document.getElementById("root");
+    const key = host
+      ? Object.keys(host).find((name) => name.startsWith("__reactContainer$"))
+      : null;
+    const queue: any[] = key ? [(host as any)[key]] : [];
+    for (
+      let head = 0, visited = 0;
+      head < queue.length && visited <= MaximumNodesVisited;
+      head++, visited++
+    ) {
+      const node = queue[head];
+      if (!node) continue;
+      const current = node.type;
+      const original = current?.__steamUiPageSwitchOriginal ?? current;
+      const source = typeof original === "function" ? String(original) : "";
+      if (source.includes("computedMatch") && source.includes("TopLevelTransition")) return node;
+      queue.push(node.child, node.sibling);
+    }
+    return null;
+  };
 
-        memo = findRouterMemo();
-        if (!memo) {
-            lastError = "router was not found in the rendered tree";
-            return false;
-        }
-        return true;
-    };
-
-    // Finds the router's memo through SharedJSContext's own React root.
-    //
-    // SharedJSContext holds the tree that every Steam window renders from, which is why a claim made
-    // here reaches the Big Picture window and the menu window alike. The search is bounded in both
-    // nodes visited and depth so a pathological tree cannot hang the injection, and it matches on the
-    // component's source rather than on a path through the tree.
-    //
-    // Breadth-first over the child and sibling links, as the Home carousel walks the same tree. A
-    // recursive walk nests a frame for every sibling, so a long sibling chain could exhaust the stack
-    // before the node bound was ever reached.
-    const findRouterMemo = () => {
-        const host = document.getElementById("root");
-        if (!host) return null;
-        const key = Object.keys(host).find((name) => name.startsWith("__reactContainer$"));
-        if (!key) return null;
-
-        const seen = new Set();
-        const queue: any[] = [host[key]];
-        let visited = 0;
-        for (let head = 0; head < queue.length && visited <= MaximumNodesVisited; head++) {
-            const node = queue[head];
-            if (!node || seen.has(node)) continue;
-            seen.add(node);
-            visited++;
-            if (
-                typeof node.type === "function" &&
-                String(node.type).includes(RouterTokens[0]) &&
-                node.elementType &&
-                typeof node.elementType === "object" &&
-                node.elementType.type === node.type
-            ) {
-                return node.elementType;
-            }
-            queue.push(node.child, node.sibling);
-        }
-        return null;
-    };
-
-    const install = () => {
-        if (installed) return {ok: true, alreadyInstalled: true};
-        const resolved = attemptResolution(resolve, (error) => {
-            lastError = "page host resolution failed: " + String(error);
-        });
-        if (!resolved) return {ok: false, error: lastError};
-
-        const claim = claimMember(memo, "type", claimKeys, (original: any) => {
-            if (typeof original !== "function") return original;
-            return function SteamUiPageRouter(props) {
-                return descend(original(props), 0);
-            };
-        });
-        if (!claim.ok) {
-            lastError = claim.error;
-            return {ok: false, error: lastError};
-        }
-
-        installed = true;
-        lastError = "";
-        unsubscribe = subscribe(patchId, (state) => {
-            const declared = Array.isArray(state?.pages) ? state.pages : [];
-            pages = declared
-                .filter(
-                    (page) =>
-                        page &&
-                        typeof page.id === "string" &&
-                        typeof page.title === "string" &&
-                        typeof page.path === "string" &&
-                        // A path has to be absolute or Steam's matcher never sees it, and a page that claims
-                        // every route would black out the client.
-                        page.path.startsWith("/") &&
-                        page.path !== "/",
-                )
-                .slice(0, MaximumPages);
-        });
-        return {ok: true, installed: true, reclaimed: claim.reclaimed};
-    };
-
-    const remove = () => {
-        if (!installed) return {ok: true, absent: true};
-        installed = false;
-        unsubscribe = endSubscription(unsubscribe);
-
-        pages = [];
-        descendCache.clear();
-        const released = releaseMember(memo, "type", claimKeys);
-        if (!released.ok) {
-            lastError = released.error ?? "page host release failed";
-            return {ok: false, error: lastError};
-        }
-
-        lastOutcome = "removed";
-        return {ok: true, removed: true};
-    };
-
-    const status = () => ({
-        ok: true,
-        installed,
-        resolved: !!memo,
-        routeResolved: !!RouteComponent,
-        claimed: memberClaimed(memo, "type", claimKeys),
-        pages: pages.length,
-        // What the last render actually saw. Everything above can be true while no page is reachable,
-        // because insertion depends on finding the route list in the tree Steam rendered.
-        routeCount: observedRoutes.length,
-        lastOutcome,
-        lastError,
+  const install = () => {
+    if (installed) return { ok: true, alreadyInstalled: true };
+    const resolved = attemptResolution(resolve, (error) => {
+      lastError = "page host resolution failed: " + String(error);
     });
+    if (!resolved) return { ok: false, error: lastError };
 
-    return {install, remove, status};
+    const claim = claimMember(memo, "type", claimKeys, (original: any) => {
+      if (typeof original !== "function") return original;
+      return function SteamUiPageRouter(props) {
+        return descend(original(props), 0);
+      };
+    });
+    if (!claim.ok) {
+      lastError = claim.error;
+      return { ok: false, error: lastError };
+    }
+
+    routeSwitchFiber = findRouteSwitchFiber();
+    if (!routeSwitchFiber) {
+      releaseMember(memo, "type", claimKeys);
+      lastError = "Steam's mounted route switch was not found";
+      return { ok: false, error: lastError };
+    }
+    const currentSwitch = routeSwitchFiber.type;
+    const originalSwitch = currentSwitch?.__steamUiPageSwitchOriginal ?? currentSwitch;
+    routeSwitchWrapper = function SteamUiPageSwitch(props) {
+      const children = react.Children.toArray(props?.children);
+      return originalSwitch({
+        ...props,
+        children: isRouteList(children) ? applyPages(children) : children,
+      });
+    };
+    Object.defineProperty(routeSwitchWrapper, "__steamUiPageSwitchOriginal", {
+      value: originalSwitch,
+    });
+    routeSwitchFiber.type = routeSwitchWrapper;
+    if (routeSwitchFiber.alternate) routeSwitchFiber.alternate.type = routeSwitchWrapper;
+
+    // The memo object is now patched globally, but an already mounted fiber keeps its resolved
+    // function in `type`. Swap that live instance too, then ask the nearest class owner to
+    // reconcile. Without this late-install step, a bridge installed after Steam boot reports a
+    // successful claim while the router continues running the old function until a full reload.
+    routerFiber.type = memo.type;
+    if (routerFiber.alternate) routerFiber.alternate.type = memo.type;
+    let owner = routerFiber.return;
+    for (let depth = 0; owner && depth < 200; depth++, owner = owner.return) {
+      if (typeof owner.stateNode?.forceUpdate === "function") {
+        owner.stateNode.forceUpdate();
+        break;
+      }
+    }
+
+    installed = true;
+    lastError = "";
+    unsubscribe = subscribe(patchId, (state) => {
+      const declared = Array.isArray(state?.pages) ? state.pages : [];
+      pages = declared
+        .filter(
+          (page) =>
+            page &&
+            typeof page.id === "string" &&
+            typeof page.title === "string" &&
+            typeof page.path === "string" &&
+            // A path has to be absolute or Steam's matcher never sees it, and a page that claims
+            // every route would black out the client.
+            page.path.startsWith("/") &&
+            page.path !== "/",
+        )
+        .slice(0, MaximumPages);
+    });
+    return { ok: true, installed: true, reclaimed: claim.reclaimed };
+  };
+
+  const remove = () => {
+    if (!installed) return { ok: true, absent: true };
+    installed = false;
+    unsubscribe = endSubscription(unsubscribe);
+
+    pages = [];
+    descendCache.clear();
+    const released = releaseMember(memo, "type", claimKeys);
+    if (!released.ok) {
+      lastError = released.error ?? "page host release failed";
+      return { ok: false, error: lastError };
+    }
+
+    if (routerFiber) {
+      routerFiber.type = memo.type;
+      if (routerFiber.alternate) routerFiber.alternate.type = memo.type;
+    }
+    if (routeSwitchFiber && routeSwitchWrapper) {
+      const originalSwitch = routeSwitchWrapper.__steamUiPageSwitchOriginal;
+      if (routeSwitchFiber.type === routeSwitchWrapper) routeSwitchFiber.type = originalSwitch;
+      if (routeSwitchFiber.alternate?.type === routeSwitchWrapper) {
+        routeSwitchFiber.alternate.type = originalSwitch;
+      }
+    }
+    routeSwitchFiber = null;
+    routeSwitchWrapper = null;
+
+    lastOutcome = "removed";
+    return { ok: true, removed: true };
+  };
+
+  const status = () => ({
+    ok: true,
+    installed,
+    resolved: !!memo,
+    routeResolved: !!RouteComponent,
+    claimed: memberClaimed(memo, "type", claimKeys),
+    pages: pages.length,
+    // What the last render actually saw. Everything above can be true while no page is reachable,
+    // because insertion depends on finding the route list in the tree Steam rendered.
+    routeCount: observedRoutes.length,
+    lastOutcome,
+    lastError,
+  });
+
+  return { install, remove, status };
 }
 
 registerGate("pages", createPageHost());

@@ -19,7 +19,13 @@ namespace SteamUiToolkit;
 ///     addition behind them. Defaults to adding, because silently shadowing a client route is not
 ///     something a caller should get by accident.
 /// </param>
-public sealed record SteamPage(string Id, string Path, string Title, bool Override = false);
+/// <param name="Template">A toolkit-owned renderer name. The default renders a heading-only page.</param>
+public sealed record SteamPage(
+    string Id,
+    string Path,
+    string Title,
+    bool Override = false,
+    string Template = "default");
 
 /// <summary>The pages that should currently be registered.</summary>
 /// <param name="Pages">The pages, in the order they are inserted.</param>
