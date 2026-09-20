@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 
 namespace SteamUiToolkit.Tests;
@@ -113,19 +114,24 @@ public sealed class SteamUiModuleTests
     }
 
     [Fact]
-    public async Task FailingPublicationDoesNotPreventIndependentPublication()
+    public async Task AFailingModuleIsQuarantinedWithoutStoppingAnIndependentOne()
     {
         await using var transport = new FakeSteamUiTransport();
         SteamUiModuleSet modules = new(
         [
             new SteamUiModule(
-                "fixture",
+                "broken",
                 publications:
                 [
                     new SteamUiStatePublication(
                         "fixture.bad",
                         () => true,
-                        () => throw new InvalidOperationException("fixture failure")),
+                        () => throw new InvalidOperationException("fixture failure"))
+                ]),
+            new SteamUiModule(
+                "independent",
+                publications:
+                [
                     new SteamUiStatePublication(
                         "fixture.good",
                         () => true,
@@ -142,11 +148,86 @@ public sealed class SteamUiModuleTests
             modules,
             () => true,
             () => true);
+        ConcurrentQueue<SteamUiModuleFailure> failures = [];
+        runtime.ModuleFailed += (_, failure) => failures.Enqueue(failure);
 
         runtime.QueuePublication();
 
         await TestJson.WaitUntilAsync(() => Deliveries(transport).Count == 1);
         Assert.Contains("fixture.good", Deliveries(transport)[0], StringComparison.Ordinal);
+        await TestJson.WaitUntilAsync(() => failures.Count == 1);
+        Assert.True(failures.TryDequeue(out var failure));
+        Assert.Equal("broken", failure!.Module.Id);
+        Assert.Equal("state publication", failure.Operation);
+        Assert.Equal("fixture failure", failure.Error);
+    }
+
+    [Fact]
+    public async Task AQuarantinedModuleStopsPublishingItsOtherSurfacesToo()
+    {
+        // Isolation is by module, not by publication: a module whose read threw is not trusted to
+        // describe the rest of its own state, so its remaining surfaces stay silent until the
+        // consumer retracts and re-registers it.
+        await using var transport = new FakeSteamUiTransport();
+        var siblingReads = 0;
+        var rounds = 0;
+        SteamUiModuleSet modules = new(
+        [
+            new SteamUiModule(
+                "fixture",
+                publications:
+                [
+                    new SteamUiStatePublication(
+                        "fixture.bad",
+                        () => true,
+                        () => throw new InvalidOperationException("fixture failure")),
+                    new SteamUiStatePublication(
+                        "fixture.sibling",
+                        () => true,
+                        () =>
+                        {
+                            Interlocked.Increment(ref siblingReads);
+                            return ValueTask.FromResult<JsonElement?>(TestJson.Parse("{\"value\":1}"));
+                        })
+                ]),
+            new SteamUiModule(
+                "beacon",
+                publications:
+                [
+                    new SteamUiStatePublication(
+                        "fixture.beacon",
+                        () => true,
+                        () =>
+                        {
+                            Interlocked.Increment(ref rounds);
+                            return ValueTask.FromResult<JsonElement?>(TestJson.Parse("{\"value\":1}"));
+                        })
+                ])
+        ]);
+        await using var bridge = new SteamUiBridgeHost(
+            transport,
+            Asset,
+            modules.AllowedCommands);
+        Assert.True(await bridge.BootstrapAsync());
+        await using var runtime = new SteamUiModuleRuntime(
+            bridge,
+            modules,
+            () => true,
+            () => true);
+        ConcurrentQueue<SteamUiModuleFailure> failures = [];
+        runtime.ModuleFailed += (_, failure) => failures.Enqueue(failure);
+
+        // The beacon marks each completed round, so the sibling's silence is observed after a round
+        // that certainly ran rather than before the loop reached it.
+        runtime.QueuePublication();
+        await TestJson.WaitUntilAsync(() => Volatile.Read(ref rounds) == 1);
+        runtime.QueuePublication();
+        await TestJson.WaitUntilAsync(() => Volatile.Read(ref rounds) == 2);
+
+        Assert.Equal(0, Volatile.Read(ref siblingReads));
+        Assert.DoesNotContain(
+            Deliveries(transport), sent => sent.Contains("fixture.sibling", StringComparison.Ordinal));
+        Assert.Equal("fixture", failures.Single().Module.Id);
     }
 
     [Fact]
