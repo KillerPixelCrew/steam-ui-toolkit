@@ -39,6 +39,7 @@ enabled; this repository supplies mechanisms and truthful state.
   `check-power-profile` (row dropdowns, glyphs, device controls, sections, power sliders and the
   slider echo), `check-service-gates` (Bluetooth and brightness), `check-navigation-panel`,
   `check-pages`, `check-storage`, `check-library` (library badge, details stat and the JSX claim),
+  `check-extension-surfaces` (the Extensions tab and the game context menu),
   `check-home-carousel` and `check-screensaver`.
 - `tests/SteamUiToolkit.Tests`: transport, bridge, lifecycle, extension, and surface contracts, with
   one shared set of fakes, builders and the recording backend under `Fakes/`.

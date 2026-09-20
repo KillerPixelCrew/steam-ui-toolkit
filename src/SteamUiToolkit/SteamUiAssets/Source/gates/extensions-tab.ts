@@ -65,6 +65,7 @@ function createExtensionsTab() {
         item.settings.length <= 128 &&
         item.settings.every(validSetting))) &&
     Number.isSafeInteger(item.configurationRevision ?? 0) &&
+    (item.configurationRevision ?? 0) >= 0 &&
     (item.detail === undefined || item.detail === null || typeof item.detail === "string");
 
   // Steam's QAM tab view is private. This bounded traversal finds the first element whose own
@@ -107,13 +108,24 @@ function createExtensionsTab() {
         // publication. A rejected click must not tear down the whole Quick Access panel.
       });
     };
+    // A typed draft belongs to the publication it was typed against. Dropping it when the host
+    // answers with a new configuration revision, and when the change is refused, is what stops the
+    // box from showing and resending a value the host has already replaced or rejected.
+    const dropDraft = (draftKey) =>
+      setDrafts((previous) => {
+        if (!(draftKey in previous)) return previous;
+        const next = { ...previous };
+        delete next[draftKey];
+        return next;
+      });
     const configure = (item, setting, value) => {
+      const draftKey = `${item.id}:${setting.key}`;
       void request(
         patchId,
         "configure",
         { id: item.id, key: setting.key, value, revision: item.configurationRevision ?? 0 },
         nextActionGeneration(patchId),
-      ).catch(() => {});
+      ).catch(() => dropDraft(draftKey));
     };
     const settingControl = (item, setting) => {
       const draftKey = `${item.id}:${setting.key}`;
@@ -231,7 +243,12 @@ function createExtensionsTab() {
           ),
         );
       }
-      const current = drafts[draftKey] ?? setting.textValue ?? setting.numberValue ?? "";
+      const revision = item.configurationRevision ?? 0;
+      const draft = drafts[draftKey];
+      const current =
+        draft && draft.revision === revision
+          ? draft.value
+          : (setting.textValue ?? setting.numberValue ?? "");
       return react.createElement(
         "div",
         {
@@ -246,7 +263,10 @@ function createExtensionsTab() {
           min: setting.minimum,
           max: setting.maximum,
           onChange: (event) =>
-            setDrafts((previous) => ({ ...previous, [draftKey]: event.currentTarget.value })),
+            setDrafts((previous) => ({
+              ...previous,
+              [draftKey]: { value: event.currentTarget.value, revision },
+            })),
           style: {
             padding: "8px 10px",
             color: "inherit",
@@ -419,17 +439,19 @@ function createExtensionsTab() {
     return { ok: true, installed: true, reclaimed: claim.reclaimed };
   };
 
+  // Ownership is given up before the gate forgets it owns anything: a failed release otherwise
+  // leaves the claim live while every later remove() answers `absent` and never retries it.
   const remove = () => {
     if (!installed) return { ok: true, absent: true };
-    installed = false;
-    unsubscribe = endSubscription(unsubscribe);
-    desired = { items: [], revision: 0 };
-    descenderCache.clear();
     const released = releaseMember(memo, "type", claimKeys);
     if (!released.ok) {
       lastError = released.error ?? "Extensions tab release failed";
       return { ok: false, error: lastError };
     }
+    installed = false;
+    unsubscribe = endSubscription(unsubscribe);
+    desired = { items: [], revision: 0 };
+    descenderCache.clear();
     lastOutcome = "removed";
     return { ok: true, removed: true };
   };

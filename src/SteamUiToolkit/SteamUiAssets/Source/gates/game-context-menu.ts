@@ -200,19 +200,22 @@ function createGameContextMenu() {
     return { ok: true, installed: true, observing: true };
   };
 
+  // Both claims go back before the gate forgets it holds them. Clearing `installed` and
+  // `menuComponent` first would answer `absent` on every later remove() while the render claim and
+  // the JSX interception were still live, with nothing left that names what to release.
   const remove = () => {
     if (!installed) return { ok: true, absent: true };
-    installed = false;
-    unsubscribe = endSubscription(unsubscribe);
     const releasedElements = releaseElements(jsxRuntime, patchId);
-    desired = { items: [], revision: 0 };
     const releasedRender = releaseMember(menuComponent?.prototype, "render", renderClaimKeys);
-    menuComponent = null;
     if (!releasedRender.ok || !releasedElements.ok) {
       lastError =
         releasedRender.error ?? releasedElements.error ?? "Game context menu release failed";
       return { ok: false, error: lastError };
     }
+    installed = false;
+    unsubscribe = endSubscription(unsubscribe);
+    desired = { items: [], revision: 0 };
+    menuComponent = null;
     lastOutcome = "removed";
     return { ok: true, removed: true };
   };

@@ -286,8 +286,11 @@ function createPageHost() {
 
     routeSwitchFiber = findRouteSwitchFiber();
     if (!routeSwitchFiber) {
-      releaseMember(memo, "type", claimKeys);
-      lastError = "Steam's mounted route switch was not found";
+      const rolledBack = releaseMember(memo, "type", claimKeys);
+      lastError = rolledBack.ok
+        ? "Steam's mounted route switch was not found"
+        : "Steam's mounted route switch was not found, and the router claim could not be released: " +
+          (rolledBack.error ?? "unknown");
       return { ok: false, error: lastError };
     }
     const currentSwitch = routeSwitchFiber.type;
@@ -340,13 +343,11 @@ function createPageHost() {
     return { ok: true, installed: true, reclaimed: claim.reclaimed };
   };
 
+  // Every owned mutation goes back before the gate forgets it owns anything. Clearing `installed`
+  // ahead of the fallible release left both wrappers running while each later remove() answered
+  // `absent`, so a failed cleanup could never be retried.
   const remove = () => {
     if (!installed) return { ok: true, absent: true };
-    installed = false;
-    unsubscribe = endSubscription(unsubscribe);
-
-    pages = [];
-    descendCache.clear();
     const released = releaseMember(memo, "type", claimKeys);
     if (!released.ok) {
       lastError = released.error ?? "page host release failed";
@@ -367,6 +368,10 @@ function createPageHost() {
     routeSwitchFiber = null;
     routeSwitchWrapper = null;
 
+    installed = false;
+    unsubscribe = endSubscription(unsubscribe);
+    pages = [];
+    descendCache.clear();
     lastOutcome = "removed";
     return { ok: true, removed: true };
   };

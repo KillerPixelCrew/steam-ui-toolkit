@@ -308,7 +308,10 @@ public static class SteamApps
         return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Reads the current custom logo position, or null when Steam has none.</summary>
+    /// <summary>
+    ///     Reads the current custom logo position, or null when Steam has none and when the stored
+    ///     dimensions are outside the 5 to 100 percent range <see cref="SaveLogoPositionAsync" /> accepts.
+    /// </summary>
     public static async Task<SteamLogoPosition?> ReadLogoPositionAsync(
         uint appId, CancellationToken cancellationToken = default)
     {
@@ -338,7 +341,12 @@ public static class SteamApps
                 return null;
             }
 
-            return new SteamLogoPosition(anchor, widthValue, heightValue);
+            // Steam reports 0 for an app that has no stored position, and the save path accepts
+            // only 5 through 100. Anything outside that is not a position this library can hand
+            // straight back to SaveLogoPositionAsync, so it reads as none rather than as a value.
+            return widthValue is >= 5 and <= 100 && heightValue is >= 5 and <= 100
+                ? new SteamLogoPosition(anchor, widthValue, heightValue)
+                : null;
         }
         catch (JsonException)
         {

@@ -1116,11 +1116,15 @@ observed values in the TDP description. Default state retains the existing split
 
 `SteamExtensionsTabSurface` publishes `SteamExtensionsTabState` under `steam-ui.extensions-tab`.
 Each plugin item carries `Id`, `Name`, `Version`, `Status`, optional `Detail`, bounded actions,
-primitive settings and the configuration revision; the gate renders at most 64 items. Activation
-sends `activate {id}`. A setting sends exact `configure {id,key,value,expectedRevision}` to
-`ISteamExtensionsTabBackend`; booleans, finite numbers and bounded text are the only values
-accepted. Secret settings render as password inputs and their current value should be omitted from
-published state. Action and save controls use Steam's native focusable Panel. The Quick Access memo
+primitive settings and the configuration revision; the gate renders at most 64 items. A revision
+that is not a non-negative safe integer refuses the item at the publication boundary, since the
+configure command would reject every change it offered. Activation sends `activate {id}`. A setting
+sends exact `configure {id,key,value,expectedRevision}` to `ISteamExtensionsTabBackend`; booleans,
+finite numbers and bounded text are the only values accepted. A value typed into a text or number
+box belongs to the revision it was typed against: a newer published revision and a refused save
+both drop it, so the box never shows or resends a value the host has replaced or rejected. Secret
+settings render as password inputs and their current value should be omitted from published
+state. Action and save controls use Steam's native focusable Panel. The Quick Access memo
 claim retains its original member snapshot, and both discovery and subsequent probes recognize that
 snapshot rather than rejecting the installed wrapper.
 
@@ -1132,9 +1136,14 @@ gate shares the `steam-ui.jsx-runtime` resource and intercepts creation of the p
 before its first render. It does not scan the visible DOM. Removal releases both the named element
 interceptor and the class's render claim.
 
+Both gates give their claims back before they forget they hold them, so a release that throws is
+reported and stays retriable rather than leaving owned work live behind an `absent` answer. The
+custom-page host does the same for its router claim and both patched fibers.
+
 `SteamExtensionsTabTests` and `SteamGameContextMenuTests` cover the typed contracts.
 `eng/check-extension-surfaces.mjs` covers the emitted asset's repeated probe/reclaim, native
-activation, first-menu insertion and removal. Offline checks do not establish live visual parity
+activation, first-menu insertion, draft reconciliation, a failed release that stays retriable, and
+removal. Offline checks do not establish live visual parity
 with Decky or prove compatibility with a different Steam build.
 
 ## 16. The client layer
