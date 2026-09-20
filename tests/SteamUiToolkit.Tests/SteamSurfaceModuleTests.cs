@@ -129,6 +129,52 @@ public sealed class SteamSurfaceModuleTests
     }
 
     [Fact]
+    public void AudioFormatStateKeepsOptionIdentitySeparateFromTheLabelTheUserReads()
+    {
+        var wire = SteamAudioFormatRow.Serialize(new SteamAudioFormatState(true,
+            [new SteamAudioFormatOption("2ch-16-48000", "Stereo"), new SteamAudioFormatOption("8ch-24-48000", "7.1")],
+            "8ch-24-48000",
+            [new SteamAudioFormatOption("off", "Off"), new SteamAudioFormatOption("dolby", "Dolby Atmos")],
+            "off",
+            "Exclusive mode is in use."));
+
+        Assert.True(wire.GetProperty("available").GetBoolean());
+        Assert.Equal("8ch-24-48000", wire.GetProperty("currentFormat").GetString());
+        Assert.Equal("2ch-16-48000", wire.GetProperty("formatOptions")[0].GetProperty("id").GetString());
+        Assert.Equal("7.1", wire.GetProperty("formatOptions")[1].GetProperty("label").GetString());
+        Assert.Equal("off", wire.GetProperty("currentSpatial").GetString());
+        Assert.Equal("dolby", wire.GetProperty("spatialOptions")[1].GetProperty("id").GetString());
+        Assert.Equal("Exclusive mode is in use.", wire.GetProperty("statusText").GetString());
+    }
+
+    [Fact]
+    public async Task BothAudioFormatChoicesReachTheBackendAndAMalformedOneIsRefusedByItsOwnName()
+    {
+        RecordingBackend backend = new();
+        SteamUiModuleSet set = new([
+            SteamAudioFormatRow.Module(Always,
+                () => new ValueTask<SteamAudioFormatState?>(null as SteamAudioFormatState), backend)
+        ]);
+
+        var format = await DispatchAsync(
+            set, SteamAudioFormatRow.PatchId, "setFormat", """{"target":"8ch-24-48000"}""");
+        var spatial = await DispatchAsync(
+            set, SteamAudioFormatRow.PatchId, "setSpatial", """{"target":"dolby"}""");
+        var refusedFormat = await DispatchAsync(
+            set, SteamAudioFormatRow.PatchId, "setFormat", """{"target":42}""");
+        var refusedSpatial = await DispatchAsync(
+            set, SteamAudioFormatRow.PatchId, "setSpatial", "null");
+
+        Assert.True(format.Succeeded);
+        Assert.True(spatial.Succeeded);
+        Assert.Equal(["audio format 8ch-24-48000", "spatial audio dolby"], backend.Calls);
+        Assert.False(refusedFormat.Succeeded);
+        Assert.Equal("The audio format payload is invalid.", refusedFormat.Error);
+        Assert.False(refusedSpatial.Succeeded);
+        Assert.Equal("The spatial audio payload is invalid.", refusedSpatial.Error);
+    }
+
+    [Fact]
     public async Task BluetoothDeviceOperationsCarryTheDeviceIdAndTheBlueZFlagsAreAcceptedByDefault()
     {
         RecordingBackend backend = new();
