@@ -15,6 +15,14 @@ namespace SteamUiToolkit;
 /// <param name="Battery">Battery assignment ID, or empty for no local assignment.</param>
 /// <param name="Scope">Human-readable assignment scope.</param>
 /// <param name="UnsetLabel">Label for clearing a local assignment or inheriting the global value.</param>
+/// <param name="AcOverrideId">
+///     The host's setting id while the running game's own profile supplies the AC assignment; null
+///     otherwise.
+/// </param>
+/// <param name="BatteryOverrideId">
+///     The same for the battery assignment. The row's Use global action clears the assignment, which is
+///     already what inheriting means, so this row needs no command of its own for it.
+/// </param>
 public sealed record SteamPowerPresetState(
     bool Available,
     IReadOnlyList<SteamPowerProfileOption> Options,
@@ -23,7 +31,9 @@ public sealed record SteamPowerPresetState(
     string Ac,
     string Battery,
     string Scope,
-    string UnsetLabel);
+    string UnsetLabel,
+    string? AcOverrideId = null,
+    string? BatteryOverrideId = null);
 
 /// <summary>Saves power-source assignments through the host's existing policy.</summary>
 public interface ISteamPowerPresetBackend

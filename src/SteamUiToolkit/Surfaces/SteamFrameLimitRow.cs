@@ -54,6 +54,10 @@ namespace SteamUiToolkit;
 ///     Every rate the display accepted, ascending. Windows takes a mode or refuses, so the refresh
 ///     mode is notched to exactly these.
 /// </param>
+/// <param name="OverrideId">
+///     The host's setting id while the running game's own profile supplies this value, so the row marks
+///     it and offers Use global; null otherwise. See <see cref="ISteamProfileOverrideBackend" />.
+/// </param>
 public sealed record SteamFrameLimitState(
     bool Available,
     int? MinimumFps,
@@ -68,7 +72,8 @@ public sealed record SteamFrameLimitState(
     int? RefreshMinHz = null,
     int? RefreshMaxHz = null,
     int? CurrentRefreshHz = null,
-    IReadOnlyList<int>? RefreshRates = null);
+    IReadOnlyList<int>? RefreshRates = null,
+    string? OverrideId = null);
 
 /// <summary>What answers the unified row's two modes.</summary>
 public interface ISteamFrameLimitBackend
@@ -104,7 +109,7 @@ public static class SteamFrameLimitRow
     public const string PatchId = "steam-ui.frame-limit";
 
     /// <summary>The exact command vocabulary the injected row sends.</summary>
-    public static IReadOnlyList<string> Commands { get; } = ["setFrameLimit", "setRefreshRate"];
+    public static IReadOnlyList<string> Commands { get; } = ["setFrameLimit", "setRefreshRate", SteamProfileOverride.Command];
 
     /// <summary>The row patch.</summary>
     public static SteamQuickAccessRowPatch Patch { get; } = new(
@@ -126,12 +131,14 @@ public static class SteamFrameLimitRow
     /// <param name="read">The current state, or null to publish nothing this round.</param>
     /// <param name="backend">What answers the row's writes.</param>
     /// <param name="id">The module id, for diagnostics and duplicate detection.</param>
+    /// <param name="overrides">What answers Use global, or null when the host has no per-game profiles.</param>
     /// <returns>The module to register.</returns>
     public static ISteamUiModule Module(
         Func<bool> enabled,
         Func<ValueTask<SteamFrameLimitState?>> read,
         ISteamFrameLimitBackend backend,
-        string id = "frame-limit")
+        string id = "frame-limit",
+        ISteamProfileOverrideBackend? overrides = null)
     {
         ArgumentNullException.ThrowIfNull(backend);
         return SteamSurfaceModule.Declare(
@@ -154,7 +161,8 @@ public static class SteamFrameLimitRow
                     static (JsonElement payload, out int hz) =>
                         SteamSurfaceModule.TryReadValueWrite(payload, out hz, out _),
                     backend.SetRefreshRateAsync,
-                    "The refresh-rate payload is invalid.")
+                    "The refresh-rate payload is invalid."),
+                SteamProfileOverride.Handler(PatchId, overrides)
             ]);
     }
 }

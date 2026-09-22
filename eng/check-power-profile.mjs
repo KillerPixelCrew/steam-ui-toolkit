@@ -17,6 +17,58 @@ const normalizeText = instantiate(
   `${slice(asset, "const normalizeText =", ";")};`,
   "normalizeText",
 );
+// The game-override helpers every row shares. Fixtures carry no override unless a check says so, so
+// the Use global button is drawn only where asserted, and it never reaches a real host.
+const overrideHelpers = instantiate(
+  { sendCommand: () => Promise.reject(new Error("fixtures carry no override host")) },
+  slice(asset, "const normalizeOverrideId =", "const normalizeVrrState =") +
+    slice(asset, "const pushIf =", "const uniqueFunction ="),
+  "{ normalizeOverrideId, overrideDescription, pushIf, useGlobalButton }",
+);
+assert.equal(overrideHelpers.overrideDescription("FrameLimit", "Ready"), "Game override · Ready");
+assert.equal(overrideHelpers.overrideDescription("FrameLimit", ""), "Game override");
+assert.equal(overrideHelpers.overrideDescription(null, ""), undefined);
+assert.equal(overrideHelpers.normalizeOverrideId("x".repeat(201)), null);
+assert.equal(overrideHelpers.normalizeOverrideId(42), null);
+assert.equal(overrideHelpers.useGlobalButton({}, {}, null, "key"), null);
+assert.equal(overrideHelpers.normalizeOverrideId("   "), null);
+assert.equal(overrideHelpers.normalizeOverrideId("FrameLimit"), "FrameLimit");
+{
+  // The positive path: a row with an override draws Steam's DialogButton in Steam's row, and
+  // pressing it sends useGlobal with that id to the row's own patch.
+  const sent = [];
+  const helpers = instantiate(
+    {
+      sendCommand: (definition, command, payload) => {
+        sent.push({ patchId: definition.patchId, command, payload });
+        return Promise.resolve();
+      },
+    },
+    slice(asset, "const pushIf =", "const uniqueFunction ="),
+    "{ useGlobalButton }",
+  );
+  const runtime = {
+    row: "row",
+    dialogButton: "dialog-button",
+    react: { createElement: (type, props, ...children) => ({ type, props, children }) },
+  };
+  const element = helpers.useGlobalButton(
+    runtime,
+    { patchId: "steam-ui.variable-refresh" },
+    "VariableRefreshRate",
+    "vrr-use-global",
+  );
+  assert.equal(element.type, "row");
+  assert.equal(element.props.key, "vrr-use-global");
+  const button = element.children[0];
+  assert.equal(button.type, "dialog-button");
+  assert.deepEqual(button.children, ["Use global"]);
+  button.props.onClick();
+  assert.deepEqual(sent, [
+    { patchId: "steam-ui.variable-refresh", command: "useGlobal", payload: { id: "VariableRefreshRate" } },
+  ]);
+  assert.equal(helpers.useGlobalButton({ ...runtime, dialogButton: null }, {}, "FrameLimit", "k"), null);
+}
 // The host's own command sender over a fixture request, so a row's write carries the action
 // generation exactly as the shipped host attaches it.
 const createSender = (request) =>
@@ -31,6 +83,7 @@ const pending = [];
 const api = instantiate(
   {
     normalizeText,
+    ...overrideHelpers,
     useSemanticState: (_runtime, _kind, normalize) => normalize(state),
     note: () => null,
     definitions: {
@@ -235,6 +288,7 @@ const deviceState = {
 };
 const createDeviceControl = instantiate(
   {
+    ...overrideHelpers,
     useSemanticState: () => deviceState,
     normalizeDeviceControlsState: (value) => value,
     definitions: { deviceControls: {} },
@@ -378,6 +432,7 @@ console.log("Host sections leave layout while every row under them draws nothing
   const powerApi = instantiate(
     {
       normalizeText,
+      ...overrideHelpers,
       useSemanticState: (_runtime, _kind, normalize) => normalize(powerState),
       definitions: {
         powerLimit: {

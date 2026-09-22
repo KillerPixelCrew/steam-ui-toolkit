@@ -205,6 +205,28 @@ function createNativeComponentHost() {
     if (typeof enabled !== "boolean" || enabled === state.enabled) return;
     void sendCommand(definition, definition.command, { enabled }).catch(() => {});
   };
+  // One "Use global" action under a row whose value the running game's profile supplies. Steam's own
+  // DialogButton in Steam's own row, so it takes focus like every other Quick Access control. A
+  // client where the button cannot be resolved still shows the marker, which is the part that
+  // tells the user what they are looking at.
+  const pushIf = (list: unknown[], item: unknown) => {
+    if (item) list.push(item);
+  };
+  const useGlobalButton = (controlRuntime, definition, overrideId, key) =>
+    overrideId && controlRuntime.dialogButton
+      ? controlRuntime.react.createElement(
+          controlRuntime.row,
+          { key },
+          controlRuntime.react.createElement(
+            controlRuntime.dialogButton,
+            {
+              onClick: () =>
+                void sendCommand(definition, "useGlobal", { id: overrideId }).catch(() => {}),
+            },
+            "Use global",
+          ),
+        )
+      : null;
   const uniqueFunction = (exports, requiredTokens) => {
     const matches = Object.values(exports).filter(
       (value) =>
@@ -274,9 +296,20 @@ function createNativeComponentHost() {
     // The icon renderer is built once per control runtime and closes over Steam's React, so a row
     // asks for a glyph by name and never touches element construction itself.
     const icon = createIconRenderer(react);
-    return { react, slider, dropdown, toggle, labelField, section, row, localize, icon };
+    const dialogButton = controls.dialogButton;
+    return { react, slider, dropdown, toggle, labelField, section, row, localize, icon, dialogButton };
   };
   const normalizeText = (value) => (typeof value === "string" ? value.slice(0, 240) : "");
+  // The host's setting id while the running game's own profile supplies a row's value. It is only
+  // carried back by Use global, so anything that is not a bounded string means no override.
+  const normalizeOverrideId = (value) =>
+    // Blank is refused the way the host's payload reader refuses it, so a row never offers an
+    // action that can only fail.
+    typeof value === "string" && value.trim().length > 0 && value.length <= 200 ? value : null;
+  // The game-override marker leads a row's own description, so the one place a row explains itself
+  // also says that this value is the game's rather than the host's global one.
+  const overrideDescription = (overrideId, text) =>
+    overrideId ? (text ? "Game override · " + text : "Game override") : text || undefined;
   // Deliberately small. Everything the row needs is a switch position and a reason, because the
   // device capability behind it answers in exactly those terms.
   const normalizeVrrState = (value) => {
@@ -287,6 +320,7 @@ function createNativeComponentHost() {
       enabled: value.enabled,
       progress: normalizeText(value.progress),
       statusText: normalizeText(value.statusText),
+      overrideId: normalizeOverrideId(value.overrideId),
     });
   };
   const normalizeAutoTdpState = (value) => {
@@ -343,6 +377,7 @@ function createNativeComponentHost() {
       progress: normalizeText(value.progress),
       statusText: normalizeText(value.statusText),
       applicationRestartRequired: value.applicationRestartRequired === true,
+      overrideId: normalizeOverrideId(value.overrideId),
     });
   };
   const validEnum = (value, allowed) =>
@@ -380,6 +415,7 @@ function createNativeComponentHost() {
       progress,
       fault: normalizeText(value.fault),
       statusText: normalizeText(value.statusText),
+      overrideId: normalizeOverrideId(value.overrideId),
     });
   };
   // Validated rather than trusted, like every other semantic state: this arrives over the bridge
@@ -473,6 +509,7 @@ function createNativeComponentHost() {
       observed,
       progress: normalizeText(value.progress),
       statusText: normalizeText(value.statusText),
+      overrideId: normalizeOverrideId(value.overrideId),
     });
   };
   const normalizeDeviceControlsState = (value) => {
@@ -487,6 +524,7 @@ function createNativeComponentHost() {
       observedColor: number | null;
       progress: string;
       statusText: string;
+      overrideId: string | null;
     }>[] = [];
     const ids = new Set();
     for (const zone of value.lightingZones.slice(0, 16)) {
@@ -516,6 +554,7 @@ function createNativeComponentHost() {
           observedColor,
           progress: normalizeText(zone.progress),
           statusText: normalizeText(zone.statusText),
+          overrideId: normalizeOverrideId(zone.overrideId),
         }),
       );
     }
@@ -760,7 +799,7 @@ function createNativeComponentHost() {
       if (!controlRuntime.toggle) return note("vrr", "Steam ToggleField was not resolved");
       drew("vrr");
       const definition = definitions.vrr;
-      return controlRuntime.react.createElement(controlRuntime.toggle, {
+      const toggle = controlRuntime.react.createElement(controlRuntime.toggle, {
         // Valve's own token for the row, so the label matches the client's language even though
         // the component behind it is the host's.
         label: localizeOr(
@@ -769,7 +808,7 @@ function createNativeComponentHost() {
           "Variable refresh rate",
         ),
         icon: controlRuntime.icon("pulse"),
-        description: state.statusText || undefined,
+        description: overrideDescription(state.overrideId, state.statusText),
         checked: state.enabled,
         // Controlled: the switch shows what the device reports, so a write the panel refuses
         // leaves it where the hardware actually is rather than where it was clicked.
@@ -777,6 +816,12 @@ function createNativeComponentHost() {
         disabled: isBusy(state.progress),
         onChange: toggleCommand(definition, state),
       });
+      return controlRuntime.react.createElement(
+        controlRuntime.react.Fragment,
+        null,
+        toggle,
+        useGlobalButton(controlRuntime, definition, state.overrideId, "steam-ui-vrr-use-global"),
+      );
     };
   const createAutoTdpControl = (controlRuntime) =>
     function SteamUiAutoTdpControl() {
@@ -917,6 +962,8 @@ function createNativeComponentHost() {
       battery: value.battery,
       scope: normalizeText(value.scope),
       unsetLabel: normalizeText(value.unsetLabel),
+      acOverrideId: normalizeOverrideId(value.acOverrideId),
+      batteryOverrideId: normalizeOverrideId(value.batteryOverrideId),
     };
   };
   const createPowerPresetControl = (controlRuntime) =>
@@ -929,12 +976,21 @@ function createNativeComponentHost() {
         ...state.options.map((option) => ({ data: option.id, label: option.label })),
       ];
       const definition = definitions.powerPreset;
-      const assignment = (label, iconName, selected, command, description?: string) =>
+      // The unset entry is the way back to Global for a game's own assignment, so the override needs
+      // only its marker here, not a second control.
+      const assignment = (
+        label,
+        iconName,
+        selected,
+        command,
+        overrideId: string | null,
+        description?: string,
+      ) =>
         controlRuntime.react.createElement(controlRuntime.dropdown, {
           label,
           icon: controlRuntime.icon(iconName),
           layout: "below",
-          description,
+          description: overrideDescription(overrideId, description),
           rgOptions: options.filter((option) => option.data !== "custom" || selected === "custom"),
           selectedOption: selected,
           disabled: pending || !state.available,
@@ -981,8 +1037,21 @@ function createNativeComponentHost() {
         controlRuntime.react.Fragment,
         null,
         active,
-        assignment("When plugged in", "plug", state.ac, definition.acCommand, orphaned),
-        assignment("On battery", "battery", state.battery, definition.batteryCommand),
+        assignment(
+          "When plugged in",
+          "plug",
+          state.ac,
+          definition.acCommand,
+          state.acOverrideId,
+          orphaned,
+        ),
+        assignment(
+          "On battery",
+          "battery",
+          state.battery,
+          definition.batteryCommand,
+          state.batteryOverrideId,
+        ),
       );
     };
   const createControllerControl = (controlRuntime) =>
@@ -1007,7 +1076,7 @@ function createNativeComponentHost() {
         void sendCommand(definition, definition.command, { target: option.data }).catch(() => {});
       };
       const restart = state.applicationRestartRequired ? " Restart the application to rebind." : "";
-      return controlRuntime.react.createElement(controlRuntime.dropdown, {
+      const dropdown = controlRuntime.react.createElement(controlRuntime.dropdown, {
         label: localizeOr(
           controlRuntime,
           "#QuickAccess_Tab_Settings_Section_Controller_Title",
@@ -1018,9 +1087,15 @@ function createNativeComponentHost() {
         selectedOption: selected,
         onChange: setTarget,
         disabled: isBusy(state.progress) || options.length < 2,
-        description: (state.statusText || "") + restart || undefined,
+        description: overrideDescription(state.overrideId, (state.statusText || "") + restart),
         layout: "below",
       });
+      return controlRuntime.react.createElement(
+        controlRuntime.react.Fragment,
+        null,
+        dropdown,
+        useGlobalButton(controlRuntime, definition, state.overrideId, "steam-ui-controller-use-global"),
+      );
     };
   const createResolutionControl = (controlRuntime) =>
     function SteamUiResolutionControl() {
@@ -1239,7 +1314,7 @@ function createNativeComponentHost() {
         showValue: !refreshMode,
         showBookendLabels: !refreshMode,
         disabled: isBusy(state.progress),
-        description: state.fault || state.statusText || undefined,
+        description: overrideDescription(state.overrideId, state.fault || state.statusText),
         onChange: refreshMode ? refreshEchoed.onChange : echoed.onChange,
         onChangeComplete: (next) =>
           refreshMode
@@ -1251,6 +1326,12 @@ function createNativeComponentHost() {
         null,
         slider,
         disableSwitch,
+        useGlobalButton(
+          controlRuntime,
+          definition,
+          state.overrideId,
+          "steam-ui-frame-limit-use-global",
+        ),
       );
     };
   const rgbToHsv = (color) => {
@@ -1326,6 +1407,7 @@ function createNativeComponentHost() {
       observed,
       progress: normalizeText(value.progress),
       statusText: normalizeText(value.statusText),
+      overrideId: normalizeOverrideId(value.overrideId),
     };
   };
   const normalizePowerLimitState = (value) =>
@@ -1335,6 +1417,7 @@ function createNativeComponentHost() {
           boost: normalizePowerLimitRange(value.boost),
           unified: value.unified === true,
           canSelectMode: value.canSelectMode === true,
+          modeOverrideId: normalizeOverrideId(value.modeOverrideId),
         }
       : null;
   const createPowerLimitControl = (controlRuntime) =>
@@ -1357,7 +1440,10 @@ function createNativeComponentHost() {
             checked: state.unified,
             controlled: true,
             disabled: busy,
-            description: error || "Coordinate sustained and boost limits with one target.",
+            description: overrideDescription(
+              state.modeOverrideId,
+              error || "Coordinate sustained and boost limits with one target.",
+            ),
             onChange: (unified) => {
               if (
                 pending.current ||
@@ -1377,6 +1463,9 @@ function createNativeComponentHost() {
                 });
             },
           }),
+        );
+        pushIf(rows,
+          useGlobalButton(controlRuntime, definition, state.modeOverrideId, "mode-use-global"),
         );
       }
       for (const [key, label, iconName, range, echo, command] of [
@@ -1429,17 +1518,19 @@ function createNativeComponentHost() {
               showValue: true,
               showBookendLabels: true,
               disabled: busy || !range.available,
-              description:
+              description: overrideDescription(
+                range.overrideId,
                 error ||
-                (state.unified
-                  ? `Sustained ${state.sustained?.observed ?? "?"} W · Boost ${state.boost?.observed ?? "?"} W`
-                  : range.statusText) ||
-                undefined,
+                  (state.unified
+                    ? `Sustained ${state.sustained?.observed ?? "?"} W · Boost ${state.boost?.observed ?? "?"} W`
+                    : range.statusText),
+              ),
               onChange: echo.onChange,
               onChangeComplete: (next) => echo.onChangeComplete(next, commit),
             }),
           ),
         );
+        pushIf(rows,useGlobalButton(controlRuntime, definition, range.overrideId, `${key}-use-global`));
       }
       if (!rows.length) return note("powerLimit", "no usable power limit");
       drew("powerLimit", `rendered ${rows.length} row(s)`);
@@ -1502,13 +1593,16 @@ function createNativeComponentHost() {
           showValue: true,
           showBookendLabels: true,
           disabled: isBusy(range.progress),
-          description: range.statusText || undefined,
+          description: overrideDescription(range.overrideId, range.statusText),
           onChange: chargeEcho.onChange,
           onChangeComplete: (next) =>
             chargeEcho.onChangeComplete(next, (percent) =>
               send(definition.chargeCommand, { percent }),
             ),
         });
+        pushIf(rows,
+          useGlobalButton(controlRuntime, definition, range.overrideId, "steam-ui-charge-use-global"),
+        );
       }
 
       const chargingRows = rows.splice(0);
@@ -1526,13 +1620,21 @@ function createNativeComponentHost() {
           showValue: true,
           showBookendLabels: true,
           disabled: isBusy(range.progress),
-          description: range.statusText || undefined,
+          description: overrideDescription(range.overrideId, range.statusText),
           onChange: brightnessEcho.onChange,
           onChangeComplete: (next) =>
             brightnessEcho.onChangeComplete(next, (percent) =>
               send(definition.brightnessCommand, { percent }),
             ),
         });
+        pushIf(rows,
+          useGlobalButton(
+            controlRuntime,
+            definition,
+            range.overrideId,
+            "steam-ui-brightness-use-global",
+          ),
+        );
       }
 
       if (zone && hsv && controlRuntime.toggle) {
@@ -1543,6 +1645,14 @@ function createNativeComponentHost() {
             controlRuntime.react.createElement(controlRuntime.toggle, {
               label: "Edit color",
               icon: controlRuntime.icon("pencil"),
+              // Which zones the running game colours itself, so it shows without opening the editor.
+              description: zones.some((candidate) => candidate.overrideId)
+                ? "Game override · " +
+                  zones
+                    .filter((candidate) => candidate.overrideId)
+                    .map((candidate) => candidate.label)
+                    .join(", ")
+                : undefined,
               checked: editingColor,
               controlled: true,
               onChange: setEditingColor,
@@ -1571,10 +1681,13 @@ function createNativeComponentHost() {
                 }
               },
               disabled: options.length < 2,
-              description: zone.statusText || undefined,
+              description: overrideDescription(zone.overrideId, zone.statusText),
               layout: "below",
             }),
           ),
+        );
+        pushIf(rows,
+          useGlobalButton(controlRuntime, definition, zone.overrideId, "steam-ui-zone-use-global"),
         );
 
         const stagedColor = hsvToRgb(

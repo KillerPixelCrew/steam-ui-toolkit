@@ -14,6 +14,10 @@ namespace SteamUiToolkit;
 /// <param name="ObservedWatts">Hardware readback, or null when unknown.</param>
 /// <param name="Progress">Command progress, including applying or uncertain.</param>
 /// <param name="StatusText">A bounded explanation of availability or the last outcome.</param>
+/// <param name="OverrideId">
+///     The host's setting id while the running game's own profile supplies this value, so the row marks
+///     it and offers Use global; null otherwise. See <see cref="ISteamProfileOverrideBackend" />.
+/// </param>
 public sealed record SteamPowerLimitRangeState(
     bool Available,
     int? MinimumWatts,
@@ -21,18 +25,24 @@ public sealed record SteamPowerLimitRangeState(
     int? StepWatts,
     int? ObservedWatts,
     string Progress,
-    string StatusText);
+    string StatusText,
+    string? OverrideId = null);
 
 /// <summary>Observed sustained and boost power limits shown in Quick Access.</summary>
 /// <param name="Sustained">The sustained power limit, PL1.</param>
 /// <param name="Boost">The boost power limit, PL2.</param>
 /// <param name="Unified">Whether the primary slider controls the coordinated power pair.</param>
 /// <param name="CanSelectMode">Whether the backend supports manual mode selection.</param>
+/// <param name="ModeOverrideId">
+///     The host's setting id while the running game's own profile supplies the unified or advanced
+///     mode; null otherwise.
+/// </param>
 public sealed record SteamPowerLimitState(
     SteamPowerLimitRangeState Sustained,
     SteamPowerLimitRangeState Boost,
     bool Unified = false,
-    bool CanSelectMode = false);
+    bool CanSelectMode = false,
+    string? ModeOverrideId = null);
 
 /// <summary>Routes explicit power slider edits through the consumer's hardware coordinator.</summary>
 public interface ISteamPowerLimitBackend
@@ -70,7 +80,7 @@ public static class SteamPowerLimitSurface
     public const string PatchId = "steam-ui.power-limit";
 
     /// <summary>The exact command vocabulary.</summary>
-    public static IReadOnlyList<string> Commands { get; } = ["setUnifiedMode", "setPrimaryLimit", "setBoostLimit"];
+    public static IReadOnlyList<string> Commands { get; } = ["setUnifiedMode", "setPrimaryLimit", "setBoostLimit", SteamProfileOverride.Command];
 
     /// <summary>The sustained and boost sliders on the Performance page.</summary>
     public static SteamQuickAccessRowPatch Patch { get; } = new(
@@ -92,12 +102,14 @@ public static class SteamPowerLimitSurface
     /// <param name="read">Reads current state, or null to skip publication.</param>
     /// <param name="backend">The hardware command backend.</param>
     /// <param name="id">The module id.</param>
+    /// <param name="overrides">What answers Use global, or null when the host has no per-game profiles.</param>
     /// <returns>The module to register.</returns>
     public static ISteamUiModule Module(
         Func<bool> enabled,
         Func<ValueTask<SteamPowerLimitState?>> read,
         ISteamPowerLimitBackend backend,
-        string id = "power-limit")
+        string id = "power-limit",
+        ISteamProfileOverrideBackend? overrides = null)
     {
         ArgumentNullException.ThrowIfNull(backend);
         return SteamSurfaceModule.Declare(
@@ -130,7 +142,8 @@ public static class SteamPowerLimitSurface
                     "setBoostLimit",
                     TryReadWatts,
                     backend.SetBoostLimitAsync,
-                    "The boost power-limit payload is invalid.")
+                    "The boost power-limit payload is invalid."),
+                SteamProfileOverride.Handler(PatchId, overrides)
             ]);
     }
 

@@ -753,6 +753,22 @@ for fixtures and diagnostics.
 | `SteamHomeCarouselSurface`    | Big Picture Home's carousel                               | claims Home's memo `type`, replaces the carousel's `games` array and bounds its overscan           | `SteamHomeCarouselState`     | hears what the carousel holds after each rebuild                                           |
 | `SteamScreensaverSurface`     | host rows in the Screensaver settings section             | a transform on the shared `useMemo` claim wraps the customization page and its Screensaver section | `SteamScreensaverState`      | hears Steam's screensaver timeouts; applies a row's choice                                 |
 
+### Game overrides and Use global
+
+A host with per-game profiles can say that the running game supplies a row's value. The frame
+limit, VRR, power limit (each range and the mode), power preset (AC and battery), device controls
+(charge limit, brightness and each lighting zone) and controller-target states carry an optional
+`OverrideId`: the host's setting id while the game's own profile supplies that value, null
+otherwise. The row then leads its description with "Game override" and, except for the power
+preset, draws one "Use global" DialogButton under the control. The power preset needs no button:
+its unset entry already means inheriting.
+
+Use global sends `useGlobal` with `{ "id": "<OverrideId>" }` to the row's own patch. Each of those
+modules takes an optional `ISteamProfileOverrideBackend`; without one the command is refused with a
+fixed reason. The payload must be exactly one non-blank id of at most
+`SteamProfileOverride.MaxSettingIdLength` characters. What an override is, and what the value falls
+back to, is the host's policy; the toolkit only carries the id back.
+
 ### SteamOS storage management
 
 Big Picture ships a complete storage UI — drives, volumes, format, adopt, eject, trim — that never
