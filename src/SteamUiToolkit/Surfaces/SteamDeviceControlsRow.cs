@@ -18,6 +18,10 @@ namespace SteamUiToolkit;
 ///     <c>replacing</c>.
 /// </param>
 /// <param name="StatusText">One line of detail, or empty.</param>
+/// <param name="OverrideId">
+///     The host's setting id while the running game's own profile supplies this value, so the row marks
+///     it and offers Use global; null otherwise. See <see cref="ISteamProfileOverrideBackend" />.
+/// </param>
 public sealed record SteamDeviceRangeState(
     bool Available,
     int Minimum,
@@ -26,7 +30,8 @@ public sealed record SteamDeviceRangeState(
     int? Desired,
     int? Observed,
     string Progress,
-    string StatusText);
+    string StatusText,
+    string? OverrideId = null);
 
 /// <summary>One independently writable lighting zone.</summary>
 /// <param name="Id">Zone identifier, 1-64 characters, unique within the state.</param>
@@ -36,6 +41,10 @@ public sealed record SteamDeviceRangeState(
 /// <param name="ObservedColor">The colour the device reports as 0xRRGGBB, or null.</param>
 /// <param name="Progress">Command progress; the colour sliders disable themselves while busy.</param>
 /// <param name="StatusText">One line of detail, or empty.</param>
+/// <param name="OverrideId">
+///     The host's setting id while the running game's own profile supplies this value, so the row marks
+///     it and offers Use global; null otherwise. See <see cref="ISteamProfileOverrideBackend" />.
+/// </param>
 public sealed record SteamLightingZoneState(
     string Id,
     string Label,
@@ -43,7 +52,8 @@ public sealed record SteamLightingZoneState(
     int? DesiredColor,
     int? ObservedColor,
     string Progress,
-    string StatusText);
+    string StatusText,
+    string? OverrideId = null);
 
 /// <summary>Device charging and lighting controls shown in Steam Quick Settings.</summary>
 /// <param name="ChargeLimit">The battery charge-limit slider, or null to omit it.</param>
@@ -98,7 +108,7 @@ public static class SteamDeviceControlsRow
 
     /// <summary>The exact command vocabulary the injected row sends.</summary>
     public static IReadOnlyList<string> Commands { get; } =
-        ["setChargeLimit", "setLightingBrightness", "setLightingColor"];
+        ["setChargeLimit", "setLightingBrightness", "setLightingColor", SteamProfileOverride.Command];
 
     /// <summary>The row patch.</summary>
     public static SteamQuickAccessRowPatch Patch { get; } = new(
@@ -121,12 +131,14 @@ public static class SteamDeviceControlsRow
     /// <param name="read">The current state, or null to publish nothing this round.</param>
     /// <param name="backend">What answers the sliders.</param>
     /// <param name="id">The module id, for diagnostics and duplicate detection.</param>
+    /// <param name="overrides">What answers Use global, or null when the host has no per-game profiles.</param>
     /// <returns>The module to register.</returns>
     public static ISteamUiModule Module(
         Func<bool> enabled,
         Func<ValueTask<SteamDeviceControlsState?>> read,
         ISteamDeviceControlsBackend backend,
-        string id = "device-controls")
+        string id = "device-controls",
+        ISteamProfileOverrideBackend? overrides = null)
     {
         ArgumentNullException.ThrowIfNull(backend);
         return SteamSurfaceModule.Declare(
@@ -155,7 +167,8 @@ public static class SteamDeviceControlsRow
                     TryReadColor,
                     (value, cancellationToken) =>
                         backend.SetLightingColorAsync(value.Zone, value.Color, cancellationToken),
-                    "The lighting-color payload is invalid.")
+                    "The lighting-color payload is invalid."),
+                SteamProfileOverride.Handler(PatchId, overrides)
             ]);
     }
 

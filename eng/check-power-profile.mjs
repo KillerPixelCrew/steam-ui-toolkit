@@ -17,6 +17,20 @@ const normalizeText = instantiate(
   `${slice(asset, "const normalizeText =", ";")};`,
   "normalizeText",
 );
+// The game-override helpers every row shares. Fixtures carry no override unless a check says so, so
+// the Use global button is drawn only where asserted, and it never reaches a real host.
+const overrideHelpers = instantiate(
+  { sendCommand: () => Promise.reject(new Error("fixtures carry no override host")) },
+  slice(asset, "const normalizeOverrideId =", "const normalizeVrrState =") +
+    slice(asset, "const pushIf =", "const uniqueFunction ="),
+  "{ normalizeOverrideId, overrideDescription, pushIf, useGlobalButton }",
+);
+assert.equal(overrideHelpers.overrideDescription("FrameLimit", "Ready"), "Game override · Ready");
+assert.equal(overrideHelpers.overrideDescription("FrameLimit", ""), "Game override");
+assert.equal(overrideHelpers.overrideDescription(null, ""), undefined);
+assert.equal(overrideHelpers.normalizeOverrideId("x".repeat(201)), null);
+assert.equal(overrideHelpers.normalizeOverrideId(42), null);
+assert.equal(overrideHelpers.useGlobalButton({}, {}, null, "key"), null);
 // The host's own command sender over a fixture request, so a row's write carries the action
 // generation exactly as the shipped host attaches it.
 const createSender = (request) =>
@@ -31,6 +45,7 @@ const pending = [];
 const api = instantiate(
   {
     normalizeText,
+    ...overrideHelpers,
     useSemanticState: (_runtime, _kind, normalize) => normalize(state),
     note: () => null,
     definitions: {
@@ -235,6 +250,7 @@ const deviceState = {
 };
 const createDeviceControl = instantiate(
   {
+    ...overrideHelpers,
     useSemanticState: () => deviceState,
     normalizeDeviceControlsState: (value) => value,
     definitions: { deviceControls: {} },
@@ -378,6 +394,7 @@ console.log("Host sections leave layout while every row under them draws nothing
   const powerApi = instantiate(
     {
       normalizeText,
+      ...overrideHelpers,
       useSemanticState: (_runtime, _kind, normalize) => normalize(powerState),
       definitions: {
         powerLimit: {

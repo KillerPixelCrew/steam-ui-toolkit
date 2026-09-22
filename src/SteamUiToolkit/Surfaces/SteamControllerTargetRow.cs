@@ -36,6 +36,10 @@ public sealed record SteamControllerTargetOption(
 ///     Whether a running application holds the previous target,
 ///     so the change reaches it only on the next launch. The row says so.
 /// </param>
+/// <param name="OverrideId">
+///     The host's setting id while the running game's own profile supplies this value, so the row marks
+///     it and offers Use global; null otherwise. See <see cref="ISteamProfileOverrideBackend" />.
+/// </param>
 public sealed record SteamControllerTargetState(
     bool Available,
     IReadOnlyList<SteamControllerTargetOption> Targets,
@@ -43,7 +47,8 @@ public sealed record SteamControllerTargetState(
     string ObservedTarget,
     string Progress,
     string StatusText,
-    bool ApplicationRestartRequired);
+    bool ApplicationRestartRequired,
+    string? OverrideId = null);
 
 /// <summary>What answers the controller-target dropdown.</summary>
 public interface ISteamControllerTargetBackend
@@ -67,7 +72,7 @@ public static class SteamControllerTargetRow
     public const string PatchId = "steam-ui.controller-target";
 
     /// <summary>The exact command vocabulary the injected row sends.</summary>
-    public static IReadOnlyList<string> Commands { get; } = ["setControllerTarget"];
+    public static IReadOnlyList<string> Commands { get; } = ["setControllerTarget", SteamProfileOverride.Command];
 
     /// <summary>The row patch.</summary>
     public static SteamQuickAccessRowPatch Patch { get; } = new(
@@ -96,12 +101,14 @@ public static class SteamControllerTargetRow
     /// <param name="read">The current state, or null to publish nothing this round.</param>
     /// <param name="backend">What applies a chosen target.</param>
     /// <param name="id">The module id, for diagnostics and duplicate detection.</param>
+    /// <param name="overrides">What answers Use global, or null when the host has no per-game profiles.</param>
     /// <returns>The module to register.</returns>
     public static ISteamUiModule Module(
         Func<bool> enabled,
         Func<ValueTask<SteamControllerTargetState?>> read,
         ISteamControllerTargetBackend backend,
-        string id = "controller-target")
+        string id = "controller-target",
+        ISteamProfileOverrideBackend? overrides = null)
     {
         ArgumentNullException.ThrowIfNull(backend);
         return SteamSurfaceModule.Declare(
@@ -117,7 +124,8 @@ public static class SteamControllerTargetRow
                     "setControllerTarget",
                     SteamUiPayload.TryReadTarget,
                     backend.SetControllerTargetAsync,
-                    "The controller-target payload is invalid.")
+                    "The controller-target payload is invalid."),
+                SteamProfileOverride.Handler(PatchId, overrides)
             ]);
     }
 }
