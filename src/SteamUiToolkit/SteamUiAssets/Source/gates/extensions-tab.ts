@@ -103,10 +103,18 @@ function createExtensionsTab() {
     react.useEffect(() => subscribe(patchId, () => setRevision((value) => value + 1)), []);
     const items = desired.items;
     const activate = (id) => {
-      void request(patchId, "activate", { id }, nextActionGeneration(patchId)).catch(() => {
-        // The host's refusal is already logged and the row remains truthful on the next state
-        // publication. A rejected click must not tear down the whole Quick Access panel.
-      });
+      void request(patchId, "activate", { id }, nextActionGeneration(patchId)).then(
+        (answer: any) => {
+          // An action may answer with a page to open. The panel is closed first: this tab is
+          // rendered inside the Quick Access flyout, so navigating with it open leaves the page
+          // behind the panel, which on a controller is indistinguishable from a dead button.
+          if (answer?.route && closeSteamSideMenus()) navigateSteamRoute(answer.route);
+        },
+        () => {
+          // The host's refusal is already logged and the row remains truthful on the next state
+          // publication. A rejected click must not tear down the whole Quick Access panel.
+        },
+      );
     };
     // A typed draft belongs to the publication it was typed against. Dropping it when the host
     // answers with a new configuration revision, and when the change is refused, is what stops the
