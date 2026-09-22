@@ -31,6 +31,44 @@ assert.equal(overrideHelpers.overrideDescription(null, ""), undefined);
 assert.equal(overrideHelpers.normalizeOverrideId("x".repeat(201)), null);
 assert.equal(overrideHelpers.normalizeOverrideId(42), null);
 assert.equal(overrideHelpers.useGlobalButton({}, {}, null, "key"), null);
+assert.equal(overrideHelpers.normalizeOverrideId("   "), null);
+assert.equal(overrideHelpers.normalizeOverrideId("FrameLimit"), "FrameLimit");
+{
+  // The positive path: a row with an override draws Steam's DialogButton in Steam's row, and
+  // pressing it sends useGlobal with that id to the row's own patch.
+  const sent = [];
+  const helpers = instantiate(
+    {
+      sendCommand: (definition, command, payload) => {
+        sent.push({ patchId: definition.patchId, command, payload });
+        return Promise.resolve();
+      },
+    },
+    slice(asset, "const pushIf =", "const uniqueFunction ="),
+    "{ useGlobalButton }",
+  );
+  const runtime = {
+    row: "row",
+    dialogButton: "dialog-button",
+    react: { createElement: (type, props, ...children) => ({ type, props, children }) },
+  };
+  const element = helpers.useGlobalButton(
+    runtime,
+    { patchId: "steam-ui.variable-refresh" },
+    "VariableRefreshRate",
+    "vrr-use-global",
+  );
+  assert.equal(element.type, "row");
+  assert.equal(element.props.key, "vrr-use-global");
+  const button = element.children[0];
+  assert.equal(button.type, "dialog-button");
+  assert.deepEqual(button.children, ["Use global"]);
+  button.props.onClick();
+  assert.deepEqual(sent, [
+    { patchId: "steam-ui.variable-refresh", command: "useGlobal", payload: { id: "VariableRefreshRate" } },
+  ]);
+  assert.equal(helpers.useGlobalButton({ ...runtime, dialogButton: null }, {}, "FrameLimit", "k"), null);
+}
 // The host's own command sender over a fixture request, so a row's write carries the action
 // generation exactly as the shipped host attaches it.
 const createSender = (request) =>
