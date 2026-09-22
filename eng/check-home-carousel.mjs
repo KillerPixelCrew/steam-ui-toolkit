@@ -2,11 +2,12 @@
 //
 // Resolution is checked live and pinned by the patch's probe. What this proves is what the shipped
 // bytes do once they hold Home: that Home is found through the router's route list by content, that
-// the carousel's `games` array is replaced for both the background and the box carousel, that the
-// box carousel's overscan goes back to the component's default instead of the whole list, that the
-// order follows the documented rules, that games on a disconnected library leave, that uninstalled
-// games are greyed, that the list is not rebuilt when nothing changed, and that removal hands Home
-// back.
+// a Home already on screen is adopted into the claim and asked to render, that the carousel's
+// `games` array is replaced for both the background and the box carousel, that the box carousel's
+// overscan goes back to the component's default instead of the whole list, that the order follows
+// the documented rules, that games on a disconnected library leave, that uninstalled games are
+// greyed, that the list is not rebuilt when nothing changed, and that removal hands Home back, on
+// the memo and on the adopted fiber alike.
 import assert from "node:assert/strict";
 import {
   createReact,
@@ -116,25 +117,58 @@ const HomeMemo = react.memo(Home);
 
 // SharedJSContext's React tree: an unrelated route list first, then the router switch whose children
 // are the routes, so the gate has to match the list by content rather than take the first one.
+//
+// Home is already on screen, as Big Picture starts on it: the switch is a class whose instance can
+// be asked to render, and under it the Home fiber and its alternate both cache Home's original
+// function as their `type`, the way React resolves a memo once at mount.
 const route = (path, page) => element(() => null, { path, children: page }, path);
+const homeElement = element(HomeMemo, {});
+const switchInstance = {
+  isReactComponent: {},
+  renders: 0,
+  forceUpdate() {
+    switchInstance.renders++;
+  },
+};
+const homeFiber = {
+  elementType: HomeMemo,
+  type: Home,
+  memoizedProps: homeElement.props,
+  child: null,
+  sibling: null,
+  return: null,
+  alternate: null,
+};
+const homeAlternate = { ...homeFiber, alternate: homeFiber };
+homeFiber.alternate = homeAlternate;
+const providerFiber = { memoizedProps: { value: 1, children: homeElement }, child: homeFiber, sibling: null, return: null };
+homeFiber.return = providerFiber;
+homeAlternate.return = providerFiber;
 const switchFiber = {
   memoizedProps: {
     children: [
       route("/settings", element(() => null, {})),
-      route("/library/home", element(HomeMemo, {})),
+      route("/library/home", homeElement),
       route("/library", element(() => null, {})),
     ],
   },
-  child: null,
+  stateNode: switchInstance,
+  child: providerFiber,
   sibling: null,
+  return: null,
 };
+providerFiber.return = switchFiber;
 const rootFiber = {
   memoizedProps: { children: [route("/desktop", element(() => null, {})), route("/a", null), route("/b", null)] },
   child: { memoizedProps: {}, child: switchFiber, sibling: null },
   sibling: null,
 };
+// The container names the fiber React created the root with; the root's `current` is the tree on
+// screen, and the gate must read that one.
+const staleRootFiber = { stateNode: { current: rootFiber }, memoizedProps: {}, child: null, sibling: null };
 const documentFixture = {
-  getElementById: (id) => (id === "root" ? { __reactContainer$fixture: rootFiber } : null),
+  getElementById: (id) => (id === "root" ? { __reactContainer$fixture: staleRootFiber } : null),
+  body: { children: [{ id: "unrelated" }] },
 };
 
 // mobx-react-lite's useObserver: runs the function and returns what it returned.
@@ -209,6 +243,21 @@ assert.ok(installed.ok, `install failed: ${installed.error}`);
 assert.ok(gate.status().claimed, "Home's memo type must be claimed");
 assert.ok(gate.status().tracking, "Steam's observer hook must resolve");
 
+// The Home on screen is adopted: both fibers now call the wrapper, the memo's bail-out cannot skip
+// the render because the cached props no longer compare equal, and the switch was asked to render.
+assert.equal(installed.adopted, 1);
+assert.equal(homeFiber.type, HomeMemo.type, "a mounted Home must be adopted into the claim");
+assert.equal(homeAlternate.type, HomeMemo.type, "its alternate must be adopted as well");
+assert.notEqual(homeFiber.memoizedProps, homeElement.props, "the adopted fiber must not bail out of its next render");
+assert.equal(homeFiber.memoizedProps.__steamUiAdoptedProps, homeElement.props, "the real props stay reachable");
+assert.equal(switchInstance.renders, 1, "the route switch must be asked to render the adopted Home");
+assert.deepEqual(gate.status().mounted, { adopted: 1, scheduled: true, stale: 0 });
+assert.equal(
+  find(homeFiber.type(homeElement.props), named("SteamUiHomeCarousel")).length,
+  1,
+  "the adopted Home must draw the wrapped carousel on that render",
+);
+
 // Nothing published yet: nothing is disconnected and uninstalled games stay out.
 view = renderCarousel();
 assert.ok(named("SteamUiHomeCarousel")(view.carousel), "the carousel must be wrapped");
@@ -277,6 +326,10 @@ const removed = gate.remove();
 assert.ok(removed.ok, `remove failed: ${removed.error}`);
 assert.equal(HomeMemo.type, Home, "removal must restore Home's own type");
 assert.ok(!gate.status().claimed);
+assert.equal(homeFiber.type, Home, "removal must hand the adopted fiber back to Home's own function");
+assert.equal(homeAlternate.type, Home);
+assert.equal(switchInstance.renders, 1, "removal must not ask for a render; Home's next render is Steam's");
+assert.deepEqual(gate.status().mounted, { adopted: 0, scheduled: false, stale: 0 });
 const stale = mounted.type.type(mounted.props);
 assert.equal(find(stale, (node) => node.type === RecentGames).length, 1, "a removed wrapper must pass through");
 view = renderCarousel();
@@ -286,7 +339,10 @@ assert.equal(view.box.props.overscan, steamGames.length);
 assert.ok(gate.install().ok, "the gate must be reinstallable");
 view = renderCarousel();
 assert.equal(view.box.props.overscan, undefined);
+assert.equal(homeFiber.type, HomeMemo.type, "a reinstall must adopt the mounted Home again");
+assert.equal(switchInstance.renders, 2);
 assert.ok(gate.remove().ok);
 assert.equal(HomeMemo.type, Home);
+assert.equal(homeFiber.type, Home);
 
 console.log("Home carousel gate: ok");

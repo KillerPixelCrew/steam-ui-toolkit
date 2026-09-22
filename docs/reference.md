@@ -704,7 +704,7 @@ evaluated and its place among the discovered fragments does not matter.
 | `eng/check-navigation-panel.mjs`                               | the emitted gate against an inert React fixture: descent to the panel root, anchoring by route and by descriptor key, orphan reporting, hiding before insertion, activation, exact restoration, reinstall                                                                                                                                                                                                                                                                                                                                                                   |
 | `SteamPageTests`, `eng/check-pages.mjs`                        | the page probe's separate facts and its rendered-tree search; the emitted gate's route-list discovery by content, an addition losing to Steam's own route and an override winning, path validation, exact restoration, reinstall                                                                                                                                                                                                                                                                                                                                            |
 | `SteamStorageTests`, `eng/check-storage.mjs`                   | the storage probe's service and transport facts and every action having a command; the emitted gate's availability answer, Steam's own state field names, action forwarding, unrelated service traffic passing through with its arguments and receiver, and restoration putting Valve's method back                                                                                                                                                                                                                                                                         |
-| `SteamHomeCarouselTests`, `eng/check-home-carousel.mjs`        | the Home probe's separate facts, finding Home by content rather than name, already-claimed compatibility, the published wire shape, the exact report payload; the emitted gate finding Home through the route list, replacing `games` for the carousel and the background, clearing the whole-list overscan, the documented order, disconnected games leaving, uninstalled games greyed, no rebuild or report without a change, the fallback to Steam's list, bounded publications, a mounted wrapper passing through after removal, exact restoration, reinstall           |
+| `SteamHomeCarouselTests`, `eng/check-home-carousel.mjs`        | the Home probe's separate facts, finding Home by content rather than name, the mounted count, already-claimed compatibility, the published wire shape, the exact report payload; the emitted gate finding Home through the route list from the root's `current`, adopting a mounted Home on both fibers and asking the switch to render, replacing `games` for the carousel and the background, clearing the whole-list overscan, the documented order, disconnected games leaving, uninstalled games greyed, no rebuild or report without a change, the fallback to Steam's list, bounded publications, a mounted wrapper passing through after removal, exact restoration of the memo and the adopted fibers, reinstall adopting again |
 | `SteamScreensaverTests`, `eng/check-screensaver.mjs`           | the probe's separate facts and that it names no module id or export, the published wire shape, the exact report and choice payloads and their refusals; the emitted gate wrapping only the customization page and only its Screensaver section, appending the rows after Steam's own, reporting on first read, on change and on page open, sending a choice once and disabling the row while pending, refusing a malformed state whole, the bounded first-report retry, keeping the shared `useMemo` claim for another surface on removal and handing it back with the last |
 | `eng/check-startup.mjs` (resolver)                             | missing factories staying uncached, unique resolution, and `exported` counting aliases once, refusing two distinct fits, no fit, a missing module and an invalid predicate                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `SteamLibraryBadgeTests`, `eng/check-library.mjs` (details)    | the stat patch's compatibility, its Valve-named row lookup and shared runtime resource, the module declaring both patches under one publication; the emitted stat only on the stats row, Valve's classes and the localized label, the badge's naming rules and dimming, no duplicate, an `elements` gate transform coexisting on the one claim, a throwing transform skipped, and `jsx` and `jsxs` handed back only with the last transform                                                                                                                                 |
@@ -889,13 +889,27 @@ gate claims that Home memo's `type`. Until Big Picture has built that tree there
 find: on 2026-09-11 two probes during startup refused with the Home module, both stores and the
 observer hook resolved but no Home, and the manager's next probe verified. The walk is breadth-first
 over the fiber child and sibling links, bounded at 250,000 nodes, because a router sits near the top
-of its tree and a depth-first walk can spend its bound inside a mounted library grid. A miss reports
-the roots searched, the nodes visited, how many route lists held `/library/home` and what that route
-renders, in the probe's diagnostic and in `status.search`. In what Home renders it finds the
-carousel memo by its source (`#Showcase_RecentGames`, `RecentGamesContainer`) and replaces it with a
-memo of its own over the same inner function and comparison. In what the carousel renders it
-replaces `games` on the two elements that take it, told apart by shape: the background takes
-`refOnItemFocus`, the carousel `onItemFocus`.
+of its tree and a depth-first walk can spend its bound inside a mounted library grid. It starts from
+every container React attached to under the document and reads each root's `current`, the tree on
+screen. A miss reports the roots searched, the nodes visited, how many route lists held
+`/library/home` and what that route renders, in the probe's diagnostic and in `status.search`. In
+what Home renders it finds the carousel memo by its source (`#Showcase_RecentGames`,
+`RecentGamesContainer`) and replaces it with a memo of its own over the same inner function and
+comparison. In what the carousel renders it replaces `games` on the two elements that take it, told
+apart by shape: the background takes `refOnItemFocus`, the carousel `onItemFocus`.
+
+The claim reaches Homes mounted after it, because React resolves a memo's function once at mount
+and renders the cached `type` on the fiber afterwards. Since the client update of 2026-09-22 Big
+Picture renders a placeholder until its services report initialized and then mounts the router and
+Home in one commit, so Home is always on screen by the time the route list can be found; the claim
+alone left the carousel Steam's until the user left Home and came back. Install therefore adopts
+every mounted Home through the shared `adoptMountedType` helper: the wrapper, which adds no hooks,
+becomes the cached `type` on the fiber and its alternate, the cached props are replaced so the memo
+cannot bail out of the next render, and the nearest class ancestor — the router switch — is asked to
+render through `forceUpdate`. The probe reports the mounted count as `mounted`; `status.mounted`
+carries how many were adopted, whether a render was requested, and how many are still stale, which
+is an adoption whose render is pending or a mount the claim never reached. Removal hands adopted
+fibers back to Home's own function without requesting a render.
 
 The carousel is a react-virtualized grid whose overscan defaults to 3 columns. Home passes
 `overscan: games.length`, which mounts every tile; harmless at 20, a memory flood at a library. The
