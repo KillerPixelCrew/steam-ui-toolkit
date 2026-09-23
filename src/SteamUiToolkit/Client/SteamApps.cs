@@ -65,6 +65,18 @@ public enum SteamArtworkFormat
 /// <summary>A custom logo placement in Steam's app-details store.</summary>
 public sealed record SteamLogoPosition(string Anchor, int WidthPercent, int HeightPercent);
 
+/// <summary>Outcome of asking the running client to create a non-Steam shortcut.</summary>
+/// <param name="Reachable">
+///     Whether a validated Steam target ran the request. An unreachable client created nothing.
+/// </param>
+/// <param name="AppId">The generated shortcut id, or zero when none was created.</param>
+/// <param name="Error">Why the target was unreachable, or Steam's own error. Null on success.</param>
+public readonly record struct SteamShortcutAddResult(bool Reachable, uint AppId, string? Error)
+{
+    /// <summary>Whether Steam was reached and reported a shortcut id.</summary>
+    public bool Succeeded => Reachable && AppId != 0;
+}
+
 /// <summary>
 ///     Reads and changes per-app configuration in the running client through
 ///     <c>SteamClient.Apps</c>, over the session's transport (<see cref="SteamUiTransportSession" />).
@@ -166,6 +178,90 @@ public static class SteamApps
             "const app=" + SteamClientScript.AppId(appId) + ";" +
             "await SteamClient.Apps.SetShortcutExe(app," + SteamCef.JsString(target) + ");" +
             "await SteamClient.Apps.SetShortcutLaunchOptions(app," + SteamCef.JsString(launchArguments) + ");" +
+            SteamClientScript.Settle(WriteSettleMs));
+        return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Creates a non-Steam shortcut and reports the id Steam generated for it.</summary>
+    /// <param name="name">The entry's name in the library.</param>
+    /// <param name="target">The Target, stored verbatim (quote a path that contains spaces).</param>
+    /// <param name="startDirectory">The working directory, stored verbatim.</param>
+    /// <param name="launchArguments">The Launch Arguments, stored verbatim.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The new id, or why Steam created nothing.</returns>
+    /// <remarks>
+    ///     <para>
+    ///         Steam derives the id itself and persists the entry to <c>shortcuts.vdf</c> immediately, so
+    ///         no restart is needed and no caller has to reproduce Steam's derivation.
+    ///     </para>
+    ///     <para>
+    ///         The launch fields are written twice on purpose. <c>AddShortcut</c>'s positional contract
+    ///         past the name is not one this library has verified across client builds, while
+    ///         <c>SetShortcutExe</c> and <c>SetShortcutLaunchOptions</c> are the calls
+    ///         <see cref="SetShortcutLaunchAsync" /> already relies on. Re-asserting all three in the same
+    ///         script means a client that reads the positional arguments differently still ends up with
+    ///         the intended Target, working directory and arguments rather than an unlaunchable entry.
+    ///     </para>
+    /// </remarks>
+    public static async Task<SteamShortcutAddResult> AddShortcutAsync(
+        string name,
+        string target,
+        string startDirectory,
+        string launchArguments,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentException.ThrowIfNullOrWhiteSpace(target);
+        ArgumentNullException.ThrowIfNull(startDirectory);
+        ArgumentNullException.ThrowIfNull(launchArguments);
+
+        var expression = SteamClientScript.Read(
+            "const A=SteamClient?.Apps;" +
+            "if(typeof A?.AddShortcut!=='function')" +
+            "return JSON.stringify({ok:false,err:'This Steam client does not expose AddShortcut.'});" +
+            "const name=" + SteamCef.JsString(name) + ",exe=" + SteamCef.JsString(target) +
+            ",dir=" + SteamCef.JsString(startDirectory) + ",args=" + SteamCef.JsString(launchArguments) + ";" +
+            "const raw=await A.AddShortcut(name,exe,dir,args);" +
+            "const id=Number(raw)>>>0;" +
+            "if(!id)return JSON.stringify({ok:false,err:'Steam did not report a shortcut id.'});" +
+            "if(typeof A.SetShortcutExe==='function')await A.SetShortcutExe(id,exe);" +
+            "if(typeof A.SetShortcutStartDir==='function')await A.SetShortcutStartDir(id,dir);" +
+            "if(typeof A.SetShortcutLaunchOptions==='function')await A.SetShortcutLaunchOptions(id,args);" +
+            SteamClientScript.Settle(WriteSettleMs) +
+            "return JSON.stringify({ok:true,value:String(id)});");
+        var result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
+            .ConfigureAwait(false);
+        var outcome = ParseAddShortcut(result);
+        if (outcome is { Reachable: true, AppId: 0 })
+        {
+            SteamUiLog.Warn($"Steam did not create a shortcut: {outcome.Error}.");
+        }
+
+        return outcome;
+    }
+
+    /// <summary>Deletes a non-Steam shortcut from the running client's library.</summary>
+    /// <param name="appId">The shortcut's generated id.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>Whether Steam accepted the removal.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">
+    ///     <paramref name="appId" /> is not in the generated-shortcut range. A store title has no
+    ///     shortcut entry to delete, and removing one is not something this call can undo.
+    /// </exception>
+    public static async Task<SteamClientWriteResult> RemoveShortcutAsync(
+        uint appId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsShortcutAppId(appId))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(appId), appId, "Only a non-Steam shortcut id can be removed.");
+        }
+
+        var expression = SteamClientScript.Write(
+            "if(typeof SteamClient?.Apps?.RemoveShortcut!=='function')" +
+            "throw new Error('This Steam client does not expose RemoveShortcut.');" +
+            "await SteamClient.Apps.RemoveShortcut(" + SteamClientScript.AppId(appId) + ");" +
             SteamClientScript.Settle(WriteSettleMs));
         return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
     }
@@ -419,6 +515,53 @@ public static class SteamApps
         catch (JsonException ex)
         {
             return new SteamAppDetailsResult(true, null, $"Steam app details were invalid: {ex.Message}");
+        }
+    }
+
+    /// <summary>Maps an add-shortcut reply to a result. Pure, for tests.</summary>
+    /// <param name="result">The evaluation outcome.</param>
+    /// <remarks>
+    ///     The id arrives as a decimal string because Steam's shortcut ids occupy the top half of the
+    ///     unsigned 32-bit range, where a JSON number reads back signed. Anything that is not a
+    ///     shortcut id is refused rather than returned: a store id here would mean the reply did not
+    ///     describe the entry that was just created.
+    /// </remarks>
+    internal static SteamShortcutAddResult ParseAddShortcut(CefEvalResult result)
+    {
+        if (!result.Reachable)
+        {
+            return new SteamShortcutAddResult(false, 0, result.Error);
+        }
+
+        if (result.Value is null)
+        {
+            return new SteamShortcutAddResult(true, 0, "No response from Steam.");
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(result.Value);
+            var root = document.RootElement;
+            if (!SteamClientScript.IsOk(root))
+            {
+                return new SteamShortcutAddResult(
+                    true, 0, SteamClientScript.ErrorOf(root) ?? "Steam refused to create the shortcut.");
+            }
+
+            var value = SteamClientScript.StringOf(root, "value");
+            if (!uint.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var appId))
+            {
+                return new SteamShortcutAddResult(true, 0, "Steam reported an unreadable shortcut id.");
+            }
+
+            return IsShortcutAppId(appId)
+                ? new SteamShortcutAddResult(true, appId, null)
+                : new SteamShortcutAddResult(
+                    true, 0, $"Steam reported {appId}, which is not a non-Steam shortcut id.");
+        }
+        catch (JsonException ex)
+        {
+            return new SteamShortcutAddResult(true, 0, $"Steam's shortcut reply was invalid: {ex.Message}");
         }
     }
 

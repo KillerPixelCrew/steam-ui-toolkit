@@ -26,6 +26,15 @@ public static class SteamUiProbeJs
     /// <summary>The source tokens of the module exporting Valve's slider and dropdown fields.</summary>
     public const string NativeFieldTokens = "['DialogSlider_Container','DropDownField','SliderField']";
 
+    /// <summary>The source tokens of the module exporting Steam's Panel, which pages focus rows with.</summary>
+    /// <remarks>
+    ///     These are the tokens <c>gate-helpers.ts</c> resolves the component by, and a probe must ask
+    ///     the same question the runtime does. Probing instead for the four property names that
+    ///     identify the export inside this module matches three modules on the current client, so a
+    ///     gate built on that count refuses to install and its page never appears.
+    /// </remarks>
+    public const string NativeFocusableTokens = """['focusableIfEmpty','onActivate','"Panel"']""";
+
     /// <summary>The source tokens of Steam's native tab-page component provider.</summary>
     public const string NativeTabsTokens = "['.TabRowTabs','activeTab:']";
 

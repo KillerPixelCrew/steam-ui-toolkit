@@ -178,6 +178,21 @@ const resolveSteamUiComponents = (runtime) => {
     };
 };
 
+// Closes whichever side panel is open, so a route followed from inside one is not rendered behind
+// it. Valve's own main-window instance owns the operation; SteamNativeSurfaceCommands drives the
+// same MenuStore.CloseSideMenus for the keyboard overlay. Reports whether the panel is now closed,
+// which for a caller that was never in a panel is trivially true.
+const closeSteamSideMenus = () => {
+    const menus = window.SteamUIStore?.WindowStore?.MainWindowInstance?.MenuStore;
+    if (typeof menus?.CloseSideMenus !== "function") return false;
+    try {
+        menus.CloseSideMenus();
+        return true;
+    } catch (_) {
+        return false;
+    }
+};
+
 // Only a route returned by a successful host command is followed. Publications cannot inject a
 // target, and the bounds keep this a router operation rather than an open-ended navigation API.
 const navigateSteamRoute = (route) => {

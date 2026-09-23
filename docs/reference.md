@@ -7,6 +7,17 @@ documentation on each member is the authoritative wording; this document reads t
 whole, in the order a consumer meets it. How WSGM uses it (Steam discovery, gating the transport on
 Big Picture, which surfaces it registers) is on the WSGM side in `docs/steam-cef-system.md`.
 
+`SteamRouteNavigation.NavigateAsync` is the one route change that starts on the host side: a host
+surface outside Steam, such as an overlay, handing the user to a page inside it. It borrows a ready
+SharedJSContext, applies the same bounds as the gates' `navigateSteamRoute` (absolute, not the root,
+at most 256 characters, no control characters), JSON-encodes the route into the expression and
+pushes it once on `window.tempNavStore.m_history`. A replaced generation, a missing router or an
+expired request reports false, and a push that may have happened is never retried. It is a one-shot
+evaluation on purpose rather than a request field on the pages publication: published state is
+replayed to every new subscriber and forgotten when the bridge restarts, so a request left in state
+would navigate again after a gate reinstall. It does not focus Steam's window; that is the host's
+job.
+
 `SteamGameWindowActivation.RaiseAsync` borrows an already subscribed transport and requires a ready
 SharedJSContext. It resolves exactly one `OverlayWindows` entry with the requested nonzero PID,
 requires a gamepad overlay, valid nonzero AppID and decimal 64-bit GameID string, then awaits
@@ -108,22 +119,29 @@ patches reach them through `window[namespace].gate(name)`, exactly as the shippe
 
 ### Other groups
 
-| Group         | Types                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Patches       | `ISteamUiPatch`, `SteamUiPatchBounds`, `SteamUiPatchProbeResult`, `SteamUiPatchOperationResult`, `SteamUiPatchContext`, `SteamUiPatchState`, `SteamUiPatchSnapshot`, `SteamUiPatchManager`, `SteamUiPatchEvaluation`                                                                                                                                                                                                                                                                                                                                |
-| Bridge        | `SteamUiBridgeHost`, `SteamUiBridgeRequest`, `SteamUiBridgeAuthorizer`, `SteamUiBridgeAuthorizationResult`, `SteamUiBridgeIdentity`, `SteamUiInjectedAsset`                                                                                                                                                                                                                                                                                                                                                                                         |
-| Modules       | `ISteamUiModule`, `SteamUiModule`, `SteamUiModuleSet`, `SteamUiModuleBuilder`, `SteamUiPayloadReader<T>`, `SteamUiStatePublication`, `SteamUiCommandHandler`, `SteamUiCommandDelegate`, `SteamUiCommandResult`, `SteamUiModuleRuntime`                                                                                                                                                                                                                                                                                                              |
-| Extensions    | `SteamUiExtensionHost` (static), `SteamUiExtension`, `SteamUiExtensionManifest`, `SteamUiExtensionRejection`                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| Logging       | `ISteamUiLog { Info, Warn, Change(key, message, warning) }`, static `SteamUiLog` with a discarding default                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Client        | `SteamApps`, `SteamAppDetails`, `SteamArtworkSlot`, `SteamArtworkFormat`, `SteamClientWriteResult`, `SteamInstallFolders` with its add/remove/label result types, `SteamDownloadActivity`, `SteamDownloadOverview`, `SteamLibraryData`, `SteamCollectionInfo`, `SteamLibraryApp`, `SteamStoreTag`, `SteamCurrentPage`, `SteamCurrentApp`, `SteamRunningAppsProbe`, `SteamRunningAppsObservation`, `SteamAppLifetimeEvent`, `SteamAppLifetimeMonitor` (§16)                                                                                          |
+| Group         | Types                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Patches       | `ISteamUiPatch`, `SteamUiPatchBounds`, `SteamUiPatchProbeResult`, `SteamUiPatchOperationResult`, `SteamUiPatchContext`, `SteamUiPatchState`, `SteamUiPatchSnapshot`, `SteamUiPatchManager`, `SteamUiPatchEvaluation`                                                                                                                                                                                                                                                                                                                                                       |
+| Bridge        | `SteamUiBridgeHost`, `SteamUiBridgeRequest`, `SteamUiBridgeAuthorizer`, `SteamUiBridgeAuthorizationResult`, `SteamUiBridgeIdentity`, `SteamUiInjectedAsset`                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Modules       | `ISteamUiModule`, `SteamUiModule`, `SteamUiModuleSet`, `SteamUiModuleBuilder`, `SteamUiPayloadReader<T>`, `SteamUiStatePublication`, `SteamUiCommandHandler`, `SteamUiCommandDelegate`, `SteamUiCommandResult`, `SteamUiModuleRuntime`                                                                                                                                                                                                                                                                                                                                     |
+| Extensions    | `SteamUiExtensionHost` (static), `SteamUiExtension`, `SteamUiExtensionManifest`, `SteamUiExtensionRejection`                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Logging       | `ISteamUiLog { Info, Warn, Change(key, message, warning) }`, static `SteamUiLog` with a discarding default                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Client        | `SteamApps`, `SteamAppDetails`, `SteamArtworkSlot`, `SteamArtworkFormat`, `SteamClientWriteResult`, `SteamInstallFolders` with its add/remove/label result types, `SteamDownloadActivity`, `SteamDownloadOverview`, `SteamLibraryData`, `SteamCollectionInfo`, `SteamLibraryApp`, `SteamStoreTag`, `SteamCurrentPage`, `SteamCurrentApp`, `SteamRunningAppsProbe`, `SteamRunningAppsObservation`, `SteamAppLifetimeEvent`, `SteamAppLifetimeMonitor` (§16)                                                                                                                 |
 | Surfaces      | `SteamAudioSurface`, `SteamNetworkSurface`, `SteamBluetoothSurface`, `SteamBrightnessSurface`, `SteamPerformanceSurface`, `SteamPowerLimitSurface`, `SteamFrameLimitRow`, `SteamVariableRefreshRow`, `SteamResolutionRow`, `SteamAudioFormatRow`, `SteamAutoTdpRow`, `SteamControllerTargetRow`, `SteamDeviceControlsRow`, `SteamNavigationPanelSurface`, `SteamPageSurface`, `SteamExtensionsTabSurface`, `SteamGameContextMenuSurface`, `SteamStorageSurface`, `SteamLibraryBadgeSurface`, `SteamHomeCarouselSurface`, each with typed state and backend contracts (§15) |
-| Patch helpers | `SteamUiBridgePatch`, `SteamGatePatch`, `SteamQuickAccessRowPatch`; readers `SteamUiPayload`, `SteamPerformanceDeltaReader`, `SteamOverlayLevelWire`; `SteamUiProbeJs`, `SteamUiText`, `SteamSettingPersistence`                                                                                                                                                                                                                                                                                                                                    |
-| Assets        | `SteamUiAssets/Source/types.ts`, `bridge.ts`, `ownership.ts`, `rpc.ts`, `gate-helpers.ts`, `icons.ts`, `module-resolver.ts`, `gates/*.ts`, `components.ts`, `epilogue.ts`; built by `eng/build-prelude.mjs`, checked by `eng/check-*.mjs`                                                                                                                                                                                                                                                                                                           |
+| Patch helpers | `SteamUiBridgePatch`, `SteamGatePatch`, `SteamQuickAccessRowPatch`; readers `SteamUiPayload`, `SteamPerformanceDeltaReader`, `SteamOverlayLevelWire`; `SteamUiProbeJs`, `SteamUiText`, `SteamSettingPersistence`                                                                                                                                                                                                                                                                                                                                                           |
+| Assets        | `SteamUiAssets/Source/types.ts`, `bridge.ts`, `ownership.ts`, `rpc.ts`, `gate-helpers.ts`, `icons.ts`, `module-resolver.ts`, `gates/*.ts`, `components.ts`, `epilogue.ts`; built by `eng/build-prelude.mjs`, checked by `eng/check-*.mjs`                                                                                                                                                                                                                                                                                                                                  |
 
-`SteamUiProbeJs` exposes the stable structural token arrays for React and the native field,
-tab-page, generic-dialog and modal-manager providers. Consumer-owned surfaces use those constants
-in read-only compatibility probes and use the shared injected `resolveSteamUiComponents` helper at
-install time; neither layer names a module id or a minified export.
+`SteamUiProbeJs` exposes the stable structural token arrays for React and the native focusable,
+field, tab-page, generic-dialog and modal-manager providers. Consumer-owned surfaces use those
+constants in read-only compatibility probes and use the shared injected `resolveSteamUiComponents`
+helper at install time; neither layer names a module id or a minified export.
+
+A probe must count the same token set the runtime resolves the component by, which is why those
+constants exist rather than each surface writing its own. `NativeFocusableTokens` is the example
+that cost a feature: the four property names that identify Panel's export inside its module read
+like a fingerprint but match three modules, so a gate counting them never reaches one, refuses to
+install, and its page silently never appears. `eng/check-steam-fingerprints.mjs` in a consumer
+repository is what catches that, so keep consumer sources in its roots.
 
 `SteamUiLog` is a settable static rather than a constructor parameter because there is one sink per
 process. `Change` is the poll-loop primitive: a line is written once per transition of its key, and
@@ -755,13 +773,13 @@ for fixtures and diagnostics.
 
 ### Game overrides and Use global
 
-A host with per-game profiles can say that the running game supplies a row's value. The frame
-limit, VRR, power limit (each range and the mode), power preset (AC and battery), device controls
-(charge limit, brightness and each lighting zone) and controller-target states carry an optional
+A host with per-game profiles can say that the running game supplies a row's value. The frame limit,
+VRR, power limit (each range and the mode), power preset (AC and battery), device controls (charge
+limit, brightness and each lighting zone) and controller-target states carry an optional
 `OverrideId`: the host's setting id while the game's own profile supplies that value, null
-otherwise. The row then leads its description with "Game override" and, except for the power
-preset, draws one "Use global" DialogButton under the control. The power preset needs no button:
-its unset entry already means inheriting.
+otherwise. The row then leads its description with "Game override" and, except for the power preset,
+draws one "Use global" DialogButton under the control. The power preset needs no button: its unset
+entry already means inheriting.
 
 Use global sends `useGlobal` with `{ "id": "<OverrideId>" }` to the row's own patch. Each of those
 modules takes an optional `ISteamProfileOverrideBackend`; without one the command is refused with a
@@ -1156,12 +1174,20 @@ that is not a non-negative safe integer refuses the item at the publication boun
 configure command would reject every change it offered. Activation sends `activate {id}`. A setting
 sends exact `configure {id,key,value,expectedRevision}` to `ISteamExtensionsTabBackend`; booleans,
 finite numbers and bounded text are the only values accepted. A value typed into a text or number
-box belongs to the revision it was typed against: a newer published revision and a refused save
-both drop it, so the box never shows or resends a value the host has replaced or rejected. Secret
-settings render as password inputs and their current value should be omitted from published
-state. Action and save controls use Steam's native focusable Panel. The Quick Access memo
-claim retains its original member snapshot, and both discovery and subsequent probes recognize that
-snapshot rather than rejecting the installed wrapper.
+box belongs to the revision it was typed against: a newer published revision and a refused save both
+drop it, so the box never shows or resends a value the host has replaced or rejected. Secret
+settings render as password inputs and their current value should be omitted from published state.
+Action and save controls use Steam's native focusable Panel. The Quick Access memo claim retains its
+original member snapshot, and both discovery and subsequent probes recognize that snapshot rather
+than rejecting the installed wrapper.
+
+An `activate` answer carrying a `route` opens that page, the same contract the game context menu
+follows, and the only way a host can navigate from this tab. The panel is closed first through
+`closeSteamSideMenus`: this tab renders inside the Quick Access flyout, so navigating with it open
+leaves the page behind the panel, which on a controller is indistinguishable from a dead button. The
+route itself goes through the shared `navigateSteamRoute` bound, so a host that answers with
+something unusable navigates nowhere rather than handing it to Steam's router. An answer without a
+route, and a refusal, both navigate nowhere and leave the panel open.
 
 `SteamGameContextMenuSurface` publishes `SteamGameContextMenuState` under
 `steam-ui.game-context-menu`. It renders at most 32 `Id`/`Label` commands and accepts exactly
@@ -1177,9 +1203,9 @@ custom-page host does the same for its router claim and both patched fibers.
 
 `SteamExtensionsTabTests` and `SteamGameContextMenuTests` cover the typed contracts.
 `eng/check-extension-surfaces.mjs` covers the emitted asset's repeated probe/reclaim, native
-activation, first-menu insertion, draft reconciliation, a failed release that stays retriable, and
-removal. Offline checks do not establish live visual parity
-with Decky or prove compatibility with a different Steam build.
+activation, the route follow and its panel-close ordering, first-menu insertion, draft
+reconciliation, a failed release that stays retriable, and removal. Offline checks do not establish
+live visual parity with Decky or prove compatibility with a different Steam build.
 
 ## 16. The client layer
 
@@ -1189,14 +1215,37 @@ nothing has to be removed, except the one resident observer described below. Eve
 unreachable client separately from a refusal, because a client that was never reached changed
 nothing and the caller may offer the request again.
 
-| Type                    | What it does                                                                                                                                                                                                                                      |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SteamApps`             | reads one app's details (`RegisterForAppDetails`), writes a title's launch options or a shortcut's Target and arguments, and sets or clears custom artwork. `NormalizeAppId` converts a stored signed id; `IsShortcutAppId` splits the two kinds. |
-| `SteamInstallFolders`   | adds, removes and relabels library folders. Selects every registration at a path, never the first, and `NormalizePath` is the C# twin of the script's own normalizer.                                                                             |
-| `SteamDownloadActivity` | one snapshot of the download queue, with `IsActive` as the live-verified activity rule.                                                                                                                                                           |
-| `SteamLibraryData`      | collections, games and shortcuts, and the store tags in use. `IsLoadedAsync` answers whether the stores exist yet.                                                                                                                                |
-| `SteamCurrentPage`      | which game page is in view: the focused React fiber, then the largest wide library image, then the library route.                                                                                                                                 |
-| `SteamRunningAppsProbe` | which apps Steam is running, and the log of starts and stops behind `SteamAppLifetimeMonitor`.                                                                                                                                                    |
+| Type                    | What it does                                                                                                                                                                                                                                                                               |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `SteamApps`             | reads one app's details (`RegisterForAppDetails`), creates and deletes non-Steam shortcuts, writes a title's launch options or a shortcut's Target and arguments, and sets or clears custom artwork. `NormalizeAppId` converts a stored signed id; `IsShortcutAppId` splits the two kinds. |
+| `SteamInstallFolders`   | adds, removes and relabels library folders. Selects every registration at a path, never the first, and `NormalizePath` is the C# twin of the script's own normalizer.                                                                                                                      |
+| `SteamDownloadActivity` | one snapshot of the download queue, with `IsActive` as the live-verified activity rule.                                                                                                                                                                                                    |
+| `SteamLibraryData`      | collections, games and shortcuts, and the store tags in use. `IsLoadedAsync` answers whether the stores exist yet.                                                                                                                                                                         |
+| `SteamCurrentPage`      | which game page is in view: the focused React fiber, then the largest wide library image, then the library route.                                                                                                                                                                          |
+| `SteamRunningAppsProbe` | which apps Steam is running, and the log of starts and stops behind `SteamAppLifetimeMonitor`.                                                                                                                                                                                             |
+
+### Creating and deleting non-Steam shortcuts
+
+`AddShortcutAsync` asks the client for a new entry and reports the id Steam generated, so no caller
+reproduces Steam's own derivation. Steam persists the entry to `shortcuts.vdf` immediately, as it
+does for every other write here.
+
+The launch fields are written twice in the same script, deliberately. `AddShortcut`'s positional
+contract past the name is not one this library has verified across client builds, while
+`SetShortcutExe` and `SetShortcutLaunchOptions` are the calls `SetShortcutLaunchAsync` already
+relies on. Re-asserting Target, working directory and arguments through the setters means a client
+that reads the positional arguments differently still ends up with the intended values instead of an
+unlaunchable entry. Each setter is guarded by its own `typeof` check, as `AddShortcut` itself is: a
+missing export is reported as a refusal, never assumed present.
+
+The id crosses as a decimal string, because a shortcut id occupies the top half of the unsigned
+32-bit range and reads back negative as a JSON number. `ParseAddShortcut` refuses anything that is
+not a shortcut id, including a store id: that reply would not describe the entry just created, and
+callers key their own records on the value.
+
+`RemoveShortcutAsync` throws for an id outside the shortcut range rather than asking Steam. A store
+title has no shortcut entry to delete, deleting a library entry is not something the call can undo,
+and the guard belongs before the client is reached.
 
 ### Running apps and lifetime events
 

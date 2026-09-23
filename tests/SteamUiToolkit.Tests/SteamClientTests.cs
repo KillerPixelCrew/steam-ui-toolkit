@@ -82,6 +82,68 @@ public sealed class SteamClientTests
     }
 
     [Fact]
+    public void AddShortcutReplyCarriesTheGeneratedId()
+    {
+        var result = SteamApps.ParseAddShortcut(CefEvalResult.Ok("""{"ok":true,"value":"2147483650"}"""));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(2147483650u, result.AppId);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void AddShortcutRefusesAnIdOutsideTheShortcutRange()
+    {
+        // A store id here would mean the reply did not describe the entry that was just created,
+        // and every caller keys its own record on this value.
+        var result = SteamApps.ParseAddShortcut(CefEvalResult.Ok("""{"ok":true,"value":"440"}"""));
+
+        Assert.True(result.Reachable);
+        Assert.Equal(0u, result.AppId);
+        Assert.Contains("440", result.Error);
+    }
+
+    [Theory]
+    [InlineData("""{"ok":true,"value":""}""")]
+    [InlineData("""{"ok":true,"value":"-2147483646"}""")]
+    [InlineData("""{"ok":true}""")]
+    public void AddShortcutRefusesAnUnreadableId(string reply)
+    {
+        // The id crosses as a decimal string because a shortcut id read back as a JSON number is
+        // negative. A signed spelling is therefore a reply this library did not produce.
+        var result = SteamApps.ParseAddShortcut(CefEvalResult.Ok(reply));
+
+        Assert.True(result.Reachable);
+        Assert.Equal(0u, result.AppId);
+        Assert.Equal("Steam reported an unreadable shortcut id.", result.Error);
+    }
+
+    [Fact]
+    public void AddShortcutDistinguishesUnreachableFromRefused()
+    {
+        var unreachable = SteamApps.ParseAddShortcut(CefEvalResult.Unreachable("port closed"));
+        Assert.False(unreachable.Reachable);
+        Assert.Equal("port closed", unreachable.Error);
+
+        var refused = SteamApps.ParseAddShortcut(
+            CefEvalResult.Ok("""{"ok":false,"err":"This Steam client does not expose AddShortcut."}"""));
+        Assert.True(refused.Reachable);
+        Assert.False(refused.Succeeded);
+        Assert.Equal("This Steam client does not expose AddShortcut.", refused.Error);
+    }
+
+    [Theory]
+    [InlineData(440u)]
+    [InlineData(2147483647u)]
+    public async Task RemovingAStoreAppIdIsRefusedBeforeSteamIsReached(uint appId)
+    {
+        // Deleting a library entry cannot be undone by this call, and a store title has no shortcut
+        // entry to delete, so the guard is an argument check rather than a Steam-side refusal.
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            () => SteamApps.RemoveShortcutAsync(appId));
+    }
+
+    [Fact]
     public async Task AppDetailsReadReleasesItsSubscriptionAndUsesTheProbeTransport()
     {
         var transport = new FakeSteamUiTransport

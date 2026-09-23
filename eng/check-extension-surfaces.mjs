@@ -7,6 +7,7 @@ import {
   loadAsset,
   readSource,
   sharedFragments,
+  tick,
   withSource,
 } from "./check-harness.mjs";
 
@@ -14,6 +15,22 @@ const asset = loadAsset();
 const subscriptions = new Map();
 let refuseRequests = false;
 const requests = [];
+// What a host command answers with. An action that opens a page answers with a route; every other
+// action answers with nothing, which is what the existing rows assert against.
+let nextAnswer;
+// Steam's two stores the route follow touches, and the order it touched them in. Navigating while
+// the Quick Access panel is still open renders the page behind it, so the order is the point.
+const navigation = [];
+const window = {
+  SteamUIStore: {
+    WindowStore: {
+      MainWindowInstance: {
+        MenuStore: { CloseSideMenus: () => navigation.push("closed") },
+      },
+    },
+  },
+  tempNavStore: { m_history: { push: (route) => navigation.push(route) } },
+};
 // Real hook cells, in render order: the tab keeps typed drafts in useState, and the reconciliation
 // this check pins is only visible across renders that remember what the previous one stored.
 const hookCells = [];
@@ -66,10 +83,11 @@ const globals = {
   },
   request: (...args) => {
     requests.push(args);
-    return refuseRequests ? Promise.reject(new Error("refused")) : Promise.resolve();
+    return refuseRequests ? Promise.reject(new Error("refused")) : Promise.resolve(nextAnswer);
   },
   nextActionGeneration: () => 1,
   createIconRenderer: () => () => null,
+  window,
 };
 const code =
   sharedFragments(asset) +
@@ -112,6 +130,29 @@ assert.deepEqual(requests[0].slice(0, 3), [
   "activate",
   { id: "run-one" },
 ]);
+await tick();
+assert.deepEqual(navigation, [], "an action that answers with nothing navigates nowhere");
+
+// An action may answer with a page to open. The panel has to close first, or the page renders
+// behind it and a controller user cannot tell the button did anything.
+nextAnswer = { route: "/wsgm/library-import" };
+action.props.onActivate();
+await tick();
+assert.deepEqual(
+  navigation,
+  ["closed", "/wsgm/library-import"],
+  "the Quick Access panel closes before the route is followed",
+);
+
+// The route bound is the shared helper's, so a host that answers with something unusable navigates
+// nowhere rather than handing it to Steam's router.
+navigation.length = 0;
+nextAnswer = { route: "not-a-route" };
+action.props.onActivate();
+await tick();
+assert.deepEqual(navigation, ["closed"], "an unusable route is refused by the shared bound");
+nextAnswer = undefined;
+navigation.length = 0;
 // An item the host could never act on is refused at the publication boundary rather than rendered:
 // the configure command rejects a negative revision, so a row offering one is a dead control.
 subscriptions.get("steam-ui.extensions-tab")({
