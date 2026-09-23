@@ -13,6 +13,7 @@ const checks = [
   "check-startup.mjs",
   "check-service-gates.mjs",
   "check-navigation-panel.mjs",
+  "check-settings-fields.mjs",
   "check-pages.mjs",
   "check-storage.mjs",
   "check-library.mjs",

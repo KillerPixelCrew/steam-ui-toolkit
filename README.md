@@ -56,7 +56,10 @@ Steam's by route (`/library`) or by Valve's descriptor key (`power`) rather than
 routes and keys are stable across client builds and languages while the labels are localized. Hiding
 is applied before insertion. An entry whose anchor is not in the panel goes to the end and is
 reported as orphaned rather than dropped. The claim is on the one exported handle and is restored on
-removal.
+removal. Added entries are drawn by Valve's own entry components, taken from the entries the panel
+renders: an entry with a `Route` is Valve's route entry, active on its page and navigating with
+Valve's own action, and one without is Valve's action entry, which asks the backend. `Glyph` gives
+an entry its icon as SVG path data drawn the way Valve draws the menu's own.
 
 **`SteamPageSurface.Module`** registers custom pages with Steam's own router. Publish
 `SteamPageState` with a path, a title and an id. The path goes to Steam's matcher, so
@@ -70,6 +73,11 @@ Consumers may compile a bounded renderer fragment beside the toolkit and registe
 `registerSteamPageRenderer(template, render)`. `SteamPageState.Template` selects that renderer while
 the router, ownership and back-stack mechanism stay generic. The toolkit intentionally contains no
 product page or artwork browser.
+
+A renderer for a settings page can hand its rows to `renderSteamSettings`, which draws them with
+Steam's own routed sidebar, settings sections, fields, small buttons and confirm modal, exactly as
+Steam's Settings page looks and navigates. Publish `SteamSettingsPage`s of `SteamSettingsRow`s,
+described by `SteamSettingsRowKind`; `docs/reference.md` lists what each kind draws.
 
 **`SteamLibraryBadgeSurface.Module`** draws a library badge on every library tile, immediately left
 of Valve's Steam Input badge in the tile's icon row: the name of the library holding the game, green

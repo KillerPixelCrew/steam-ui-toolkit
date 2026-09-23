@@ -8,6 +8,12 @@
 //         Ie      the panel root, props { loggedIn, menuOpen }   <- local, not exported
 //           d.Z   role "menu", aria-label #MainMenu_Title, flow-children "column"
 //             Ae  one route entry, props { route, active, label, icon, onGamepadFocus }
+//             me  one action entry, props { label, action, active, icon, onGamepadFocus }
+//
+// Re-read on 2026-09-24: `Ae` maps its route to `me` through the router, so both draw the same row -
+// Valve's Focusable with the menu's own Item, ItemIcon and ItemLabel classes, the active dot, and
+// mouse and gamepad activation. `Ae` also gives the row its active state and navigates with Valve's
+// own route action; `me` calls `action`. Power is an action entry, Library a route entry.
 //
 // `Ie` builds its list from `ve(loggedIn)` and maps it to entry elements keyed by the descriptor's
 // own `key`. Neither `Ie` nor `ve` is exported, and `ve` calls hooks — calling the module's own
@@ -61,6 +67,7 @@ function createNavigationPanel() {
             id: string;
             label: string;
             icon?: string;
+            glyph?: string;
             route?: string;
             before?: string;
             after?: string;
@@ -95,26 +102,79 @@ function createNavigationPanel() {
         return identity.route === anchor || identity.key === anchor;
     };
 
-    // One added entry. Rendered as Valve's own row would be if it could take arbitrary props: a
-    // menuitem div carrying the same role and accessible name, so the panel's keyboard and controller
-    // flow treats it as one of its own. It deliberately does not reuse Valve's route entry component —
-    // that one resolves its own active state from the router, and an entry pointing at a toolkit
-    // consumer's surface has no route in Steam's router to resolve.
-    const renderItem = (item) =>
-        react.createElement(
-            "div",
-            {
-                key: `steam-ui-nav-${item.id}`,
-                role: "menuitem",
-                "aria-label": item.label,
-                onClick: () => {
-                    request(patchId, "activate", {id: item.id}).catch(() => {
-                    });
-                },
+    // Valve's own entry components, taken from the entries this render already holds. Both are local
+    // to the menu module, so a rendered sibling is the only place they can be had - and drawing an
+    // added row with them is what makes it Steam's row rather than a copy of one: the same focus
+    // bar, active dot, icon box and label, and the same gamepad activation. `onGamepadFocus` is the
+    // panel's own handler, which clears the focused running app the way every native entry does.
+    const nativeEntries = (children) => {
+        let route = null;
+        let action = null;
+        let onGamepadFocus;
+        for (const child of children) {
+            if (!react.isValidElement(child) || typeof child.type !== "function") continue;
+            const props: any = child.props ?? {};
+            if (!route && typeof props.route === "string") {
+                route = child.type;
+            } else if (
+                !action &&
+                typeof props.action === "function" &&
+                !("route" in props) &&
+                !("app" in props) &&
+                !("stream" in props)
+            ) {
+                action = child.type;
+            }
+            if (!onGamepadFocus && typeof props.onGamepadFocus === "function") {
+                onGamepadFocus = props.onGamepadFocus;
+            }
+        }
+        return {route, action, onGamepadFocus};
+    };
+
+    // The row's glyph: the host's own path data, or a toolkit glyph by name, or none.
+    const iconOf = (item) =>
+        (item.glyph ? renderSteamGlyph(react, item.glyph) : null) ??
+        (item.icon && icon ? icon(item.icon) : null);
+
+    const activate = (id) => {
+        void request(patchId, "activate", {id}, nextActionGeneration(patchId)).then(
+            (answer: any) => {
+                // An action may answer with a page to open. The menu is a side panel, so it is
+                // closed first; a page opened behind it is, on a controller, a dead button.
+                if (answer?.route && closeSteamSideMenus()) navigateSteamRoute(answer.route);
             },
-            item.icon && icon ? icon(item.icon) : null,
-            react.createElement("span", null, item.label),
+            () => {
+                // The host's refusal is already logged; a rejected press must not break the menu.
+            },
         );
+    };
+
+    // One added entry, drawn by Valve's own component. An entry with a route uses the route entry,
+    // which matches the route for its active state and navigates with Valve's own action exactly as
+    // Library does; the route is held to the bounds navigateSteamRoute applies, and is only followed
+    // when the user selects the row. Anything else uses the action entry and asks the host.
+    // Without the component it needs there is no row: an imitation would be a control that looks
+    // like Steam's and behaves like something else, so it is counted instead.
+    const renderItem = (item, native) => {
+        const common = {
+            key: `steam-ui-nav-${item.id}`,
+            label: item.label,
+            icon: iconOf(item),
+            onGamepadFocus: native.onGamepadFocus,
+        };
+        if (item.route && isNavigableRoute(item.route) && native.route) {
+            return react.createElement(native.route, {
+                ...common,
+                route: item.route,
+                active: "if-within-route",
+            });
+        }
+        if (!item.route && native.action) {
+            return react.createElement(native.action, {...common, action: () => activate(item.id)});
+        }
+        return null;
+    };
 
     // Applies the host's list to the panel's own children.
     //
@@ -141,28 +201,28 @@ function createNavigationPanel() {
         }
 
         const pending = desired.items.slice(0, MaximumEntries);
+        // From every child, hidden ones included: hiding Power must not cost the action entry.
+        const native = nativeEntries(children);
         const placed = new Set<string>();
         const result: unknown[] = [];
+        let unrendered = 0;
+        const place = (item) => {
+            placed.add(item.id);
+            const row = renderItem(item, native);
+            if (row) result.push(row);
+            else unrendered++;
+        };
         for (const item of pending) {
-            if (item.position === "start") {
-                result.push(renderItem(item));
-                placed.add(item.id);
-            }
+            if (item.position === "start") place(item);
         }
 
         for (const child of kept) {
             for (const item of pending) {
-                if (!placed.has(item.id) && matchesAnchor(child, item.before)) {
-                    result.push(renderItem(item));
-                    placed.add(item.id);
-                }
+                if (!placed.has(item.id) && matchesAnchor(child, item.before)) place(item);
             }
             result.push(child);
             for (const item of pending) {
-                if (!placed.has(item.id) && matchesAnchor(child, item.after)) {
-                    result.push(renderItem(item));
-                    placed.add(item.id);
-                }
+                if (!placed.has(item.id) && matchesAnchor(child, item.after)) place(item);
             }
         }
 
@@ -173,10 +233,12 @@ function createNavigationPanel() {
         for (const item of pending) {
             if (placed.has(item.id)) continue;
             if (item.before || item.after) orphaned++;
-            result.push(renderItem(item));
+            place(item);
         }
 
-        lastOutcome = `entries=${observed.length} hidden=${hidden} added=${pending.length} orphaned=${orphaned}`;
+        lastOutcome =
+            `entries=${observed.length} hidden=${hidden} added=${pending.length - unrendered} ` +
+            `orphaned=${orphaned} unrendered=${unrendered}`;
         return result;
     };
 
@@ -288,6 +350,7 @@ function createNavigationPanel() {
             desired = {
                 items: items
                     .filter((item) => item && typeof item.id === "string" && typeof item.label === "string")
+                    .filter((item) => item.route == null || isNavigableRoute(item.route))
                     .slice(0, MaximumEntries),
                 hidden: hidden.filter((value) => typeof value === "string").slice(0, MaximumEntries),
             };

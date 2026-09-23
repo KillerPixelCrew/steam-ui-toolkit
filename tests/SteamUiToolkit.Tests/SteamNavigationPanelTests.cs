@@ -76,6 +76,19 @@ public sealed class SteamNavigationPanelTests
     }
 
     [Fact]
+    public void ARouteAndAGlyphReachTheWireUnderTheNamesTheGateReads()
+    {
+        SteamNavigationPanelState state = new(
+            [new SteamNavigationItem("settings", "Settings", Before: "power", Route: "/host/settings", Glyph: "M1 1h2v2H1Z")],
+            []);
+
+        var item = SteamNavigationPanelSurface.Serialize(state).GetProperty("items")[0];
+
+        Assert.Equal("/host/settings", item.GetProperty("route").GetString());
+        Assert.Equal("M1 1h2v2H1Z", item.GetProperty("glyph").GetString());
+    }
+
+    [Fact]
     public async Task ActivationReachesTheBackendAndAMalformedIdIsRefusedByName()
     {
         RecordingBackend backend = new();

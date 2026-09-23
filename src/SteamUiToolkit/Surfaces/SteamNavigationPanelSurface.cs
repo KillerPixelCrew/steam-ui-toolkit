@@ -21,13 +21,33 @@ namespace SteamUiToolkit;
 ///     placement at all, and one whose anchor is not in the panel, goes to the end rather than being
 ///     dropped.
 /// </param>
+/// <param name="Route">
+///     The page the entry opens, such as a route registered through <see cref="SteamPageSurface" />.
+///     An entry with a route is drawn by Valve's own route entry: it is active on that page and below
+///     it, and selecting it navigates with Valve's own action, so the host is not asked. Without one,
+///     selecting the entry sends <c>activate</c>, and an answer carrying a <c>route</c> is followed
+///     after the menu closes. A route that is not absolute, is <c>/</c>, or is longer than 256
+///     characters is not drawn.
+/// </param>
+/// <param name="Glyph">
+///     The entry's icon as SVG path data on a 24x24 grid, filled with the row's own colour and with
+///     holes cut even-odd, which is how Valve draws the menu's icons. Takes precedence over
+///     <see cref="Icon" />. Only path commands and numbers are drawn.
+/// </param>
+/// <remarks>
+///     An added entry is always drawn by one of Valve's own entry components, taken from the entries
+///     the panel already renders. Where the one it needs is not there, the entry is not drawn and the
+///     gate reports it as <c>unrendered</c> rather than showing an imitation.
+/// </remarks>
 public sealed record SteamNavigationItem(
     string Id,
     string Label,
     string? Icon = null,
     string? Before = null,
     string? After = null,
-    string? Position = null);
+    string? Position = null,
+    string? Route = null,
+    string? Glyph = null);
 
 /// <summary>The additions and hidden entries the panel should show.</summary>
 /// <param name="Items">Entries to add, in the order they should be placed.</param>

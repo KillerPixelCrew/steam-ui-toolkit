@@ -20,9 +20,17 @@ const asset = loadAsset();
 // which is what this fixture was written against; nothing in the gate needs a reconciler.
 const react = createReact({ cloneReplacesChildren: true });
 
-// Valve's panel, reduced to the two facts the gate matches on: the root's source carries both
-// tokens, and its children are entry elements keyed by descriptor key and carrying a route.
-const entry = (key, route, label) => element(() => null, { route, label }, key);
+// Valve's panel, reduced to the facts the gate relies on: the root's source carries both tokens,
+// and its children are entry elements keyed by descriptor key. Route entries share one component
+// and carry a route; Power is an action entry carrying an action, as on the live client. Every
+// entry gets the panel's own focus handler, which an added entry must receive as well.
+const RouteEntry = () => null;
+const ActionEntry = () => null;
+const onGamepadFocus = () => {};
+const entry = (key, route, label) =>
+  route
+    ? element(RouteEntry, { route, label, active: "if-within-route", onGamepadFocus }, key)
+    : element(ActionEntry, { action: () => {}, label, onGamepadFocus }, key);
 function PanelRoot() {
   return element("div", {
     role: "menu",
@@ -47,6 +55,9 @@ const exports = { v_: memo };
 Object.defineProperty(Outer, "toString", { value: () => 'function(){ "MainNavMenuContainer"; }' });
 
 const requests = [];
+const navigated = [];
+let closed = 0;
+let answer;
 const globals = {
   // The react module the gate resolves is the fixture above, so createElement, cloneElement and
   // Children come from one place.
@@ -57,9 +68,17 @@ const globals = {
     return require;
   },
   createIconRenderer: () => (name) => element("svg", { name }),
+  renderSteamGlyph: (_react, d) => (d.startsWith("M") ? element("svg", { d }) : null),
+  nextActionGeneration: () => 1,
   request: (patchId, command, payload) => {
     requests.push(`${command} ${payload.id}`);
-    return Promise.resolve();
+    return Promise.resolve(answer);
+  },
+  window: {
+    SteamUIStore: {
+      WindowStore: { MainWindowInstance: { MenuStore: { CloseSideMenus: () => closed++ } } },
+    },
+    tempNavStore: { m_history: { push: (route) => navigated.push(route) } },
   },
   subscribe: (patchId, listener) => {
     globals.publish = listener;
@@ -149,12 +168,46 @@ assert.deepEqual(
   "an entry anchored to a hidden one must fall to the end rather than reappear beside it",
 );
 
-// Activation reaches the bridge under the entry's own id.
-globals.publish({ items: [{ id: "activate-me", label: "Activate Me" }], hidden: [] });
-elementsWithLabels()
-  .find((node) => node.props["aria-label"] === "Activate Me")
-  .props.onClick();
+// An added entry is drawn by Valve's own components, never an imitation: an entry with no route
+// by the action entry, which activation reaches through the bridge under the entry's own id.
+globals.publish({ items: [{ id: "activate-me", label: "Activate Me" }], hidden: ["power"] });
+const actionRow = elementsWithLabels().find((node) => node.props.label === "Activate Me");
+assert.equal(actionRow.type, ActionEntry, "an action entry must use Valve's own action entry");
+assert.equal(actionRow.props.onGamepadFocus, onGamepadFocus, "it must take the panel's focus handler");
+answer = { route: "/toolkit/page" };
+actionRow.props.action();
+await new Promise((resolve) => setImmediate(resolve));
 assert.deepEqual(requests, ["activate activate-me"], "activation must carry the entry's own id");
+assert.equal(closed, 1, "a route in the answer must close the menu first");
+assert.deepEqual(navigated, ["/toolkit/page"], "and then be followed");
+
+// An entry with a route is Valve's route entry, which matches the route for its active state and
+// navigates with Valve's own action, so nothing goes through the bridge and the host never has to
+// answer.
+globals.publish({
+  items: [{ id: "page", label: "Page", route: "/toolkit/settings", glyph: "M1 1h2v2H1Z", before: "power" }],
+  hidden: [],
+});
+const routeRow = elementsWithLabels().find((node) => node.props.label === "Page");
+assert.equal(routeRow.type, RouteEntry, "a route entry must use Valve's own route entry");
+assert.equal(routeRow.props.route, "/toolkit/settings");
+assert.equal(routeRow.props.active, "if-within-route", "it must be active on its page and below it");
+assert.equal(routeRow.props.icon.props.d, "M1 1h2v2H1Z", "a host glyph must be drawn as its icon");
+assert.deepEqual(
+  labels(),
+  ["Home", "Library", "Store", "Page", "Power"],
+  "a route entry must be placed like any other",
+);
+
+// A route that is not a route is refused where it is published, so it can never reach Valve's entry.
+globals.publish({
+  items: [
+    { id: "root", label: "Root", route: "/" },
+    { id: "relative", label: "Relative", route: "wsgm" },
+  ],
+  hidden: [],
+});
+assert.deepEqual(labels(), ["Home", "Library", "Store", "Power"], "an invalid route must not be drawn");
 
 const removed = gate.remove();
 assert.ok(removed.ok, `remove failed: ${removed.error}`);

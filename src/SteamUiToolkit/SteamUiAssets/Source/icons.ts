@@ -393,3 +393,30 @@ const createIconRenderer = (react) => {
         return element;
     };
 };
+
+// A glyph the host supplies as SVG path data on a 24x24 grid: one path, filled with `currentColor`,
+// holes cut with `fill-rule="evenodd"`. That is Valve's own convention for the main menu's icons -
+// inline SVG with no size of its own, sized by the row's icon box - so a host's mark sits beside
+// Home and Library as one of them. Only path commands and numbers are accepted, bounded, so a
+// publication can describe a shape and nothing else. Cached per path; null when the data is not a
+// path.
+const SteamGlyphPattern = /^[MmLlHhVvCcSsQqTtAaZz0-9.,\-\s]{1,4096}$/u;
+const steamGlyphCache = new Map();
+const renderSteamGlyph = (react, d) => {
+    if (typeof d !== "string" || !SteamGlyphPattern.test(d)) return null;
+    const cached = steamGlyphCache.get(d);
+    if (cached) return cached;
+    const element = react.createElement(
+        "svg",
+        {
+            xmlns: "http://www.w3.org/2000/svg",
+            viewBox: "0 0 24 24",
+            fill: "none",
+            "aria-hidden": true,
+            focusable: false,
+        },
+        react.createElement("path", {d, fill: "currentColor", fillRule: "evenodd"}),
+    );
+    if (steamGlyphCache.size < 32) steamGlyphCache.set(d, element);
+    return element;
+};
