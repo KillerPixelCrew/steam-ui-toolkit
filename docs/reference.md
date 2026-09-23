@@ -7,6 +7,17 @@ documentation on each member is the authoritative wording; this document reads t
 whole, in the order a consumer meets it. How WSGM uses it (Steam discovery, gating the transport on
 Big Picture, which surfaces it registers) is on the WSGM side in `docs/steam-cef-system.md`.
 
+`SteamRouteNavigation.NavigateAsync` is the one route change that starts on the host side: a host
+surface outside Steam, such as an overlay, handing the user to a page inside it. It borrows a ready
+SharedJSContext, applies the same bounds as the gates' `navigateSteamRoute` (absolute, not the root,
+at most 256 characters, no control characters), JSON-encodes the route into the expression and
+pushes it once on `window.tempNavStore.m_history`. A replaced generation, a missing router or an
+expired request reports false, and a push that may have happened is never retried. It is a one-shot
+evaluation on purpose rather than a request field on the pages publication: published state is
+replayed to every new subscriber and forgotten when the bridge restarts, so a request left in state
+would navigate again after a gate reinstall. It does not focus Steam's window; that is the host's
+job.
+
 `SteamGameWindowActivation.RaiseAsync` borrows an already subscribed transport and requires a ready
 SharedJSContext. It resolves exactly one `OverlayWindows` entry with the requested nonzero PID,
 requires a gamepad overlay, valid nonzero AppID and decimal 64-bit GameID string, then awaits
