@@ -86,8 +86,9 @@ with unplayed recent purchases by purchase time, never-played installed games af
 uninstalled games greyed out when `SteamHomeCarouselState.IncludeUninstalled` asks for them. Games
 in `DisconnectedAppIds` leave the list. The gate replaces the one app-id array Home hands its
 carousel and background, so Steam's own components draw it, and puts the virtualized carousel's
-overscan back to the component's default, since Home otherwise mounts every tile. Implement
-`ISteamHomeCarouselBackend` to hear what the carousel holds after each rebuild.
+overscan back to the component's default, since Home otherwise mounts every tile. A Home already on
+screen when the gate installs is adopted and re-rendered at once rather than waiting for the next
+navigation. Implement `ISteamHomeCarouselBackend` to hear what the carousel holds after each rebuild.
 
 **`SteamExtensionsTabSurface.Module`** adds one shared Quick Access tab whose plugin sections,
 actions and primitive settings are supplied by `SteamExtensionsTabState`; implement

@@ -69,6 +69,12 @@ public interface ISteamHomeCarouselBackend
 ///         renders a <c>React.memo</c> whose <c>type</c> is a writable and configurable own property, and
 ///         mobx-react-lite's <c>useObserver</c> is the hook Steam builds its own list on.
 ///     </para>
+///     <para>
+///         Since the client update of 2026-09-22 Big Picture mounts its router and Home together, the
+///         moment Steam's services report initialized, so Home is on screen before the route list can
+///         be found. A claim on the memo's <c>type</c> reaches later mounts only; install therefore also
+///         adopts every mounted Home, and the probe reports how many it will adopt as <c>mounted</c>.
+///     </para>
 /// </remarks>
 public static class SteamHomeCarouselSurface
 {
@@ -95,9 +101,18 @@ public static class SteamHomeCarouselSurface
             // Home is module-local, so the handle is the page element under the /library/home route
             // in SharedJSContext's React tree. Until Big Picture has built that tree there is no Home
             // to find, and the manager probes again. Read-only walk, bounded, matching on content.
+            // Every container React attached to counts, and each root's `current` is the tree on
+            // screen, which after the first commit is not always the fiber the container names.
             const host=document.getElementById('root');
-            const key=host?Object.keys(host).find(n=>n.startsWith('__reactContainer$')):null;
-            const roots=key?[host[key]]:[];
+            const hosts=host?[host]:[];
+            for(const child of Array.from(document.body?.children??[])){if(child!==host)hosts.push(child);}
+            const roots=[];
+            for(const owner of hosts){
+              const key=Object.keys(owner).find(n=>n.startsWith('__reactContainer$'));
+              if(!key)continue;
+              const fiber=owner[key];
+              roots.push(fiber?.stateNode?.current??fiber);
+            }
             // Breadth-first: a router sits near the top, and depth-first can spend the bound inside a
             // mounted library grid first. What the walk saw is reported, so a miss says why.
             let home=null,visited=0,homeRoutes=0,page='';
@@ -125,9 +140,22 @@ public static class SteamHomeCarouselSurface
               queue.push(node.child,node.sibling);
             }
             const descriptor=home?Object.getOwnPropertyDescriptor(home,'type'):null;
+            // Homes already on screen: Big Picture starts on Home, and install adopts each of them.
+            let mounted=0;
+            if(home){
+              const again=roots.slice();
+              for(let head=0,seen=0;head<again.length&&seen<250000;head++){
+                const node=again[head];
+                if(!node)continue;
+                seen++;
+                if(node.elementType===home)mounted++;
+                again.push(node.child,node.sibling);
+              }
+            }
             return JSON.stringify({
               homeModule:count(['HomeTabsActive','#Showcase_RecentGames']),
               homeFound:home?1:0,
+              mounted:mounted,
               roots:roots.length,
               visited:visited,
               homeRoutes:homeRoutes,

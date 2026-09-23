@@ -11,7 +11,8 @@ namespace SteamUiToolkit.Tests;
 ///     The structural facts were read from the September 2026 client beta's shipped bundle on
 ///     2026-09-11: <c>HomeTabsActive</c> with <c>#Showcase_RecentGames</c> occurs in one module, the
 ///     <c>/library/home</c> route renders a <c>React.memo</c>, and mobx-react-lite's startup check
-///     occurs once.
+///     occurs once. Since the client update of 2026-09-22 that Home is mounted before the route list
+///     can be found, so the probe also reports how many mounted Homes install will adopt.
 /// </remarks>
 public sealed class SteamHomeCarouselTests
 {
@@ -30,6 +31,9 @@ public sealed class SteamHomeCarouselTests
         // A miss reports what the walk saw, so a new client says which assumption failed.
         Assert.Contains("homeRoutes", probe, StringComparison.Ordinal);
         Assert.Contains("visited", probe, StringComparison.Ordinal);
+        // A Home already on screen is adopted at install; the probe says how many there are.
+        Assert.Contains("mounted", probe, StringComparison.Ordinal);
+        Assert.Contains("stateNode?.current", probe, StringComparison.Ordinal);
         Assert.Contains("mobx-react-lite requires React with Hooks support", probe, StringComparison.Ordinal);
     }
 

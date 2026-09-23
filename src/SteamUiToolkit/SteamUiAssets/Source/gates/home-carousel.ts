@@ -21,6 +21,12 @@
 // from the router's route list in SharedJSContext's React tree, and its `type` is claimed. The
 // carousel element is found in what Home renders.
 //
+// The claim reaches Homes mounted after it. Big Picture starts on Home, and since the client update
+// of 2026-09-22 the router and Home mount together the moment Steam's services report initialized,
+// so the Home on screen at install was drawn by the original and would stay Steam's until the user
+// left and came back. Install therefore also adopts every mounted Home (adoptMountedType), which
+// re-renders it through the claim at once.
+//
 // The carousel is already virtualized, and Home defeats that: it passes `overscan: games.length`,
 // so every tile in the list is mounted. At Steam's cap of 20 that is harmless; at a whole library it
 // is the memory flood. The Play Next carousel uses the same component with no overscan and gets the
@@ -75,6 +81,7 @@ function createHomeCarousel() {
 
     let lastOutcome = "never rendered";
     let lastReport = "";
+    let lastAdoption = {adopted: 0, scheduled: false};
     let cached: {
         key: unknown[];
         list: number[];
@@ -379,50 +386,33 @@ function createHomeCarousel() {
         (type.type[claimKeys.marker] === true ||
             HomeTokens.every((token) => String(type.type).includes(token)));
 
-    // SharedJSContext's React root, the tree every Steam window renders from.
-    const reactRoots = () => {
-        const host = document.getElementById("root");
-        const key = host ? Object.keys(host).find((name) => name.startsWith("__reactContainer$")) : undefined;
-        return key ? [(host as any)[key]] : [];
-    };
-
     // Home from the router's route list. The list is found by content — the array holding a route for
     // /library/home — and the page element under that route names the Home memo. Bounded and
     // read-only; the memo is one object whichever window renders it, so claiming it reaches them all.
     // Until Big Picture has built its tree there is no route list to find, and the patch manager
-    // probes again: on the reference client two probes during startup refused and a later one
-    // verified.
-    //
-    // Breadth-first over the child and sibling links: a router sits near the top of its tree, and a
-    // depth-first walk can spend the whole bound inside the first large subtree — a mounted library
-    // grid — before it gets there. What the walk saw is kept for `status` and the refusal, so a miss
-    // on a new client says which assumption failed without anyone attaching to Steam.
+    // probes again. What the walk saw is kept for `status` and the refusal, so a miss on a new
+    // client says which assumption failed without anyone attaching to Steam.
     let lastSearch = {roots: 0, visited: 0, homeRoutes: 0, page: ""};
     const findHome = () => {
         let found = null;
-        const roots = reactRoots();
+        const roots = reactRootFibers();
         const search = {roots: roots.length, visited: 0, homeRoutes: 0, page: ""};
-        const queue: any[] = roots.slice();
-        for (let head = 0; head < queue.length && !found && search.visited < MaximumNodesVisited; head++) {
-            const node = queue[head];
-            if (!node) continue;
-            search.visited++;
+        const walk = walkFibers(roots, MaximumNodesVisited, (node) => {
             // A Fragment's fiber holds its children array as the props themselves.
             const props = node.memoizedProps;
             const children = Array.isArray(props) ? props : props?.children;
-            if (Array.isArray(children) && children.length > 2 && children.length < 512) {
-                const route = children.find(
-                    (child) => react.isValidElement(child) && child.props?.path === KnownRoute,
-                );
-                if (route) {
-                    search.homeRoutes++;
-                    const type = route.props?.children?.type;
-                    search.page = !type ? "none" : typeof type === "function" ? "function" : String(type.$$typeof);
-                    if (isHome(type)) found = type;
-                }
-            }
-            queue.push(node.child, node.sibling);
-        }
+            if (!Array.isArray(children) || children.length <= 2 || children.length >= 512) return;
+            const route = children.find(
+                (child) => react.isValidElement(child) && child.props?.path === KnownRoute,
+            );
+            if (!route) return;
+            search.homeRoutes++;
+            const type = route.props?.children?.type;
+            search.page = !type ? "none" : typeof type === "function" ? "function" : String(type.$$typeof);
+            if (isHome(type)) found = type;
+            return !!found;
+        });
+        search.visited = walk.visited;
         lastSearch = search;
         return found;
     };
@@ -474,8 +464,8 @@ function createHomeCarousel() {
         });
         if (!resolved) return {ok: false, error: lastError};
 
-        // Home renders through this memo wherever the router draws it, and a Home already on screen
-        // picks the claim up when it next mounts.
+        // Home renders through this memo wherever the router draws it. The wrapper adds no hooks, so
+        // a Home already on screen can be adopted into it without remounting.
         const claim = claimMember(home, "type", claimKeys, (original: any) => {
             if (typeof original !== "function") return original;
             return function SteamUiHome(props) {
@@ -490,6 +480,7 @@ function createHomeCarousel() {
 
         installed = true;
         lastError = "";
+        lastAdoption = adoptMountedType(reactRootFibers(), home, home.type, MaximumNodesVisited);
         unsubscribe = subscribe(patchId, (published) => {
             const ids = Array.isArray(published?.disconnectedAppIds) ? published.disconnectedAppIds : [];
             const disconnected = new Set<number>();
@@ -503,7 +494,7 @@ function createHomeCarousel() {
             };
             notify();
         });
-        return {ok: true, installed: true, reclaimed: claim.reclaimed};
+        return {ok: true, installed: true, reclaimed: claim.reclaimed, adopted: lastAdoption.adopted};
     };
 
     const remove = () => {
@@ -517,11 +508,15 @@ function createHomeCarousel() {
         lastReport = "";
         carouselCache.clear();
         recentGamesCache.clear();
+        const wrapper = home?.type;
         const released = releaseMember(home, "type", claimKeys);
         if (!released.ok) {
             lastError = released.error ?? "home carousel release failed";
             return {ok: false, error: lastError};
         }
+        // Adopted Homes draw the original again on their next render; the memo already does.
+        releaseMountedType(reactRootFibers(), home, wrapper, home.type, MaximumNodesVisited);
+        lastAdoption = {adopted: 0, scheduled: false};
         lastOutcome = "removed";
         return {ok: true, removed: true};
     };
@@ -536,6 +531,9 @@ function createHomeCarousel() {
         disconnected: policy.disconnected.size,
         counts: cached?.counts ?? null,
         search: lastSearch,
+        // Homes on screen at install, and any still drawing something other than the memo's current
+        // type: an adoption whose render is pending, or a mount the claim never reached.
+        mounted: {...lastAdoption, stale: staleFibers(reactRootFibers(), home, MaximumNodesVisited)},
         lastOutcome,
         lastError,
     });
