@@ -1074,6 +1074,8 @@ hidden ones included, so hiding Power does not cost the action entry.
   carrying a `route` is followed after `closeSteamSideMenus()`, as the Extensions tab does.
 - An item whose component is not in the panel is not drawn, and `lastOutcome` counts it as
   `unrendered`.
+- An item whose `route` is not a route (relative, `/`, or longer than 256 characters) is refused
+  where it is published, and `status().rejectedRoutes` counts it.
 
 An item's icon is a toolkit glyph by name, or `glyph`: SVG path data on a 24x24 grid, drawn by
 `renderSteamGlyph` as one `currentColor` path with even-odd holes and no size of its own. That is how

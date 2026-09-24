@@ -60,6 +60,9 @@ function createNavigationPanel() {
     // shows exactly what Valve shipped, because insertion depends on the tree Steam rendered.
     let observed: { key: string; route: string | null; label: string }[] = [];
     let lastOutcome = "never rendered";
+    // Published items refused for a route that is not one. Counted where they are refused, because
+    // they never reach a render, and a row the host asked for must not vanish without a trace.
+    let rejectedRoutes = 0;
 
     // The host's desired additions and hidden entries, replaced whole on each publication.
     let desired: {
@@ -347,11 +350,13 @@ function createNavigationPanel() {
         unsubscribe = subscribe(patchId, (state) => {
             const items = Array.isArray(state?.items) ? state.items : [];
             const hidden = Array.isArray(state?.hidden) ? state.hidden : [];
+            const named = items.filter(
+                (item) => item && typeof item.id === "string" && typeof item.label === "string",
+            );
+            const routable = named.filter((item) => item.route == null || isNavigableRoute(item.route));
+            rejectedRoutes = named.length - routable.length;
             desired = {
-                items: items
-                    .filter((item) => item && typeof item.id === "string" && typeof item.label === "string")
-                    .filter((item) => item.route == null || isNavigableRoute(item.route))
-                    .slice(0, MaximumEntries),
+                items: routable.slice(0, MaximumEntries),
                 hidden: hidden.filter((value) => typeof value === "string").slice(0, MaximumEntries),
             };
             // Nothing re-renders the menu on its own, so a change published while it is closed shows the
@@ -388,6 +393,7 @@ function createNavigationPanel() {
         // insertion depends on the tree Steam rendered. This is the part that says what happened.
         entries: observed,
         items: desired.items.length,
+        rejectedRoutes,
         hidden: desired.hidden.length,
         lastOutcome,
         lastError,

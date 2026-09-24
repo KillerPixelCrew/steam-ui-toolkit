@@ -208,6 +208,7 @@ globals.publish({
   hidden: [],
 });
 assert.deepEqual(labels(), ["Home", "Library", "Store", "Power"], "an invalid route must not be drawn");
+assert.equal(gate.status().rejectedRoutes, 2, "a refused route must be reported, not dropped silently");
 
 const removed = gate.remove();
 assert.ok(removed.ok, `remove failed: ${removed.error}`);
