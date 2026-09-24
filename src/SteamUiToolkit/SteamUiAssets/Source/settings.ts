@@ -154,8 +154,10 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
                 placeholder: secret ? row.text : undefined,
                 maxLength: row.maximumLength ?? undefined,
                 onChange: (event) => change(row, event?.target?.value ?? "", false),
+                // Sent only once typed into. A secret's box starts empty, so an empty draft is the user
+                // clearing it, which is a change like any other; an untouched box sends nothing.
                 onBlur: () => {
-                    if (draft === undefined || (secret && draft === "") || (!secret && draft === row.text)) {
+                    if (draft === undefined || (!secret && draft === row.text)) {
                         return;
                     }
                     send(draft);

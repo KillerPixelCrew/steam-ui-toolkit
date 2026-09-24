@@ -216,7 +216,13 @@ assert.equal(row(tree, "key").props.value, "", "a secret must never be shown");
 assert.equal(row(tree, "key").props.placeholder, "Set");
 assert.equal(row(tree, "key").props.type, "password");
 row(tree, "key").props.onBlur();
-assert.deepEqual(changes, [], "an empty secret must not be sent");
+assert.deepEqual(changes, [], "an untouched secret must not be sent");
+row(tree, "key").props.onChange({ target: { value: "x" } });
+row(tree, "key").props.onChange({ target: { value: "" } });
+tree = render();
+row(tree, "key").props.onBlur();
+assert.deepEqual(changes, [["key", ""]], "a secret typed into and emptied is cleared");
+changes.length = 0;
 
 // An order moves one value and sends the whole list; the ends cannot move further.
 changes.length = 0;

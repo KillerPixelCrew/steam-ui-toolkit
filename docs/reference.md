@@ -1107,8 +1107,9 @@ The toggle, dropdown, slider, text field, dialog button and `showModal` are the 
 - `boolean`, `choice`, `range`, `text` and `secret` are Steam's toggle, dropdown, slider and text
   fields. A slider sends when it settles (`onChangeComplete`), not on every step, and text is sent
   when the field loses focus, only if it changed.
-- A `secret`'s value is never published. The field starts empty, shows the row's `text` as its
-  placeholder, and an empty field is never sent.
+- A `secret`'s value is never published. The field starts empty and shows the row's `text` as its
+  placeholder. An untouched field sends nothing; one typed into and emptied sends `""`, which
+  clears the secret.
 - `order` is the value field per value with Steam's small buttons to move one up or down, and sends
   the whole list.
 - `action` is a dialog button that sends the row to `onAction`, and `note` is a read-only value.
