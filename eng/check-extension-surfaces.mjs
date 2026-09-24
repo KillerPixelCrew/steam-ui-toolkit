@@ -119,7 +119,10 @@ subscriptions.get("steam-ui.extensions-tab")({
     },
   ],
 });
-const tab = memo.type({}).props.tabs[0];
+// Found by its marker rather than by position: the tab is pushed onto Valve's own array, so it
+// sits after whatever tabs the client already had.
+const tab = memo.type({}).props.tabs.find((candidate) => candidate?.steamUiExtensionsTab === true);
+assert.ok(tab, "the tab must be present in Valve's own tab array");
 // Steam keys its tabs by number and selects by that number; a string key draws a tab that cannot
 // be selected, and clicking it landed on Friends (2026-09-24).
 assert.equal(typeof tab.key, "number", "the tab must be keyed the way Steam keys its own");
