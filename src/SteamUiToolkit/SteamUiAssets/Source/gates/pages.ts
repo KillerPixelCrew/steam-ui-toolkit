@@ -104,7 +104,17 @@ function createPageHost() {
   // Quick Access rows already use.
   const renderPage = (page) => {
     const renderer = steamPageRenderers.get(page.template);
-    if (renderer) return renderer(react, page);
+    if (renderer) {
+      // A renderer runs inside Steam's router render. One that throws would reach Steam's error
+      // boundary, which unmounts the router and replaces the whole client with "Something went
+      // wrong" — a page that cannot draw yet must cost that page, never the client. Fail open to
+      // the heading-only page and say which template did it.
+      try {
+        return renderer(react, page);
+      } catch (error) {
+        lastError = `page renderer '${page.template}' threw: ${String(error)}`;
+      }
+    }
     return react.createElement(
       "div",
       {
