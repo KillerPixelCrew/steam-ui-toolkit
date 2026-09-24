@@ -12,19 +12,19 @@ function createExtensionsTab() {
   } as const;
   const QamToken = "QuickAccessMenuBrowserView";
   const MaximumItems = 64;
-  // The tab's identity in Steam's strip. Valve keys its tabs by number (Notifications 0, Friends 3,
-  // Settings 4, Perf 5, Help 6, Music 7) and the strip's activeTab is that number, so a string key
-  // was never selected: clicking the tab fell through to Friends (2026-09-24). decky-loader uses
-  // 999; this stays clear of both so the two can coexist.
+  // The tab's identity in Steam's strip, a number like Valve's own (Notifications 0, Friends 3,
+  // Settings 4, Perf 5, Help 6, Music 7): the strip's activeTab is compared to it. Clear of Valve's
+  // and of decky-loader's 999 so the two can coexist.
   const ExtensionsTabId = 1010;
   const ExtensionsTabTitle = "Extensions";
 
-  // Steam's own record of the selected tab, by the names Valve gives its stores. The component
-  // that draws the strip and the content validates the store's value against a tab list it built
-  // itself and falls back to the first entry when the value is absent; that list is the one our
-  // tab is pushed into, but whether it survives a render is the client's business, not ours. So
-  // the strip and the content are told our tab is active whenever the store says so, and the
-  // fallback never reaches them. Null when the store is not where Valve keeps it today.
+  // How the tab is both drawn and selected, in two steps that are each necessary:
+  //   - it is pushed into Valve's own tab array in place, as decky-loader does, which is what the
+  //     strip and the content draw from;
+  //   - the component rendering those two validates the store's active tab against a list it built
+  //     itself and falls back to the first entry when ours is absent from it, so whenever Steam's
+  //     store names our tab, the strip and the content are handed it as the active one directly.
+  // The store is read by the names Valve gives it; null when it is not where Valve keeps it today.
   const activeQuickAccessTab = () => {
     try {
       return (
@@ -40,9 +40,8 @@ function createExtensionsTab() {
       ? react.cloneElement(element, { activeTab: ExtensionsTabId })
       : element;
   // Element depth within one render pass, reset at every wrapped component. Measured on the
-  // 2026-09-24 client: from the component carrying onFocusNavDeactivated to the element holding
-  // the tab list is nineteen component-typed levels behind context providers and host elements,
-  // so twelve stopped short of it.
+  // 2026-09-24 client at nineteen component-typed levels from the component carrying
+  // onFocusNavDeactivated to the element holding the tab list.
   const MaximumDescent = 32;
 
   let runtime;
@@ -55,6 +54,9 @@ function createExtensionsTab() {
   let lastOutcome = "never rendered";
   let lastError = "";
   const descenderCache = new Map();
+  const mounted = createMountedAdoption();
+  // Valve's tab array the tab was last pushed into, so removal can take it out again.
+  let insertedInto: any[] | null = null;
 
   const validAction = (action) =>
     action &&
@@ -99,22 +101,20 @@ function createExtensionsTab() {
     (item.configurationRevision ?? 0) >= 0 &&
     (item.detail === undefined || item.detail === null || typeof item.detail === "string");
 
-  // Steam's QAM tab view is private. This bounded traversal finds the first element whose own
-  // props carry the tab list, matching what the live client renders rather than indexing its tree.
-  const replaceTabs = (element, depth, visible) => {
-    if (depth > MaximumDescent || !react.isValidElement(element)) return element;
+  // An element whose own props carry the tab list, with our tab in it; null for any other element.
+  // Steam's tab view is private, so the list is matched by content rather than by a path into the
+  // tree. The strip and the content each carry the same array, so the second visit finds the tab
+  // already present.
+  const insertTab = (element, visible) => {
     const tabs = element.props?.tabs;
-    if (Array.isArray(tabs)) {
-      const existing = tabs.filter((tab) => tab && tab.steamUiExtensionsTab === true);
-      if (existing.length === 1) {
-        lastOutcome = `tabs=${tabs.length} extensions=present`;
-        return withOurTabActive(element);
-      }
-      if (existing.length > 1) {
-        lastOutcome = `tabs=${tabs.length} extensions=ambiguous`;
-        return element;
-      }
-      const tab = {
+    if (!Array.isArray(tabs)) return null;
+    const existing = tabs.filter((tab) => tab && tab.steamUiExtensionsTab === true);
+    if (existing.length > 1) {
+      lastOutcome = `tabs=${tabs.length} extensions=ambiguous`;
+      return element;
+    }
+    if (existing.length === 0) {
+      tabs.push({
         key: ExtensionsTabId,
         // Valve's tabs carry both: the element the header draws and the string it is named by.
         title: react.createElement("div", null, ExtensionsTabTitle),
@@ -123,19 +123,11 @@ function createExtensionsTab() {
         steamUiExtensionsTab: true,
         initialVisibility: !!visible,
         panel: react.createElement(ExtensionsTabPanel, { key: "steam-ui.extensions-panel" }),
-      };
-      // Into Valve's own array, in place, never a copy. The menu root builds this list once and
-      // keeps it across renders, and it validates the store's active tab against THAT array:
-      // `tabs.some(t => t.key === active) ? active : tabs[0].key`. A copy handed to the strip and
-      // the content drew our tab, but the root never saw it in the list it checks, so selecting the
-      // tab fell back to the first entry and focus landed on Friends (2026-09-24). decky-loader
-      // pushes into the same array for the same reason. The "present" branch above is what keeps a
-      // second visit to the same array from adding it twice.
-      tabs.push(tab);
-      lastOutcome = `tabs=${tabs.length} extensions=added`;
-      return withOurTabActive(element);
+      });
+      insertedInto = tabs;
     }
-    return mapChildren(react, element, (child) => replaceTabs(child, depth + 1, visible));
+    lastOutcome = `tabs=${tabs.length} extensions=${existing.length ? "present" : "added"}`;
+    return withOurTabActive(element);
   };
 
   function ExtensionsTabPanel() {
@@ -412,21 +404,17 @@ function createExtensionsTab() {
     function SteamUiExtensionsTabDescend(props) {
       return descend(type(props), 0, props?.visible);
     };
+  // One traversal: the tab list stops it, a function component is entered through a wrapper that
+  // keeps descending, and anything else — a context provider, a host element, the portal the
+  // menu's body is drawn through — is descended through its children.
   const descend = (element, depth, visible) => {
     if (depth > MaximumDescent) return element;
-    // The menu's body is drawn through a portal into the popup window; see mapPortalChildren.
     if (isPortal(element)) {
       return mapPortalChildren(react, element, (kid) => descend(kid, depth + 1, visible));
     }
     if (!react.isValidElement(element)) return element;
-    const replaced = replaceTabs(element, depth, visible);
-    if (replaced !== element) return replaced;
-    // A render whose root is not a plain function component — a context provider, a host div — is
-    // descended through its children, the way the navigation panel already does. Stopping at such
-    // a root left the descender one level deep on the 2026-09-24 client, where the tab list sits
-    // twenty-three component levels down behind alternating providers and function components,
-    // so the tab was never inserted while every status flag read true.
     return (
+      insertTab(element, visible) ??
       descendInto(react, element, descenderCache, tabDescender) ??
       mapChildren(react, element, (kid) => descend(kid, depth + 1, visible))
     );
@@ -450,16 +438,13 @@ function createExtensionsTab() {
       return false;
     }
     const exports = runtime(qam[0]);
+    // Through the gate's own claim, or a re-resolve while the claim is held finds no memo.
     const candidates = Object.keys(exports).filter((name) => {
       const value = exports[name];
-      const stored =
-        value?.type?.[claimKeys.marker] === true ? value.type[claimKeys.original] : value?.type;
-      const original = stored?.kind === "steam-ui-property-snapshot-v1" ? stored.value : stored;
       return (
         value &&
         typeof value === "object" &&
-        typeof original === "function" &&
-        String(original).includes(QamToken)
+        sourceMatches(unclaimedValue(value.type, claimKeys), [QamToken])
       );
     });
     if (candidates.length !== 1) {
@@ -469,9 +454,6 @@ function createExtensionsTab() {
     memo = exports[candidates[0]];
     return true;
   };
-
-  // What the last install's adoption of already-mounted Quick Access views reached; see install().
-  let lastAdoption: { adopted: number; scheduled: boolean } = { adopted: 0, scheduled: false };
 
   const install = () => {
     if (installed) return { ok: true, alreadyInstalled: true };
@@ -495,20 +477,16 @@ function createExtensionsTab() {
     }
     installed = true;
     lastError = "";
-    // The claim reaches the next mount only, and the Quick Access view is mounted at boot and kept,
-    // so without this the tab never appeared: status said claimed, lastOutcome said never rendered,
-    // and opening the menu drew Steam's own cached function (2026-09-24). Adoption swaps the mounted
-    // instances over and defeats the memo bail-out; see adoptMountedType.
-    lastAdoption = adoptMountedType(reactRootFibers(), memo, memo.type, MaximumMountedNodes);
+    // The claim reaches the next mount only, and the Quick Access view is mounted at boot and kept.
+    mounted.adopt(memo, memo.type);
     unsubscribe = subscribe(patchId, (state) => {
       const items = Array.isArray(state?.items)
         ? state.items.filter(validItem).slice(0, MaximumItems)
         : [];
       desired = { items, revision: Number.isSafeInteger(state?.revision) ? state.revision : 0 };
       // The wrapper reads `desired` from its closure, so a publication changes nothing React can
-      // see. Ask the mounted views to draw again, or a tab published after install waits for the
-      // next navigation.
-      renderMountedType(reactRootFibers(), memo, memo.type, MaximumMountedNodes);
+      // see on its own.
+      mounted.rerender();
     });
     return { ok: true, installed: true, reclaimed: claim.reclaimed };
   };
@@ -517,16 +495,18 @@ function createExtensionsTab() {
   // leaves the claim live while every later remove() answers `absent` and never retries it.
   const remove = () => {
     if (!installed) return { ok: true, absent: true };
-    // Read before the release hands `type` back, so the adopted instances can be matched by it.
-    const wrapper = memo?.type;
     const released = releaseMember(memo, "type", claimKeys);
     if (!released.ok) {
       lastError = released.error ?? "Extensions tab release failed";
       return { ok: false, error: lastError };
     }
-    // Every mounted view this install adopted, handed back to what the claim displaced.
-    releaseMountedType(reactRootFibers(), memo, wrapper, memo.type, MaximumMountedNodes);
-    lastAdoption = { adopted: 0, scheduled: false };
+    mounted.release(memo.type);
+    // Out of Valve's array again: removal restores exactly what was displaced.
+    if (insertedInto) {
+      const at = insertedInto.findIndex((tab) => tab && tab.steamUiExtensionsTab === true);
+      if (at >= 0) insertedInto.splice(at, 1);
+      insertedInto = null;
+    }
     installed = false;
     unsubscribe = endSubscription(unsubscribe);
     desired = { items: [], revision: 0 };
@@ -543,12 +523,8 @@ function createExtensionsTab() {
     claimed: memberClaimed(memo, "type", claimKeys),
     items: desired.items.length,
     revision: desired.revision,
-    // Whether the claim reached the views already on screen, and whether one is still drawing
-    // Steam's own. A claim that adopted nothing is inert until Steam mounts a new view.
-    mounted: {
-      ...lastAdoption,
-      stale: staleFibers(reactRootFibers(), memo, MaximumMountedNodes),
-    },
+    // Whether the claim reached the views already on screen; a claim that adopted nothing is inert.
+    mounted: mounted.status(),
     lastOutcome,
     lastError,
   });

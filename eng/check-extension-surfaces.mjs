@@ -51,7 +51,13 @@ const react = createReact({
   useEffect: () => {},
 });
 const NativePanel = withSource(() => null, "onActivate onCancel focusableIfEmpty focusClassName");
-const originalRoot = withSource(() => element("tabs", { tabs: [] }), "QuickAccessMenuBrowserView");
+// Valve's own tab array, kept across renders the way the client keeps it: the gate pushes into it
+// in place, so the array is what proves the tab is added once and taken out on removal.
+const qamTabs = [];
+const originalRoot = withSource(
+  () => element("tabs", { tabs: qamTabs }),
+  "QuickAccessMenuBrowserView",
+);
 let releaseBlocked = false;
 // A host whose property redefinition can be made to throw, which is what a release failure looks
 // like from inside the gate.
@@ -93,10 +99,11 @@ const code =
   sharedFragments(asset) +
   gateSource(asset, "createExtensionsTab", "extensionsTab") +
   gateSource(asset, "createGameContextMenu", "gameContextMenu");
-const { extensions, menu, createExtensions } = instantiate(
+const { extensions, menu, createExtensions, unclaimedValue } = instantiate(
   globals,
   code,
-  "({extensions:createExtensionsTab(),menu:createGameContextMenu(),createExtensions:createExtensionsTab})",
+  "({extensions:createExtensionsTab(),menu:createGameContextMenu()," +
+    "createExtensions:createExtensionsTab,unclaimedValue})",
 );
 assert.equal(extensions.install().ok, true);
 assert.equal(memo.type.__steamUiExtensionsTabOriginal.kind, "steam-ui-property-snapshot-v1");
@@ -106,8 +113,19 @@ const candidatesSource = probeSource.slice(
   probeSource.indexOf("const candidates="),
   probeSource.indexOf("const memo=candidates"),
 );
-const probeCandidates = new Function("exports", `${candidatesSource}; return candidates;`);
-assert.deepEqual(probeCandidates({ memo }), ["memo"], "the next C# probe accepts the claimed memo");
+// The probe's `unwrap` is emitted by SteamUiProbeJs.Unwrap; here it is the asset's own unclaim,
+// which the C# fragment mirrors.
+const unwrap = (value) =>
+  unclaimedValue(value, {
+    marker: "__steamUiExtensionsTabClaimed",
+    original: "__steamUiExtensionsTabOriginal",
+  });
+const probeCandidates = new Function("exports", "unwrap", `${candidatesSource}; return candidates;`);
+assert.deepEqual(
+  probeCandidates({ memo }, unwrap),
+  ["memo"],
+  "the next C# probe accepts the claimed memo",
+);
 subscriptions.get("steam-ui.extensions-tab")({
   items: [
     {
@@ -119,12 +137,12 @@ subscriptions.get("steam-ui.extensions-tab")({
     },
   ],
 });
-// Found by its marker rather than by position: the tab is pushed onto Valve's own array, so it
-// sits after whatever tabs the client already had.
-const tab = memo.type({}).props.tabs.find((candidate) => candidate?.steamUiExtensionsTab === true);
-assert.ok(tab, "the tab must be present in Valve's own tab array");
-// Steam keys its tabs by number and selects by that number; a string key draws a tab that cannot
-// be selected, and clicking it landed on Friends (2026-09-24).
+memo.type({});
+memo.type({});
+const ours = qamTabs.filter((candidate) => candidate?.steamUiExtensionsTab === true);
+assert.equal(ours.length, 1, "the tab is pushed into Valve's own array, once across renders");
+const tab = ours[0];
+// Steam keys its tabs by number and selects by that number, and its tabs carry a string title.
 assert.equal(typeof tab.key, "number", "the tab must be keyed the way Steam keys its own");
 assert.equal(typeof tab.strTitle, "string", "the tab must carry the string title Valve's tabs do");
 const panel = tab.panel.type();

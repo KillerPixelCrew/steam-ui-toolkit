@@ -264,9 +264,12 @@ const keyed = (element, props = element.props) =>
 // copy with mapped children is a portal to it.
 const PortalType = Symbol.for("react.portal");
 const isPortal = (value) => !!value && typeof value === "object" && value.$$typeof === PortalType;
-const mapPortalChildren = (react, portal, map: (child: any) => unknown) => {
-    const kids = react.Children.toArray(portal.children);
-    if (!kids.length) return portal;
+
+// Maps a child list; answers the new list, or null when no child changed. A child mapped to null
+// is dropped. Shared by element and portal mapping so the two cannot drift on those rules.
+const mapEach = (react, children, map: (child: any) => unknown, maximum = Infinity) => {
+    const kids = react.Children.toArray(children);
+    if (!kids.length || kids.length > maximum) return null;
     let changed = false;
     const next: unknown[] = [];
     for (const kid of kids) {
@@ -274,22 +277,19 @@ const mapPortalChildren = (react, portal, map: (child: any) => unknown) => {
         changed ||= replacement !== kid;
         if (replacement !== null) next.push(replacement);
     }
-    return changed ? {...portal, children: next} : portal;
+    return changed ? next : null;
 };
 
-// Maps an element's children and clones it only when one changed; a child mapped to null is
-// dropped. An element with no children, or with more than `maximum`, is returned as it is.
+const mapPortalChildren = (react, portal, map: (child: any) => unknown) => {
+    const next = mapEach(react, portal.children, map);
+    return next ? {...portal, children: next} : portal;
+};
+
+// Maps an element's children and clones it only when one changed. An element with no children, or
+// with more than `maximum`, is returned as it is.
 const mapChildren = (react, element, map: (child: any) => unknown, maximum = Infinity) => {
-    const kids = react.Children.toArray(element.props?.children);
-    if (!kids.length || kids.length > maximum) return element;
-    let changed = false;
-    const next: unknown[] = [];
-    for (const kid of kids) {
-        const replacement = map(kid);
-        changed ||= replacement !== kid;
-        if (replacement !== null) next.push(replacement);
-    }
-    return changed ? react.cloneElement(element, {}, ...next) : element;
+    const next = mapEach(react, element.props?.children, map, maximum);
+    return next ? react.cloneElement(element, {}, ...next) : element;
 };
 
 // Renders a plain function component through a wrapper, so what it returns can be changed as well:
@@ -298,15 +298,20 @@ const mapChildren = (react, element, map: (child: any) => unknown, maximum = Inf
 // memo and forwardRef objects are left alone, since they cannot be called directly and wrapping
 // them would change identity for refs; for those, and for anything that is not an element of a
 // function type, this answers null.
-const descendInto = (react, element, cache, wrap: (type: any) => unknown) => {
-    const type = element.type;
-    if (typeof type !== "function" || type.prototype?.isReactComponent) return null;
+// The wrapper built for a type, once: a fresh identity on every render would remount the subtree.
+const cachedWrapper = (cache: Map<any, any>, type, wrap: (type: any) => unknown) => {
     let wrapper = cache.get(type);
     if (!wrapper) {
         wrapper = wrap(type);
         cache.set(type, wrapper);
     }
-    return react.createElement(wrapper, keyed(element));
+    return wrapper;
+};
+
+const descendInto = (react, element, cache, wrap: (type: any) => unknown) => {
+    const type = element.type;
+    if (typeof type !== "function" || type.prototype?.isReactComponent) return null;
+    return react.createElement(cachedWrapper(cache, type, wrap), keyed(element));
 };
 
 // Runs a gate's resolution. A throw is handed to `failed` to record under the gate's own wording; a
@@ -334,10 +339,9 @@ const endSubscription = (unsubscribe: (() => void) | null) => {
 // the root's `current` is the tree on screen, and after the first commit that is not always the
 // fiber the container key was written with.
 const reactRootFibers = () => {
-    const hosts: any[] = [];
-    // A page always has a document; an emitted-asset check may not, and then there is simply
-    // nothing mounted to adopt.
+    // A page always has a document; an emitted-asset check may not, and then nothing is mounted.
     if (typeof document === "undefined") return [];
+    const hosts: any[] = [];
     const root = document.getElementById("root");
     if (root) hosts.push(root);
     for (const child of Array.from(document.body?.children ?? [])) {
@@ -404,115 +408,171 @@ const requestRender = (fiber) => {
     return false;
 };
 
+// The three writes that bring a claim to a fiber already on screen, each to a plain field:
+//   - `type` on the fiber and its alternate, so the next render calls the replacement. The
+//     replacement must add no hooks of its own: the fiber keeps the hook list the original built,
+//     and React refuses a render that ends with more hooks than the last.
+//   - `memoizedProps` swapped for an object that shallow-compares unequal to the real props, so
+//     React's memo bail-out cannot skip the render. React writes the real props back when it
+//     renders; until then they stay reachable under AdoptedPropsKey.
+//   - a render requested from the nearest class ancestor (requestRender), so it happens now.
+const invalidateFiberProps = (fiber) => {
+    for (const side of [fiber, fiber.alternate]) {
+        if (side) side.memoizedProps = {[AdoptedPropsKey]: side.memoizedProps};
+    }
+};
+const retargetFiber = (fiber, type) => {
+    for (const side of [fiber, fiber.alternate]) {
+        if (side) side.type = type;
+    }
+};
+// Whether a fiber has a parent link on either side; a fiber sitting directly under a React root
+// never had one, so only one that had a parent and lost it has been detached.
+const fiberAttached = (fiber) => !!(fiber.return || fiber.alternate?.return);
+
 // Brings a claim on a component's `type` to the instances already on screen.
 //
 // A claim on a memo's `type` reaches the next mount only: when React mounts a memo it resolves the
 // function once and caches it on the fiber as `type`, and every later render of that fiber reads
-// the cache, not the memo. On the September 2026 client Big Picture mounts its router and Home in
-// the same commit, the moment its services report initialized, so Home is always on screen by the
-// time the route list can be found; the claim alone left the carousel Steam's until the user left
-// Home and came back (2026-09-22).
-//
-// Three writes, each to a plain field of the mounted fiber, make the claim current:
-//   1. `type` on the fiber and its alternate, so the next render calls the replacement. The
-//      replacement must add no hooks of its own: the fiber keeps the hook list the original built,
-//      and React refuses a render that ends with more hooks than the last.
-//   2. `memoizedProps` swapped for an object that shallow-compares unequal to the real props, so
-//      React's memo bail-out cannot skip that render. React writes the real props back when it
-//      renders, and the real props stay reachable under AdoptedPropsKey until then.
-//   3. A render requested from the nearest class ancestor, so it happens now rather than on the
-//      next navigation.
-// Answers how many instances were adopted and whether a render was requested. Without a class
-// ancestor the adoption still holds and takes effect on the instance's next render; `staleFibers`
-// says whether one is still waiting.
+// the cache, not the memo. Big Picture mounts its router, Home, the Quick Access view and the menu
+// at boot and keeps them, so a claim alone is inert until the user happens to remount one; the
+// carousel (2026-09-22) and every page gate (2026-09-24) shipped that way. Answers the fibers
+// adopted and whether a render was requested; without a class ancestor the adoption still holds
+// and takes effect on the instance's next render.
 const adoptMountedType = (roots, elementType, replacement, bound: number) => {
-    let adopted = 0;
+    const fibers: any[] = [];
     let scheduled = false;
     for (const fiber of mountedFibersOf(roots, elementType, bound)) {
         if (fiber.type === replacement) continue;
-        for (const side of [fiber, fiber.alternate]) {
-            if (!side) continue;
-            side.type = replacement;
-            side.memoizedProps = {[AdoptedPropsKey]: side.memoizedProps};
-        }
-        adopted++;
+        retargetFiber(fiber, replacement);
+        invalidateFiberProps(fiber);
+        fibers.push(fiber);
         scheduled = requestRender(fiber) || scheduled;
     }
-    return {adopted, scheduled};
+    return {fibers, adopted: fibers.length, scheduled};
 };
 
-// Asks every adopted instance to render again, now. A publication that arrives after the install
-// changes what the wrapper will draw, but nothing tells React: the wrapper reads the gate's state
-// from its closure, the props have not changed, and a memo with equal props bails out exactly as it
-// did before adoption. So the same two writes adoption made: props that cannot compare equal, then
-// a render requested from the nearest class ancestor. Without this a page or tab published a moment
-// after install stayed absent until the user navigated (2026-09-24). Answers how many were asked.
-const renderMountedType = (roots, elementType, replacement, bound: number) => {
-    let asked = 0;
-    for (const fiber of mountedFibersOf(roots, elementType, bound)) {
-        if (fiber.type !== replacement) continue;
-        for (const side of [fiber, fiber.alternate]) {
-            if (side) side.memoizedProps = {[AdoptedPropsKey]: side.memoizedProps};
-        }
-        if (requestRender(fiber)) asked++;
-    }
-    return asked;
-};
-
-// The node bound every gate walks mounted trees under. The router sits about a hundred levels down
-// the live tree and the popups are shallower, so this is generous; it exists to stop a cyclic or
+// The node bound mounted trees are walked under. The router sits about a hundred levels down the
+// live tree and the popups are shallower, so this is generous; it exists to stop a cyclic or
 // pathological tree, not to limit a legitimate search.
 const MaximumMountedNodes = 60000;
 
-// Adopts mounted instances of a component that has no public handle at all, found by what its
-// source says rather than by any export.
+// One claimed component's mounted instances, for the life of a gate's install.
+//
+// Adoption walks the tree once and keeps the fibers it adopted. Everything after that is over that
+// list rather than the tree: a publication asks them to render again (the wrapper reads the gate's
+// state from a closure, so the props have not changed and a memo with equal props bails out exactly
+// as it did before adoption); status counts them; release hands them back. Publications arrive
+// several times a second while a user browses artwork and status is read on every verify, so a
+// tree walk on either was a full 60000-node pass on the UI thread for a number that never changed.
+// A fiber React has since unmounted is dropped when next seen; the claim on the memo's `type`
+// reaches any instance mounted after adoption on its own.
+const createMountedAdoption = (bound = MaximumMountedNodes) => {
+    // Each adopted fiber with whether it had a parent when adopted; see fiberAttached.
+    let entries: {fiber: any; hadParent: boolean}[] = [];
+    let replacement = null;
+    let scheduled = false;
+    const live = () => {
+        entries = entries.filter(({fiber, hadParent}) => !hadParent || fiberAttached(fiber));
+        return entries.map(({fiber}) => fiber);
+    };
+    return {
+        adopt: (elementType, wrapper) => {
+            replacement = wrapper;
+            const result = adoptMountedType(reactRootFibers(), elementType, wrapper, bound);
+            entries = result.fibers.map((fiber) => ({fiber, hadParent: fiberAttached(fiber)}));
+            scheduled = result.scheduled;
+            return result;
+        },
+        rerender: () => {
+            let asked = 0;
+            for (const fiber of live()) {
+                invalidateFiberProps(fiber);
+                if (requestRender(fiber)) asked++;
+            }
+            return asked;
+        },
+        release: (original) => {
+            for (const {fiber} of entries) {
+                if (fiber.type === replacement) retargetFiber(fiber, original);
+            }
+            entries = [];
+            replacement = null;
+            scheduled = false;
+        },
+        // `stale` is an adopted instance still drawing something other than the wrapper: a render
+        // that has not happened yet, or a type React reset underneath us.
+        status: () => {
+            const fibers = live();
+            return {
+                adopted: fibers.length,
+                scheduled,
+                stale: fibers.filter((fiber) => fiber.type !== replacement).length,
+            };
+        },
+    };
+};
+
+// Whether every token is in a function's source. The source is taken once per function: a walk
+// over a mounted tree meets the same few component types thousands of times.
+const sourceTexts = new WeakMap<Function, string>();
+const sourceMatches = (fn, tokens: readonly string[]) => {
+    if (typeof fn !== "function") return false;
+    let source = sourceTexts.get(fn);
+    if (source === undefined) {
+        source = String(fn);
+        sourceTexts.set(fn, source);
+    }
+    return tokens.every((token) => source.includes(token));
+};
+
+// The mounted instances of a component that has no public handle at all, kept by the fiber.
 //
 // Steam's main-menu popup host is such a component: a module-local function the popup mounts
 // directly under a React root, exported nowhere, with the menu's memo export absent from that
-// render path entirely. A claim on the memo's `type` is correct and never reached (2026-09-24). The
-// only handle is the mounted fiber itself, which decky-loader's tabs hook adopts the same way, so
-// each matching fiber's `type` becomes the wrapper `wrapFor` builds for its original. Idempotent: a
-// fiber already carrying one of our wrappers is skipped, so this can run on every publication to
-// catch a host Steam has since recreated. Answers the adoptions made, for release.
-const adoptMountedBySource = (
-    roots,
+// render path entirely. The only handle is the mounted fiber, which decky-loader's tabs hook adopts
+// the same way: each fiber whose source carries the tokens has its `type` swapped for the wrapper
+// `wrapFor` builds for its original. `adopt` walks only while no adopted host is still mounted, so
+// running it on every publication catches a host Steam recreated without paying a tree walk for
+// the one it did not.
+const createSourceAdoption = (
     tokens: readonly string[],
     wrapFor: (original: any) => any,
-    ownedName: string,
-    bound: number,
+    bound = MaximumMountedNodes,
 ) => {
-    const adopted: {fiber: any; original: any}[] = [];
-    let scheduled = false;
-    walkFibers(roots, bound, (fiber) => {
-        const type = fiber.type;
-        if (typeof type !== "function" || type.name === ownedName) return false;
-        const source = String(type);
-        if (!tokens.every((token) => source.includes(token))) return false;
-        const wrapper = wrapFor(type);
-        for (const side of [fiber, fiber.alternate]) {
-            if (!side) continue;
-            side.type = wrapper;
-            side.memoizedProps = {[AdoptedPropsKey]: side.memoizedProps};
+    // Each adopted fiber's original and whether it had a parent when adopted; see fiberAttached.
+    const adopted = new Map<any, {original: any; hadParent: boolean}>();
+    const prune = () => {
+        for (const [fiber, {hadParent}] of [...adopted]) {
+            if (hadParent && !fiberAttached(fiber)) adopted.delete(fiber);
         }
-        adopted.push({fiber, original: type});
-        scheduled = requestRender(fiber) || scheduled;
-        return false;
-    });
-    return {adopted, scheduled};
-};
-
-// Hands fibers adopted by source back to their originals.
-const releaseAdoptedFibers = (adopted: {fiber: any; original: any}[]) => {
-    let released = 0;
-    for (const {fiber, original} of adopted) {
-        for (const side of [fiber, fiber.alternate]) {
-            if (side && side.type !== original) {
-                side.type = original;
-                released++;
-            }
-        }
-    }
-    return released;
+    };
+    return {
+        adopt: () => {
+            prune();
+            if (adopted.size > 0) return 0;
+            let count = 0;
+            walkFibers(reactRootFibers(), bound, (fiber) => {
+                const type = fiber.type;
+                if (adopted.has(fiber) || !sourceMatches(type, tokens)) return false;
+                adopted.set(fiber, {original: type, hadParent: fiberAttached(fiber)});
+                retargetFiber(fiber, wrapFor(type));
+                invalidateFiberProps(fiber);
+                requestRender(fiber);
+                count++;
+                return false;
+            });
+            return count;
+        },
+        release: () => {
+            for (const [fiber, {original}] of adopted) retargetFiber(fiber, original);
+            adopted.clear();
+        },
+        count: () => {
+            prune();
+            return adopted.size;
+        },
+    };
 };
 
 // Hands adopted instances back to the function the claim displaced. No render is requested: the
@@ -522,9 +582,7 @@ const releaseMountedType = (roots, elementType, replacement, original, bound: nu
     let released = 0;
     for (const fiber of mountedFibersOf(roots, elementType, bound)) {
         if (fiber.type !== replacement) continue;
-        for (const side of [fiber, fiber.alternate]) {
-            if (side) side.type = original;
-        }
+        retargetFiber(fiber, original);
         released++;
     }
     return released;

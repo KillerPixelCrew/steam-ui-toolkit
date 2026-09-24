@@ -19,10 +19,8 @@ import {
 const asset = loadAsset();
 const react = createReact();
 
-// Steam's back-stack Route, matched by the markers the gate uses. The body is the live one read
-// from the client on 2026-09-24, minified locals and all: the fingerprint this replaced described
-// the code between the two markers and assumed a one-character local, so it stopped matching when
-// the client emitted `be`, and the fixture said nothing because it had a one-character local too.
+// Steam's back-stack Route, with the body read from the client on 2026-09-24, minified locals and
+// all. The gate borrows it from the route list and verifies it against the markers.
 const SteamRoute = function () {
   return null;
 };
@@ -32,19 +30,6 @@ Object.defineProperty(SteamRoute, "toString", {
     "return(0,h.jsx)(D.qh,{...q,children:be=>(0,h.jsx)(Q,{routePath:be.match?.path," +
     "disabled:!be.match,children:pe(be)})})}",
 });
-// The route-tracking component that really does sit in that module. It names the same prop but
-// never reads a match, so it proves the second marker is doing work rather than riding along.
-const NotARoute = function () {
-  return null;
-};
-Object.defineProperty(NotARoute, "toString", {
-  value: () =>
-    "function Q(he){const{children:Z,routePath:q,disabled:pe}=he;" +
-    "return E.y.ReportRouteMatch(q),(0,h.jsx)(k.Provider,{value:!0,children:Z})}",
-});
-// An alias of the Route under a second export name. Counting by value rather than by name is what
-// keeps a re-export from reading as ambiguity and refusing an otherwise compatible client.
-const SteamRouteAlias = SteamRoute;
 
 const route = (path) => element(SteamRoute, { path }, path);
 const stockRoutes = [
@@ -86,32 +71,14 @@ globalThis.document = {
   getElementById: (id) => (id === "root" ? { __reactContainer$fixture: rootNode } : null),
 };
 
-// Whether the registry still finds the Route export. The gate must work either way.
-let routeLookupWorks = true;
-
 const globals = {
   getWebpackRuntime: () => {
-    const require = (id) =>
-      id === "backstack" ? { Jh: SteamRoute, Kp: SteamRouteAlias, other: NotARoute } : react;
+    const require = () => react;
     require.findUnique = (tokens) =>
-      tokens.includes("router-backstack")
-        ? ["backstack"]
-        : tokens.includes("TopLevelTransition") && tokens.includes("Settings.Root()")
-          ? ["router"]
-          : ["react"];
+      tokens.includes("TopLevelTransition") && tokens.includes("Settings.Root()")
+        ? ["router"]
+        : ["react"];
     require.count = () => 1;
-    // The shared resolver's own semantics: aliases of one value count once, and no fit or two
-    // distinct fits throws rather than guessing.
-    require.exported = (tokens, predicate) => {
-      // Simulates the 2026-09-24 client, where the Route export stopped matching its fingerprint.
-      if (!routeLookupWorks && tokens.includes("router-backstack"))
-        throw new Error("Steam export absent: router-backstack");
-      const exports = require(require.findUnique(tokens)[0]);
-      const fits = new Set();
-      for (const name of Object.keys(exports)) if (predicate(exports[name])) fits.add(exports[name]);
-      if (fits.size !== 1) throw new Error(`Steam export ${fits.size ? "ambiguous" : "absent"}`);
-      return [...fits][0];
-    };
     return require;
   },
   createIconRenderer: () => () => null,
@@ -153,7 +120,6 @@ assert.equal(selected("/wsgm/artwork"), null, "an unregistered path must resolve
 const installed = gate.install();
 assert.ok(installed.ok, `install failed: ${installed.error}`);
 assert.ok(gate.status().claimed, "the router memo type must be claimed");
-assert.ok(gate.status().routeResolved, "Steam's own Route must have been resolved");
 
 // The claim alone reaches the next mount only, and Steam's router is a memo with the default
 // comparison, so a router already on screen would keep drawing Steam's own function until the user
@@ -165,10 +131,9 @@ assert.equal(gate.status().mounted.stale, 0, "no mounted router may still be dra
 // Claimed but with nothing published: Steam's routes must resolve exactly as before.
 assert.equal(selected("/settings")?.props.path, "/settings", "an empty claim must change nothing");
 
-// That render went through the claimed switch, so the Route now comes from Steam's own route list
-// rather than from the registry lookup.
+// That render went through the claimed router, so the Route was borrowed from Steam's own route
+// list and its source carries the back-stack markers.
 assert.equal(gate.status().routeSource, "borrowed", "the Route must be borrowed once Steam renders");
-assert.match(gate.status().lastOutcome, /route=borrowed/);
 
 // An addition.
 globals.publish({ pages: [{ id: "artwork", path: "/wsgm/artwork", title: "Artwork" }] });
@@ -232,39 +197,9 @@ assert.equal(
 assert.ok(gate.install().ok, "the gate must be reinstallable");
 assert.ok(gate.remove().ok);
 assert.equal(memo.type, Router);
-
-// The 2026-09-24 outage, as a fixture: the registry no longer finds the Route export at all. The
-// gate must still install and must still build pages, because the Route it needs is in the route
-// list Steam handed it. Refusing here is what left Change Artwork, Import games and the in-Steam
-// settings page all rendering an empty client on a client that was otherwise entirely compatible.
-routeLookupWorks = false;
-const blind = instantiate(
-  globals,
-  `${sharedFragments(asset)}\n${slice(asset, "const steamPageRenderers", "function createPageHost()")}\n${gateSource(asset, "createPageHost", "pages")}`,
-  "createPageHost()",
-);
-
-const blindInstall = blind.install();
-assert.ok(
-  blindInstall.ok,
-  `install must survive a Route lookup that finds nothing: ${blindInstall.error}`,
-);
-assert.ok(blind.status().claimed, "the router must still be claimed");
-assert.match(blind.status().routeLookupError, /router-backstack/u, "the failed lookup must be named");
-
-globals.publish({ pages: [{ id: "artwork", path: "/wsgm/artwork", title: "Artwork" }] });
-const blindPage = selected("/wsgm/artwork");
-assert.ok(blindPage, "a page must register with no Route export to be found");
-assert.equal(blindPage.type, SteamRoute, "the borrowed Route must be Steam's own back-stack Route");
-assert.equal(blind.status().routeSource, "borrowed");
-assert.ok(blind.status().routeResolved, "a borrowed Route counts as resolved");
-
-assert.ok(blind.remove().ok);
-assert.equal(memo.type, Router);
-assert.equal(blind.status().routeSource, "none", "removal must drop the borrowed Route");
-routeLookupWorks = true;
+assert.equal(gate.status().routeSource, "none", "removal must drop the borrowed Route");
 
 console.log(
-  "Custom pages: borrowed Route, route-list discovery, override vs addition, install without a " +
-    "Route lookup, validation and restoration passed.",
+  "Custom pages: borrowed Route, route-list discovery, override vs addition, validation and " +
+    "restoration passed.",
 );

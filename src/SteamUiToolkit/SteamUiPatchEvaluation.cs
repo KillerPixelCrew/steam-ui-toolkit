@@ -181,6 +181,18 @@ public static class SteamUiPatchEvaluation
         return root.TryGetProperty(name, out var value) && value.ValueKind is JsonValueKind.True;
     }
 
+    /// <summary>Whether a probe found the claimed member claimable, or already this gate's own.</summary>
+    /// <param name="root">The probe's JSON.</param>
+    /// <returns>True when <c>claimable</c> or <c>claimed</c> is literally <c>true</c>.</returns>
+    /// <remarks>
+    ///     A patch holding the member has answered the question <c>claimable</c> exists to ask, and a
+    ///     probe that demanded both at once would retract every applied gate on its next poll.
+    /// </remarks>
+    public static bool ClaimableOrOurs(JsonElement root)
+    {
+        return Flag(root, "claimable") || Flag(root, "claimed");
+    }
+
     /// <summary>Whether a probe reported success and every named boolean was true.</summary>
     /// <param name="value">The raw probe result.</param>
     /// <param name="requiredFlags">

@@ -107,6 +107,15 @@ const isPropertySnapshot = (value: unknown): value is PropertySnapshot =>
         ((value as { kind?: unknown }).kind === "wsgm-property-snapshot-v1")) &&
     typeof (value as Partial<PropertySnapshot>).hadOwn === "boolean";
 
+// What a claimed member displaced, or the value itself when it is not ours. For code that has to
+// recognise a component by its source while the gate may already hold it: a probe or a re-resolve
+// that tests the live value sees the wrapper, and a wrapper carries none of the original's tokens.
+const unclaimedValue = (value: unknown, keys: ClaimKeys): unknown => {
+    if (!claimed(value, keys)) return value;
+    const stored = storedOriginal(value, keys);
+    return isPropertySnapshot(stored) ? stored.value : stored;
+};
+
 // An accessor-backed field is one whose value lives BEHIND the property — a MobX observable, a
 // store's computed flag — and the only safe way to change it is through its own setter.
 // Redefining or deleting the accessor destroys the store's bookkeeping while leaving the getter in

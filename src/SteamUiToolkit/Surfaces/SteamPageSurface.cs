@@ -105,17 +105,8 @@ public static class SteamPageSurface
             // window renders from. Read-only walk, bounded, matching on component source. It is
             // breadth-first over an explicit queue, like the Home carousel probe, because recursing
             // down a long sibling chain can exhaust the stack before the bound is reached.
-            // A claimed member reads as the wrapper, not as Steam's function, so the source test has
-            // to see through our own claim exactly as the gate's walk does. Without this the probe
-            // stops finding the router the moment the gate holds it, reports routerFound:0, and the
-            // manager retracts a patch that had just applied and verified. Both marker spellings,
-            // for the same reason ownership.ts reads both.
-            const unwrap=(value)=>{
-              if(!value)return value;
-              if(value.__steamUiPageHostClaimed!==true&&value.__wsgmPageHostClaimed!==true)return value;
-              const stored=value.__steamUiPageHostOriginal??value.__wsgmPageHostOriginal;
-              return stored&&stored.kind==='steam-ui-property-snapshot-v1'?stored.value:stored;
-            };
+            // Through the gate's own claim, or the router disappears the moment the gate holds it.
+            {{SteamUiProbeJs.Unwrap("PageHost")}}
             const host=document.getElementById('root');
             const key=host?Object.keys(host).find(n=>n.startsWith('__reactContainer$')):null;
             let memo=null,visited=0;
@@ -137,7 +128,7 @@ public static class SteamPageSurface
               steamRoute:routes.size,
               routerFound:memo?1:0,
               claimable:{{SteamUiProbeJs.Replaceable("descriptor")}},
-              claimed:!!memo&&memo.type.__steamUiPageHostClaimed===true,
+              claimed:{{SteamUiProbeJs.Claimed("memo?.type", "PageHost")}},
               // The switch itself, matched the way the gate matches the list it renders.
               routeSwitch:count(['computedMatch','TopLevelTransition']),
               react:count({{SteamUiProbeJs.ReactTokens}})
@@ -153,10 +144,7 @@ public static class SteamPageSurface
             && SteamUiPatchEvaluation.IsOne(root, "routerFound")
             && SteamUiPatchEvaluation.IsOne(root, "routeSwitch")
             && SteamUiPatchEvaluation.IsOne(root, "react")
-            // Claimable, or already ours. A patch that holds the member has answered the question
-            // the flag exists to ask, and demanding both at once would retract every applied gate.
-            && (SteamUiPatchEvaluation.Flag(root, "claimable")
-                || SteamUiPatchEvaluation.Flag(root, "claimed")),
+            && SteamUiPatchEvaluation.ClaimableOrOurs(root),
         // The Route is borrowed from Steam's first render through the claimed switch, which has not
         // necessarily happened by the time verification runs, so holding the router is what verify
         // proves. Whether a page was built, and with which Route, is reported in the gate's status.

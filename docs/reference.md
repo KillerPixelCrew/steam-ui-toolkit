@@ -1018,19 +1018,18 @@ Three facts decide the API, and all three were measured against the live client 
   `Route` renders the same content and silently loses back-navigation, which nobody would notice
   until they pressed B.
 
-  The export in the module carrying `router-backstack` remains as the fallback, for a client whose
-  route list holds something other than plain `Route` elements. It is selected through `exported`, by
-  two markers Valve wrote, `routePath:` and `.match?.path`, and by nothing about the minified code
-  between them. Neither the export nor its module is a condition of installing, and the gate's status
-  reports which of the two a page was built with.
+  The borrowed component is verified, never found, by two markers Valve wrote, `routePath:` and
+  `.match?.path`, with nothing said about the minified code between them; `status.routeSource`
+  reads `borrowed (unverified)` when the markers are absent, which is a page that draws and may have
+  lost back navigation. The probe reports whether the module carrying `router-backstack` still
+  exports such a Route, and requires nothing of it.
 
-  Both halves are there because of one failure. The original fingerprint was decky-loader's regex,
-  `routePath:.\.match\?\.path.`, which described the minified code and assumed a one-character local.
-  The 2026-09-24 client emitted two characters, the probe answered `steamRoute:0`, the gate declared
-  an otherwise compatible client incompatible, and every custom page rendered as an empty client. So:
-  prefer a handle Steam hands you over a fingerprint; when a fingerprint is unavoidable, name what an
-  author typed and never how a minifier spelled it; and never let a lookup that has a fallback decide
-  whether a client is supported.
+  The original fingerprint was decky-loader's regex, `routePath:.\.match\?\.path.`, which described
+  the minified code and assumed a one-character local. The 2026-09-24 client emitted two characters,
+  the probe answered `steamRoute:0`, the gate declared an otherwise compatible client incompatible,
+  and every custom page rendered as an empty client. So: prefer a handle Steam hands you over a
+  fingerprint, and when a fingerprint is unavoidable, name what an author typed and never how a
+  minifier spelled it.
 - **The router memo is not an export.** It is built locally inside its module — every export of that
   module was inspected and none carries it — so the handle comes from SharedJSContext's own React
   root, which is the tree every Steam window renders from. The walk is breadth-first over an

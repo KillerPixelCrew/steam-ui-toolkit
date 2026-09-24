@@ -119,6 +119,33 @@ public static class SteamUiProbeJs
         return $"!!{descriptor}&&{descriptor}.writable===true&&{descriptor}.configurable===true";
     }
 
+    /// <summary>Defines <c>unwrap(value)</c>: what a gate's claim displaced, or the value itself.</summary>
+    /// <param name="claim">The claim's name, as in <c>__steamUi{claim}Claimed</c>.</param>
+    /// <returns>A statement defining the function.</returns>
+    /// <remarks>
+    ///     A probe that recognises a component by its source has to see through the gate's own claim:
+    ///     the live value is the wrapper, which carries none of the original's tokens, so without this
+    ///     the match disappears the moment the gate holds it and the manager retracts a patch that had
+    ///     just verified. Mirrors <c>ownership.ts</c>: both marker spellings and both snapshot kinds.
+    /// </remarks>
+    internal static string Unwrap(string claim)
+    {
+        return "const unwrap=(value)=>{"
+               + $"if(!value||(value.__steamUi{claim}Claimed!==true&&value.__wsgm{claim}Claimed!==true))return value;"
+               + $"const stored=value.__steamUi{claim}Original??value.__wsgm{claim}Original;"
+               + "return stored&&(stored.kind==='steam-ui-property-snapshot-v1'||stored.kind==='wsgm-property-snapshot-v1')"
+               + "?stored.value:stored;};";
+    }
+
+    /// <summary>Whether a value is a gate's own claim, under either marker spelling.</summary>
+    /// <param name="value">The JavaScript expression holding the value.</param>
+    /// <param name="claim">The claim's name, as in <c>__steamUi{claim}Claimed</c>.</param>
+    /// <returns>A boolean expression.</returns>
+    internal static string Claimed(string value, string claim)
+    {
+        return $"!!{value}&&({value}.__steamUi{claim}Claimed===true||{value}.__wsgm{claim}Claimed===true)";
+    }
+
     /// <summary>Whether a <c>SteamClient.System</c> namespace is absent, or present and ours.</summary>
     /// <param name="name">The namespace under <c>SteamClient.System</c>, such as <c>Audio</c>.</param>
     /// <returns>An expression evaluating to that verdict.</returns>

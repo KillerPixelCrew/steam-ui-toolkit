@@ -480,7 +480,13 @@ function createHomeCarousel() {
 
         installed = true;
         lastError = "";
-        lastAdoption = adoptMountedType(reactRootFibers(), home, home.type, MaximumNodesVisited);
+        const {adopted, scheduled} = adoptMountedType(
+            reactRootFibers(),
+            home,
+            home.type,
+            MaximumNodesVisited,
+        );
+        lastAdoption = {adopted, scheduled};
         unsubscribe = subscribe(patchId, (published) => {
             const ids = Array.isArray(published?.disconnectedAppIds) ? published.disconnectedAppIds : [];
             const disconnected = new Set<number>();

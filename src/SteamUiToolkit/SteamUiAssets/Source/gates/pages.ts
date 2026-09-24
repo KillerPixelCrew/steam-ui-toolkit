@@ -42,54 +42,31 @@ function createPageHost() {
   // The router, unique on this pair. "Settings.Root()" alone matches six modules and
   // "TopLevelTransition" is the switch's own; together they name exactly one.
   const RouterTokens = ["Settings.Root()", "TopLevelTransition"] as const;
-  const BackstackToken = "router-backstack";
-  // Steam's back-stack Route, named by two tokens Valve wrote — the JSX prop the export fills in and
-  // the optional member access it fills it from — rather than by the shape of the minified code
-  // between them. The fingerprint this replaced was decky-loader's, and it spelled that minified
-  // local out as a single-character wildcard: `routePath:.\.match\?\.path.`. It stopped matching on
-  // 2026-09-24, when the client began emitting two-character names (`routePath:be.match?.path`), and
-  // the gate registered no route at all. A fingerprint may not describe a minified identifier; only
-  // what its author typed is stable across a client build.
-  //
-  // This lookup is now the fallback rather than the answer. The Route the gate builds with is taken
-  // from the route list Steam is currently rendering (see `applyPages`), which is the same component
-  // by construction and cannot be renamed out from under us. What remains here covers the one case
-  // that borrowing does not: a client whose route list holds something other than plain Route
-  // elements. Because it is a fallback, failing to find it is no longer a reason to refuse a client.
+  // What Steam's back-stack Route reads, in its author's words: the JSX prop it fills in and the
+  // optional member access it fills it from. Used to verify the Route borrowed from the route list,
+  // never to find one; a fingerprint names what an author typed, not how a minifier spelled it.
   const BackstackRouteMarkers = ["routePath:", ".match?.path"] as const;
-  const isBackstackRoute = (value) =>
-    typeof value === "function" &&
-    BackstackRouteMarkers.every((marker) => String(value).includes(marker));
-
-  // Whether a route element's type can be used as a component. React elements hold a string type for
-  // host elements like "div", which a page must not be built with.
-  const isUsableRoute = (type) =>
-    typeof type === "function" || (typeof type === "object" && type !== null);
 
   // A path every build of the client has and no consumer would register, used to recognise the
   // route list among the router's children.
   const KnownRoute = "/library/home";
   const MaximumPages = 32;
   const MaximumDescent = 8;
-  // The router sits about a hundred levels down the live tree, so the bound is generous; it exists
-  // to stop a cyclic or pathological tree, not to limit a legitimate search.
-  const MaximumNodesVisited = 60000;
+  const PageKeyPrefix = "steam-ui-page-";
 
   let runtime;
   let react;
-  // The fallback, resolved from the registry. `borrowedRoute` is the one Steam handed us.
-  let RouteComponent = null;
+  // Steam's own Route, taken off the `/library/home` element in the route list Steam is rendering:
+  // the component itself rather than a description of it, so no client build can rename it away.
   let borrowedRoute = null;
-  let routeSource = "none";
-  let routeLookupError = "";
+  let routeVerified = false;
   let memo: any = null;
   let routeSwitchFiber: any = null;
   let routeSwitchWrapper: any = null;
   let installed = false;
   let lastError = "";
   let unsubscribe: (() => void) | null = null;
-  // What the last install's adoption of already-mounted routers reached; see install().
-  let lastAdoption: { adopted: number; scheduled: boolean } = { adopted: 0, scheduled: false };
+  const mounted = createMountedAdoption();
 
   let pages: { id: string; path: string; title: string; override?: boolean; template?: string }[] =
     [];
@@ -98,17 +75,18 @@ function createPageHost() {
 
   const descendCache = new Map();
 
-  // One registered page. The content is described by the host rather than supplied as a component:
-  // a consumer's React lives in its own process, not in this asset, so what crosses the bridge is
-  // data. A page renders its title and asks the host for its body, which is the same shape the
-  // Quick Access rows already use.
-  const renderPage = (page) => {
+  // One registered page's body. The content is described by the host rather than supplied as a
+  // component: a consumer's React lives in its own process, so what crosses the bridge is data,
+  // and a renderer registered under the page's template draws it.
+  //
+  // The renderer runs here, when Steam draws the page, not when the route is built. Routes are
+  // built the moment pages are published, which on a cold start is before the gate a renderer
+  // needs has resolved; calling it then either baked a null child into the route or threw inside
+  // Steam's router render, whose error boundary replaces the whole client. A renderer that throws
+  // now costs its own page, falls open to the heading, and names its template.
+  function SteamUiPageBody({ page }) {
     const renderer = steamPageRenderers.get(page.template);
     if (renderer) {
-      // A renderer runs inside Steam's router render. One that throws would reach Steam's error
-      // boundary, which unmounts the router and replaces the whole client with "Something went
-      // wrong" — a page that cannot draw yet must cost that page, never the client. Fail open to
-      // the heading-only page and say which template did it.
       try {
         return renderer(react, page);
       } catch (error) {
@@ -117,24 +95,17 @@ function createPageHost() {
     }
     return react.createElement(
       "div",
-      {
-        className: "steam-ui-page",
-        role: "region",
-        "aria-label": page.title,
-      },
+      { className: "steam-ui-page", role: "region", "aria-label": page.title },
       react.createElement("h1", null, page.title),
       react.createElement("div", { id: `steam-ui-page-body-${page.id}` }),
     );
-  };
-
-  // Steam's own Route, preferring the one it is rendering with over the one the registry named.
-  const activeRoute = () => borrowedRoute ?? RouteComponent;
+  }
 
   const buildRoute = (page) =>
     react.createElement(
-      activeRoute(),
-      { path: page.path, key: `steam-ui-page-${page.id}` },
-      renderPage(page),
+      borrowedRoute,
+      { path: page.path, key: `${PageKeyPrefix}${page.id}` },
+      react.createElement(SteamUiPageBody, { page }),
     );
 
   // Whether an array of elements is the router's route list.
@@ -150,43 +121,42 @@ function createPageHost() {
   // the first match. Both keep their relative order, so two overrides of the same path resolve in
   // registration order rather than arbitrarily.
   const applyPages = (routes) => {
-    observedRoutes = routes
+    // Idempotent: the route list is reached twice per render, once in the router's output and once
+    // by the mounted switch, and a page inserted by the first pass must not be inserted again.
+    const own = routes.filter(
+      (route) => typeof route?.key === "string" && route.key.startsWith(PageKeyPrefix),
+    );
+    const steam = routes.filter((route) => !own.includes(route));
+    observedRoutes = steam
       .filter((route) => react.isValidElement(route) && typeof route.props?.path === "string")
       .map((route) => route.props.path);
+    if (own.length) return routes;
 
-    // Steam's Route, borrowed from the element Steam is rendering `/library/home` with. This is the
-    // component itself rather than something that matched a description of it, so no client build
-    // can rename it away; the registry lookup above exists only for a list this cannot be read from.
-    const known = routes.find(
+    // A host element would be a string type and cannot be built with; anything else is what Steam
+    // renders that route with, verified against the Route's own markers for the status only.
+    const known = steam.find(
       (route) => react.isValidElement(route) && route.props?.path === KnownRoute,
     );
-    if (known && isUsableRoute(known.type)) {
-      const disagrees = RouteComponent && RouteComponent !== known.type;
+    if (known && typeof known.type !== "string") {
       borrowedRoute = known.type;
-      routeSource = disagrees ? "borrowed (lookup differs)" : "borrowed";
-    } else if (RouteComponent) {
-      routeSource = "lookup";
+      routeVerified = sourceMatches(known.type, BackstackRouteMarkers);
     }
 
     const wanted = pages.slice(0, MaximumPages);
     if (!wanted.length) {
-      lastOutcome = `routes=${routes.length} pages=0 route=${routeSource}`;
+      lastOutcome = `routes=${steam.length} pages=0`;
       return routes;
     }
-
-    // Loud rather than empty: a page that cannot be built is the one failure this gate can reach
-    // while otherwise holding the router, and a surface that silently draws nothing is a defect.
-    if (!activeRoute()) {
-      lastOutcome = `routes=${routes.length} pages=${wanted.length} route=unavailable`;
+    // Loud rather than empty: a surface that silently draws nothing is a defect.
+    if (!borrowedRoute) {
+      lastOutcome = `routes=${steam.length} pages=${wanted.length} route=unavailable`;
       return routes;
     }
 
     const overrides = wanted.filter((page) => page.override === true).map(buildRoute);
     const additions = wanted.filter((page) => page.override !== true).map(buildRoute);
-    lastOutcome =
-      `routes=${routes.length} overrides=${overrides.length} additions=${additions.length}` +
-      ` route=${routeSource}`;
-    return [...overrides, ...routes, ...additions];
+    lastOutcome = `routes=${steam.length} overrides=${overrides.length} additions=${additions.length}`;
+    return [...overrides, ...steam, ...additions];
   };
 
   // Finds the route list in the router's returned element tree and replaces it.
@@ -227,21 +197,6 @@ function createPageHost() {
     }
     react = resolvedReact;
 
-    // Through the shared resolver rather than a raw require and a local scan of the export names:
-    // it counts aliases of one value once, so a re-export cannot read as ambiguity, and it says
-    // which of "module absent", "module ambiguous" and "export absent" actually happened.
-    //
-    // Recorded rather than fatal. The gate builds with the Route it borrows from Steam's own route
-    // list, so a client this lookup cannot resolve is not a client the gate has to refuse. Refusing
-    // one is what took every custom page down on 2026-09-24 while the client was otherwise fine.
-    try {
-      RouteComponent = runtime.exported([BackstackToken], isBackstackRoute);
-      routeLookupError = "";
-    } catch (error) {
-      RouteComponent = null;
-      routeLookupError = String(error);
-    }
-
     // The router module is confirmed to exist and to be unique, but it exports nothing that
     // reaches the router: the memo is built locally inside the module. Verified against the live
     // client on 2026-09-10 — every export of that module was inspected and none is a memo whose
@@ -272,55 +227,29 @@ function createPageHost() {
   // recursive walk nests a frame for every sibling, so a long sibling chain could exhaust the stack
   // before the node bound was ever reached.
   const findRouterMemo = () => {
-    const host = document.getElementById("root");
-    if (!host) return null;
-    const key = Object.keys(host).find((name) => name.startsWith("__reactContainer$"));
-    if (!key) return null;
-
-    const seen = new Set();
-    const queue: any[] = [host[key]];
-    let visited = 0;
-    for (let head = 0; head < queue.length && visited <= MaximumNodesVisited; head++) {
-      const node = queue[head];
-      if (!node || seen.has(node)) continue;
-      seen.add(node);
-      visited++;
-      const current = node.elementType?.type;
-      const stored = current?.[claimKeys.marker] === true ? current[claimKeys.original] : current;
-      const original = stored?.kind === "steam-ui-property-snapshot-v1" ? stored.value : stored;
-      if (
-        typeof original === "function" &&
-        String(original).includes(RouterTokens[0]) &&
-        node.elementType &&
-        typeof node.elementType === "object"
-      ) {
-        return node.elementType;
+    let found = null;
+    walkFibers(reactRootFibers(), MaximumMountedNodes, (node) => {
+      const elementType = node.elementType;
+      if (!elementType || typeof elementType !== "object") return false;
+      // Through the gate's own claim, or a re-resolve while the claim is held finds no router.
+      if (!sourceMatches(unclaimedValue(elementType.type, claimKeys), [RouterTokens[0]])) {
+        return false;
       }
-      queue.push(node.child, node.sibling);
-    }
-    return null;
+      found = elementType;
+      return true;
+    });
+    return found;
   };
 
   const findRouteSwitchFiber = () => {
-    const host = document.getElementById("root");
-    const key = host
-      ? Object.keys(host).find((name) => name.startsWith("__reactContainer$"))
-      : null;
-    const queue: any[] = key ? [(host as any)[key]] : [];
-    for (
-      let head = 0, visited = 0;
-      head < queue.length && visited <= MaximumNodesVisited;
-      head++, visited++
-    ) {
-      const node = queue[head];
-      if (!node) continue;
-      const current = node.type;
-      const original = current?.__steamUiPageSwitchOriginal ?? current;
-      const source = typeof original === "function" ? String(original) : "";
-      if (source.includes("computedMatch") && source.includes("TopLevelTransition")) return node;
-      queue.push(node.child, node.sibling);
-    }
-    return null;
+    let found = null;
+    walkFibers(reactRootFibers(), MaximumMountedNodes, (node) => {
+      const original = node.type?.__steamUiPageSwitchOriginal ?? node.type;
+      if (!sourceMatches(original, ["computedMatch", "TopLevelTransition"])) return false;
+      found = node;
+      return true;
+    });
+    return found;
   };
 
   const install = () => {
@@ -365,20 +294,9 @@ function createPageHost() {
     routeSwitchFiber.type = routeSwitchWrapper;
     if (routeSwitchFiber.alternate) routeSwitchFiber.alternate.type = routeSwitchWrapper;
 
-    // The memo object is now patched globally, but an already mounted fiber keeps its resolved
-    // function in `type`, so the claim reaches the next mount only. This gate used to swap that one
-    // fiber and call forceUpdate on the nearest class ancestor, which cannot work: Steam's router is
-    // a React.memo with the default comparison, so re-rendering the parent produces the same element
-    // with the same props and React bails out at the memo without ever calling what we installed.
-    // The result was a claim that was correct and inert — status said claimed, lastOutcome said
-    // never rendered, and no page existed until the user navigated and changed the props by hand.
-    //
-    // adoptMountedType is the shared answer the Home carousel already used for the same bail-out:
-    // it swaps `type` on every mounted instance across every React root, replaces `memoizedProps`
-    // with an object that cannot shallow-compare equal, and only then asks for a render. It also
-    // covers the menu and Quick Access popups, which have React roots of their own that this gate's
-    // single walk of `#root` never saw.
-    lastAdoption = adoptMountedType(reactRootFibers(), memo, memo.type, MaximumNodesVisited);
+    // The claim reaches the next mount only; the router already on screen is adopted, or the claim
+    // is correct and inert until the user happens to remount it. See createMountedAdoption.
+    mounted.adopt(memo, memo.type);
 
     installed = true;
     lastError = "";
@@ -397,11 +315,9 @@ function createPageHost() {
             page.path !== "/",
         )
         .slice(0, MaximumPages);
-      // The switch wrapper reads `pages` from its closure, so a publication changes nothing React
-      // can see. The install's own render happened before WSGM's pages arrived, which left
-      // lastOutcome at pages=0 with three published and nothing registered until the next
-      // navigation (2026-09-24). Ask the adopted routers to draw again now.
-      renderMountedType(reactRootFibers(), memo, memo.type, MaximumNodesVisited);
+      // The wrappers read `pages` from their closure, so a publication changes nothing React can
+      // see on its own.
+      mounted.rerender();
     });
     return { ok: true, installed: true, reclaimed: claim.reclaimed };
   };
@@ -411,18 +327,13 @@ function createPageHost() {
   // `absent`, so a failed cleanup could never be retried.
   const remove = () => {
     if (!installed) return { ok: true, absent: true };
-    // Read before the release hands `type` back, so the adopted instances can be matched by it.
-    const wrapper = memo?.type;
     const released = releaseMember(memo, "type", claimKeys);
     if (!released.ok) {
       lastError = released.error ?? "page host release failed";
       return { ok: false, error: lastError };
     }
 
-    // Every router this install adopted, handed back to the function the claim displaced. No render
-    // is requested: Steam's own draws again the next time the page renders.
-    releaseMountedType(reactRootFibers(), memo, wrapper, memo.type, MaximumNodesVisited);
-    lastAdoption = { adopted: 0, scheduled: false };
+    mounted.release(memo.type);
     if (routeSwitchFiber && routeSwitchWrapper) {
       const originalSwitch = routeSwitchWrapper.__steamUiPageSwitchOriginal;
       if (routeSwitchFiber.type === routeSwitchWrapper) routeSwitchFiber.type = originalSwitch;
@@ -438,7 +349,7 @@ function createPageHost() {
     pages = [];
     // Borrowed from a render that is about to be undone, so it is not carried into the next install.
     borrowedRoute = null;
-    routeSource = "none";
+    routeVerified = false;
     descendCache.clear();
     lastOutcome = "removed";
     return { ok: true, removed: true };
@@ -448,20 +359,15 @@ function createPageHost() {
     ok: true,
     installed,
     resolved: !!memo,
-    routeResolved: !!activeRoute(),
-    // Which of the two the pages are built with, so a client where the registry lookup has drifted
-    // is visible as "borrowed" long before anyone has to debug an empty page.
-    routeSource,
-    routeLookupError,
+    routeResolved: !!borrowedRoute,
+    // "borrowed (unverified)" is a Route whose source lacks the back-stack markers: it draws, and
+    // back navigation may be the thing it lost.
+    routeSource: borrowedRoute ? (routeVerified ? "borrowed" : "borrowed (unverified)") : "none",
     claimed: memberClaimed(memo, "type", claimKeys),
     pages: pages.length,
     // Whether the claim reached the routers already on screen, and whether one is still drawing
-    // something else. A claim that adopted nothing is inert until Steam mounts a new router, which
-    // is the difference between "claimed" and "actually running".
-    mounted: {
-      ...lastAdoption,
-      stale: staleFibers(reactRootFibers(), memo, MaximumNodesVisited)
-    },
+    // something else: the difference between "claimed" and "actually running".
+    mounted: mounted.status(),
     // What the last render actually saw. Everything above can be true while no page is reachable,
     // because insertion depends on finding the route list in the tree Steam rendered.
     routeCount: observedRoutes.length,

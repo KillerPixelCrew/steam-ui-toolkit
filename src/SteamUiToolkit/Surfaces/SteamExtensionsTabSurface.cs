@@ -108,11 +108,11 @@ public static class SteamExtensionsTabSurface
             const qam=req.findUnique(['QuickAccessMenuBrowserView']);
             if(!qam)return JSON.stringify({qamModule:0});
             const exports=req(qam[0]);
+            // Through the gate's own claim, or the export disappears the moment the gate holds it.
+            {{SteamUiProbeJs.Unwrap("ExtensionsTab")}}
             const candidates=Object.keys(exports).filter(name=>{
               const value=exports[name];
-              const stored=value?.type?.__steamUiExtensionsTabClaimed===true
-                ?value.type.__steamUiExtensionsTabOriginal:value?.type;
-              const original=stored?.kind==='steam-ui-property-snapshot-v1'?stored.value:stored;
+              const original=unwrap(value?.type);
               return value&&typeof value==='object'&&typeof original==='function'
                 &&String(original).includes('QuickAccessMenuBrowserView');
             });
@@ -122,7 +122,7 @@ public static class SteamExtensionsTabSurface
               qamModule:1,
               memoExports:candidates.length,
               claimable:{{SteamUiProbeJs.Replaceable("descriptor")}},
-              claimed:!!memo&&memo.type.__steamUiExtensionsTabClaimed===true,
+              claimed:{{SteamUiProbeJs.Claimed("memo?.type", "ExtensionsTab")}},
               react:count({{SteamUiProbeJs.ReactTokens}})
             });
           {{SteamUiProbeJs.Close}}
@@ -131,7 +131,7 @@ public static class SteamExtensionsTabSurface
             SteamUiPatchEvaluation.IsOne(root, "qamModule")
             && SteamUiPatchEvaluation.IsOne(root, "memoExports")
             && SteamUiPatchEvaluation.IsOne(root, "react")
-            && SteamUiPatchEvaluation.Flag(root, "claimable"),
+            && SteamUiPatchEvaluation.ClaimableOrOurs(root),
         "status.installed&&status.resolved&&status.claimed&&status.nativeFocusableResolved",
         "!status.claimed",
         "Extensions tab");

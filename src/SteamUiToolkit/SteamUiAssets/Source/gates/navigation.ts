@@ -264,11 +264,7 @@ function createNavigationPanel() {
         return wrapped;
     };
 
-    const isPanelRoot = (type) => {
-        if (typeof type !== "function") return false;
-        const source = String(type);
-        return PanelRootTokens.every((token) => source.includes(token));
-    };
+    const isPanelRoot = (type) => sourceMatches(type, PanelRootTokens);
 
     // Descends the rendered tree to the panel root. Function components on the way down are replaced
     // by wrappers that render the original and keep descending (descendInto); anything else is
@@ -307,13 +303,13 @@ function createNavigationPanel() {
         // The one export whose memo renders the outer container. Selected by what its component draws,
         // never by its minified export name: those are right for today's build and nothing more.
         const exports = runtime(menuFactory[0]);
+        // Through the gate's own claim, or a re-resolve while the claim is held finds no memo.
         const candidates = Object.keys(exports).filter((name) => {
             const value = exports[name];
             return (
                 value &&
                 typeof value === "object" &&
-                typeof value.type === "function" &&
-                String(value.type).includes(OuterToken)
+                sourceMatches(unclaimedValue(value.type, claimKeys), [OuterToken])
             );
         });
         if (candidates.length !== 1) {
@@ -325,37 +321,17 @@ function createNavigationPanel() {
         return true;
     };
 
-    // What the last install's adoption of already-mounted panels reached; see install().
-    let lastAdoption: {adopted: number; scheduled: boolean} = {adopted: 0, scheduled: false};
+    const mounted = createMountedAdoption();
 
-    // The popup's menu host, which has no public handle. On the 2026-09-24 client Big Picture's
-    // main menu is a popup whose host is a module-local function mounted directly under a React
-    // root; it is exported nowhere, and the memo this gate claims is not in its render path at all.
-    // The claim was correct and never reached. The host is recognised by three prop names its author
-    // destructures, and the mounted fiber is adopted directly, the way decky-loader adopts the
-    // Quick Access view. It persists while the menu is closed and re-renders when `open` flips, so
-    // an adoption made once shows on the next open.
+    // The popup's menu host, which has no public handle: a module-local function the popup mounts
+    // directly under a React root, exported nowhere, with the memo this gate claims absent from its
+    // render path. Recognised by three prop names its author destructures and adopted by the fiber,
+    // as decky-loader adopts the Quick Access view. It persists while the menu is closed and
+    // re-renders when `open` flips, so an adoption shows on the next open.
     const MenuHostTokens = ["MainNavMenuContainer", "onFocusNavDeactivated", "popup:"] as const;
-    let adoptedHosts: {fiber: any; original: any}[] = [];
-    const hostWrapper = (type) => {
-        let wrapper = descendCache.get(type);
-        if (!wrapper) {
-            wrapper = navigationDescender(type);
-            descendCache.set(type, wrapper);
-        }
-        return wrapper;
-    };
-    const adoptHosts = () => {
-        const result = adoptMountedBySource(
-            reactRootFibers(),
-            MenuHostTokens,
-            hostWrapper,
-            "SteamUiNavigationDescend",
-            MaximumMountedNodes,
-        );
-        adoptedHosts.push(...result.adopted);
-        return result.adopted.length;
-    };
+    const hosts = createSourceAdoption(MenuHostTokens, (type) =>
+        cachedWrapper(descendCache, type, navigationDescender),
+    );
 
     const install = () => {
         if (installed) return {ok: true, alreadyInstalled: true};
@@ -379,12 +355,9 @@ function createNavigationPanel() {
 
         installed = true;
         lastError = "";
-        // The claim reaches the next mount only, and the main menu's root is mounted at boot and
-        // kept, so a claimed panel that was already on screen kept drawing Steam's own cached
-        // function: status said claimed, lastOutcome said never rendered (2026-09-24). Adoption
-        // swaps the mounted instances over and defeats the memo bail-out; see adoptMountedType.
-        lastAdoption = adoptMountedType(reactRootFibers(), memo, memo.type, MaximumMountedNodes);
-        adoptHosts();
+        // The claim reaches the next mount only; what is already on screen is adopted.
+        mounted.adopt(memo, memo.type);
+        hosts.adopt();
         unsubscribe = subscribe(patchId, (state) => {
             const items = Array.isArray(state?.items) ? state.items : [];
             const hidden = Array.isArray(state?.hidden) ? state.hidden : [];
@@ -397,22 +370,17 @@ function createNavigationPanel() {
                 items: routable.slice(0, MaximumEntries),
                 hidden: hidden.filter((value) => typeof value === "string").slice(0, MaximumEntries),
             };
-            // The wrapper reads `desired` from its closure, so a publication changes nothing React can
-            // see, and a panel already on screen would keep showing the previous entries. Ask the
-            // mounted panels to draw again; a menu not yet open draws through the claim when it is.
-            renderMountedType(reactRootFibers(), memo, memo.type, MaximumMountedNodes);
-            // A host Steam has recreated since install is adopted here; one already adopted is
-            // skipped. It sits directly under a React root with no class above it, so no render can
-            // be requested: the entries show when the menu next opens, which re-renders the host.
-            adoptHosts();
+            // The wrappers read `desired` from their closure, so a publication changes nothing React
+            // can see on its own. A host Steam has recreated since install is adopted here; it sits
+            // under a React root with no class above it, so its entries show when the menu next opens.
+            mounted.rerender();
+            hosts.adopt();
         });
         return {ok: true, installed: true, reclaimed: claim.reclaimed};
     };
 
     const remove = () => {
         if (!installed) return {ok: true, absent: true};
-        // Read before the release hands `type` back, so the adopted instances can be matched by it.
-        const wrapper = memo?.type;
         installed = false;
         unsubscribe = endSubscription(unsubscribe);
 
@@ -424,11 +392,8 @@ function createNavigationPanel() {
             lastError = released.error ?? "navigation panel release failed";
             return {ok: false, error: lastError};
         }
-        // Every mounted panel this install adopted, handed back to what the claim displaced.
-        releaseMountedType(reactRootFibers(), memo, wrapper, memo.type, MaximumMountedNodes);
-        lastAdoption = {adopted: 0, scheduled: false};
-        releaseAdoptedFibers(adoptedHosts);
-        adoptedHosts = [];
+        mounted.release(memo.type);
+        hosts.release();
 
         lastOutcome = "removed";
         return {ok: true, removed: true};
@@ -443,14 +408,9 @@ function createNavigationPanel() {
         // insertion depends on the tree Steam rendered. This is the part that says what happened.
         entries: observed,
         items: desired.items.length,
-        // Whether the claim reached the panels already on screen, and whether one is still drawing
-        // Steam's own. A claim that adopted nothing is inert until Steam mounts a new panel.
-        mounted: {
-            ...lastAdoption,
-            stale: staleFibers(reactRootFibers(), memo, MaximumMountedNodes),
-            // Popup menu hosts adopted by source, the path the memo claim never reaches.
-            hosts: adoptedHosts.length,
-        },
+        // Whether the claim reached the panels already on screen, and how many popup menu hosts are
+        // adopted by source, the path the memo claim never reaches. Nothing adopted is inert.
+        mounted: {...mounted.status(), hosts: hosts.count()},
         rejectedRoutes,
         hidden: desired.hidden.length,
         lastOutcome,

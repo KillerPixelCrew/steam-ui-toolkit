@@ -25,6 +25,14 @@ public sealed class SteamGatePatchContractTests
     [InlineData("home-carousel", "__steamUiHomeCarouselClaimed")]
     [InlineData("library-badge", "__steamUiLibraryBadgeClaimed")]
     [InlineData("navigation-panel", "__steamUiNavigationPanelClaimed")]
+    [InlineData("page", "__steamUiPageHostClaimed")]
+    // A probe that recognises a component by its source unwraps the gate's own claim to reach it,
+    // under the current marker spelling and the one a previous build could have left on a running
+    // client, and through the stored snapshot the claim keeps the original in.
+    [InlineData("navigation-panel", "__wsgmNavigationPanelClaimed")]
+    [InlineData("navigation-panel", "steam-ui-property-snapshot-v1")]
+    [InlineData("page", "__wsgmPageHostClaimed")]
+    [InlineData("page", "steam-ui-property-snapshot-v1")]
     public void AnAlreadyClaimedResourceStaysCompatible(string surface, string marker)
     {
         // Requiring the pre-patch shape alone would make a successful apply fail its own next probe,
