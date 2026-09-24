@@ -39,6 +39,31 @@ public sealed class SteamPageTests
     }
 
     [Fact]
+    public void TheProbeSeesThroughTheGatesOwnClaim()
+    {
+        // A successful patch must stay compatible with its own next probe. The gate replaces the
+        // memo's type with a wrapper, so a probe testing the live value's source stops recognising
+        // the router the moment the gate holds it. On 2026-09-24 that retracted the page host two
+        // seconds after it applied and verified, which looks exactly like the gate never installing.
+        var probe = Gate.ProbeExpression;
+
+        Assert.Contains("__steamUiPageHostClaimed", probe, StringComparison.Ordinal);
+        Assert.Contains("__steamUiPageHostOriginal", probe, StringComparison.Ordinal);
+        Assert.Contains("steam-ui-property-snapshot-v1", probe, StringComparison.Ordinal);
+        // The pre-rename spelling a previous build could have left on a running client.
+        Assert.Contains("__wsgmPageHostClaimed", probe, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnAlreadyClaimedRouterIsCompatibleWithoutBeingClaimableAgain()
+    {
+        using var document = JsonDocument.Parse(
+            """{"routerModule":1,"backstackModule":1,"steamRoute":1,"routerFound":1,"claimable":false,"claimed":true,"routeSwitch":1,"react":1}""");
+
+        Assert.True(Gate.Compatible(document.RootElement));
+    }
+
+    [Fact]
     public void TheProbeLooksForTheRouterInTheRenderedTree()
     {
         // The router memo is not an export — verified against the live client, where every export
