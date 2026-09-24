@@ -120,6 +120,10 @@ subscriptions.get("steam-ui.extensions-tab")({
   ],
 });
 const tab = memo.type({}).props.tabs[0];
+// Steam keys its tabs by number and selects by that number; a string key draws a tab that cannot
+// be selected, and clicking it landed on Friends (2026-09-24).
+assert.equal(typeof tab.key, "number", "the tab must be keyed the way Steam keys its own");
+assert.equal(typeof tab.strTitle, "string", "the tab must carry the string title Valve's tabs do");
 const panel = tab.panel.type();
 const row = panel.props.children[1][0];
 const action = row.props.children[2];
