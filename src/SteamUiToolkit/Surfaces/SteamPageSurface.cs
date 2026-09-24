@@ -42,11 +42,18 @@ public sealed record SteamPageState(IReadOnlyList<SteamPage> Pages, long Revisio
 ///     handle <see cref="SteamNavigationPanelSurface" /> claims, and finds the route list by content: the
 ///     array holding a route for a path every client has.
 ///     <para>
-///         The <c>Route</c> the gate builds pages with is Steam's own, resolved from the module carrying
-///         <c>router-backstack</c>, never react-router's. That is what gives a custom page native
-///         back-navigation, because Steam's Route registers the match with the back stack. React-router's
-///         renders the same content and silently loses it, which is the failure this would otherwise ship
-///         with and nobody would notice until they pressed B.
+///         The <c>Route</c> the gate builds pages with is Steam's own, never react-router's. That is what
+///         gives a custom page native back-navigation, because Steam's Route registers the match with the
+///         back stack; react-router's renders the same content and silently loses it, and nobody would
+///         notice until they pressed B. It is taken from the route list itself: every element in that list
+///         is the component Steam is rendering that route with, so the gate borrows the Route rather than
+///         describing it. A description can stop matching, and on 2026-09-24 one did.
+///     </para>
+///     <para>
+///         The export in the module carrying <c>router-backstack</c> remains as the fallback, for a client
+///         whose route list holds something other than plain Route elements. Neither it nor its module is
+///         a condition of installing: a gate that refuses a client because one lookup drifted takes every
+///         page down with it, which is exactly what happened.
 ///     </para>
 ///     <para>
 ///         Mapped against the live client on 2026-09-10: the switch carries 31 route children, its selection
@@ -68,26 +75,29 @@ public static class SteamPageSurface
         PatchId,
         "steam-ui.router-root",
         "pages",
-        "steam-pages-v1:unique-router-module+backstack-route",
+        "steam-pages-v2:unique-router-module+claimable-memo+route-switch",
         $$"""
           {{SteamUiProbeJs.Preamble("steam_ui_pages_probe_")}}
             const router=req.findUnique(['Settings.Root()','TopLevelTransition']);
+            if(!router)return JSON.stringify({routerModule:0,backstackModule:0,steamRoute:0});
+            // Steam's own back-stack Route, the one that gives a page native back navigation.
+            // Reported, not required: the gate builds with the Route it borrows from the route list
+            // Steam is rendering, and only falls back to this export when that list cannot be read
+            // from. Counted by value rather than by export name, the way the gate's resolver counts
+            // it, so a module re-exporting the Route under a second name is one match, not ambiguity.
             const backstack=req.findUnique(['router-backstack']);
-            if(!router||!backstack)return JSON.stringify({
-              routerModule:router?1:0,backstackModule:backstack?1:0});
-            // Steam's own back-stack Route, the one that gives a page native back navigation. Counted
-            // by value rather than by export name, the way the gate's resolver counts it, so a module
-            // that re-exports the Route under a second name reads as one match and not as ambiguity.
-            const backstackExports=req(backstack[0]);
             const markers={{SteamUiProbeJs.BackstackRouteMarkers}};
             const routes=new Set();
-            for(const name of Object.keys(backstackExports)){
-              try{
-                const value=backstackExports[name];
-                if(typeof value==='function'&&markers.every(marker=>String(value).includes(marker)))
-                  routes.add(value);
-              }catch{
-                // An export whose getter throws is not the Route.
+            if(backstack){
+              const backstackExports=req(backstack[0]);
+              for(const name of Object.keys(backstackExports)){
+                try{
+                  const value=backstackExports[name];
+                  if(typeof value==='function'&&markers.every(marker=>String(value).includes(marker)))
+                    routes.add(value);
+                }catch{
+                  // An export whose getter throws is not the Route.
+                }
               }
             }
             // The router memo is NOT an export: it is built locally inside that module, so the
@@ -111,7 +121,7 @@ public static class SteamPageSurface
             const descriptor=memo?Object.getOwnPropertyDescriptor(memo,'type'):null;
             return JSON.stringify({
               routerModule:1,
-              backstackModule:1,
+              backstackModule:backstack?1:0,
               steamRoute:routes.size,
               routerFound:memo?1:0,
               claimable:{{SteamUiProbeJs.Replaceable("descriptor")}},
@@ -122,15 +132,20 @@ public static class SteamPageSurface
             });
           {{SteamUiProbeJs.Close}}
           """,
+        // Only what the gate cannot work without: the router it claims, the switch it wraps, React,
+        // and a memo whose type it can put back. The back-stack module and its Route export are
+        // reported for diagnostics and deliberately absent here. Requiring them is what declared an
+        // otherwise healthy client incompatible on 2026-09-24 and took every custom page with it.
         root =>
             SteamUiPatchEvaluation.IsOne(root, "routerModule")
-            && SteamUiPatchEvaluation.IsOne(root, "backstackModule")
-            && SteamUiPatchEvaluation.IsOne(root, "steamRoute")
             && SteamUiPatchEvaluation.IsOne(root, "routerFound")
             && SteamUiPatchEvaluation.IsOne(root, "routeSwitch")
             && SteamUiPatchEvaluation.IsOne(root, "react")
             && SteamUiPatchEvaluation.Flag(root, "claimable"),
-        "status.installed&&status.resolved&&status.routeResolved&&status.claimed",
+        // The Route is borrowed from Steam's first render through the claimed switch, which has not
+        // necessarily happened by the time verification runs, so holding the router is what verify
+        // proves. Whether a page was built, and with which Route, is reported in the gate's status.
+        "status.installed&&status.resolved&&status.claimed",
         "!status.claimed",
         "Custom page gate");
 

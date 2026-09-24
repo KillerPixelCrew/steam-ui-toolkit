@@ -7,8 +7,10 @@ public sealed class SteamGatePatchContractTests
     [InlineData("home-carousel", "status.installed&&status.resolved&&status.claimed", "!status.claimed")]
     [InlineData("library-badge", "status.installed&&status.resolved&&status.claimed", "!status.claimed")]
     [InlineData("navigation-panel", "status.installed&&status.resolved&&status.claimed", "!status.claimed")]
-    // A claimed router with no Route resolved would register pages that cannot be built.
-    [InlineData("page", "status.installed&&status.resolved&&status.routeResolved&&status.claimed", "!status.claimed")]
+    // The page gate verifies on the claim alone. Its Route is borrowed from Steam's first render
+    // through the claimed switch, which need not have happened yet when verification runs, so
+    // demanding it here would tear down a gate that is about to work. The status reports it instead.
+    [InlineData("page", "status.installed&&status.resolved&&status.claimed", "!status.claimed")]
     [InlineData("screensaver", "status.installed&&status.resolved&&status.claimed", "!status.claimed")]
     public void VerificationRequiresTheClaimAndRemovalRequiresItsAbsence(
         string surface, string verify, string remove)

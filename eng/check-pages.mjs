@@ -86,6 +86,9 @@ globalThis.document = {
   getElementById: (id) => (id === "root" ? { __reactContainer$fixture: rootNode } : null),
 };
 
+// Whether the registry still finds the Route export. The gate must work either way.
+let routeLookupWorks = true;
+
 const globals = {
   getWebpackRuntime: () => {
     const require = (id) =>
@@ -100,6 +103,9 @@ const globals = {
     // The shared resolver's own semantics: aliases of one value count once, and no fit or two
     // distinct fits throws rather than guessing.
     require.exported = (tokens, predicate) => {
+      // Simulates the 2026-09-24 client, where the Route export stopped matching its fingerprint.
+      if (!routeLookupWorks && tokens.includes("router-backstack"))
+        throw new Error("Steam export absent: router-backstack");
       const exports = require(require.findUnique(tokens)[0]);
       const fits = new Set();
       for (const name of Object.keys(exports)) if (predicate(exports[name])) fits.add(exports[name]);
@@ -151,6 +157,11 @@ assert.ok(gate.status().routeResolved, "Steam's own Route must have been resolve
 
 // Claimed but with nothing published: Steam's routes must resolve exactly as before.
 assert.equal(selected("/settings")?.props.path, "/settings", "an empty claim must change nothing");
+
+// That render went through the claimed switch, so the Route now comes from Steam's own route list
+// rather than from the registry lookup.
+assert.equal(gate.status().routeSource, "borrowed", "the Route must be borrowed once Steam renders");
+assert.match(gate.status().lastOutcome, /route=borrowed/);
 
 // An addition.
 globals.publish({ pages: [{ id: "artwork", path: "/wsgm/artwork", title: "Artwork" }] });
@@ -213,7 +224,38 @@ assert.ok(gate.install().ok, "the gate must be reinstallable");
 assert.ok(gate.remove().ok);
 assert.equal(memo.type, Router);
 
+// The 2026-09-24 outage, as a fixture: the registry no longer finds the Route export at all. The
+// gate must still install and must still build pages, because the Route it needs is in the route
+// list Steam handed it. Refusing here is what left Change Artwork, Import games and the in-Steam
+// settings page all rendering an empty client on a client that was otherwise entirely compatible.
+routeLookupWorks = false;
+const blind = instantiate(
+  globals,
+  `${sharedFragments(asset)}\n${slice(asset, "const steamPageRenderers", "function createPageHost()")}\n${gateSource(asset, "createPageHost", "pages")}`,
+  "createPageHost()",
+);
+
+const blindInstall = blind.install();
+assert.ok(
+  blindInstall.ok,
+  `install must survive a Route lookup that finds nothing: ${blindInstall.error}`,
+);
+assert.ok(blind.status().claimed, "the router must still be claimed");
+assert.match(blind.status().routeLookupError, /router-backstack/u, "the failed lookup must be named");
+
+globals.publish({ pages: [{ id: "artwork", path: "/wsgm/artwork", title: "Artwork" }] });
+const blindPage = selected("/wsgm/artwork");
+assert.ok(blindPage, "a page must register with no Route export to be found");
+assert.equal(blindPage.type, SteamRoute, "the borrowed Route must be Steam's own back-stack Route");
+assert.equal(blind.status().routeSource, "borrowed");
+assert.ok(blind.status().routeResolved, "a borrowed Route counts as resolved");
+
+assert.ok(blind.remove().ok);
+assert.equal(memo.type, Router);
+assert.equal(blind.status().routeSource, "none", "removal must drop the borrowed Route");
+routeLookupWorks = true;
+
 console.log(
-  "Custom pages: Route markers, route-list discovery, override vs addition, validation and " +
-    "restoration passed.",
+  "Custom pages: borrowed Route, route-list discovery, override vs addition, install without a " +
+    "Route lookup, validation and restoration passed.",
 );

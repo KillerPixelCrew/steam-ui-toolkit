@@ -127,6 +127,12 @@ Ownership must survive separate CDP evaluations:
   the shared module resolver, then resolve a module by a unique source fingerprint and an export by
   its shape (`exported`). Features supply fingerprints to `SteamUiModuleResolver`; they do not
   implement their own registry scans or raw require calls.
+- Prefer a handle Steam has already handed you over any fingerprint. A component sitting in props
+  Steam rendered, or a store it has already constructed, is the thing itself rather than a
+  description of it, so no client build can rename it away. The page gate takes Steam's `Route` off
+  the route list it has already located, for exactly that reason. A fingerprint is for a handle
+  nothing rendered yet can supply, and where one has a fallback it must not be what decides whether
+  a client is supported.
 - React has one `useMemo`. A surface that needs to see what it returns registers a transform on the
   shared claim (`interceptMemo`/`releaseMemo`); it never wraps `useMemo` itself.
   Keep `module-resolver.ts` valid JavaScript because those exact bytes are also embedded for C#

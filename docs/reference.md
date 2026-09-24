@@ -1011,16 +1011,26 @@ Three facts decide the API, and all three were measured against the live client 
 - **The switch takes the first matching child.** So inserting ahead of Steam's routes overrides one
   and inserting behind them adds one. `SteamPage.Override` is that distinction, and it defaults to
   adding, because shadowing a client route is not something a caller should get by accident.
-- **The `Route` must be Steam's own.** It comes from the module carrying `router-backstack`, whose
-  single matching export registers the match with Steam's back stack. React-router's `Route` renders
-  the same content and silently loses back-navigation, which is the failure this would otherwise
-  ship with and nobody would notice until they pressed B. The export is selected through
-  `exported`, by two markers Valve wrote — `routePath:` and `.match?.path` — and by nothing about
-  the minified code between them. The fingerprint that preceded them was decky-loader's regex,
-  `routePath:.\.match\?\.path.`, which described that code and assumed a one-character local; the
-  2026-09-24 client emitted two characters, the probe answered `steamRoute:0`, the gate declared an
-  otherwise compatible client incompatible, and every custom page rendered as an empty client. A
-  fingerprint may name what an author typed and never how a minifier spelled it.
+- **The `Route` must be Steam's own, and it is borrowed rather than found.** Every element in the
+  route list is the component Steam is rendering that route with, so the gate takes its `Route` off
+  the `/library/home` element in the list it has already located. That is the component itself, not
+  something that matched a description of it, and no client build can rename it away. React-router's
+  `Route` renders the same content and silently loses back-navigation, which nobody would notice
+  until they pressed B.
+
+  The export in the module carrying `router-backstack` remains as the fallback, for a client whose
+  route list holds something other than plain `Route` elements. It is selected through `exported`, by
+  two markers Valve wrote, `routePath:` and `.match?.path`, and by nothing about the minified code
+  between them. Neither the export nor its module is a condition of installing, and the gate's status
+  reports which of the two a page was built with.
+
+  Both halves are there because of one failure. The original fingerprint was decky-loader's regex,
+  `routePath:.\.match\?\.path.`, which described the minified code and assumed a one-character local.
+  The 2026-09-24 client emitted two characters, the probe answered `steamRoute:0`, the gate declared
+  an otherwise compatible client incompatible, and every custom page rendered as an empty client. So:
+  prefer a handle Steam hands you over a fingerprint; when a fingerprint is unavoidable, name what an
+  author typed and never how a minifier spelled it; and never let a lookup that has a fallback decide
+  whether a client is supported.
 - **The router memo is not an export.** It is built locally inside its module — every export of that
   module was inspected and none carries it — so the handle comes from SharedJSContext's own React
   root, which is the tree every Steam window renders from. The walk is breadth-first over an

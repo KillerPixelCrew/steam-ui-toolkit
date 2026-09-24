@@ -66,11 +66,11 @@ public sealed class SteamPageTests
         """function Q(he){const{children:Z,routePath:q,disabled:pe}=he,be=(0,r.useContext)(k);return r.useEffect(()=>{if(!pe){E.y.ReportRouteMatch(q)}},[q,be,pe]),(0,h.jsx)(k.Provider,{value:!0,children:Z})}""";
 
     [Fact]
-    public void TheProbeRequiresSteamsOwnRouteRatherThanAnyRoute()
+    public void TheProbeReportsSteamsOwnRouteRatherThanAnyRoute()
     {
         // Steam's back-stack Route is what gives a page native back navigation. React-router's
-        // renders the same content and silently loses it, so the probe pins what tells them apart
-        // rather than accepting whatever the module exports.
+        // renders the same content and silently loses it, so the probe still reports what tells them
+        // apart, for the fallback lookup and for diagnostics, even though it no longer gates on it.
         var probe = Gate.ProbeExpression;
 
         Assert.Contains("routePath:", probe, StringComparison.Ordinal);
@@ -107,15 +107,14 @@ public sealed class SteamPageTests
     [InlineData(
         """{"routerModule":1,"backstackModule":1,"steamRoute":1,"routerFound":0,"claimable":true,"routeSwitch":1,"react":1}""",
         false)]
-    // Two Route candidates is ambiguous, which is a refusal rather than a reason to pick one.
-    [InlineData(
-        """{"routerModule":1,"backstackModule":1,"steamRoute":2,"routerFound":1,"claimable":true,"routeSwitch":1,"react":1}""",
-        false)]
     [InlineData(
         """{"routerModule":1,"backstackModule":1,"steamRoute":1,"routerFound":1,"claimable":false,"routeSwitch":1,"react":1}""",
         false)]
     [InlineData(
         """{"routerModule":0,"backstackModule":1,"steamRoute":1,"routerFound":1,"claimable":true,"routeSwitch":1,"react":1}""",
+        false)]
+    [InlineData(
+        """{"routerModule":1,"backstackModule":1,"steamRoute":1,"routerFound":1,"claimable":true,"routeSwitch":0,"react":1}""",
         false)]
     [InlineData("""{"error":"Steam modules unavailable"}""", false)]
     public void CompatibilityRequiresEveryFactAndAUniqueMatchForEachOne(string json, bool expected)
@@ -123,6 +122,24 @@ public sealed class SteamPageTests
         using var document = JsonDocument.Parse(json);
 
         Assert.Equal(expected, Gate.Compatible(document.RootElement));
+    }
+
+    [Theory]
+    // The Route export gone, and the whole module with it. Both are fallback-only: the gate builds
+    // with the Route it borrows from Steam's own route list, so neither may refuse a client. This is
+    // the 2026-09-24 verdict inverted, and it is the entire point of borrowing rather than matching.
+    [InlineData(
+        """{"routerModule":1,"backstackModule":1,"steamRoute":0,"routerFound":1,"claimable":true,"routeSwitch":1,"react":1}""")]
+    [InlineData(
+        """{"routerModule":1,"backstackModule":0,"steamRoute":0,"routerFound":1,"claimable":true,"routeSwitch":1,"react":1}""")]
+    // Two candidates is no longer ambiguity worth refusing over either, for the same reason.
+    [InlineData(
+        """{"routerModule":1,"backstackModule":1,"steamRoute":2,"routerFound":1,"claimable":true,"routeSwitch":1,"react":1}""")]
+    public void TheBackStackRouteLookupCannotRefuseAnOtherwiseHealthyClient(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+
+        Assert.True(Gate.Compatible(document.RootElement));
     }
 
     [Fact]
