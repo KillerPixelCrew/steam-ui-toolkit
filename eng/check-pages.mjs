@@ -19,17 +19,32 @@ import {
 const asset = loadAsset();
 const react = createReact();
 
-// Steam's back-stack Route, matched by the fingerprint the gate uses.
+// Steam's back-stack Route, matched by the markers the gate uses. The body is the live one read
+// from the client on 2026-09-24, minified locals and all: the fingerprint this replaced described
+// the code between the two markers and assumed a one-character local, so it stopped matching when
+// the client emitted `be`, and the fixture said nothing because it had a one-character local too.
 const SteamRoute = function () {
   return null;
 };
 Object.defineProperty(SteamRoute, "toString", {
-  value: () => "function(e){ return jsx(G,{routePath:e.match?.path,disabled:false}) }",
+  value: () =>
+    'function Y(he){const{children:Z,...q}=he,pe=be=>typeof Z==="function"?Z(be):Z;' +
+    "return(0,h.jsx)(D.qh,{...q,children:be=>(0,h.jsx)(Q,{routePath:be.match?.path," +
+    "disabled:!be.match,children:pe(be)})})}",
 });
-// A decoy in the same module, so "exactly one export matches" is actually exercised.
+// The route-tracking component that really does sit in that module. It names the same prop but
+// never reads a match, so it proves the second marker is doing work rather than riding along.
 const NotARoute = function () {
   return null;
 };
+Object.defineProperty(NotARoute, "toString", {
+  value: () =>
+    "function Q(he){const{children:Z,routePath:q,disabled:pe}=he;" +
+    "return E.y.ReportRouteMatch(q),(0,h.jsx)(k.Provider,{value:!0,children:Z})}",
+});
+// An alias of the Route under a second export name. Counting by value rather than by name is what
+// keeps a re-export from reading as ambiguity and refusing an otherwise compatible client.
+const SteamRouteAlias = SteamRoute;
 
 const route = (path) => element(SteamRoute, { path }, path);
 const stockRoutes = [
@@ -73,7 +88,8 @@ globalThis.document = {
 
 const globals = {
   getWebpackRuntime: () => {
-    const require = (id) => (id === "backstack" ? { Jh: SteamRoute, other: NotARoute } : react);
+    const require = (id) =>
+      id === "backstack" ? { Jh: SteamRoute, Kp: SteamRouteAlias, other: NotARoute } : react;
     require.findUnique = (tokens) =>
       tokens.includes("router-backstack")
         ? ["backstack"]
@@ -81,6 +97,15 @@ const globals = {
           ? ["router"]
           : ["react"];
     require.count = () => 1;
+    // The shared resolver's own semantics: aliases of one value count once, and no fit or two
+    // distinct fits throws rather than guessing.
+    require.exported = (tokens, predicate) => {
+      const exports = require(require.findUnique(tokens)[0]);
+      const fits = new Set();
+      for (const name of Object.keys(exports)) if (predicate(exports[name])) fits.add(exports[name]);
+      if (fits.size !== 1) throw new Error(`Steam export ${fits.size ? "ambiguous" : "absent"}`);
+      return [...fits][0];
+    };
     return require;
   },
   createIconRenderer: () => () => null,
@@ -189,5 +214,6 @@ assert.ok(gate.remove().ok);
 assert.equal(memo.type, Router);
 
 console.log(
-  "Custom pages: route-list discovery, override vs addition, validation and restoration passed.",
+  "Custom pages: Route markers, route-list discovery, override vs addition, validation and " +
+    "restoration passed.",
 );

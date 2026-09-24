@@ -75,11 +75,21 @@ public static class SteamPageSurface
             const backstack=req.findUnique(['router-backstack']);
             if(!router||!backstack)return JSON.stringify({
               routerModule:router?1:0,backstackModule:backstack?1:0});
-            // Steam's own back-stack Route, the one that gives a page native back navigation.
+            // Steam's own back-stack Route, the one that gives a page native back navigation. Counted
+            // by value rather than by export name, the way the gate's resolver counts it, so a module
+            // that re-exports the Route under a second name reads as one match and not as ambiguity.
             const backstackExports=req(backstack[0]);
-            const routes=Object.keys(backstackExports).filter(name=>
-              typeof backstackExports[name]==='function'
-              &&/routePath:.\.match\?\.path./.test(String(backstackExports[name])));
+            const markers={{SteamUiProbeJs.BackstackRouteMarkers}};
+            const routes=new Set();
+            for(const name of Object.keys(backstackExports)){
+              try{
+                const value=backstackExports[name];
+                if(typeof value==='function'&&markers.every(marker=>String(value).includes(marker)))
+                  routes.add(value);
+              }catch{
+                // An export whose getter throws is not the Route.
+              }
+            }
             // The router memo is NOT an export: it is built locally inside that module, so the
             // handle comes from SharedJSContext's own React root, which is the tree every Steam
             // window renders from. Read-only walk, bounded, matching on component source. It is
@@ -102,7 +112,7 @@ public static class SteamPageSurface
             return JSON.stringify({
               routerModule:1,
               backstackModule:1,
-              steamRoute:routes.length,
+              steamRoute:routes.size,
               routerFound:memo?1:0,
               claimable:{{SteamUiProbeJs.Replaceable("descriptor")}},
               claimed:!!memo&&memo.type.__steamUiPageHostClaimed===true,

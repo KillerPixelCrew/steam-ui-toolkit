@@ -11,7 +11,8 @@ namespace SteamUiToolkit.Tests;
 ///     <c>Settings.Root()</c> plus <c>TopLevelTransition</c>, the back-stack module is unique on
 ///     <c>router-backstack</c> and has exactly one export matching the Route fingerprint, and the
 ///     router memo is reachable through SharedJSContext's React root in 659 visited nodes with a
-///     writable, configurable <c>type</c>.
+///     writable, configurable <c>type</c>. Re-read on 2026-09-24: all of that still holds, but the
+///     Route's minified locals gained a character, which is what the marker rule now tolerates.
 /// </remarks>
 public sealed class SteamPageTests
 {
@@ -49,13 +50,53 @@ public sealed class SteamPageTests
         Assert.Contains("elementType", probe, StringComparison.Ordinal);
     }
 
+    // Steam's back-stack Route as the client actually minifies it. The first is the live body read
+    // from module 72500 on 2026-09-24; the second is that same body with the single-character locals
+    // the client emitted before then. A fingerprint has to match both, because the only difference
+    // between them is how the minifier happened to name a local.
+    private const string RouteWithTwoCharacterLocals =
+        """function Y(he){const{children:Z,...q}=he,pe=be=>typeof Z==="function"?Z(be):Z;return(0,h.jsx)(D.qh,{...q,children:be=>(0,h.jsx)(Q,{routePath:be.match?.path,disabled:!be.match,children:pe(be)})})}""";
+
+    private const string RouteWithSingleCharacterLocals =
+        """function Y(h){const{children:Z,...q}=h,p=b=>typeof Z==="function"?Z(b):Z;return(0,x.jsx)(D.qh,{...q,children:b=>(0,x.jsx)(Q,{routePath:b.match?.path,disabled:!b.match,children:p(b)})})}""";
+
+    // The route-tracking component in the same module. It names the same prop but never reads a
+    // match, so the second marker is what tells the two apart.
+    private const string RouteTrackerDecoy =
+        """function Q(he){const{children:Z,routePath:q,disabled:pe}=he,be=(0,r.useContext)(k);return r.useEffect(()=>{if(!pe){E.y.ReportRouteMatch(q)}},[q,be,pe]),(0,h.jsx)(k.Provider,{value:!0,children:Z})}""";
+
     [Fact]
     public void TheProbeRequiresSteamsOwnRouteRatherThanAnyRoute()
     {
         // Steam's back-stack Route is what gives a page native back navigation. React-router's
-        // renders the same content and silently loses it, so the probe pins the fingerprint that
-        // tells them apart rather than accepting whatever the module exports.
-        Assert.Contains(@"routePath:.\.match\?\.path.", Gate.ProbeExpression, StringComparison.Ordinal);
+        // renders the same content and silently loses it, so the probe pins what tells them apart
+        // rather than accepting whatever the module exports.
+        var probe = Gate.ProbeExpression;
+
+        Assert.Contains("routePath:", probe, StringComparison.Ordinal);
+        Assert.Contains(".match?.path", probe, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheRouteMarkersSurviveTheClientRenamingItsMinifiedLocals()
+    {
+        // The regression this replaced: the old fingerprint was a regex describing the minified code
+        // between the two markers, and it spelled the local out as one character. The 2026-09-24
+        // client emitted two, the probe answered steamRoute:0, the gate never installed, and every
+        // custom page rendered as an empty client on a client that was otherwise compatible.
+        Assert.DoesNotMatch(@"routePath:.\.match\?\.path.", RouteWithTwoCharacterLocals);
+
+        Assert.True(MatchesRouteMarkers(RouteWithTwoCharacterLocals));
+        Assert.True(MatchesRouteMarkers(RouteWithSingleCharacterLocals));
+        Assert.False(MatchesRouteMarkers(RouteTrackerDecoy));
+    }
+
+    // The rule the probe and the gate both apply: every marker is a plain substring of the export's
+    // source, with nothing said about what lies between them.
+    private static bool MatchesRouteMarkers(string source)
+    {
+        return source.Contains("routePath:", StringComparison.Ordinal)
+               && source.Contains(".match?.path", StringComparison.Ordinal);
     }
 
     [Theory]

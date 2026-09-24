@@ -1014,7 +1014,13 @@ Three facts decide the API, and all three were measured against the live client 
 - **The `Route` must be Steam's own.** It comes from the module carrying `router-backstack`, whose
   single matching export registers the match with Steam's back stack. React-router's `Route` renders
   the same content and silently loses back-navigation, which is the failure this would otherwise
-  ship with and nobody would notice until they pressed B.
+  ship with and nobody would notice until they pressed B. The export is selected through
+  `exported`, by two markers Valve wrote — `routePath:` and `.match?.path` — and by nothing about
+  the minified code between them. The fingerprint that preceded them was decky-loader's regex,
+  `routePath:.\.match\?\.path.`, which described that code and assumed a one-character local; the
+  2026-09-24 client emitted two characters, the probe answered `steamRoute:0`, the gate declared an
+  otherwise compatible client incompatible, and every custom page rendered as an empty client. A
+  fingerprint may name what an author typed and never how a minifier spelled it.
 - **The router memo is not an export.** It is built locally inside its module — every export of that
   module was inspected and none carries it — so the handle comes from SharedJSContext's own React
   root, which is the tree every Steam window renders from. The walk is breadth-first over an

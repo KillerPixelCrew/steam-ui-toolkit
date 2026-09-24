@@ -54,7 +54,10 @@ Keep Steam-build-specific facts in the surface and injected-asset layer, not in 
 transport, bridge, patch-manager, or module-runtime core. A surface owns its source fingerprints,
 export shapes and store fields, while shared asset helpers centralize localization and
 row-placement vocabulary used by several surfaces. Never write down a webpack module id or a
-minified export name: client builds renumber and rename both (the September 2026 beta did).
+minified export name: client builds renumber and rename both (the September 2026 beta did). Do not
+describe minified code either. A fingerprint names tokens an author typed and says nothing about the
+identifiers or spacing a minifier chose between them; a regex that spelled a local as a single
+character took the custom-page gate off an otherwise compatible client on 2026-09-24.
 
 A complete surface owns its whole vertical slice:
 

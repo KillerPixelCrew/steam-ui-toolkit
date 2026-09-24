@@ -45,6 +45,28 @@ public static class SteamUiProbeJs
     /// <summary>The source token of Steam's native modal-manager entry point.</summary>
     public const string NativeShowModalTokens = "['props.bDisableBackgroundDismiss']";
 
+    /// <summary>
+    ///     The source markers of Steam's back-stack Route, which gives a custom page native back
+    ///     navigation.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         Unlike the constants above, these select an export within an already resolved module
+    ///         rather than the module itself. Both are tokens Valve wrote — the JSX prop the export
+    ///         fills in, and the optional member access it fills it from — so a client build that
+    ///         renames its minified locals cannot move them.
+    ///     </para>
+    ///     <para>
+    ///         The fingerprint these replaced described the minified code between them, spelling the
+    ///         local out as a single-character wildcard: <c>routePath:.\.match\?\.path.</c>. It stopped
+    ///         matching on 2026-09-24, when the client began emitting two-character names
+    ///         (<c>routePath:be.match?.path</c>), and the page gate refused to install on a client
+    ///         that was otherwise entirely compatible. No route was registered and every custom page
+    ///         rendered as an empty client. A fingerprint may not describe a minified identifier.
+    ///     </para>
+    /// </remarks>
+    internal const string BackstackRouteMarkers = """['routePath:','.match?.path']""";
+
     /// <summary>The source tokens of Steam's localizer module.</summary>
     internal const string LocalizationTokens =
         "['Attempting to localize token','Unable to find localization token','LocalizeString']";
