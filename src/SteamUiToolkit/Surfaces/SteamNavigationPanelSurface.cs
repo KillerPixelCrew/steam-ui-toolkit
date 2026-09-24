@@ -117,11 +117,25 @@ public static class SteamNavigationPanelSurface
             const menu=req.findUnique(['#MainMenu_Title','MainNavMenuContainer']);
             if(!menu)return JSON.stringify({menuModule:0});
             const exports=req(menu[0]);
+            // A claimed member reads as this gate's wrapper, not as Steam's component, so the source
+            // test has to see through our own claim. Without this the export stops matching the
+            // moment the gate holds it, memoExports reads 0, and because that verdict arrives while
+            // the patch is Applied the manager retracts a gate that had just verified. The remarks
+            // on this patch always said an already-claimed panel is compatible; this is what makes
+            // that true. Both marker spellings, for the same reason ownership.ts reads both.
+            const unwrap=(value)=>{
+              if(!value)return value;
+              if(value.__steamUiNavigationPanelClaimed!==true
+                &&value.__wsgmNavigationPanelClaimed!==true)return value;
+              const stored=value.__steamUiNavigationPanelOriginal??value.__wsgmNavigationPanelOriginal;
+              return stored&&stored.kind==='steam-ui-property-snapshot-v1'?stored.value:stored;
+            };
             // The export is chosen by what its component draws, never by its minified name.
             const memos=Object.keys(exports).filter(name=>{
               const value=exports[name];
-              return value&&typeof value==='object'&&typeof value.type==='function'
-                &&String(value.type).includes('MainNavMenuContainer');
+              if(!value||typeof value!=='object')return false;
+              const drawn=unwrap(value.type);
+              return typeof drawn==='function'&&String(drawn).includes('MainNavMenuContainer');
             });
             const memo=memos.length===1?exports[memos[0]]:null;
             const descriptor=memo?Object.getOwnPropertyDescriptor(memo,'type'):null;
@@ -143,7 +157,10 @@ public static class SteamNavigationPanelSurface
             && SteamUiPatchEvaluation.IsOne(root, "panelRoot")
             && SteamUiPatchEvaluation.IsOne(root, "memoExports")
             && SteamUiPatchEvaluation.IsOne(root, "react")
-            && SteamUiPatchEvaluation.Flag(root, "claimable"),
+            // Claimable, or already ours. A patch holding the member has answered the question the
+            // flag exists to ask, and demanding both at once retracts every applied gate.
+            && (SteamUiPatchEvaluation.Flag(root, "claimable")
+                || SteamUiPatchEvaluation.Flag(root, "claimed")),
         "status.installed&&status.resolved&&status.claimed",
         "!status.claimed",
         "Navigation panel gate");

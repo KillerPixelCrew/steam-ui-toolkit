@@ -1046,6 +1046,15 @@ selector that breaks on a client update with no diagnostic; its own desktop path
 A page whose path is relative, or is `/`, is dropped rather than registered. A catch-all route
 inserted ahead of Steam's own would black out the client.
 
+Installing claims the memo's `type`, which reaches the next mount only, so install also adopts the
+routers already on screen through `adoptMountedType`, the same helper the Home carousel uses. The
+step this replaced swapped one fiber and called `forceUpdate` on the nearest class ancestor, which
+cannot work: the router is a `React.memo` with the default comparison, so the parent re-renders, the
+memo sees equal props and bails out, and the claimed type is never called. The gate then held a
+claim that was correct and inert — `claimed` true, `lastOutcome` "never rendered", `routeCount` 0 —
+and no page existed until the user navigated and changed the props themselves. `status.mounted`
+reports how many routers the install reached and whether one is still drawing Steam's own.
+
 ### The navigation panel
 
 The panel is module-private. Its root builds its own entry list from a local function, neither is

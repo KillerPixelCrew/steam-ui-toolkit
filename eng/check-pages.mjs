@@ -155,6 +155,13 @@ assert.ok(installed.ok, `install failed: ${installed.error}`);
 assert.ok(gate.status().claimed, "the router memo type must be claimed");
 assert.ok(gate.status().routeResolved, "Steam's own Route must have been resolved");
 
+// The claim alone reaches the next mount only, and Steam's router is a memo with the default
+// comparison, so a router already on screen would keep drawing Steam's own function until the user
+// navigated. Install has to adopt the mounted instance, which is what makes the claim current.
+assert.equal(gate.status().mounted.adopted, 1, "the mounted router must be adopted at install");
+assert.equal(rootNode.type, memo.type, "the mounted fiber must run the claimed type");
+assert.equal(gate.status().mounted.stale, 0, "no mounted router may still be drawing Steam's own");
+
 // Claimed but with nothing published: Steam's routes must resolve exactly as before.
 assert.equal(selected("/settings")?.props.path, "/settings", "an empty claim must change nothing");
 
@@ -212,6 +219,8 @@ assert.equal(gate.status().routeCount, 4, "the gate must report the routes it fo
 const removed = gate.remove();
 assert.ok(removed.ok, `remove failed: ${removed.error}`);
 assert.equal(memo.type, Router, "removal must hand back exactly what was displaced");
+assert.equal(rootNode.type, Router, "the adopted fiber must be handed back too");
+assert.equal(gate.status().mounted.adopted, 0);
 assert.ok(!gate.status().claimed);
 assert.equal(selected("/wsgm/ok"), null, "removal must unregister every page");
 assert.equal(

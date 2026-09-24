@@ -137,7 +137,15 @@ Ownership must survive separate CDP evaluations:
   shared claim (`interceptMemo`/`releaseMemo`); it never wraps `useMemo` itself.
   Keep `module-resolver.ts` valid JavaScript because those exact bytes are also embedded for C#
   probes.
-- A successful patch must remain compatible with its own next probe.
+- A successful patch must remain compatible with its own next probe. A probe that identifies
+  something by its source has to unwrap the gate's own claim before testing it, or the match
+  disappears the moment the gate holds it; the manager retracts on that verdict, so the surface is
+  installed and torn down on every poll. Both the page host and the navigation panel shipped that
+  way. Accept a member that is claimable or already ours, never only the pre-claim shape.
+- A claim on a memo's `type` reaches the next mount only, and a forced render of the parent does not
+  help: the same props shallow-compare equal and React bails out at the memo without calling what
+  was installed. A gate whose component may already be on screen adopts the mounted instances
+  (`adoptMountedType`) and reports what it reached; a claim that adopted nothing is inert.
 
 The extension host validates identity and conflicts; it is not a security sandbox. Keep path
 containment, strict UTF-8, size, API-version, id-scope, and deterministic conflict rules intact.

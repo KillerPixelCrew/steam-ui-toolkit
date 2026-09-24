@@ -42,6 +42,32 @@ public sealed class SteamNavigationPanelTests
         Assert.DoesNotContain("exports.Ie", probe, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void TheProbeSeesThroughTheGatesOwnClaim()
+    {
+        // A successful patch must stay compatible with its own next probe. The gate replaces the
+        // memo's type with a wrapper, so a probe testing the live value's source stops finding the
+        // export the moment the gate holds it. memoExports read 0 while the patch was Applied, and
+        // the manager retracts on that verdict: the panel was torn down and rebuilt every poll, so
+        // WSGM's entries were never in it long enough to see.
+        var probe = Gate.ProbeExpression;
+
+        Assert.Contains("__steamUiNavigationPanelClaimed", probe, StringComparison.Ordinal);
+        Assert.Contains("__steamUiNavigationPanelOriginal", probe, StringComparison.Ordinal);
+        Assert.Contains("steam-ui-property-snapshot-v1", probe, StringComparison.Ordinal);
+        // The pre-rename spelling a previous build could have left on a running client.
+        Assert.Contains("__wsgmNavigationPanelClaimed", probe, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnAlreadyClaimedPanelIsCompatibleWithoutBeingClaimableAgain()
+    {
+        using var document = JsonDocument.Parse(
+            """{"menuModule":1,"panelRoot":1,"memoExports":1,"react":1,"claimable":false,"claimed":true}""");
+
+        Assert.True(Gate.Compatible(document.RootElement));
+    }
+
     [Theory]
     [InlineData("""{"menuModule":1,"panelRoot":1,"memoExports":1,"react":1,"claimable":true}""", true)]
     // Two candidate exports is ambiguous, which is a refusal rather than a reason to pick one.
