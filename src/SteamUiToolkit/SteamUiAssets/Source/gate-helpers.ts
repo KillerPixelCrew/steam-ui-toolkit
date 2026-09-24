@@ -444,6 +444,57 @@ const renderMountedType = (roots, elementType, replacement, bound: number) => {
 // pathological tree, not to limit a legitimate search.
 const MaximumMountedNodes = 60000;
 
+// Adopts mounted instances of a component that has no public handle at all, found by what its
+// source says rather than by any export.
+//
+// Steam's main-menu popup host is such a component: a module-local function the popup mounts
+// directly under a React root, exported nowhere, with the menu's memo export absent from that
+// render path entirely. A claim on the memo's `type` is correct and never reached (2026-09-24). The
+// only handle is the mounted fiber itself, which decky-loader's tabs hook adopts the same way, so
+// each matching fiber's `type` becomes the wrapper `wrapFor` builds for its original. Idempotent: a
+// fiber already carrying one of our wrappers is skipped, so this can run on every publication to
+// catch a host Steam has since recreated. Answers the adoptions made, for release.
+const adoptMountedBySource = (
+    roots,
+    tokens: readonly string[],
+    wrapFor: (original: any) => any,
+    ownedName: string,
+    bound: number,
+) => {
+    const adopted: {fiber: any; original: any}[] = [];
+    let scheduled = false;
+    walkFibers(roots, bound, (fiber) => {
+        const type = fiber.type;
+        if (typeof type !== "function" || type.name === ownedName) return false;
+        const source = String(type);
+        if (!tokens.every((token) => source.includes(token))) return false;
+        const wrapper = wrapFor(type);
+        for (const side of [fiber, fiber.alternate]) {
+            if (!side) continue;
+            side.type = wrapper;
+            side.memoizedProps = {[AdoptedPropsKey]: side.memoizedProps};
+        }
+        adopted.push({fiber, original: type});
+        scheduled = requestRender(fiber) || scheduled;
+        return false;
+    });
+    return {adopted, scheduled};
+};
+
+// Hands fibers adopted by source back to their originals.
+const releaseAdoptedFibers = (adopted: {fiber: any; original: any}[]) => {
+    let released = 0;
+    for (const {fiber, original} of adopted) {
+        for (const side of [fiber, fiber.alternate]) {
+            if (side && side.type !== original) {
+                side.type = original;
+                released++;
+            }
+        }
+    }
+    return released;
+};
+
 // Hands adopted instances back to the function the claim displaced. No render is requested: the
 // original draws again whenever the page next renders, and a wrapper left on screen until then
 // passes Steam's tree through once its gate is removed.

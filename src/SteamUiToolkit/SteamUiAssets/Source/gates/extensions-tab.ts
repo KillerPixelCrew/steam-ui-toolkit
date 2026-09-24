@@ -375,7 +375,15 @@ function createExtensionsTab() {
     if (depth > MaximumDescent || !react.isValidElement(element)) return element;
     const replaced = replaceTabs(element, depth, visible);
     if (replaced !== element) return replaced;
-    return descendInto(react, element, descenderCache, tabDescender) ?? element;
+    // A render whose root is not a plain function component — a context provider, a host div — is
+    // descended through its children, the way the navigation panel already does. Stopping at such
+    // a root left the descender one level deep on the 2026-09-24 client, where the tab list sits
+    // twenty-three component levels down behind alternating providers and function components,
+    // so the tab was never inserted while every status flag read true.
+    return (
+      descendInto(react, element, descenderCache, tabDescender) ??
+      mapChildren(react, element, (kid) => descend(kid, depth + 1, visible))
+    );
   };
 
   const resolve = () => {
