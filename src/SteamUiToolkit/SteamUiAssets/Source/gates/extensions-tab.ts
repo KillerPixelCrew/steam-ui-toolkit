@@ -18,6 +18,27 @@ function createExtensionsTab() {
   // 999; this stays clear of both so the two can coexist.
   const ExtensionsTabId = 1010;
   const ExtensionsTabTitle = "Extensions";
+
+  // Steam's own record of the selected tab, by the names Valve gives its stores. The component
+  // that draws the strip and the content validates the store's value against a tab list it built
+  // itself and falls back to the first entry when the value is absent; that list is the one our
+  // tab is pushed into, but whether it survives a render is the client's business, not ours. So
+  // the strip and the content are told our tab is active whenever the store says so, and the
+  // fallback never reaches them. Null when the store is not where Valve keeps it today.
+  const activeQuickAccessTab = () => {
+    try {
+      return (
+        (window as any).SteamUIStore?.ActiveWindowInstance?.MenuStore?.GetQuickAccessTab?.() ??
+        null
+      );
+    } catch {
+      return null;
+    }
+  };
+  const withOurTabActive = (element) =>
+    activeQuickAccessTab() === ExtensionsTabId && element.props.activeTab !== ExtensionsTabId
+      ? react.cloneElement(element, { activeTab: ExtensionsTabId })
+      : element;
   // Element depth within one render pass, reset at every wrapped component. Measured on the
   // 2026-09-24 client: from the component carrying onFocusNavDeactivated to the element holding
   // the tab list is nineteen component-typed levels behind context providers and host elements,
@@ -87,7 +108,7 @@ function createExtensionsTab() {
       const existing = tabs.filter((tab) => tab && tab.steamUiExtensionsTab === true);
       if (existing.length === 1) {
         lastOutcome = `tabs=${tabs.length} extensions=present`;
-        return element;
+        return withOurTabActive(element);
       }
       if (existing.length > 1) {
         lastOutcome = `tabs=${tabs.length} extensions=ambiguous`;
@@ -112,7 +133,7 @@ function createExtensionsTab() {
       // second visit to the same array from adding it twice.
       tabs.push(tab);
       lastOutcome = `tabs=${tabs.length} extensions=added`;
-      return element;
+      return withOurTabActive(element);
     }
     return mapChildren(react, element, (child) => replaceTabs(child, depth + 1, visible));
   };
