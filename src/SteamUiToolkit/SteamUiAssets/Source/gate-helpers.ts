@@ -110,10 +110,18 @@ const resolveSteamFieldComponents = (runtime) => {
     const dialogButtonPrimary = uniqueSteamExport(fields, (value) =>
         sourceOfSteamComponent(value).includes('"DialogButton","_DialogLayout","Primary"'),
     );
+    // The class that DEFINES the validators, not one that merely inherits them. A class extending
+    // TextField answers `typeof validateUrl === "function"` through its prototype chain, and the
+    // 2026-09-24 client exports such a subclass beside the base: two fits, no unique match, no
+    // textField, and every settings page that needs one went Degraded. Own properties name the base.
     const textField = uniqueSteamExport(
         fields,
         (value) =>
-            typeof value?.validateUrl === "function" && typeof value?.validateEmail === "function",
+            typeof value === "function" &&
+            Object.prototype.hasOwnProperty.call(value, "validateUrl") &&
+            Object.prototype.hasOwnProperty.call(value, "validateEmail") &&
+            typeof value.validateUrl === "function" &&
+            typeof value.validateEmail === "function",
     );
 
     return {
@@ -307,6 +315,9 @@ const endSubscription = (unsubscribe: (() => void) | null) => {
 // fiber the container key was written with.
 const reactRootFibers = () => {
     const hosts: any[] = [];
+    // A page always has a document; an emitted-asset check may not, and then there is simply
+    // nothing mounted to adopt.
+    if (typeof document === "undefined") return [];
     const root = document.getElementById("root");
     if (root) hosts.push(root);
     for (const child of Array.from(document.body?.children ?? [])) {
@@ -409,6 +420,29 @@ const adoptMountedType = (roots, elementType, replacement, bound: number) => {
     }
     return {adopted, scheduled};
 };
+
+// Asks every adopted instance to render again, now. A publication that arrives after the install
+// changes what the wrapper will draw, but nothing tells React: the wrapper reads the gate's state
+// from its closure, the props have not changed, and a memo with equal props bails out exactly as it
+// did before adoption. So the same two writes adoption made: props that cannot compare equal, then
+// a render requested from the nearest class ancestor. Without this a page or tab published a moment
+// after install stayed absent until the user navigated (2026-09-24). Answers how many were asked.
+const renderMountedType = (roots, elementType, replacement, bound: number) => {
+    let asked = 0;
+    for (const fiber of mountedFibersOf(roots, elementType, bound)) {
+        if (fiber.type !== replacement) continue;
+        for (const side of [fiber, fiber.alternate]) {
+            if (side) side.memoizedProps = {[AdoptedPropsKey]: side.memoizedProps};
+        }
+        if (requestRender(fiber)) asked++;
+    }
+    return asked;
+};
+
+// The node bound every gate walks mounted trees under. The router sits about a hundred levels down
+// the live tree and the popups are shallower, so this is generous; it exists to stop a cyclic or
+// pathological tree, not to limit a legitimate search.
+const MaximumMountedNodes = 60000;
 
 // Hands adopted instances back to the function the claim displaced. No render is requested: the
 // original draws again whenever the page next renders, and a wrapper left on screen until then

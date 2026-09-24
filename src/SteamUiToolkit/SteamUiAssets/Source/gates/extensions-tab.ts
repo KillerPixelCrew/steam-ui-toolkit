@@ -17,7 +17,7 @@ function createExtensionsTab() {
   let runtime;
   let react;
   let focusable;
-  let memo = null;
+  let memo: any = null;
   let installed = false;
   let unsubscribe: (() => void) | null = null;
   let desired: { items: any[]; revision: number } = { items: [], revision: 0 };
@@ -416,6 +416,9 @@ function createExtensionsTab() {
     return true;
   };
 
+  // What the last install's adoption of already-mounted Quick Access views reached; see install().
+  let lastAdoption: { adopted: number; scheduled: boolean } = { adopted: 0, scheduled: false };
+
   const install = () => {
     if (installed) return { ok: true, alreadyInstalled: true };
     if (
@@ -438,11 +441,20 @@ function createExtensionsTab() {
     }
     installed = true;
     lastError = "";
+    // The claim reaches the next mount only, and the Quick Access view is mounted at boot and kept,
+    // so without this the tab never appeared: status said claimed, lastOutcome said never rendered,
+    // and opening the menu drew Steam's own cached function (2026-09-24). Adoption swaps the mounted
+    // instances over and defeats the memo bail-out; see adoptMountedType.
+    lastAdoption = adoptMountedType(reactRootFibers(), memo, memo.type, MaximumMountedNodes);
     unsubscribe = subscribe(patchId, (state) => {
       const items = Array.isArray(state?.items)
         ? state.items.filter(validItem).slice(0, MaximumItems)
         : [];
       desired = { items, revision: Number.isSafeInteger(state?.revision) ? state.revision : 0 };
+      // The wrapper reads `desired` from its closure, so a publication changes nothing React can
+      // see. Ask the mounted views to draw again, or a tab published after install waits for the
+      // next navigation.
+      renderMountedType(reactRootFibers(), memo, memo.type, MaximumMountedNodes);
     });
     return { ok: true, installed: true, reclaimed: claim.reclaimed };
   };
@@ -451,11 +463,16 @@ function createExtensionsTab() {
   // leaves the claim live while every later remove() answers `absent` and never retries it.
   const remove = () => {
     if (!installed) return { ok: true, absent: true };
+    // Read before the release hands `type` back, so the adopted instances can be matched by it.
+    const wrapper = memo?.type;
     const released = releaseMember(memo, "type", claimKeys);
     if (!released.ok) {
       lastError = released.error ?? "Extensions tab release failed";
       return { ok: false, error: lastError };
     }
+    // Every mounted view this install adopted, handed back to what the claim displaced.
+    releaseMountedType(reactRootFibers(), memo, wrapper, memo.type, MaximumMountedNodes);
+    lastAdoption = { adopted: 0, scheduled: false };
     installed = false;
     unsubscribe = endSubscription(unsubscribe);
     desired = { items: [], revision: 0 };
@@ -472,6 +489,12 @@ function createExtensionsTab() {
     claimed: memberClaimed(memo, "type", claimKeys),
     items: desired.items.length,
     revision: desired.revision,
+    // Whether the claim reached the views already on screen, and whether one is still drawing
+    // Steam's own. A claim that adopted nothing is inert until Steam mounts a new view.
+    mounted: {
+      ...lastAdoption,
+      stale: staleFibers(reactRootFibers(), memo, MaximumMountedNodes),
+    },
     lastOutcome,
     lastError,
   });

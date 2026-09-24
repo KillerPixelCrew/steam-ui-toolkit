@@ -387,6 +387,11 @@ function createPageHost() {
             page.path !== "/",
         )
         .slice(0, MaximumPages);
+      // The switch wrapper reads `pages` from its closure, so a publication changes nothing React
+      // can see. The install's own render happened before WSGM's pages arrived, which left
+      // lastOutcome at pages=0 with three published and nothing registered until the next
+      // navigation (2026-09-24). Ask the adopted routers to draw again now.
+      renderMountedType(reactRootFibers(), memo, memo.type, MaximumNodesVisited);
     });
     return { ok: true, installed: true, reclaimed: claim.reclaimed };
   };

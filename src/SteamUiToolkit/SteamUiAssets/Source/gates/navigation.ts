@@ -51,7 +51,7 @@ function createNavigationPanel() {
     let runtime;
     let react;
     let icon;
-    let memo = null;
+    let memo: any = null;
     let installed = false;
     let lastError = "";
     let unsubscribe: (() => void) | null = null;
@@ -325,6 +325,9 @@ function createNavigationPanel() {
         return true;
     };
 
+    // What the last install's adoption of already-mounted panels reached; see install().
+    let lastAdoption: {adopted: number; scheduled: boolean} = {adopted: 0, scheduled: false};
+
     const install = () => {
         if (installed) return {ok: true, alreadyInstalled: true};
         const resolved = attemptResolution(resolve, (error) => {
@@ -347,6 +350,11 @@ function createNavigationPanel() {
 
         installed = true;
         lastError = "";
+        // The claim reaches the next mount only, and the main menu's root is mounted at boot and
+        // kept, so a claimed panel that was already on screen kept drawing Steam's own cached
+        // function: status said claimed, lastOutcome said never rendered (2026-09-24). Adoption
+        // swaps the mounted instances over and defeats the memo bail-out; see adoptMountedType.
+        lastAdoption = adoptMountedType(reactRootFibers(), memo, memo.type, MaximumMountedNodes);
         unsubscribe = subscribe(patchId, (state) => {
             const items = Array.isArray(state?.items) ? state.items : [];
             const hidden = Array.isArray(state?.hidden) ? state.hidden : [];
@@ -359,15 +367,18 @@ function createNavigationPanel() {
                 items: routable.slice(0, MaximumEntries),
                 hidden: hidden.filter((value) => typeof value === "string").slice(0, MaximumEntries),
             };
-            // Nothing re-renders the menu on its own, so a change published while it is closed shows the
-            // next time Steam draws it. That is the whole of the reapply story: the claim is on the type,
-            // so every future render already runs through it.
+            // The wrapper reads `desired` from its closure, so a publication changes nothing React can
+            // see, and a panel already on screen would keep showing the previous entries. Ask the
+            // mounted panels to draw again; a menu not yet open draws through the claim when it is.
+            renderMountedType(reactRootFibers(), memo, memo.type, MaximumMountedNodes);
         });
         return {ok: true, installed: true, reclaimed: claim.reclaimed};
     };
 
     const remove = () => {
         if (!installed) return {ok: true, absent: true};
+        // Read before the release hands `type` back, so the adopted instances can be matched by it.
+        const wrapper = memo?.type;
         installed = false;
         unsubscribe = endSubscription(unsubscribe);
 
@@ -379,6 +390,9 @@ function createNavigationPanel() {
             lastError = released.error ?? "navigation panel release failed";
             return {ok: false, error: lastError};
         }
+        // Every mounted panel this install adopted, handed back to what the claim displaced.
+        releaseMountedType(reactRootFibers(), memo, wrapper, memo.type, MaximumMountedNodes);
+        lastAdoption = {adopted: 0, scheduled: false};
 
         lastOutcome = "removed";
         return {ok: true, removed: true};
@@ -393,6 +407,12 @@ function createNavigationPanel() {
         // insertion depends on the tree Steam rendered. This is the part that says what happened.
         entries: observed,
         items: desired.items.length,
+        // Whether the claim reached the panels already on screen, and whether one is still drawing
+        // Steam's own. A claim that adopted nothing is inert until Steam mounts a new panel.
+        mounted: {
+            ...lastAdoption,
+            stale: staleFibers(reactRootFibers(), memo, MaximumMountedNodes),
+        },
         rejectedRoutes,
         hidden: desired.hidden.length,
         lastOutcome,
