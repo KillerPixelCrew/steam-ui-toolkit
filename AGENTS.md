@@ -29,7 +29,8 @@ enabled; this repository supplies mechanisms and truthful state.
 - `src/SteamUiToolkit/Client`: one-shot reads and writes against `SteamClient.*` and Steam's stores,
   and the running-app observer behind the app lifetime events.
 - `SteamUiAssets/Source`: TypeScript bridge, ownership helpers, RPC support, shared gate helpers,
-  gates, and component host.
+  gates, the component host, and `settings.ts`, which draws a host's settings pages with Steam's
+  own routed sidebar, sections and fields.
 - `eng/build-prelude.mjs`: deterministic source composition and TypeScript validation.
 - `eng/run-checks.mjs`: builds the prelude and runs every emitted-asset check, stopping at the first
   failure; `eng/check-harness.mjs` is what the checks share (asset loading, marker slices, gate
@@ -38,7 +39,7 @@ enabled; this repository supplies mechanisms and truthful state.
   `check-startup` (module resolver, component host, network probe, bridge replay),
   `check-power-profile` (row dropdowns, glyphs, device controls, sections, power sliders and the
   slider echo), `check-service-gates` (Bluetooth and brightness), `check-navigation-panel`,
-  `check-pages`, `check-storage`, `check-library` (library badge, details stat and the JSX claim),
+  `check-settings-fields` (the settings renderer), `check-pages`, `check-storage`, `check-library` (library badge, details stat and the JSX claim),
   `check-extension-surfaces` (the Extensions tab and the game context menu),
   `check-home-carousel` and `check-screensaver`.
 - `tests/SteamUiToolkit.Tests`: transport, bridge, lifecycle, extension, and surface contracts, with

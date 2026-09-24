@@ -1057,6 +1057,68 @@ renders the container, and that export's `type` is a writable and configurable o
 is what makes the claim restorable. The probe checks each of those separately so an incompatible
 client says which one moved, and accepts a panel this gate already claimed.
 
+An added entry is drawn by Valve's own entry components, never by an imitation. Re-read on
+2026-09-24: the panel renders a route descriptor with a local route entry and an action descriptor
+(Power) with a local action entry, and the route entry maps its route onto the action entry through
+the router. Both draw the same row: Valve's `Focusable` with the menu's own item, icon and label
+classes, the active dot, and mouse and gamepad activation. Neither is exported, so the gate takes
+them from the entries the panel is rendering, together with the panel's own `onGamepadFocus`, which
+clears the focused running app the way every native entry does. That is done over every child,
+hidden ones included, so hiding Power does not cost the action entry.
+
+- An item with a `route` is drawn by the route entry with `active: "if-within-route"`: it is active
+  on its page and below it, and selecting it navigates with Valve's own route action, so the host is
+  not asked. The route is held to `navigateSteamRoute`'s bounds where it is published, and is only
+  followed when the user selects the row.
+- An item without one is drawn by the action entry, and selecting it sends `activate`. An answer
+  carrying a `route` is followed after `closeSteamSideMenus()`, as the Extensions tab does.
+- An item whose component is not in the panel is not drawn, and `lastOutcome` counts it as
+  `unrendered`.
+- An item whose `route` is not a route (relative, `/`, or longer than 256 characters) is refused
+  where it is published, and `status().rejectedRoutes` counts it.
+
+An item's icon is a toolkit glyph by name, or `glyph`: SVG path data on a 24x24 grid, drawn by
+`renderSteamGlyph` as one `currentColor` path with even-odd holes and no size of its own. That is how
+Valve draws the menu's icons, which the row's icon box sizes, so a host's mark sits beside Home and
+Library as one of them. Only path commands and numbers are accepted.
+
+### Settings pages
+
+`settings.ts` draws a host's own settings the way Steam draws its Settings page, with nothing styled
+by the toolkit. A host publishes `SteamSettingsPage`s: pages of `SteamSettingsSection`s of
+`SteamSettingsRow`s, each described by `SteamSettingsRowKind` rather than by component. The host's
+page renderer passes them to `renderSteamSettings(ui, {route, pages, revision, onChange, onAction})`
+with components from `resolveSteamSettingsComponents(runtime)`, and requires
+`SteamSettingsRequired`.
+
+Mapped against the live client on 2026-09-24:
+
+| Component | Found by | Draws |
+| --- | --- | --- |
+| Routed sidebar | the one module with `disableRouteReporting`; its one export with that prop | Settings' page list and pages; each page is `route/<id>`, switched with `history.replace`, so B leaves the whole page |
+| Settings section | the field module's export carrying `"DialogSettingsSection"` | a titled section |
+| Value field | the field module's export with `inlineWrap:"shift-children-below"` and `focusable:!0` | a label beside a value: notes, order values, action rows |
+| Small button | the field module's export carrying `"DialogButton _DialogLayout Small"` | order moves |
+| Confirm modal | the one module with `strMiddleButtonText`, `bProgressDialog` and `bAlertDialog`; its one export with all three | confirmations, with `bDestructiveWarning` |
+
+The toggle, dropdown, slider, text field, dialog button and `showModal` are the ones
+`resolveSteamUiComponents` already resolves.
+
+- `boolean`, `choice`, `range`, `text` and `secret` are Steam's toggle, dropdown, slider and text
+  fields. A slider sends when it settles (`onChangeComplete`), not on every step, and text is sent
+  when the field loses focus, only if it changed.
+- A `secret`'s value is never published. The field starts empty and shows the row's `text` as its
+  placeholder. An untouched field sends nothing; one typed into and emptied sends `""`, which
+  clears the secret.
+- `order` is the value field per value with Steam's small buttons to move one up or down, and sends
+  the whole list.
+- `action` is a dialog button that sends the row to `onAction`, and `note` is a read-only value.
+- A kind the renderer does not know is shown as its label with nothing that sends.
+- A row with `confirm` asks first, in Steam's confirm modal, when the new value equals `when`.
+  Cancelling sends nothing, so the row keeps what the host last published.
+- What the user changed is kept as a draft until the next `revision`, so a toggle does not flick
+  back while its write is in flight. Every draft is dropped on a new revision.
+
 `SteamBrightnessState` carries confirmed `Percent` and a monotonic `Revision`. A successful
 `setBrightness` response returns serialized brightness readback in its payload. Use the same
 revision sequence for responses and publications. The gate holds confirmed state separately from

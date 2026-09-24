@@ -193,15 +193,16 @@ const closeSteamSideMenus = () => {
     }
 };
 
+// An absolute route other than the root, short enough to be a route rather than a payload.
+const isNavigableRoute = (route) =>
+    typeof route === "string" && route.startsWith("/") && route !== "/" && route.length <= 256;
+
 // Only a route returned by a successful host command is followed. Publications cannot inject a
-// target, and the bounds keep this a router operation rather than an open-ended navigation API.
+// target, and the bounds keep this a router operation rather than an open-ended navigation API. A
+// navigation entry's published route is the one exception, and it is followed by Valve's own entry
+// only when the user selects that row.
 const navigateSteamRoute = (route) => {
-    if (
-        typeof route !== "string" ||
-        !route.startsWith("/") ||
-        route === "/" ||
-        route.length > 256
-    ) {
+    if (!isNavigableRoute(route)) {
         return false;
     }
     const history = window.tempNavStore?.m_history;
