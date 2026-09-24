@@ -12,7 +12,11 @@ function createExtensionsTab() {
   } as const;
   const QamToken = "QuickAccessMenuBrowserView";
   const MaximumItems = 64;
-  const MaximumDescent = 12;
+  // Element depth within one render pass, reset at every wrapped component. Measured on the
+  // 2026-09-24 client: from the component carrying onFocusNavDeactivated to the element holding
+  // the tab list is nineteen component-typed levels behind context providers and host elements,
+  // so twelve stopped short of it.
+  const MaximumDescent = 32;
 
   let runtime;
   let react;
@@ -372,7 +376,12 @@ function createExtensionsTab() {
       return descend(type(props), 0, props?.visible);
     };
   const descend = (element, depth, visible) => {
-    if (depth > MaximumDescent || !react.isValidElement(element)) return element;
+    if (depth > MaximumDescent) return element;
+    // The menu's body is drawn through a portal into the popup window; see mapPortalChildren.
+    if (isPortal(element)) {
+      return mapPortalChildren(react, element, (kid) => descend(kid, depth + 1, visible));
+    }
+    if (!react.isValidElement(element)) return element;
     const replaced = replaceTabs(element, depth, visible);
     if (replaced !== element) return replaced;
     // A render whose root is not a plain function component — a context provider, a host div — is

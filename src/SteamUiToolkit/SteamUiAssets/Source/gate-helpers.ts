@@ -257,6 +257,26 @@ const classMapOf = (exported) => (exported && exported.__esModule ? exported.def
 const keyed = (element, props = element.props) =>
     element.key === null ? props : {...props, key: element.key};
 
+// A portal is not an element: isValidElement answers false, and its children sit on the portal
+// itself rather than under props. Steam's Quick Access menu draws its whole body through one into
+// the popup window, so a descent that treats a portal as a leaf never reaches the tab list beneath
+// it (2026-09-24). React reads a portal by `$$typeof`, `children` and `containerInfo`, so a shallow
+// copy with mapped children is a portal to it.
+const PortalType = Symbol.for("react.portal");
+const isPortal = (value) => !!value && typeof value === "object" && value.$$typeof === PortalType;
+const mapPortalChildren = (react, portal, map: (child: any) => unknown) => {
+    const kids = react.Children.toArray(portal.children);
+    if (!kids.length) return portal;
+    let changed = false;
+    const next: unknown[] = [];
+    for (const kid of kids) {
+        const replacement = map(kid);
+        changed ||= replacement !== kid;
+        if (replacement !== null) next.push(replacement);
+    }
+    return changed ? {...portal, children: next} : portal;
+};
+
 // Maps an element's children and clones it only when one changed; a child mapped to null is
 // dropped. An element with no children, or with more than `maximum`, is returned as it is.
 const mapChildren = (react, element, map: (child: any) => unknown, maximum = Infinity) => {

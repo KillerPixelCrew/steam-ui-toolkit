@@ -1069,6 +1069,16 @@ replaced by cached wrappers that render the original and keep descending, bounde
 This is the mechanism `hideNativeRows` already uses for the Performance tab, pointed at a different
 target.
 
+That claim is correct and, on the 2026-09-24 client, never reached: Big Picture's main menu is a
+popup whose host is a module-local function mounted directly under a React root, exported nowhere,
+and the memo is not in that render path at all. The gate therefore also adopts the mounted host by
+source (`adoptMountedBySource`), recognised by three prop names its author destructures
+(`MainNavMenuContainer`, `onFocusNavDeactivated`, `popup:`), on install and again on every
+publication in case Steam has recreated it; `status.mounted.hosts` counts them. The host sits under
+the root with no class ancestor, so no render can be requested. It persists while the menu is closed
+and re-renders when `open` flips, which is when the entries appear. This is the same adoption
+decky-loader's tabs hook makes on the Quick Access view, for the same reason.
+
 Entries are addressed by route (`/library`) or by Valve's own descriptor key (`power`), never by
 index or by a generated class name: routes and keys are stable across client builds and languages,
 whereas the rendered labels are localized and the class names are content hashes. Hiding is applied
