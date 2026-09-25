@@ -312,7 +312,7 @@ which invalidates every patch and the bridge.
 ### Evaluation
 
 `EvaluateAsync(role, expression, timeout, ct)` validates the timeout before connecting, returns
-`Unavailable("Steam CEF integration disabled in settings.")` when disabled, takes a temporary
+`Unavailable` with the closed reason when disabled (see the session statics), takes a temporary
 subscription for the call, and maps failures:
 
 | Caught                                                    | Result                                              | Health         |
@@ -325,7 +325,8 @@ subscription for the call, and maps failures:
 The `Reachable` distinction matters: Steam answered, so a caller must not diagnose a renamed API as
 a closed client. A later success restores `Ready`.
 
-`SetRuntimeBindingAsync` throws rather than returning: `InvalidOperationException` when disabled,
+`SetRuntimeBindingAsync` throws rather than returning: `InvalidOperationException` carrying the
+closed reason when disabled,
 `IOException("Steam UI target is unavailable.")` without a connection. It issues
 `Runtime.addBinding` or `Runtime.removeBinding`.
 
@@ -333,15 +334,19 @@ a closed client. A later success restores `Ready`.
 
 `SteamUiTransportSession.Attach(transport)` publishes one transport for one-shot callers and throws
 `A Steam UI transport is already attached.` for a different instance, because two transports would
-mean two connections with independent generations. `SetEnabled(bool)` is the master switch: false
-bumps ownership, cancels reconnects, closes connections and retains subscriber intent; true restarts
-reconnects for channels with subscribers. `EvaluateAsync` targets `SharedJsContext` and
+mean two connections with independent generations. `SetEnabled(bool, string? closedReason)` is the
+master switch: false bumps ownership, cancels reconnects, closes connections and retains subscriber
+intent; true restarts reconnects for channels with subscribers. While closed, every call reports
+`ClosedReason`: the host's `closedReason` when it holds the transport for its own reason, such as
+waiting for Big Picture, otherwise `DisabledReason` (`Steam CEF integration disabled in settings.`).
+`IsClosedReason(error)` tells either apart from a failure; the running-apps probe uses it to report no
+app instead of an error. `EvaluateAsync` targets `SharedJsContext` and
 `EvaluateOnVisibleWindowAsync` targets `MainWindow`. Both never throw and answer with
 `CefEvalResult { Reachable, Value, Error }`, using one of:
 
 | Error                                         |
 | --------------------------------------------- |
-| `Steam CEF integration disabled in settings.` |
+| `ClosedReason` (see above)                     |
 | `Steam UI transport is not active.`           |
 | `Steam CEF evaluation cancelled.`             |
 | `Timed out talking to Steam's debug port.`    |

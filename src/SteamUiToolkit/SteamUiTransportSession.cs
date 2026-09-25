@@ -46,6 +46,10 @@ public static class SteamUiTransportSession
     private static readonly object Gate = new();
     private static PersistentSteamUiTransport? _transport;
     private static volatile bool _enabled = true;
+    private static volatile string _closedReason = DisabledReason;
+
+    /// <summary>The reason a closed transport reports when the host gave none.</summary>
+    public const string DisabledReason = "Steam CEF integration disabled in settings.";
 
     /// <summary>Whether Steam UI integration is permitted at all right now.</summary>
     /// <remarks>
@@ -54,16 +58,34 @@ public static class SteamUiTransportSession
     /// </remarks>
     public static bool Enabled => _enabled;
 
+    /// <summary>The reason every call answers with while the transport is closed.</summary>
+    public static string ClosedReason => _closedReason;
+
+    /// <summary>Whether an error is a deliberately closed transport rather than a failure.</summary>
+    /// <param name="error">An evaluation error.</param>
+    /// <returns>True for the settings reason or the host's current hold reason.</returns>
+    public static bool IsClosedReason(string? error)
+    {
+        return error is not null
+               && (string.Equals(error, DisabledReason, StringComparison.Ordinal)
+                   || string.Equals(error, _closedReason, StringComparison.Ordinal));
+    }
+
     /// <summary>Turns the whole Steam UI surface on or off.</summary>
     /// <param name="enabled">Whether integration is permitted.</param>
-    public static void SetEnabled(bool enabled)
+    /// <param name="closedReason">
+    ///     What a closed transport reports, for a host that holds it closed for a reason other than
+    ///     its settings. Null reports <see cref="DisabledReason" />; ignored while enabled.
+    /// </param>
+    public static void SetEnabled(bool enabled, string? closedReason = null)
     {
         lock (Gate)
         {
             _enabled = enabled;
+            _closedReason = string.IsNullOrWhiteSpace(closedReason) ? DisabledReason : closedReason;
             try
             {
-                _transport?.SetEnabled(enabled);
+                _transport?.SetEnabled(enabled, _closedReason);
             }
             catch (ObjectDisposedException)
             {
@@ -95,7 +117,7 @@ public static class SteamUiTransportSession
             // Configure the candidate before publication. If it was already disposed (or rejects
             // the session state for any other reason), the previous attachment remains intact and
             // one-shot callers can never observe a half-attached transport.
-            transport.SetEnabled(_enabled);
+            transport.SetEnabled(_enabled, _closedReason);
             _transport = transport;
         }
     }
@@ -161,7 +183,7 @@ public static class SteamUiTransportSession
     {
         if (!_enabled)
         {
-            return CefEvalResult.Unreachable("Steam CEF integration disabled in settings.");
+            return CefEvalResult.Unreachable(_closedReason);
         }
 
         try

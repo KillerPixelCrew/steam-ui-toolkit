@@ -67,6 +67,7 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
     private readonly CancellationTokenSource _shutdown = new();
     private readonly ISteamUiCdpWireFactory _wireFactory;
     private int _disposed;
+    private volatile string _closedReason = SteamUiTransportSession.DisabledReason;
     private volatile bool _enabled = true;
 
     /// <summary>Creates a production transport using Steam's validated loopback endpoint.</summary>
@@ -166,7 +167,7 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         if (!_enabled)
         {
             return SteamUiEvaluationResult.Unavailable(
-                "Steam CEF integration disabled in settings.",
+                _closedReason,
                 GenerationsOf(GetChannel(role)));
         }
 
@@ -243,7 +244,7 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         SteamUiShared.ThrowIfInvalidTimeout(timeout);
         if (!_enabled)
         {
-            throw new InvalidOperationException("Steam CEF integration is disabled in settings.");
+            throw new InvalidOperationException(_closedReason);
         }
 
         await using var lease = await LeaseAsync(role, timeout, cancellationToken)
@@ -347,9 +348,13 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
 
     /// <summary>Stops or resumes all CEF traffic while retaining subscriber intent.</summary>
     /// <param name="enabled">Whether repository-owned evaluations may reach Steam.</param>
-    internal void SetEnabled(bool enabled)
+    /// <param name="closedReason">What evaluations report while closed; null for the settings reason.</param>
+    internal void SetEnabled(bool enabled, string? closedReason = null)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        _closedReason = string.IsNullOrWhiteSpace(closedReason)
+            ? SteamUiTransportSession.DisabledReason
+            : closedReason;
         if (_enabled == enabled)
         {
             return;

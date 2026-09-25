@@ -396,6 +396,9 @@ public sealed class SteamClientTests
         Assert.Null(disabled.ObserverId);
         Assert.False(failed.Reachable);
         Assert.Equal("socket closed", failed.Diagnostic);
+        Assert.True(SteamUiTransportSession.IsClosedReason(SteamUiTransportSession.DisabledReason));
+        Assert.False(SteamUiTransportSession.IsClosedReason("socket closed"));
+        Assert.False(SteamUiTransportSession.IsClosedReason(null));
     }
 
     [Fact]

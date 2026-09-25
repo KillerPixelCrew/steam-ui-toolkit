@@ -1045,8 +1045,10 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
         SteamUiLog.Change(
             "steam.ui.patch." + entry.Patch.Id,
             $"Steam UI patch {entry.Patch.Id} v{entry.Patch.Version}: {state}{detail}",
+            // A transport the host closed on purpose is expected, not a fault worth a warning.
             state is not (SteamUiPatchState.Applied or SteamUiPatchState.Verified
-                or SteamUiPatchState.Applying or SteamUiPatchState.Disabled));
+                    or SteamUiPatchState.Applying or SteamUiPatchState.Disabled)
+                && !SteamUiTransportSession.IsClosedReason(entry.Snapshot.LastFailure));
     }
 
     private sealed class PatchEntry(ISteamUiPatch patch, SteamUiPatchContext context)

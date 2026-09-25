@@ -86,8 +86,6 @@ public sealed class SteamRunningAppsProbe
 
     private const string ObserverProperty = "__steamUiRunningApps_v2";
 
-    private const string DisabledError = "Steam CEF integration disabled in settings.";
-
     // Earlier observers: WSGM's original namespace and this probe's first version, which kept no event
     // log. A client still running one keeps its callback registered, so it is released first.
     private const string LegacyCleanup =
@@ -197,9 +195,9 @@ public sealed class SteamRunningAppsProbe
     {
         if (!result.Reachable || result.Value is null)
         {
-            // A deliberate disable means Steam names no app. Reporting it as a failure would suppress a
-            // consumer's fallback for games started outside Steam.
-            if (string.Equals(result.Error, DisabledError, StringComparison.Ordinal))
+            // A deliberate disable or hold means Steam names no app. Reporting it as a failure would
+            // suppress a consumer's fallback for games started outside Steam.
+            if (SteamUiTransportSession.IsClosedReason(result.Error))
             {
                 return new SteamRunningAppsObservation(true, [], 0, null);
             }
