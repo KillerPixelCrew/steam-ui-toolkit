@@ -38,7 +38,7 @@ public sealed record SteamControllerTargetOption(
 /// </param>
 /// <param name="OverrideId">
 ///     The host's setting id while the running game's own profile supplies this value, so the row marks
-///     it and offers Use global; null otherwise. See <see cref="ISteamProfileOverrideBackend" />.
+///     it in Steam's accent colour; null otherwise.
 /// </param>
 public sealed record SteamControllerTargetState(
     bool Available,
@@ -72,7 +72,7 @@ public static class SteamControllerTargetRow
     public const string PatchId = "steam-ui.controller-target";
 
     /// <summary>The exact command vocabulary the injected row sends.</summary>
-    public static IReadOnlyList<string> Commands { get; } = ["setControllerTarget", SteamProfileOverride.Command];
+    public static IReadOnlyList<string> Commands { get; } = ["setControllerTarget"];
 
     /// <summary>The row patch.</summary>
     public static SteamQuickAccessRowPatch Patch { get; } = new(
@@ -101,14 +101,12 @@ public static class SteamControllerTargetRow
     /// <param name="read">The current state, or null to publish nothing this round.</param>
     /// <param name="backend">What applies a chosen target.</param>
     /// <param name="id">The module id, for diagnostics and duplicate detection.</param>
-    /// <param name="overrides">What answers Use global, or null when the host has no per-game profiles.</param>
     /// <returns>The module to register.</returns>
     public static ISteamUiModule Module(
         Func<bool> enabled,
         Func<ValueTask<SteamControllerTargetState?>> read,
         ISteamControllerTargetBackend backend,
-        string id = "controller-target",
-        ISteamProfileOverrideBackend? overrides = null)
+        string id = "controller-target")
     {
         ArgumentNullException.ThrowIfNull(backend);
         return SteamSurfaceModule.Declare(
@@ -124,8 +122,7 @@ public static class SteamControllerTargetRow
                     "setControllerTarget",
                     SteamUiPayload.TryReadTarget,
                     backend.SetControllerTargetAsync,
-                    "The controller-target payload is invalid."),
-                SteamProfileOverride.Handler(PatchId, overrides)
+                    "The controller-target payload is invalid.")
             ]);
     }
 }

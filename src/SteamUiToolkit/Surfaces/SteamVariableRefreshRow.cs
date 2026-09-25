@@ -16,7 +16,7 @@ namespace SteamUiToolkit;
 /// <param name="StatusText">One line describing the state, or why the row cannot be operated.</param>
 /// <param name="OverrideId">
 ///     The host's setting id while the running game's own profile supplies this value, so the row marks
-///     it and offers Use global; null otherwise. See <see cref="ISteamProfileOverrideBackend" />.
+///     it in Steam's accent colour; null otherwise.
 /// </param>
 public sealed record SteamVariableRefreshState(
     bool Available,
@@ -51,7 +51,7 @@ public static class SteamVariableRefreshRow
     public const string PatchId = "steam-ui.variable-refresh";
 
     /// <summary>The exact command vocabulary the injected row sends.</summary>
-    public static IReadOnlyList<string> Commands { get; } = ["setVariableRefreshRate", SteamProfileOverride.Command];
+    public static IReadOnlyList<string> Commands { get; } = ["setVariableRefreshRate"];
 
     /// <summary>The row patch.</summary>
     public static SteamQuickAccessRowPatch Patch { get; } = new(
@@ -74,14 +74,12 @@ public static class SteamVariableRefreshRow
     /// <param name="read">The current state, or null to publish nothing this round.</param>
     /// <param name="backend">What answers the switch.</param>
     /// <param name="id">The module id, for diagnostics and duplicate detection.</param>
-    /// <param name="overrides">What answers Use global, or null when the host has no per-game profiles.</param>
     /// <returns>The module to register.</returns>
     public static ISteamUiModule Module(
         Func<bool> enabled,
         Func<ValueTask<SteamVariableRefreshState?>> read,
         ISteamVariableRefreshBackend backend,
-        string id = "vrr",
-        ISteamProfileOverrideBackend? overrides = null)
+        string id = "vrr")
     {
         ArgumentNullException.ThrowIfNull(backend);
         return SteamSurfaceModule.Declare(
@@ -97,8 +95,7 @@ public static class SteamVariableRefreshRow
                     "setVariableRefreshRate",
                     SteamUiPayload.TryReadEnabled,
                     backend.SetVariableRefreshRateAsync,
-                    "The variable-refresh payload is invalid."),
-                SteamProfileOverride.Handler(PatchId, overrides)
+                    "The variable-refresh payload is invalid.")
             ]);
     }
 }

@@ -20,8 +20,8 @@ namespace SteamUiToolkit;
 ///     otherwise.
 /// </param>
 /// <param name="BatteryOverrideId">
-///     The same for the battery assignment. The row's Use global action clears the assignment, which is
-///     already what inheriting means, so this row needs no command of its own for it.
+///     The same for the battery assignment. Choosing the dropdown's <c>UnsetLabel</c> entry clears the
+///     assignment, which is already what inheriting means.
 /// </param>
 public sealed record SteamPowerPresetState(
     bool Available,

@@ -16,7 +16,7 @@ namespace SteamUiToolkit;
 /// <param name="StatusText">A bounded explanation of availability or the last outcome.</param>
 /// <param name="OverrideId">
 ///     The host's setting id while the running game's own profile supplies this value, so the row marks
-///     it and offers Use global; null otherwise. See <see cref="ISteamProfileOverrideBackend" />.
+///     it in Steam's accent colour; null otherwise.
 /// </param>
 public sealed record SteamPowerLimitRangeState(
     bool Available,
@@ -80,7 +80,7 @@ public static class SteamPowerLimitSurface
     public const string PatchId = "steam-ui.power-limit";
 
     /// <summary>The exact command vocabulary.</summary>
-    public static IReadOnlyList<string> Commands { get; } = ["setUnifiedMode", "setPrimaryLimit", "setBoostLimit", SteamProfileOverride.Command];
+    public static IReadOnlyList<string> Commands { get; } = ["setUnifiedMode", "setPrimaryLimit", "setBoostLimit"];
 
     /// <summary>The sustained and boost sliders on the Performance page.</summary>
     public static SteamQuickAccessRowPatch Patch { get; } = new(
@@ -102,14 +102,12 @@ public static class SteamPowerLimitSurface
     /// <param name="read">Reads current state, or null to skip publication.</param>
     /// <param name="backend">The hardware command backend.</param>
     /// <param name="id">The module id.</param>
-    /// <param name="overrides">What answers Use global, or null when the host has no per-game profiles.</param>
     /// <returns>The module to register.</returns>
     public static ISteamUiModule Module(
         Func<bool> enabled,
         Func<ValueTask<SteamPowerLimitState?>> read,
         ISteamPowerLimitBackend backend,
-        string id = "power-limit",
-        ISteamProfileOverrideBackend? overrides = null)
+        string id = "power-limit")
     {
         ArgumentNullException.ThrowIfNull(backend);
         return SteamSurfaceModule.Declare(
@@ -142,8 +140,7 @@ public static class SteamPowerLimitSurface
                     "setBoostLimit",
                     TryReadWatts,
                     backend.SetBoostLimitAsync,
-                    "The boost power-limit payload is invalid."),
-                SteamProfileOverride.Handler(PatchId, overrides)
+                    "The boost power-limit payload is invalid.")
             ]);
     }
 
