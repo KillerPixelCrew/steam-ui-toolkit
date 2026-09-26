@@ -23,6 +23,12 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
     // As long as the longest retry delay, so a connection that outlives one full backoff step is
     // treated as healthy.
     private static readonly TimeSpan StableConnectionUptime = TimeSpan.FromSeconds(30);
+
+    // How many evaluations may run out their own deadline back to back before the connection is
+    // treated as dead. One is an overloaded renderer or a heavy expression; a run of them is a
+    // target that has stopped servicing CDP behind a websocket that is still open.
+    private const int UnansweredEvaluationsBeforeReconnect = 2;
+
     private readonly Task _bindingEventPump;
 
     private readonly Channel<SteamUiNotification> _bindingEvents =
@@ -174,9 +180,10 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         await using var lease = await LeaseAsync(role, timeout, cancellationToken)
             .ConfigureAwait(false);
         var channel = lease.Channel;
+        SteamUiCdpConnection? connection = null;
         try
         {
-            var connection = await EnsureConnectedAsync(
+            connection = await EnsureConnectedAsync(
                     channel,
                     lease.OwnershipGeneration,
                     lease.Deadline)
@@ -198,15 +205,22 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
                 lease.OwnershipGeneration,
                 SteamUiTransportHealth.Ready,
                 null);
+            ResetTimeouts(channel, lease.OwnershipGeneration);
             return new SteamUiEvaluationResult(true, value, null, GenerationsOf(channel));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            // The caller gave up, which says nothing about Steam. Never a health signal.
             return SteamUiEvaluationResult.Unavailable(
                 "Steam UI evaluation was cancelled.", GenerationsOf(channel));
         }
         catch (OperationCanceledException)
         {
+            if (connection is not null)
+            {
+                DropUnansweredConnection(channel, lease.OwnershipGeneration, connection);
+            }
+
             return SteamUiEvaluationResult.Unavailable(
                 "Steam UI evaluation timed out.", GenerationsOf(channel));
         }
@@ -760,6 +774,66 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         }
     }
 
+    /// <summary>Clears the unanswered-evaluation run after Steam answers on this connection.</summary>
+    private static void ResetTimeouts(TargetChannel channel, long ownershipGeneration)
+    {
+        lock (channel.Sync)
+        {
+            if (channel.OwnershipGeneration == ownershipGeneration)
+            {
+                channel.ConsecutiveTimeouts = 0;
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Retires a connection whose target has stopped answering, so the channel's reconnect
+    ///     loop builds a fresh one.
+    /// </summary>
+    /// <remarks>
+    ///     A renderer can stop servicing CDP while its websocket stays open, and nothing else in
+    ///     this transport notices: a timed-out evaluation used to leave the channel marked Ready
+    ///     with the same dead socket in place, so every later request timed out too. On 2026-09-26
+    ///     that ran for three minutes — the patch pipeline stalled, WSGM's Big Picture close request
+    ///     was never consumed, and the desktop return rebuilt the desktop underneath a Big Picture
+    ///     window Steam was no longer servicing — and it ended only because Steam's own helper
+    ///     restarted. One slow evaluation is not that state, so the socket goes after a run of them.
+    /// </remarks>
+    /// <param name="channel">The channel whose connection went unanswered.</param>
+    /// <param name="ownershipGeneration">The generation the caller leased; a stale one is ignored.</param>
+    /// <param name="connection">The connection the caller used.</param>
+    private static void DropUnansweredConnection(
+        TargetChannel channel,
+        long ownershipGeneration,
+        SteamUiCdpConnection connection)
+    {
+        SteamUiCdpConnection? unanswered = null;
+        lock (channel.Sync)
+        {
+            if (channel.OwnershipGeneration != ownershipGeneration
+                || !ReferenceEquals(channel.Connection, connection))
+            {
+                return;
+            }
+
+            channel.LastFailure = "Steam UI evaluation timed out.";
+            if (++channel.ConsecutiveTimeouts < UnansweredEvaluationsBeforeReconnect)
+            {
+                return;
+            }
+
+            channel.ConsecutiveTimeouts = 0;
+            unanswered = connection;
+        }
+
+        SteamUiLog.Warn(
+            $"Steam UI {channel.Role} stopped answering {UnansweredEvaluationsBeforeReconnect} "
+            + "evaluations in a row; retiring the connection so the channel reconnects.");
+        // Disposal runs the connection's close path, which unpublishes it and lets the channel's
+        // reconnect loop rebuild. Detaching here instead would retire that loop with it.
+        _ = DisposeDetachedConnectionAsync(channel.Role, unanswered);
+    }
+
     private static void SetHealth(
         TargetChannel channel,
         long ownershipGeneration,
@@ -909,6 +983,13 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         internal SteamUiCdpConnection? Connection { get; set; }
 
         internal int Subscribers { get; set; }
+
+        /// <summary>
+        ///     Evaluations that have run out their own deadline back to back on this connection.
+        ///     A renderer that has stopped answering keeps its websocket open, so nothing else ever
+        ///     retires the socket; see <see cref="DropUnansweredConnection" />.
+        /// </summary>
+        internal int ConsecutiveTimeouts { get; set; }
 
         internal long OwnershipGeneration { get; set; }
 

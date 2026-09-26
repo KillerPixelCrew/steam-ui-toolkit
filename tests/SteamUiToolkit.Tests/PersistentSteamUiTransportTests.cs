@@ -208,6 +208,55 @@ public sealed class PersistentSteamUiTransportTests
     }
 
     [Fact]
+    public async Task UnansweredEvaluationsRetireTheConnectionSoTheChannelReconnects()
+    {
+        // A renderer that stops servicing CDP keeps its websocket open, so nothing in the close
+        // path ever fires. Before this, a timed-out evaluation left the channel Ready with the
+        // same dead socket and every later request timed out too — for three minutes on
+        // 2026-09-26, until Steam restarted its own helper.
+        var factory = new ResponsiveWireFactory { SilenceEvaluations = true };
+        await using var transport = new PersistentSteamUiTransport(
+            new FixtureDiscovery(), factory);
+        await using var subscription = await transport.SubscribeAsync(
+            SteamUiTargetRole.SharedJsContext);
+
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var result = await transport.EvaluateAsync(
+                SteamUiTargetRole.SharedJsContext,
+                "'wedged'",
+                TimeSpan.FromMilliseconds(200));
+            Assert.False(result.Reachable);
+        }
+
+        var connected = await WaitUntilAsync(() =>
+        {
+            lock (factory.Wires)
+            {
+                return factory.Wires.Count > 1;
+            }
+        });
+
+        Assert.True(connected, "the channel never rebuilt its connection after the unanswered run");
+    }
+
+    private static async Task<bool> WaitUntilAsync(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (condition())
+            {
+                return true;
+            }
+
+            await Task.Delay(25);
+        }
+
+        return condition();
+    }
+
+    [Fact]
     public async Task ThrowingGenerationSubscriberDoesNotBlockOtherSubscribersOrChannel()
     {
         var factory = new ResponsiveWireFactory();
@@ -385,6 +434,8 @@ public sealed class PersistentSteamUiTransportTests
 
         internal bool FailFirstEvaluation { get; init; }
 
+        internal bool SilenceEvaluations { get; init; }
+
         internal TaskCompletionSource FirstConnectStarted { get; } = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -414,6 +465,7 @@ public sealed class PersistentSteamUiTransportTests
             var wire = new ResponsiveWire(
                 BlockPageEnable,
                 FailFirstEvaluation,
+                SilenceEvaluations,
                 PageEnableStarted,
                 ReleasePageEnable);
             lock (Wires)
@@ -429,6 +481,7 @@ public sealed class PersistentSteamUiTransportTests
     private sealed class ResponsiveWire(
         bool blockPageEnable,
         bool failFirstEvaluation,
+        bool silenceEvaluations,
         TaskCompletionSource pageEnableStarted,
         TaskCompletionSource releasePageEnable) : QueueWire
     {
@@ -449,6 +502,12 @@ public sealed class PersistentSteamUiTransportTests
             {
                 pageEnableStarted.TrySetResult();
                 await releasePageEnable.Task.WaitAsync(cancellationToken);
+            }
+
+            // The wedged renderer: the socket stays open and the request is simply never answered.
+            if (silenceEvaluations && method == "Runtime.evaluate")
+            {
+                return;
             }
 
             string result;
