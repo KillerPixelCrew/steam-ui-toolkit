@@ -1185,7 +1185,13 @@ supports any, and the OS write. An empty `Current` is the honest answer for a ma
 something the host does not offer, and selects nothing. A machine without a choice publishes no
 options, which hides the row like the power-profile dropdown.
 
-The two rows are written out separately rather than sharing one factory. Each control's glyph is
+`SteamCpuBoostRow` adds a third dropdown through patch `steam-ui.cpu-boost`, kind `cpuBoost`, and
+command `setCpuBoost`. `SteamCpuBoostState` is the power-profile shape plus `OverrideId`: the host's
+setting id while the running game's own profile supplies the value, which the row draws as the same
+"Game override" description the other per-game rows use. The host owns the modes (Handheld
+Companion's five), the per-game resolution and the Windows write.
+
+The rows are written out separately rather than sharing one factory. Each control's glyph is
 read from the string literal at its own `icon()` call, so a factory taking the name as an argument
 would make both rows invisible to the check that proves every glyph is placed exactly once and every
 placement names a drawn glyph. The core row draws `cores`, its own glyph.

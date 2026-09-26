@@ -23,6 +23,7 @@ namespace SteamUiToolkit;
 [JsonSerializable(typeof(SteamResolutionState))]
 [JsonSerializable(typeof(SteamPowerProfileState))]
 [JsonSerializable(typeof(SteamHybridCoreState))]
+[JsonSerializable(typeof(SteamCpuBoostState))]
 [JsonSerializable(typeof(SteamPowerPresetState))]
 [JsonSerializable(typeof(SteamAutoTdpState))]
 [JsonSerializable(typeof(SteamControllerTargetState))]

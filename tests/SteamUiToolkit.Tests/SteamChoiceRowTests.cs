@@ -1,6 +1,6 @@
 namespace SteamUiToolkit.Tests;
 
-/// <summary>The choice rows: Windows power profiles, power presets and hybrid core preference.</summary>
+/// <summary>The choice rows: Windows power profiles, power presets, hybrid core preference and processor boost.</summary>
 public sealed class SteamChoiceRowTests
 {
     [Fact]
@@ -32,6 +32,22 @@ public sealed class SteamChoiceRowTests
         Assert.Equal("automatic", json.GetProperty("options")[0].GetProperty("id").GetString());
         Assert.Equal(
             "Prefer performance cores", json.GetProperty("options")[1].GetProperty("label").GetString());
+    }
+
+    [Fact]
+    public void CpuBoostStateCarriesTheGameOverrideMarkerBesideTheChoice()
+    {
+        var state = new SteamCpuBoostState(true,
+            [new SteamPowerProfileOption("disabled", "Disabled"), new SteamPowerProfileOption("enabled", "Enabled")],
+            "disabled",
+            "Set for this game.",
+            "CpuBoost");
+
+        var json = SteamCpuBoostRow.Serialize(state);
+
+        Assert.Equal("disabled", json.GetProperty("current").GetString());
+        Assert.Equal("CpuBoost", json.GetProperty("overrideId").GetString());
+        Assert.Equal("Enabled", json.GetProperty("options")[1].GetProperty("label").GetString());
     }
 
     [Theory]
@@ -95,6 +111,9 @@ public sealed class SteamChoiceRowTests
     [InlineData("hybrid-core", "{\"target\":\"prefer-efficiency\",\"extra\":true}", null)]
     [InlineData("hybrid-core", "{}", null)]
     [InlineData("hybrid-core", "[]", null)]
+    [InlineData("cpu-boost", "{\"target\":\"aggressive\"}", "aggressive")]
+    [InlineData("cpu-boost", "{\"target\":7}", null)]
+    [InlineData("cpu-boost", "{}", null)]
     public async Task DispatchValidatesPayloadAndForwardsTheCancellationToken(
         string row, string json, string? option)
     {
@@ -109,6 +128,14 @@ public sealed class SteamChoiceRowTests
                 "setPowerProfile",
                 "profile",
                 "The power-profile payload is invalid."),
+            "cpu-boost" => (
+                SteamCpuBoostRow.Module(
+                    SurfaceDispatch.Always, () => new ValueTask<SteamCpuBoostState?>(null as SteamCpuBoostState),
+                    backend),
+                SteamCpuBoostRow.PatchId,
+                "setCpuBoost",
+                "boost",
+                "The processor boost payload is invalid."),
             _ => (
                 SteamHybridCoreRow.Module(
                     SurfaceDispatch.Always, () => new ValueTask<SteamHybridCoreState?>(null as SteamHybridCoreState),

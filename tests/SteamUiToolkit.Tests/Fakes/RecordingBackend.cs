@@ -25,6 +25,7 @@ internal sealed class RecordingBackend :
     ISteamPowerProfileBackend,
     ISteamPowerPresetBackend,
     ISteamHybridCoreBackend,
+    ISteamCpuBoostBackend,
     ISteamExtensionsTabBackend,
     ISteamGameContextMenuBackend
 {
@@ -123,6 +124,11 @@ internal sealed class RecordingBackend :
     public Task<SteamUiCommandResult> SetHybridCoresAsync(string option, CancellationToken cancellationToken)
     {
         return Record($"hybrid {option}", cancellationToken);
+    }
+
+    public Task<SteamUiCommandResult> SetCpuBoostAsync(string option, CancellationToken cancellationToken)
+    {
+        return Record($"boost {option}", cancellationToken);
     }
 
     public Task<SteamUiCommandResult> HomeLayoutAsync(bool bigArt, CancellationToken cancellationToken)

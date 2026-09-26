@@ -64,6 +64,7 @@ const api = instantiate(
     definitions: {
       powerProfile: { patchId: "steam-ui.power-profile", command: "setPowerProfile" },
       hybridCores: { patchId: "steam-ui.hybrid-cores", command: "setHybridCores" },
+      cpuBoost: { patchId: "steam-ui.cpu-boost", command: "setCpuBoost" },
       powerPreset: {
         patchId: "steam-ui.power-preset",
         acCommand: "setAcPowerPreset",
@@ -78,7 +79,7 @@ const api = instantiate(
     drew: () => {},
   },
   slice(asset, "const normalizePowerProfileState =", "const createControllerControl ="),
-  "{ normalizePowerProfileState, createPowerProfileControl, createHybridCoreControl, normalizePowerPresetState, createPowerPresetControl }",
+  "{ normalizePowerProfileState, createPowerProfileControl, createHybridCoreControl, normalizeCpuBoostState, createCpuBoostControl, normalizePowerPresetState, createPowerPresetControl }",
 );
 const options = [{ id: "a", label: "Balanced" }, { id: "b", label: "Balanced" }];
 const longLabel = api.normalizePowerProfileState({ available: true,
@@ -118,6 +119,16 @@ assert.equal(control().description, "Readback failed");
   assert.equal(api.createHybridCoreControl(reactFixture)(), null);
   state = { ...previous, available: true };
   assert.equal(api.createHybridCoreControl(reactFixture)().label, "Processor cores");
+  // The boost row is the same dropdown with the per-game marker in its description.
+  assert.equal(api.createCpuBoostControl(reactFixture)().label, "CPU boost mode");
+  assert.equal(api.createCpuBoostControl(reactFixture)().icon, "turbo");
+  assert.equal(api.createCpuBoostControl(reactFixture)().description, state.statusText);
+  state = { ...state, overrideId: "CpuBoost" };
+  assert.deepEqual(api.createCpuBoostControl(reactFixture)().description,
+    overrideHelpers.overrideDescription(reactFixture, "CpuBoost", state.statusText));
+  assert.equal(api.normalizeCpuBoostState({ ...state, overrideId: 5 }).overrideId, null);
+  state = { ...state, options: [] };
+  assert.equal(api.createCpuBoostControl(reactFixture)(), null);
   state = previous;
 }
 for (const badOptions of [[...options, options[0]], [{ id: 123, label: "Bad" }],
@@ -320,7 +331,7 @@ console.log("Device controls retain charging and brightness without the optional
 {
   const controlNames = ["valveProfileHeaderControl", "valveProfileToggleControl",
     "valveOverlayLevelControl", "frameLimitControl", "powerProfileControl", "hybridCoreControl",
-    "powerPresetControl", "vrrControl", "powerLimitControl", "autoTdpControl", "resolutionControl",
+    "cpuBoostControl", "powerPresetControl", "vrrControl", "powerLimitControl", "autoTdpControl", "resolutionControl",
     "audioFormatControl",
     "valveRefreshRateControl", "controllerControl", "valveResetControl"];
   const registrations = new Map();

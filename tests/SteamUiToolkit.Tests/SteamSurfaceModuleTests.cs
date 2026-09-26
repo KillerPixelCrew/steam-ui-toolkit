@@ -51,6 +51,8 @@ public sealed class SteamSurfaceModuleTests
             SteamPowerPresetRow.Module(Always,
                 () => new ValueTask<SteamPowerPresetState?>(null as SteamPowerPresetState), backend),
             SteamHybridCoreRow.Module(Always, () => new ValueTask<SteamHybridCoreState?>(null as SteamHybridCoreState),
+                backend),
+            SteamCpuBoostRow.Module(Always, () => new ValueTask<SteamCpuBoostState?>(null as SteamCpuBoostState),
                 backend)
         ]);
 
@@ -79,6 +81,7 @@ public sealed class SteamSurfaceModuleTests
         Assert.Equal(SteamPowerProfileRow.Commands, set.AllowedCommands[SteamPowerProfileRow.PatchId]);
         Assert.Equal(SteamPowerPresetRow.Commands, set.AllowedCommands[SteamPowerPresetRow.PatchId]);
         Assert.Equal(SteamHybridCoreRow.Commands, set.AllowedCommands[SteamHybridCoreRow.PatchId]);
+        Assert.Equal(SteamCpuBoostRow.Commands, set.AllowedCommands[SteamCpuBoostRow.PatchId]);
 
         // The core-preference row owns one command, and it is not the power-profile row's.
         Assert.NotEqual(SteamHybridCoreRow.PatchId, SteamPowerProfileRow.PatchId);
@@ -86,7 +89,7 @@ public sealed class SteamSurfaceModuleTests
 
         // The full set registers together without an identity collision, which is what a consumer
         // declaring every surface at once relies on.
-        Assert.Equal(19, set.Modules.Count);
+        Assert.Equal(20, set.Modules.Count);
     }
 
     [Fact]

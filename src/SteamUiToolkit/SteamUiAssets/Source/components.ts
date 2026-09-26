@@ -8,6 +8,7 @@ function createNativeComponentHost() {
   let controllerControl;
   let powerProfileControl;
   let hybridCoreControl;
+  let cpuBoostControl;
   let powerPresetControl;
   let resolutionControl;
   let audioFormatControl;
@@ -124,6 +125,10 @@ function createNativeComponentHost() {
     hybridCores: Object.freeze({
       patchId: "steam-ui.hybrid-cores",
       command: "setHybridCores",
+    }),
+    cpuBoost: Object.freeze({
+      patchId: "steam-ui.cpu-boost",
+      command: "setCpuBoost",
     }),
     powerPreset: Object.freeze({
       patchId: "steam-ui.power-preset",
@@ -922,6 +927,48 @@ function createNativeComponentHost() {
       "SteamUiHybridCoreControl",
       () => controlRuntime.icon("cores"),
     );
+  // The power-profile shape plus the per-game marker. The shared choice control has no place for
+  // the marker, so this row draws its own dropdown over the same state.
+  const normalizeCpuBoostState = (value) => {
+    const state = normalizePowerProfileState(value);
+    return state ? { ...state, overrideId: normalizeOverrideId(value.overrideId) } : null;
+  };
+  const createCpuBoostControl = (controlRuntime) =>
+    function SteamUiCpuBoostControl() {
+      const state = useSemanticState(controlRuntime, "cpuBoost", normalizeCpuBoostState);
+      const [pending, setPending] = controlRuntime.react.useState(false);
+      if (!state) return note("cpuBoost", "no state");
+      if (!state.options.length)
+        return note("cpuBoost", "no options: " + (state.statusText || "no reason"));
+      const options = state.options.map((option) => ({ data: option.id, label: option.label }));
+      const definition = definitions.cpuBoost;
+      drew("cpuBoost");
+      return controlRuntime.react.createElement(controlRuntime.dropdown, {
+        label: "CPU boost mode",
+        icon: controlRuntime.icon("turbo"),
+        rgOptions: options,
+        selectedOption: options.some((option) => option.data === state.current)
+          ? state.current
+          : undefined,
+        disabled: pending || !state.available || options.length < 2,
+        description: overrideDescription(controlRuntime, state.overrideId, state.statusText),
+        layout: "below",
+        onChange: (option) => {
+          if (
+            pending ||
+            !state.available ||
+            !option ||
+            option.data === state.current ||
+            !options.some((candidate) => candidate.data === option.data)
+          )
+            return;
+          setPending(true);
+          void sendCommand(definition, definition.command, { target: option.data })
+            .catch(() => {})
+            .finally(() => setPending(false));
+        },
+      });
+    };
   const normalizePowerPresetState = (value) => {
     const state = normalizePowerProfileState(value);
     if (!state || typeof value.ac !== "string" || typeof value.battery !== "string") return null;
@@ -1921,6 +1968,7 @@ function createNativeComponentHost() {
     powerPreset: "Power profiles",
     powerProfile: "Power profiles",
     hybridCores: "Power profiles",
+    cpuBoost: "Power profiles",
     valveOverlayLevel: "Display and frame rate",
     frameLimit: "Display and frame rate",
     vrr: "Display and frame rate",
@@ -2100,6 +2148,7 @@ function createNativeComponentHost() {
     controllerControl = createControllerControl(controlRuntime);
     powerProfileControl = createPowerProfileControl(controlRuntime);
     hybridCoreControl = createHybridCoreControl(controlRuntime);
+    cpuBoostControl = createCpuBoostControl(controlRuntime);
     powerPresetControl = createPowerPresetControl(controlRuntime);
     resolutionControl = createResolutionControl(controlRuntime);
     audioFormatControl = createAudioFormatControl(controlRuntime);
@@ -2146,6 +2195,7 @@ function createNativeComponentHost() {
       ["frameLimit", "steam-ui-frame-limit", frameLimitControl, "perf"],
       ["powerProfile", "steam-ui-power-profile", powerProfileControl, "perf"],
       ["hybridCores", "steam-ui-hybrid-cores", hybridCoreControl, "perf"],
+      ["cpuBoost", "steam-ui-cpu-boost", cpuBoostControl, "perf"],
       ["powerPreset", "steam-ui-power-preset", powerPresetControl, "perf"],
       ["vrr", "steam-ui-vrr", vrrControl, "perf"],
       ["powerLimit", "steam-ui-power-limits", powerLimitControl, "perf"],

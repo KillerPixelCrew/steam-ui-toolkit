@@ -62,6 +62,9 @@ const SteamUiIconShapes: Readonly<Record<string, readonly SteamUiIconShape[]>> =
         ],
         ["rect", {x: 10.8, y: 2.6, width: 2.4, height: 8.6, rx: 1.2}],
     ],
+    // Fast-forward chevrons for the processor boost row: the question is how hard the cores may
+    // run past their base clock, which is a speed, not a power state or a kind of core.
+    turbo: [["path", {d: "M3.5 5.2 11.6 12l-8.1 6.8V5.2Zm8.9 0L20.5 12l-8.1 6.8V5.2Z"}]],
     // A processor die with its pins, for the core-preference row. Drawn rather than reusing the power
     // glyph because every control places exactly one glyph of its own, and this one chooses which
     // kind of core runs work rather than which power state the machine is in.
