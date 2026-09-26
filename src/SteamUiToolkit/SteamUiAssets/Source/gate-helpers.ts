@@ -457,6 +457,15 @@ const adoptMountedType = (roots, elementType, replacement, bound: number) => {
 // pathological tree, not to limit a legitimate search.
 const MaximumMountedNodes = 60000;
 
+// Whether a publication carries something the wrappers have not drawn yet. Publications repeat
+// the same state every round, several times a second while the host has anything to say, and a
+// gate that re-rendered on each one asked the router's class ancestor to render again each time.
+// That render re-runs every route under it: Steam's controller configurator restarts its edit
+// session on each render of its route and threw away the user's bindings every few seconds
+// (2026-09-26). A wrapper reads its state from a closure, so the only publications that need a
+// render are the ones that changed it.
+const publicationChanged = (previous, next) => JSON.stringify(previous) !== JSON.stringify(next);
+
 // One claimed component's mounted instances, for the life of a gate's install.
 //
 // Adoption walks the tree once and keeps the fibers it adopted. Everything after that is over that

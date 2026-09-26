@@ -366,15 +366,18 @@ function createNavigationPanel() {
             );
             const routable = named.filter((item) => item.route == null || isNavigableRoute(item.route));
             rejectedRoutes = named.length - routable.length;
-            desired = {
+            const next = {
                 items: routable.slice(0, MaximumEntries),
                 hidden: hidden.filter((value) => typeof value === "string").slice(0, MaximumEntries),
             };
-            // The wrappers read `desired` from their closure, so a publication changes nothing React
-            // can see on its own. A host Steam has recreated since install is adopted here; it sits
-            // under a React root with no class above it, so its entries show when the menu next opens.
-            mounted.rerender();
+            // A host Steam has recreated since install is adopted here; it sits under a React root
+            // with no class above it, so its entries show when the menu next opens.
             hosts.adopt();
+            // The wrappers read `desired` from their closure, so a publication changes nothing React
+            // can see on its own, and an unchanged one needs no render at all.
+            if (!publicationChanged(desired, next)) return;
+            desired = next;
+            mounted.rerender();
         });
         return {ok: true, installed: true, reclaimed: claim.reclaimed};
     };
