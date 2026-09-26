@@ -302,7 +302,7 @@ function createPageHost() {
     lastError = "";
     unsubscribe = subscribe(patchId, (state) => {
       const declared = Array.isArray(state?.pages) ? state.pages : [];
-      pages = declared
+      const next = declared
         .filter(
           (page) =>
             page &&
@@ -316,7 +316,10 @@ function createPageHost() {
         )
         .slice(0, MaximumPages);
       // The wrappers read `pages` from their closure, so a publication changes nothing React can
-      // see on its own.
+      // see on its own. Only a changed list earns a render: the class above the router is the one
+      // asked, and its render re-runs every route, the configurator's edit session included.
+      if (!publicationChanged(pages, next)) return;
+      pages = next;
       mounted.rerender();
     });
     return { ok: true, installed: true, reclaimed: claim.reclaimed };

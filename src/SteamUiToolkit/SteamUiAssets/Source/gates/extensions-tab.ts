@@ -483,9 +483,11 @@ function createExtensionsTab() {
       const items = Array.isArray(state?.items)
         ? state.items.filter(validItem).slice(0, MaximumItems)
         : [];
-      desired = { items, revision: Number.isSafeInteger(state?.revision) ? state.revision : 0 };
+      const next = { items, revision: Number.isSafeInteger(state?.revision) ? state.revision : 0 };
       // The wrapper reads `desired` from its closure, so a publication changes nothing React can
-      // see on its own.
+      // see on its own, and an unchanged one needs no render at all.
+      if (!publicationChanged(desired, next)) return;
+      desired = next;
       mounted.rerender();
     });
     return { ok: true, installed: true, reclaimed: claim.reclaimed };
