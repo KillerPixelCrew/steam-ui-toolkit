@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Text.Json;
 using System.Threading;
@@ -69,12 +70,57 @@ public sealed record SteamLogoPosition(string Anchor, int WidthPercent, int Heig
 /// <param name="Reachable">
 ///     Whether a validated Steam target ran the request. An unreachable client created nothing.
 /// </param>
-/// <param name="AppId">The generated shortcut id, or zero when none was created.</param>
-/// <param name="Error">Why the target was unreachable, or Steam's own error. Null on success.</param>
-public readonly record struct SteamShortcutAddResult(bool Reachable, uint AppId, string? Error)
+/// <param name="AppId">
+///     The shortcut's id: the one the library gained when it gained exactly one, else the one Steam
+///     returned. Zero when Steam reported nothing.
+/// </param>
+/// <param name="Confirmed">
+///     Whether the library gained exactly this one shortcut. Only then is the id known to be the entry
+///     this call made; an unconfirmed id may name another entry, or none, and must not be written to.
+/// </param>
+/// <param name="Error">Why the id is not confirmed, or why nothing was created. Null when confirmed.</param>
+/// <param name="Mismatch">
+///     The fields that did not read back as written, or null when all of them did. The shortcut exists
+///     either way; this says what it holds is not what was asked for.
+/// </param>
+public readonly record struct SteamShortcutAddResult(
+    bool Reachable,
+    uint AppId,
+    bool Confirmed,
+    string? Error,
+    string? Mismatch = null)
 {
-    /// <summary>Whether Steam was reached and reported a shortcut id.</summary>
+    /// <summary>Whether Steam was reached and a shortcut id is known.</summary>
     public bool Succeeded => Reachable && AppId != 0;
+}
+
+/// <summary>One non-Steam shortcut as the running client holds it.</summary>
+/// <param name="AppId">Its generated id.</param>
+/// <param name="Name">Its name in the library.</param>
+/// <param name="Target">Its Target, verbatim.</param>
+/// <param name="StartDirectory">Its start directory, verbatim.</param>
+/// <param name="LaunchOptions">Its Launch Arguments, verbatim.</param>
+public sealed record SteamShortcut(
+    uint AppId,
+    string Name,
+    string Target,
+    string StartDirectory,
+    string LaunchOptions);
+
+/// <summary>Outcome of reading every non-Steam shortcut in the library.</summary>
+/// <param name="Reachable">Whether a validated Steam target ran the read.</param>
+/// <param name="Shortcuts">
+///     Every shortcut, or null when the library could not be read whole. Empty means the library has
+///     none; it never stands in for a read that failed.
+/// </param>
+/// <param name="Error">Why the read produced no list.</param>
+public readonly record struct SteamShortcutListResult(
+    bool Reachable,
+    IReadOnlyList<SteamShortcut>? Shortcuts,
+    string? Error)
+{
+    /// <summary>Whether the whole list was read.</summary>
+    public bool Succeeded => Reachable && Shortcuts is not null;
 }
 
 /// <summary>
@@ -86,6 +132,12 @@ public readonly record struct SteamShortcutAddResult(bool Reachable, uint AppId,
 ///         Steam stores launch values <em>verbatim</em>: it neither adds nor strips the quotes its own
 ///         shortcuts carry and leaves backslashes alone. It persists them to <c>shortcuts.vdf</c> and
 ///         <c>localconfig.vdf</c> immediately, so no restart is needed.
+///     </para>
+///     <para>
+///         Every change goes through one gate, one at a time, each followed by a settle. Each is a
+///         separate evaluation against a client that is mutating its own library store: two in flight
+///         at once is how that store gets corrupted, and a shortcut added by one caller while another
+///         diffs the library would make the other misread which entry it created.
 ///     </para>
 ///     <para>
 ///         A store title and a non-Steam shortcut take different calls. A store title's launch options
@@ -109,7 +161,16 @@ public static class SteamApps
     // can race it (observed in decky-steamgriddb).
     private const int ArtworkClearSettleMs = 500;
 
+    // How long a new shortcut may take to appear in the library before the add is reported unconfirmed.
+    private const int AddAppearMs = 2_000;
+
+    // How many shortcuts' details one library read asks for at a time.
+    private const int DetailsBatch = 32;
+
     private static readonly TimeSpan Budget = TimeSpan.FromSeconds(20);
+
+    // One change to the client's library at a time, whoever asks for it.
+    private static readonly SemaphoreSlim Writes = new(1, 1);
 
     /// <summary>
     ///     Converts a stored app id to the unsigned 32-bit id Steam's client API expects. A shortcut id
@@ -182,28 +243,94 @@ public static class SteamApps
         return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Creates a non-Steam shortcut and reports the id Steam generated for it.</summary>
+    /// <summary>Replaces what a non-Steam shortcut runs and where it runs from.</summary>
+    /// <param name="appId">The shortcut's generated id.</param>
+    /// <param name="target">The new Target, stored verbatim (quote a path that contains spaces).</param>
+    /// <param name="startDirectory">The new start directory, stored verbatim.</param>
+    /// <param name="launchArguments">The new Launch Arguments, stored verbatim.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>Whether Steam accepted all three values.</returns>
+    /// <remarks>
+    ///     For a caller that owns the whole command. Moving a shortcut from one program to another and
+    ///     leaving the old start directory behind runs the new program from the old one's folder.
+    /// </remarks>
+    public static async Task<SteamClientWriteResult> SetShortcutLaunchAsync(
+        uint appId,
+        string target,
+        string startDirectory,
+        string launchArguments,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(startDirectory);
+        ArgumentNullException.ThrowIfNull(launchArguments);
+        var expression = SteamClientScript.Write(
+            "const app=" + SteamClientScript.AppId(appId) + ";" +
+            "await SteamClient.Apps.SetShortcutExe(app," + SteamCef.JsString(target) + ");" +
+            "await SteamClient.Apps.SetShortcutStartDir(app," + SteamCef.JsString(startDirectory) + ");" +
+            "await SteamClient.Apps.SetShortcutLaunchOptions(app," + SteamCef.JsString(launchArguments) + ");" +
+            SteamClientScript.Settle(WriteSettleMs));
+        return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Reads every non-Steam shortcut in the library, with what each one runs, in one call.</summary>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The shortcuts, or why the library could not be read whole.</returns>
+    /// <remarks>
+    ///     All or nothing. A shortcut whose details Steam did not return fails the read rather than
+    ///     appearing with empty fields: a caller comparing what it wrote against what Steam holds would
+    ///     read an empty Target as somebody else's entry.
+    /// </remarks>
+    public static async Task<SteamShortcutListResult> ListShortcutsAsync(CancellationToken cancellationToken = default)
+    {
+        var expression = SteamClientScript.Read(
+            SteamClientScript.ShortcutIdsFunction +
+            "const apps=shortcutApps();" +
+            "if(!apps)return JSON.stringify({ok:false,err:'Steam has not loaded its library yet.'});" +
+            "const details=" + SteamClientScript.AppDetailsFunction(DetailsTimeoutMs) + ";" +
+            "const out=[];" +
+            "for(let i=0;i<apps.length;i+=" + DetailsBatch.ToString(CultureInfo.InvariantCulture) + "){" +
+            "const batch=apps.slice(i,i+" + DetailsBatch.ToString(CultureInfo.InvariantCulture) + ");" +
+            "const read=await Promise.all(batch.map(async a=>{const d=await details(a.id);" +
+            "return d?{id:String(a.id),name:a.name,exe:d.strShortcutExe||'',dir:d.strShortcutStartDir||''," +
+            "args:d.strShortcutLaunchOptions||''}:{id:String(a.id),missing:true};}));" +
+            "const gap=read.find(s=>s.missing);" +
+            "if(gap)return JSON.stringify({ok:false,err:'Steam did not return the details for shortcut '+gap.id+'.'});" +
+            "out.push(...read);}" +
+            "return JSON.stringify({ok:true,shortcuts:out});");
+        var result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
+            .ConfigureAwait(false);
+        return ParseShortcuts(result);
+    }
+
+    /// <summary>Creates a non-Steam shortcut and confirms which entry in the library it is.</summary>
     /// <param name="name">The entry's name in the library.</param>
     /// <param name="target">The Target, stored verbatim (quote a path that contains spaces).</param>
     /// <param name="startDirectory">The working directory, stored verbatim.</param>
     /// <param name="launchArguments">The Launch Arguments, stored verbatim.</param>
-    /// <param name="cancellationToken">Cancels the request.</param>
-    /// <returns>The new id, or why Steam created nothing.</returns>
+    /// <param name="cancellationToken">
+    ///     Cancels the request before it is sent. Once Steam may have the entry the call runs to its
+    ///     answer, so a caller never loses track of a shortcut that was made.
+    /// </param>
+    /// <returns>The new id, whether it is confirmed, and what did not read back as written.</returns>
     /// <remarks>
     ///     <para>
     ///         Steam derives the id itself and persists the entry to <c>shortcuts.vdf</c> immediately, so
     ///         no restart is needed and no caller has to reproduce Steam's derivation.
     ///     </para>
     ///     <para>
+    ///         The id is confirmed by two independent sources, what the client returned and a
+    ///         before-and-after diff of the library, and the diff is the authority: the return value's
+    ///         contract has never been verified across client builds, while the diff is observation.
+    ///         The fields are then set on the entry the library gained, never on the returned id alone.
+    ///     </para>
+    ///     <para>
     ///         The fields are written twice on purpose. <c>AddShortcut</c>'s positional contract is not
-    ///         one this library has verified across client builds, while <c>SetShortcutName</c>,
-    ///         <c>SetShortcutExe</c> and <c>SetShortcutLaunchOptions</c> are the calls
-    ///         <see cref="SetShortcutLaunchAsync" /> and every shortcut manager rely on. Re-asserting
-    ///         all four in the same script means a client that reads the positional arguments
-    ///         differently still ends up with the intended name, Target, working directory and
-    ///         arguments. The name is the one that bites: the client on the reference Claw ignores
-    ///         the name it is passed and calls the entry after its executable, so an import named
-    ///         every game <c>wsgm.packagedlaunch</c> until the name was set again (2026-09-27).
+    ///         one this library has verified either, while <c>SetShortcutName</c>,
+    ///         <c>SetShortcutExe</c>, <c>SetShortcutStartDir</c> and <c>SetShortcutLaunchOptions</c> are
+    ///         the calls every shortcut manager relies on. The name is the one that bites: a client
+    ///         can ignore the name it is passed and call the entry after its executable. Each field is
+    ///         read back after the settle, and any that differs is reported.
     ///     </para>
     /// </remarks>
     public static async Task<SteamShortcutAddResult> AddShortcutAsync(
@@ -222,23 +349,62 @@ public static class SteamApps
             "const A=SteamClient?.Apps;" +
             "if(typeof A?.AddShortcut!=='function')" +
             "return JSON.stringify({ok:false,err:'This Steam client does not expose AddShortcut.'});" +
+            SteamClientScript.ShortcutIdsFunction +
+            "const before=shortcutIds();" +
+            "if(!before)return JSON.stringify({ok:false,err:'Steam has not loaded its library yet, so a new " +
+            "shortcut could not be confirmed. Nothing was created.'});" +
             "const name=" + SteamCef.JsString(name) + ",exe=" + SteamCef.JsString(target) +
             ",dir=" + SteamCef.JsString(startDirectory) + ",args=" + SteamCef.JsString(launchArguments) + ";" +
             "const raw=await A.AddShortcut(name,exe,dir,args);" +
-            "const id=Number(raw)>>>0;" +
-            "if(!id)return JSON.stringify({ok:false,err:'Steam did not report a shortcut id.'});" +
+            "const returned=Number(raw)>>>0;" +
+            "let gained=[];" +
+            "for(let waited=0;waited<=" + AddAppearMs.ToString(CultureInfo.InvariantCulture) + ";waited+=100){" +
+            "const now=shortcutIds();gained=now?[...now].filter(x=>!before.has(x)):[];" +
+            "if(gained.length)break;await new Promise(r=>setTimeout(r,100));}" +
+            "if(gained.length!==1||(returned&&gained[0]!==returned)){" +
+            "const id=gained.length===1?gained[0]:returned;" +
+            "const err=gained.length===0?'Steam reported no new entry after creating this shortcut.'" +
+            ":gained.length>1?'Steam gained '+gained.length+' entries at once, so which one this is cannot be told.'" +
+            ":'Steam returned '+returned+' but the library gained '+gained[0]+'.';" +
+            "return JSON.stringify({ok:true,value:String(id),confirmed:false,err});}" +
+            "const id=gained[0];" +
             "if(typeof A.SetShortcutName==='function')await A.SetShortcutName(id,name);" +
             "if(typeof A.SetShortcutExe==='function')await A.SetShortcutExe(id,exe);" +
             "if(typeof A.SetShortcutStartDir==='function')await A.SetShortcutStartDir(id,dir);" +
             "if(typeof A.SetShortcutLaunchOptions==='function')await A.SetShortcutLaunchOptions(id,args);" +
             SteamClientScript.Settle(WriteSettleMs) +
-            "return JSON.stringify({ok:true,value:String(id)});");
-        var result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
-            .ConfigureAwait(false);
-        var outcome = ParseAddShortcut(result);
-        if (outcome is { Reachable: true, AppId: 0 })
+            "const d=await " + SteamClientScript.AppDetailsFunction(DetailsTimeoutMs) + "(id);" +
+            "const o=window.appStore?.GetAppOverviewByAppID?.(id);" +
+            "const wrong=[];" +
+            "if(!d)wrong.push('details');else{" +
+            "if((d.strShortcutExe||'')!==exe)wrong.push('Target');" +
+            "if((d.strShortcutStartDir||'')!==dir)wrong.push('start directory');" +
+            "if((d.strShortcutLaunchOptions||'')!==args)wrong.push('launch options');}" +
+            "if(o&&typeof o.display_name==='string'&&o.display_name!==name)wrong.push('name');" +
+            "return JSON.stringify({ok:true,value:String(id),confirmed:true," +
+            "mismatch:wrong.length?'Steam holds a different '+wrong.join(', ')+' than was written.':''});");
+
+        cancellationToken.ThrowIfCancellationRequested();
+        await Writes.WaitAsync(cancellationToken).ConfigureAwait(false);
+        CefEvalResult result;
+        try
         {
-            SteamUiLog.Warn($"Steam did not create a shortcut: {outcome.Error}.");
+            result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            Writes.Release();
+        }
+
+        var outcome = ParseAddShortcut(result);
+        if (outcome is { Reachable: true, Confirmed: false })
+        {
+            SteamUiLog.Warn($"Steam did not confirm a new shortcut: {outcome.Error}");
+        }
+        else if (outcome.Mismatch is { } mismatch)
+        {
+            SteamUiLog.Warn($"A new shortcut did not read back as written: {mismatch}");
         }
 
         return outcome;
@@ -534,12 +700,12 @@ public static class SteamApps
     {
         if (!result.Reachable)
         {
-            return new SteamShortcutAddResult(false, 0, result.Error);
+            return new SteamShortcutAddResult(false, 0, false, result.Error);
         }
 
         if (result.Value is null)
         {
-            return new SteamShortcutAddResult(true, 0, "No response from Steam.");
+            return new SteamShortcutAddResult(true, 0, false, "No response from Steam.");
         }
 
         try
@@ -549,23 +715,87 @@ public static class SteamApps
             if (!SteamClientScript.IsOk(root))
             {
                 return new SteamShortcutAddResult(
-                    true, 0, SteamClientScript.ErrorOf(root) ?? "Steam refused to create the shortcut.");
+                    true, 0, false, SteamClientScript.ErrorOf(root) ?? "Steam refused to create the shortcut.");
             }
 
             var value = SteamClientScript.StringOf(root, "value");
             if (!uint.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var appId))
             {
-                return new SteamShortcutAddResult(true, 0, "Steam reported an unreadable shortcut id.");
+                return new SteamShortcutAddResult(true, 0, false, "Steam reported an unreadable shortcut id.");
             }
 
-            return IsShortcutAppId(appId)
-                ? new SteamShortcutAddResult(true, appId, null)
-                : new SteamShortcutAddResult(
-                    true, 0, $"Steam reported {appId}, which is not a non-Steam shortcut id.");
+            if (!IsShortcutAppId(appId))
+            {
+                return new SteamShortcutAddResult(
+                    true, 0, false, $"Steam reported {appId}, which is not a non-Steam shortcut id.");
+            }
+
+            var confirmed = root.TryGetProperty("confirmed", out var flag) && flag.ValueKind == JsonValueKind.True;
+            var mismatch = SteamClientScript.StringOf(root, "mismatch");
+            return new SteamShortcutAddResult(
+                true,
+                appId,
+                confirmed,
+                confirmed
+                    ? null
+                    : SteamClientScript.ErrorOf(root) ?? "The library did not confirm the new shortcut.",
+                mismatch.Length > 0 ? mismatch : null);
         }
         catch (JsonException ex)
         {
-            return new SteamShortcutAddResult(true, 0, $"Steam's shortcut reply was invalid: {ex.Message}");
+            return new SteamShortcutAddResult(true, 0, false, $"Steam's shortcut reply was invalid: {ex.Message}");
+        }
+    }
+
+    /// <summary>Maps a shortcut-list reply to a result. Pure, for tests.</summary>
+    /// <param name="result">The evaluation outcome.</param>
+    internal static SteamShortcutListResult ParseShortcuts(CefEvalResult result)
+    {
+        if (!result.Reachable)
+        {
+            return new SteamShortcutListResult(false, null, result.Error);
+        }
+
+        if (result.Value is null)
+        {
+            return new SteamShortcutListResult(true, null, "No response from Steam.");
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(result.Value);
+            var root = document.RootElement;
+            if (!SteamClientScript.IsOk(root)
+                || !root.TryGetProperty("shortcuts", out var items)
+                || items.ValueKind != JsonValueKind.Array)
+            {
+                return new SteamShortcutListResult(
+                    true, null, SteamClientScript.ErrorOf(root) ?? "Steam returned no shortcut list.");
+            }
+
+            List<SteamShortcut> shortcuts = [];
+            foreach (var item in items.EnumerateArray())
+            {
+                if (!uint.TryParse(SteamClientScript.StringOf(item, "id"), NumberStyles.None,
+                        CultureInfo.InvariantCulture, out var appId)
+                    || !IsShortcutAppId(appId))
+                {
+                    return new SteamShortcutListResult(true, null, "Steam listed a shortcut with an unreadable id.");
+                }
+
+                shortcuts.Add(new SteamShortcut(
+                    appId,
+                    SteamClientScript.StringOf(item, "name"),
+                    SteamClientScript.StringOf(item, "exe"),
+                    SteamClientScript.StringOf(item, "dir"),
+                    SteamClientScript.StringOf(item, "args")));
+            }
+
+            return new SteamShortcutListResult(true, shortcuts, null);
+        }
+        catch (JsonException ex)
+        {
+            return new SteamShortcutListResult(true, null, $"Steam's shortcut list was invalid: {ex.Message}");
         }
     }
 
@@ -583,8 +813,18 @@ public static class SteamApps
         string expression,
         CancellationToken cancellationToken)
     {
-        var result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
-            .ConfigureAwait(false);
+        await Writes.WaitAsync(cancellationToken).ConfigureAwait(false);
+        CefEvalResult result;
+        try
+        {
+            result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            Writes.Release();
+        }
+
         var outcome = SteamClientScript.ParseWrite(result);
         if (outcome is { Reachable: true, Accepted: false })
         {

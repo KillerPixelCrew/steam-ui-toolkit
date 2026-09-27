@@ -461,9 +461,23 @@ everything once restarted a machine and signed Steam out.
 
 `SteamUiBridgeIdentity.Namespace = "__steamUi_v1_28d7c54a"`,
 `BindingName = "__steamUiBridge_v1_7b24d11c"`. `SteamUiBridgeHost.SchemaVersion = 1`,
-`MaximumPayloadCharacters = 16 KiB` for what the document sends, `MaximumDeliveryCharacters = 1 MiB`
-for the state and responses the host delivers to it, `OperationTimeout = 5 s`, a 64-slot request
-channel.
+`MaximumPayloadCharacters = 16 KiB` for what the document sends, `DeliveryPartCharacters = 256 KiB`
+per evaluation for what the host delivers to it, `MaximumDeliveryCharacters = 32 MiB` as a guard on
+one delivery, `OperationTimeout = 5 s`, a 64-slot request channel.
+
+A delivery longer than one part goes as parts under one delivery id, each acknowledged before the
+next, and the injected side's `deliverPart` reassembles them before any subscriber sees the state. It
+keeps only the delivery it is assembling, so a set cut short by a failed part or a new document is
+dropped, never delivered half, and parts never split a surrogate pair. A state past the guard is not
+delivered; its refusal is, as a `refused` envelope a page reads through `subscribeRefusal(patchId,
+callback)`, which reports the reason and then null once a state arrives again. An answer past it
+reaches the waiting request as a refusal. The injected `request()` refuses a payload past the inbound
+cap itself, so the caller gets a reason instead of a timeout.
+
+A publication may declare a revision (`SteamUiModuleBuilder.Publication(..., revision)`). A round
+whose revision the document already holds (`SteamUiBridgeHost.IsPublished`) skips the read and the
+serialization entirely, so a large state is built only when it changed, not on every round another
+surface raised. The revision has to change whenever the state would.
 
 `BootstrapAsync` installs the binding, reads the snapshot after the install so a generation raised
 by it is the baseline, substitutes the configuration JSON for the literal
@@ -1133,24 +1147,50 @@ props are `asset` (grid, wide, hero, logo or icon: the shape), `image`, `placeho
 the grow animation and the shine are Steam's CSS for those classes.
 
 `resolveSteamUiComponents` also returns `checkbox`: Steam's `DialogCheckbox`, which lives in its own
-module beside the toggle's base class and takes the toggle's props. It is found by
-`DialogCheckbox_Container` and is null on a client without it, so a page treats it as wanted rather
-than required.
+module beside the toggle's base class and takes the toggle's props. It is found in the module named
+by `DialogCheckbox_Container` as the class whose prototype declares `SetChecked` and `Toggle` and
+whose source names `"DialogCheckbox"`, never by how the minifier joined those. It is null on a client
+without it; `steamCheckbox(ui)` answers it or, failing that, the toggle, which takes the same props.
 
 It also returns `dropdownControl`: the bare dropdown button that `DropDownField` wraps in a labelled
 row, for a toolbar that wants the control on its own. It is the field module's export whose
 prototype declares `SetSelectedOption` and `BuildMenu`, the members decky-frontend-lib chooses it
 by, and takes the dropdown's own props: `rgOptions`, `selectedOption`, `onChange`, `disabled`,
-`menuLabel`, `strDefaultLabel`. Null when it is not a unique match; a page then draws the field.
+`menuLabel`, `strDefaultLabel`. `renderSteamDropdown(ui, {label, rgOptions, selectedOption,
+onChange, disabled})` draws it where the client has it and the labelled field otherwise.
+
+`showSteamModal(ui, {title, className, render, onCancel})` opens a Steam modal around a body
+`render(close)` draws, calling `onCancel` when the user dismisses it; it answers false on a client
+with no modal manager. `resolveSteamPanelComponents(runtime)` answers Valve's `PanelSection` and
+`PanelSectionRow`, the pieces every Quick Access tab is built from, for the Quick Access row host and
+the Extensions tab alike. `SteamGamepadButton` names the button codes a Focusable's `onButtonDown`
+reports, and `onSteamTriggers(step)` turns LT and RT into a step of -1 and +1.
 
 `showSteamFilePicker(ui, {title, mode, extensions, start})` opens a folder or file picker as a Steam
 modal and resolves with the chosen path, or null when cancelled. A opens a folder or chooses a file, X
-uses the current folder, Y goes up a level and B cancels. It lists through the
-`steam-ui.file-picker` commands; register `SteamFilePickerSurface.Module(enabled)` to answer them. The
-module has no patch and publishes nothing. It lists names only, skips hidden and system entries,
-never opens a file, and caps a listing at `MaximumEntries`.
+uses the current folder, Y goes up a level and B cancels. A listing that answers after a later one
+was asked for is dropped, so the folder on screen is always the one "Use this folder" accepts. It
+lists through the `steam-ui.file-picker` commands; register `SteamFilePickerSurface.Module(enabled)`
+to answer them. The module has no patch and publishes nothing. It lists names only, skips hidden and
+system entries, never opens a file, and caps a listing at `MaximumEntries`.
 
-Mapped from the installed client offline on 2026-09-27; none of the three has had a live pass yet.
+The capsule, the checkbox and the picker were mapped from the installed client offline on 2026-09-27;
+the capsule and the checkbox have had a live pass in a host's import page since.
+
+### A host's own page
+
+`registerSteamPage({template, gate, patchId, components, required, prepare, release, status, Page})`
+declares a page a host draws inside Steam. It registers the renderer under `template` and a gate
+under `gate` that resolves `components(runtime)`, refuses to install when a name in `required` is
+missing or `prepare` answers a reason, subscribes to `patchId`'s state and its refusals, and on
+removal drops both so a mounted page draws nothing rather than its last controls. It answers the
+context the page reads while it renders: `react()`, `ui()`, `state()` and `refusal()`. `Page` is
+drawn inside a frame of the toolkit's, which re-renders it on every change and, until the gate
+holds, says why instead of showing "Loading…" for ever.
+
+`SteamPagePatch.Create(patchId, gateName, fingerprint, subject, probes)` is the matching C# patch: a
+read-only probe that every `SteamPageProbe` the page draws from matches exactly once, then the page
+gate's install, verified by `installed`, `resolved` and `subscribed`.
 
 ### Settings pages
 
@@ -1310,19 +1350,25 @@ Each plugin item carries `Id`, `Name`, `Version`, `Status`, optional `Detail`, b
 primitive settings and the configuration revision; the gate renders at most 64 items. A revision
 that is not a non-negative safe integer refuses the item at the publication boundary, since the
 configure command would reject every change it offered. Activation sends `activate {id}`. A setting
-sends exact `configure {id,key,value,expectedRevision}` to `ISteamExtensionsTabBackend`; booleans,
-finite numbers and bounded text are the only values accepted. A value typed into a text or number
-box belongs to the revision it was typed against: a newer published revision and a refused save both
-drop it, so the box never shows or resends a value the host has replaced or rejected. Secret
-settings render as password inputs and their current value should be omitted from published state.
+sends exact `configure {id,key,value,revision}` to `ISteamExtensionsTabBackend`; booleans, finite
+numbers and bounded text are the only values accepted.
+
 Each item is drawn as Steam's own `PanelSection`, titled with the item's name, with its detail,
-actions and settings in `PanelSectionRow` rows; an action is Steam's `DialogButton` and a boolean
-setting Steam's `ToggleField`, the pieces every Quick Access tab is built from, so focus and D-pad
-navigation behave as they do in Valve's tabs. The panel adds no heading of its own; Steam titles
-the tab. On a client where one of those is not a unique match the tab falls back to plain markup
-whose action and save controls use Steam's native focusable Panel, which is what the emitted
-checks exercise. The Quick Access memo claim retains its original member snapshot, and both
-discovery and subsequent probes recognize that snapshot rather than rejecting the installed
+actions and settings in `PanelSectionRow` rows. An action is Steam's `DialogButton`, and a setting is
+drawn by `renderSteamSettingRow`, the same code and the same Steam fields a host's settings page
+uses: a boolean is the `ToggleField`, text with choices the dropdown, a bounded number the slider,
+text, an unbounded number and a secret the `TextField` (a secret's box starts empty), and an order
+the value field with Steam's small move buttons, sent as the comma-joined list. A value typed into a
+box belongs to the revision it was typed against and is sent when the box is left: a newer published
+revision and a refused save both drop it, so the box never shows or resends a value the host has
+replaced or rejected. The panel adds no heading of its own; Steam titles the tab, which draws its own
+`extensions` glyph.
+
+Every one of those pieces is required, as on every surface here: a client missing one refuses the
+tab and names what is missing, rather than drawing an imitation. The probe counts the Quick Access
+module, the fields module, the focusable and the panel layout module, and verification requires
+`nativeComponentsResolved`. The Quick Access memo claim retains its original member snapshot, and
+both discovery and subsequent probes recognize that snapshot rather than rejecting the installed
 wrapper.
 
 An `activate` answer carrying a `route` opens that page, the same contract the game context menu
@@ -1368,22 +1414,37 @@ nothing and the caller may offer the request again.
 | `SteamCurrentPage`      | which game page is in view: the focused React fiber, then the largest wide library image, then the library route.                                                                                                                                                                          |
 | `SteamRunningAppsProbe` | which apps Steam is running, and the log of starts and stops behind `SteamAppLifetimeMonitor`.                                                                                                                                                                                             |
 
-### Creating and deleting non-Steam shortcuts
+### Creating, reading and deleting non-Steam shortcuts
 
-`AddShortcutAsync` asks the client for a new entry and reports the id Steam generated, so no caller
-reproduces Steam's own derivation. Steam persists the entry to `shortcuts.vdf` immediately, as it
-does for every other write here.
+Every change `SteamApps` makes goes through one gate, one at a time, each followed by a settle: two
+changes in flight against a client mutating its own library store is how that store gets corrupted,
+and a shortcut added by one caller while another diffs the library would make the other misread
+which entry it created.
 
-The fields are written twice in the same script, deliberately. `AddShortcut`'s positional contract
-is not one this library has verified across client builds, while `SetShortcutName`,
-`SetShortcutExe` and `SetShortcutLaunchOptions` are the calls `SetShortcutLaunchAsync` and every
-shortcut manager rely on. Re-asserting the name, Target, working directory and arguments through
-the setters means a client that reads the positional arguments differently still ends up with the
-intended values. The name is the one that bites: the client on the reference Claw ignores the name
-it is passed and calls the entry after its executable, so until the name was set again every
-imported game was called `wsgm.packagedlaunch` (2026-09-27). Each setter is guarded by its own
-`typeof` check, as `AddShortcut` itself is: a missing export is reported as a refusal, never assumed
-present.
+`AddShortcutAsync` asks the client for a new entry and confirms which entry it is, so no caller
+reproduces Steam's own derivation or its own diff. The id is confirmed by what the client returned
+and by a before-and-after diff of the library, and the diff is the authority. `Confirmed` is true
+only when the library gained exactly one shortcut and, when Steam returned an id, that one; an
+unconfirmed id may name another entry or none, and its `Error` says which case it was. Once Steam
+may have the entry the call runs to its answer whatever the cancellation token says. Steam persists
+the entry to `shortcuts.vdf` immediately, as it does for every other write here.
+
+The fields are then set on the entry the library gained, deliberately a second time.
+`AddShortcut`'s positional contract is not one this library has verified across client builds,
+while `SetShortcutName`, `SetShortcutExe`, `SetShortcutStartDir` and `SetShortcutLaunchOptions` are
+the calls every shortcut manager relies on. The name is the one that bites: a client can ignore the
+name it is passed and call the entry after its executable. Each field is read back after the settle,
+and `Mismatch` names any that Steam holds differently. Each setter is guarded by its own `typeof`
+check, as `AddShortcut` itself is: a missing export is reported as a refusal, never assumed present.
+
+`ListShortcutsAsync` reads every shortcut in the library with its Target, start directory and
+arguments in one evaluation, in batches of 32 detail reads. It is all or nothing: a shortcut whose
+details Steam did not return fails the read, and `Shortcuts` is null, never a list with holes or an
+empty list standing in for a read that failed.
+
+`SetShortcutLaunchAsync(appId, target, launchArguments)` leaves the start directory alone, for a
+caller that wraps what a shortcut runs; `SetShortcutLaunchAsync(appId, target, startDirectory,
+launchArguments)` writes all three, for a caller that owns the whole command.
 
 The id crosses as a decimal string, because a shortcut id occupies the top half of the unsigned
 32-bit range and reads back negative as a JSON number. `ParseAddShortcut` refuses anything that is

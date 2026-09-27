@@ -21,6 +21,13 @@ const DropdownMarkers = [
     "childrenContainerWidth",
     "menuLabel",
 ] as const;
+// Steam's library item class map, by three class names only it carries together: the library
+// capsule is styled by it and the library badge reads its tile classes from it.
+const SteamLibraryClassTokens = [
+    'ControllerSupportIcon:"',
+    'LibraryItemIcons:"',
+    'LibraryItemBox:"',
+] as const;
 // The JSX runtime module: `jsx` and `jsxs` beside React's element marker.
 const JsxRuntimeTokens = ["react.transitional.element", ".jsx", ".jsxs"] as const;
 // The client settings store: the store class's own getter and its deferred-settings set.
@@ -192,11 +199,18 @@ const resolveSteamUiComponents = (runtime) => {
 
     // Steam's own checkbox, the DialogCheckbox its dialogs tick options with. It lives in its own
     // module beside the toggle's base class and takes the same props: label, description, checked,
-    // onChange, disabled. Wanted, not required: a page that needs it says so.
+    // onChange, disabled. Chosen by what its author wrote - the class name it draws and the two
+    // methods decky-frontend-lib also picks it by - never by how the minifier joined them. Wanted,
+    // not required: a page that needs it says so, and `steamCheckbox` falls back to the toggle.
     const checkbox = optionalSteamExport(
         runtime,
         ["DialogCheckbox_Container"],
-        (value) => typeof value === "function" && String(value).includes('"DialogCheckbox"+'),
+        (value) =>
+            typeof value === "function" &&
+            !!value.prototype &&
+            "SetChecked" in value.prototype &&
+            "Toggle" in value.prototype &&
+            String(value).includes('"DialogCheckbox"'),
     );
 
     return {
@@ -207,6 +221,90 @@ const resolveSteamUiComponents = (runtime) => {
         showModal,
         checkbox,
     };
+};
+
+// Valve's panel pieces, the ones every Quick Access tab is built from: PanelSection, which draws a
+// titled section, and PanelSectionRow, which lays one control out inside it. Both come from the one
+// layout module that names them together; null when either is not a unique match there.
+const PanelLayoutTokens = ["PanelSectionTitle", "PanelSectionRow", "spinner"] as const;
+const resolveSteamPanelComponents = (runtime) => {
+    const factory = runtime.findUnique(PanelLayoutTokens);
+    if (!factory) return null;
+    const layout = runtime(factory[0]);
+    const section = uniqueSteamExport(layout, (value) => {
+        if (typeof value !== "function") return false;
+        const source = String(value);
+        return source.includes("PanelSectionTitle") && source.includes("spinner");
+    });
+    const row = uniqueSteamExport(
+        layout,
+        (value) =>
+            !!value && typeof value === "object" && !!value.$$typeof && typeof value.render === "function",
+    );
+    return section && row ? {section, row} : null;
+};
+
+// Steam's checkbox where the client has it, its toggle otherwise: both take label, description,
+// checked, onChange and disabled, so a page draws either without knowing which it got.
+const steamCheckbox = (ui) => ui?.checkbox ?? ui?.toggleField ?? null;
+
+// A dropdown for a toolbar: Steam's bare dropdown button where the client has it, its labelled
+// DropDownField otherwise. Takes the dropdown's own props; `label` names the field, or titles the
+// bare button's menu.
+const renderSteamDropdown = (ui, props) =>
+    ui.dropdownControl
+        ? ui.react.createElement(ui.dropdownControl, {
+              rgOptions: props.rgOptions,
+              selectedOption: props.selectedOption,
+              onChange: props.onChange,
+              disabled: props.disabled,
+              menuLabel: props.label,
+          })
+        : ui.react.createElement(ui.dropdown, {
+              label: props.label,
+              rgOptions: props.rgOptions,
+              selectedOption: props.selectedOption,
+              onChange: props.onChange,
+              disabled: props.disabled,
+              layout: "below",
+          });
+
+// Opens a Steam modal around a body the caller draws. `render(close)` is called on every render of
+// the modal, so a body that keeps state is a component the caller renders from it. `onCancel` runs
+// when the user dismisses the modal with B or the backdrop, before it closes. Answers false when
+// this client has no modal manager, so the caller can say why nothing opened.
+const showSteamModal = (
+    ui,
+    options: {title?: string; className?: string; render: (close: () => void) => any; onCancel?: () => void},
+) => {
+    if (!ui?.showModal || !ui?.modalRoot) return false;
+    const react = ui.react;
+    const title = options.title ?? "";
+    function SteamModal(props: any) {
+        const close = props?.closeModal ?? (() => {});
+        const cancel = () => {
+            options.onCancel?.();
+            close();
+        };
+        return react.createElement(
+            ui.modalRoot,
+            {className: options.className, onCancel: cancel, closeModal: cancel, strTitle: title},
+            options.render(close),
+        );
+    }
+    ui.showModal(react.createElement(SteamModal, {}), window, {strTitle: title});
+    return true;
+};
+
+// Steam's gamepad button codes, as a Focusable's onButtonDown reports them in event.detail.button.
+const SteamGamepadButton = Object.freeze({TriggerLeft: 7, TriggerRight: 8} as const);
+
+// An onButtonDown handler that turns the triggers into a step: -1 for LT, +1 for RT. Any other
+// button is left to Steam.
+const onSteamTriggers = (step: (delta: number) => void) => (event: any) => {
+    const button = event?.detail?.button;
+    if (button === SteamGamepadButton.TriggerLeft) step(-1);
+    else if (button === SteamGamepadButton.TriggerRight) step(1);
 };
 
 // Closes whichever side panel is open, so a route followed from inside one is not rendered behind

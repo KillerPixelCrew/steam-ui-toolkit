@@ -117,10 +117,6 @@ public sealed class SteamUiBridgeHostTests
         Assert.True(await host.BootstrapAsync());
         var afterBootstrap = transport.Expressions.Count;
         Assert.False(await host.PublishStateAsync("not.allowlisted", TestJson.Parse("{}")));
-        Assert.False(await host.PublishStateAsync(
-            "example.performance",
-            TestJson.Parse("{\"value\":\"" + new string('x', SteamUiBridgeHost.MaximumDeliveryCharacters)
-                                           + "\"}")));
         Assert.Equal(afterBootstrap, transport.Expressions.Count);
 
         Assert.True(await host.PublishStateAsync(
@@ -148,19 +144,101 @@ public sealed class SteamUiBridgeHostTests
     }
 
     [Fact]
-    public async Task ResponsePayloadUsesTheSameBoundAsPublishedState()
+    public async Task AnOversizedStateDeliversItsRefusalInstead()
     {
+        // The page holds the last state it was given; only the refusal can tell it that is stale.
         await using var transport = new FakeSteamUiTransport();
         await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
         Assert.True(await host.BootstrapAsync());
         var afterBootstrap = transport.Expressions.Count;
         var oversized = TestJson.Parse(
-            "{\"value\":\"" + new string('x', SteamUiBridgeHost.MaximumDeliveryCharacters)
-                            + "\"}");
+            "{\"value\":\"" + new string('x', SteamUiBridgeHost.MaximumDeliveryCharacters) + "\"}");
 
-        Assert.False(await host.RespondAsync(
-            Request(transport.Generations, 1, 1), true, oversized, null));
-        Assert.Equal(afterBootstrap, transport.Expressions.Count);
+        Assert.False(await host.PublishStateAsync("example.performance", oversized));
+
+        // Quotes inside the envelope are JSON-escaped in the expression.
+        var sent = Assert.Single(transport.Expressions.Skip(afterBootstrap));
+        Assert.Contains("\\u0022type\\u0022:\\u0022refused\\u0022", sent, StringComparison.Ordinal);
+        Assert.DoesNotContain("xxxx", sent, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnOversizedAnswerIsDeliveredAsARefusal()
+    {
+        // A request left to time out would tell the waiting page nothing about why.
+        await using var transport = new FakeSteamUiTransport();
+        await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
+        Assert.True(await host.BootstrapAsync());
+        var afterBootstrap = transport.Expressions.Count;
+        var oversized = TestJson.Parse(
+            "{\"value\":\"" + new string('x', SteamUiBridgeHost.MaximumDeliveryCharacters) + "\"}");
+
+        Assert.True(await host.RespondAsync(Request(transport.Generations, 1, 1), true, oversized, null));
+
+        var sent = Assert.Single(transport.Expressions.Skip(afterBootstrap));
+        Assert.Contains("too large", sent, StringComparison.Ordinal);
+        Assert.Contains("\\u0022ok\\u0022:false", sent, StringComparison.Ordinal);
+        Assert.DoesNotContain("xxxx", sent, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ALargeDeliveryGoesInParts()
+    {
+        await using var transport = new FakeSteamUiTransport();
+        await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
+        Assert.True(await host.BootstrapAsync());
+        var afterBootstrap = transport.Expressions.Count;
+        var large = TestJson.Parse(
+            "{\"value\":\"" + new string('x', 2 * SteamUiBridgeHost.DeliveryPartCharacters) + "\"}");
+
+        Assert.True(await host.PublishStateAsync("example.performance", large));
+
+        var sent = transport.Expressions.Skip(afterBootstrap).ToList();
+        Assert.Equal(3, sent.Count);
+        Assert.All(sent, expression => Assert.Contains("deliverPart({id:", expression, StringComparison.Ordinal));
+        Assert.Contains("index:2,count:3", sent[2], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AFailedPartStopsTheDelivery()
+    {
+        await using var transport = new FakeSteamUiTransport();
+        await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
+        Assert.True(await host.BootstrapAsync());
+        var afterBootstrap = transport.Expressions.Count;
+        transport.EvaluationValue = "{\"ok\":false}";
+        var large = TestJson.Parse(
+            "{\"value\":\"" + new string('x', 2 * SteamUiBridgeHost.DeliveryPartCharacters) + "\"}");
+
+        Assert.False(await host.PublishStateAsync("example.performance", large));
+        Assert.Single(transport.Expressions.Skip(afterBootstrap));
+    }
+
+    [Fact]
+    public void PartsNeverSplitASurrogatePair()
+    {
+        var text = new string('x', SteamUiBridgeHost.DeliveryPartCharacters - 1) + "\U0001F600" + "tail";
+
+        var parts = SteamUiBridgeHost.SplitParts(text);
+
+        Assert.Equal(text, string.Concat(parts));
+        Assert.All(parts, part => Assert.False(char.IsHighSurrogate(part[^1])));
+    }
+
+    [Fact]
+    public async Task ARevisionTheDocumentHoldsIsKnownUntilTheDocumentChanges()
+    {
+        await using var transport = new FakeSteamUiTransport();
+        await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
+        Assert.True(await host.BootstrapAsync());
+
+        Assert.False(host.IsPublished("example.performance", 4));
+        Assert.True(await host.PublishStateAsync("example.performance", TestJson.Parse("{\"watts\":15}"), 4));
+        Assert.True(host.IsPublished("example.performance", 4));
+        Assert.False(host.IsPublished("example.performance", 5));
+
+        transport.AdvanceDocumentGeneration();
+        Assert.False(host.IsPublished("example.performance", 4));
     }
 
     [Fact]

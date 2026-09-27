@@ -155,7 +155,7 @@ public static class SteamLibraryBadgeSurface
               settingsModule:count({{SteamUiProbeJs.SettingsStoreTokens}}),
               // The tile stylesheet's class map, read by Valve's names; wanted for focus-only
               // visibility, not required for the badge to draw.
-              classMap:count(['ControllerSupportIcon:"','LibraryItemIcons:"','LibraryItemBox:"']),
+              classMap:count({{SteamUiProbeJs.LibraryClassTokens}}),
               react:count({{SteamUiProbeJs.ReactTokens}})
             });
           {{SteamUiProbeJs.Close}}

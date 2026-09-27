@@ -93,7 +93,7 @@ function createLibraryBadge() {
     // mapped to whatever hashes this build emitted. Read by name, so the hashes are never written
     // down here. The badge's visibility comes from Valve's rules on the badge class — hidden until
     // the tile is focused or hovered — and the row wearing that class inherits them.
-    const ClassMapTokens = ['ControllerSupportIcon:"', 'LibraryItemIcons:"', 'LibraryItemBox:"'] as const;
+    const ClassMapTokens = SteamLibraryClassTokens;
     const BigArtSetting = "library_home_big_art";
 
     const MaximumDescent = 12;

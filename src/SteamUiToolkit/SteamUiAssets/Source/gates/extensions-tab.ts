@@ -44,16 +44,27 @@ function createExtensionsTab() {
   // onFocusNavDeactivated to the element holding the tab list.
   const MaximumDescent = 32;
 
+  // What the tab draws with, every piece Steam's own: the panel's PanelSection and PanelSectionRow,
+  // its DialogButton, and the settings fields `renderSteamSettingRow` draws a setting with. All of
+  // them are required. A client missing one refuses the tab, like every surface here, rather than
+  // drawing an imitation that looks and navigates unlike the tabs beside it.
+  const ExtensionsTabRequired = [
+    "react",
+    "focusable",
+    "dialogButton",
+    "toggleField",
+    "dropdown",
+    "sliderField",
+    "textField",
+    "smallButton",
+    "valueField",
+  ] as const;
+
   let runtime;
   let react;
-  let focusable;
-  // Valve's own panel pieces, the ones every Quick Access tab is built from: PanelSection with its
-  // title, PanelSectionRow, DialogButton and ToggleField. Wanted, not required: a client where one
-  // is not a unique match draws the plain markup below instead, so the tab still exists.
-  let section: any = null;
-  let row: any = null;
-  let dialogButton: any = null;
-  let toggleField: any = null;
+  let ui: any = null;
+  let panel: any = null;
+  let icon: any = null;
   let memo: any = null;
   let installed = false;
   let unsubscribe: (() => void) | null = null;
@@ -126,7 +137,7 @@ function createExtensionsTab() {
         // Valve's tabs carry both: the element the header draws and the string it is named by.
         title: react.createElement("div", null, ExtensionsTabTitle),
         strTitle: ExtensionsTabTitle,
-        tab: createIconRenderer(react)("plug", 22),
+        tab: icon("extensions", 22),
         steamUiExtensionsTab: true,
         initialVisibility: !!visible,
         panel: react.createElement(ExtensionsTabPanel, { key: "steam-ui.extensions-panel" }),
@@ -137,13 +148,69 @@ function createExtensionsTab() {
     return withOurTabActive(element);
   };
 
+  // A published setting as the settings renderer's row, so a setting here is drawn by the same code,
+  // and looks the same, as one on a host's settings page. Null for a setting no row can show.
+  const settingRow = (item, setting) => {
+    const key = `${item.id}:${setting.key}`;
+    const choices = Array.isArray(setting.choices)
+      ? setting.choices.map((choice) => ({ value: choice, label: choice }))
+      : null;
+    switch (setting.kind) {
+      case "boolean":
+        return { key, label: setting.label, kind: "boolean", checked: !!setting.booleanValue };
+      case "order": {
+        if (!choices) return null;
+        const saved = String(setting.textValue ?? "")
+          .split(",")
+          .filter((choice) => setting.choices.includes(choice));
+        return {
+          key,
+          label: setting.label,
+          kind: "order",
+          choices,
+          order: [...new Set([...saved, ...setting.choices])],
+        };
+      }
+      case "number":
+        return Number.isFinite(setting.minimum) && Number.isFinite(setting.maximum)
+          ? {
+              key,
+              label: setting.label,
+              kind: "range",
+              number: setting.numberValue ?? setting.minimum,
+              minimum: setting.minimum,
+              maximum: setting.maximum,
+            }
+          : { key, label: setting.label, kind: "text", text: String(setting.numberValue ?? "") };
+      case "secret":
+        // A secret's current value is never published, so its box starts empty.
+        return { key, label: setting.label, kind: "secret" };
+      default:
+        return choices
+          ? { key, label: setting.label, kind: "choice", choices, text: setting.textValue ?? "" }
+          : { key, label: setting.label, kind: "text", text: setting.textValue ?? "" };
+    }
+  };
+
+  // What a row's value means to the host: an order is sent as its comma-joined list, and a number
+  // typed into a box as a number. Undefined when the value is not one the setting can take.
+  const settingValue = (setting, value) => {
+    if (setting.kind === "order") return Array.isArray(value) ? value.join(",") : undefined;
+    if (setting.kind === "number") {
+      const number = Number(value);
+      return Number.isFinite(number) ? number : undefined;
+    }
+    return value;
+  };
+
   function ExtensionsTabPanel() {
     const [, setRevision] = react.useState(0);
     const [drafts, setDrafts] = react.useState({});
     react.useEffect(() => subscribe(patchId, () => setRevision((value) => value + 1)), []);
+    const h = react.createElement;
     const items = desired.items;
     const activate = (id) => {
-      void request(patchId, "activate", { id }, nextActionGeneration(patchId)).then(
+      void request(patchId, "activate", { id }).then(
         (answer: any) => {
           // An action may answer with a page to open. The panel is closed first: this tab is
           // rendered inside the Quick Access flyout, so navigating with it open leaves the page
@@ -166,292 +233,73 @@ function createExtensionsTab() {
         delete next[draftKey];
         return next;
       });
-    const configure = (item, setting, value) => {
-      const draftKey = `${item.id}:${setting.key}`;
-      void request(
-        patchId,
-        "configure",
-        { id: item.id, key: setting.key, value, revision: item.configurationRevision ?? 0 },
-        nextActionGeneration(patchId),
-      ).catch(() => dropDraft(draftKey));
+    // The row renderer's change: record the draft against this revision, and send it when the row
+    // commits. A value the setting cannot take is dropped rather than sent to be refused.
+    const change = (item, setting) => (row, value, commit = true) => {
+      const revision = item.configurationRevision ?? 0;
+      setDrafts((previous) => ({ ...previous, [row.key]: { value, revision } }));
+      if (!commit) return;
+      const sent = settingValue(setting, value);
+      if (sent === undefined) {
+        dropDraft(row.key);
+        return;
+      }
+      void request(patchId, "configure", {
+        id: item.id,
+        key: setting.key,
+        value: sent,
+        revision,
+      }).catch(() => dropDraft(row.key));
     };
     const settingControl = (item, setting) => {
-      const draftKey = `${item.id}:${setting.key}`;
-      if (setting.kind === "boolean") {
-        if (toggleField) {
-          return react.createElement(toggleField, {
-            key: setting.key,
-            label: setting.label,
-            checked: !!setting.booleanValue,
-            controlled: true,
-            onChange: (value) => configure(item, setting, !!value),
-          });
-        }
-        return react.createElement(
-          focusable,
-          {
-            key: setting.key,
-            focusable: true,
-            navKey: `steam-ui-extension-setting-${draftKey}`,
-            onActivate: () => configure(item, setting, !setting.booleanValue),
-            style: {
-              display: "flex",
-              justifyContent: "space-between",
-              width: "100%",
-              boxSizing: "border-box",
-              padding: "10px 12px",
-              margin: "3px 0",
-              color: "inherit",
-              background: "rgba(255,255,255,.05)",
-              border: 0,
-              borderRadius: "3px",
-            },
-          },
-          react.createElement("span", null, setting.label),
-          react.createElement("strong", null, setting.booleanValue ? "On" : "Off"),
-        );
-      }
-      if (setting.kind === "order" && Array.isArray(setting.choices)) {
-        const saved = String(setting.textValue ?? "")
-          .split(",")
-          .filter((choice) => setting.choices.includes(choice));
-        const ordered = [
-          ...new Set([...saved, ...setting.choices]),
-        ];
-        const move = (index, delta) => {
-          const target = index + delta;
-          if (target < 0 || target >= ordered.length) return;
-          const next = [...ordered];
-          [next[index], next[target]] = [next[target], next[index]];
-          configure(item, setting, next.join(","));
-        };
-        return react.createElement(
-          "div",
-          { key: setting.key, style: { display: "grid", gap: "4px", padding: "8px 0" } },
-          react.createElement("div", { style: { opacity: 0.8 } }, setting.label),
-          ...ordered.map((choice, choiceIndex) =>
-            react.createElement(
-              "div",
-              {
-                key: choice,
-                style: {
-                  display: "grid",
-                  gridTemplateColumns: "1fr auto auto",
-                  alignItems: "center",
-                  gap: "4px",
-                  padding: "5px 8px",
-                  background: "rgba(255,255,255,.05)",
-                },
-              },
-              react.createElement("span", null, choice),
-              react.createElement(
-                focusable,
-                {
-                  focusable: true,
-                  navKey: `steam-ui-extension-order-up-${draftKey}-${choiceIndex}`,
-                  onActivate: () => move(choiceIndex, -1),
-                  style: { padding: "7px 10px", color: "inherit", background: "transparent" },
-                },
-                "↑",
-              ),
-              react.createElement(
-                focusable,
-                {
-                  focusable: true,
-                  navKey: `steam-ui-extension-order-down-${draftKey}-${choiceIndex}`,
-                  onActivate: () => move(choiceIndex, 1),
-                  style: { padding: "7px 10px", color: "inherit", background: "transparent" },
-                },
-                "↓",
-              ),
-            ),
-          ),
-        );
-      }
-      if (Array.isArray(setting.choices)) {
-        return react.createElement(
-          "div",
-          {
-            key: setting.key,
-            style: { display: "grid", gap: "4px", padding: "8px 0" },
-          },
-          react.createElement("div", { style: { opacity: 0.8 } }, setting.label),
-          ...setting.choices.map((choice, choiceIndex) =>
-            react.createElement(
-              focusable,
-              {
-                key: choice,
-                focusable: true,
-                navKey: `steam-ui-extension-choice-${draftKey}-${choiceIndex}`,
-                onActivate: () => configure(item, setting, choice),
-                style: {
-                  display: "flex",
-                  justifyContent: "space-between",
-                  width: "100%",
-                  padding: "9px 12px",
-                  color: "inherit",
-                  background: "rgba(255,255,255,.05)",
-                  border: 0,
-                  borderRadius: "3px",
-                },
-              },
-              react.createElement("span", null, choice),
-              react.createElement("strong", null, setting.textValue === choice ? "Selected" : ""),
-            ),
-          ),
-        );
-      }
-      const revision = item.configurationRevision ?? 0;
-      const draft = drafts[draftKey];
-      const current =
-        draft && draft.revision === revision
-          ? draft.value
-          : (setting.textValue ?? setting.numberValue ?? "");
-      return react.createElement(
-        "div",
-        {
-          key: setting.key,
-          style: { display: "grid", gap: "6px", padding: "8px 0" },
-        },
-        react.createElement("label", null, setting.label),
-        react.createElement("input", {
-          type:
-            setting.kind === "secret" ? "password" : setting.kind === "number" ? "number" : "text",
-          value: current,
-          min: setting.minimum,
-          max: setting.maximum,
-          onChange: (event) =>
-            setDrafts((previous) => ({
-              ...previous,
-              [draftKey]: { value: event.currentTarget.value, revision },
-            })),
-          style: {
-            padding: "8px 10px",
-            color: "inherit",
-            background: "rgba(0,0,0,.3)",
-            border: "1px solid rgba(255,255,255,.25)",
-          },
-        }),
-        react.createElement(
-          focusable,
-          {
-            focusable: true,
-            navKey: `steam-ui-extension-save-${draftKey}`,
-            onActivate: () =>
-              configure(
-                item,
-                setting,
-                setting.kind === "number" ? Number(current) : String(current),
-              ),
-            style: {
-              padding: "8px 12px",
-              color: "inherit",
-              background: "#1a9fff",
-              border: 0,
-              borderRadius: "3px",
-            },
-          },
-          "Save",
-        ),
+      const row = settingRow(item, setting);
+      if (!row) return null;
+      const draft = drafts[row.key];
+      return renderSteamSettingRow(
+        ui,
+        row,
+        draft && draft.revision === (item.configurationRevision ?? 0) ? draft.value : undefined,
+        change(item, setting),
+        () => {},
       );
     };
-    // An action is Steam's DialogButton, which the Quick Access panel already knows how to lay out
-    // and focus; the plain focusable is the fallback.
-    const actionControl = (action) =>
-      dialogButton
-        ? react.createElement(
-            dialogButton,
-            { key: action.id, onClick: () => activate(action.id) },
-            action.label,
-          )
-        : react.createElement(
-            focusable,
-            {
-              key: action.id,
-              focusable: true,
-              navKey: `steam-ui-extension-action-${action.id}`,
-              onActivate: () => activate(action.id),
-              style: {
-                width: "100%",
-                boxSizing: "border-box",
-                marginTop: "8px",
-                padding: "9px 12px",
-                color: "inherit",
-                background: "rgba(255,255,255,.1)",
-                border: 0,
-                borderRadius: "3px",
-                textAlign: "left",
-              },
-            },
-            action.label,
-          );
     const detailOf = (item) =>
       [item.version, item.status, item.detail].filter((part) => !!part).join(" · ");
-    // One PanelSection per extension, titled with its name, its rows the way Valve's tabs and
-    // decky's plugin list lay theirs out; Steam draws the tab's own title above, so the panel adds
-    // no heading of its own.
-    const rows = items.map((item) =>
-      section && row
-        ? react.createElement(
-            section,
-            { key: item.id, title: item.name },
-            detailOf(item)
-              ? react.createElement(
-                  row,
-                  null,
-                  react.createElement(
-                    "div",
-                    { style: { fontSize: "12px", opacity: 0.75, padding: "2px 0 6px" } },
-                    detailOf(item),
-                  ),
-                )
-              : null,
-            ...(item.actions ?? []).map((action) =>
-              react.createElement(row, { key: `action-${action.id}` }, actionControl(action)),
-            ),
-            ...(item.settings ?? []).map((setting) =>
-              react.createElement(
-                row,
-                { key: `setting-${setting.key}` },
-                settingControl(item, setting),
-              ),
-            ),
-          )
-        : react.createElement(
-            "section",
-            {
-              key: item.id,
-              style: {
-                display: "block",
-                width: "100%",
-                boxSizing: "border-box",
-                textAlign: "left",
-                padding: "12px 16px",
-                margin: "4px 0",
-                color: "inherit",
-                background: "rgba(255,255,255,.06)",
-                border: "0",
-                borderRadius: "3px",
-              },
-            },
-            react.createElement("div", { style: { fontWeight: 700 } }, item.name),
-            react.createElement("div", { style: { fontSize: "0.8em", opacity: 0.75 } }, detailOf(item)),
-            ...(item.actions ?? []).map(actionControl),
-            ...(item.settings ?? []).map((setting) => settingControl(item, setting)),
+    // One PanelSection per extension, titled with its name, and one PanelSectionRow per line in it,
+    // the way Valve's own tabs and decky's plugin list lay theirs out. Steam titles the tab itself,
+    // so the panel adds no heading of its own.
+    const sections = items.map((item) =>
+      h(
+        panel.section,
+        { key: item.id, title: item.name },
+        detailOf(item)
+          ? h(
+              panel.row,
+              { key: "detail" },
+              h("div", { style: { fontSize: "12px", opacity: 0.75 } }, detailOf(item)),
+            )
+          : null,
+        ...(item.actions ?? []).map((action) =>
+          h(
+            panel.row,
+            { key: `action-${action.id}` },
+            h(ui.dialogButton, { onClick: () => activate(action.id) }, action.label),
           ),
+        ),
+        ...(item.settings ?? []).map((setting) =>
+          h(panel.row, { key: `setting-${setting.key}` }, settingControl(item, setting)),
+        ),
+      ),
     );
-    return react.createElement(
+    return h(
       "div",
-      {
-        className: "steam-ui-extensions-tab",
-        style: section && row ? undefined : { padding: "16px", boxSizing: "border-box" },
-      },
-      rows.length
-        ? rows
-        : react.createElement(
-            "div",
-            { style: { opacity: 0.7, padding: "16px" } },
-            "No Steam UI extensions are installed.",
+      { className: "steam-ui-extensions-tab" },
+      sections.length
+        ? sections
+        : h(
+            panel.section,
+            { key: "empty" },
+            h(panel.row, null, "No Steam UI extensions are installed."),
           ),
     );
   }
@@ -478,39 +326,18 @@ function createExtensionsTab() {
 
   const resolve = () => {
     runtime = getWebpackRuntime("extensions-tab");
-    react = resolveReact(runtime);
-    if (!react) {
-      lastError = "React runtime was not a unique match";
+    ui = resolveSteamSettingsComponents(runtime);
+    panel = resolveSteamPanelComponents(runtime);
+    const missing: string[] = ExtensionsTabRequired.filter((name) => !ui?.[name]);
+    if (!panel) missing.push("panel section and row");
+    if (missing.length) {
+      lastError = `Native Steam components unavailable: ${missing.join(", ")}`;
+      ui = null;
+      panel = null;
       return false;
     }
-    focusable = resolveNativeFocusable(runtime);
-    if (!focusable) {
-      lastError = "Native Steam focusable control was not a unique match";
-      return false;
-    }
-    // Valve's panel pieces, by the fingerprints the Quick Access component host resolves them by.
-    const layoutFactory = runtime.findUnique(["PanelSectionTitle", "PanelSectionRow", "spinner"]);
-    const layout = layoutFactory ? runtime(layoutFactory[0]) : null;
-    section = layout
-      ? uniqueSteamExport(layout, (value) => {
-          if (typeof value !== "function") return false;
-          const source = String(value);
-          return source.includes("PanelSectionTitle") && source.includes("spinner");
-        })
-      : null;
-    row = layout
-      ? uniqueSteamExport(
-          layout,
-          (value) =>
-            !!value &&
-            typeof value === "object" &&
-            !!value.$$typeof &&
-            typeof value.render === "function",
-        )
-      : null;
-    const fields = resolveSteamFieldComponents(runtime);
-    dialogButton = fields?.dialogButton ?? null;
-    toggleField = fields?.toggleField ?? null;
+    react = ui.react;
+    icon = createIconRenderer(react);
     const qam = runtime.findUnique([QamToken]);
     if (!qam) {
       lastError = "Quick Access module was not a unique match";
@@ -600,9 +427,7 @@ function createExtensionsTab() {
     ok: true,
     installed,
     resolved: !!memo,
-    nativeFocusableResolved: !!focusable,
-    nativePanelResolved: !!(section && row),
-    nativeButtonResolved: !!dialogButton,
+    nativeComponentsResolved: !!ui && !!panel,
     claimed: memberClaimed(memo, "type", claimKeys),
     items: desired.items.length,
     revision: desired.revision,

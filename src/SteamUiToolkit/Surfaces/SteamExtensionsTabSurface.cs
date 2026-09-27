@@ -102,7 +102,7 @@ public static class SteamExtensionsTabSurface
         PatchId,
         "steam-ui.extensions-tab",
         "extensionsTab",
-        "steam-extensions-tab-v1:unique-qam-browser-view+claimable-memo",
+        "steam-extensions-tab-v2:unique-qam-browser-view+claimable-memo+native-panel",
         $$"""
           {{SteamUiProbeJs.Preamble("steam_ui_extensions_tab_probe_")}}
             const qam=req.findUnique(['QuickAccessMenuBrowserView']);
@@ -123,7 +123,10 @@ public static class SteamExtensionsTabSurface
               memoExports:candidates.length,
               claimable:{{SteamUiProbeJs.Replaceable("descriptor")}},
               claimed:{{SteamUiProbeJs.Claimed("memo?.type", "ExtensionsTab")}},
-              react:count({{SteamUiProbeJs.ReactTokens}})
+              react:count({{SteamUiProbeJs.ReactTokens}}),
+              focusable:count({{SteamUiProbeJs.NativeFocusableTokens}}),
+              controls:count({{SteamUiProbeJs.NativeFieldTokens}}),
+              panel:count({{SteamUiProbeJs.PanelLayoutTokens}})
             });
           {{SteamUiProbeJs.Close}}
           """,
@@ -131,8 +134,11 @@ public static class SteamExtensionsTabSurface
             SteamUiPatchEvaluation.IsOne(root, "qamModule")
             && SteamUiPatchEvaluation.IsOne(root, "memoExports")
             && SteamUiPatchEvaluation.IsOne(root, "react")
+            && SteamUiPatchEvaluation.IsOne(root, "focusable")
+            && SteamUiPatchEvaluation.IsOne(root, "controls")
+            && SteamUiPatchEvaluation.IsOne(root, "panel")
             && SteamUiPatchEvaluation.ClaimableOrOurs(root),
-        "status.installed&&status.resolved&&status.claimed&&status.nativeFocusableResolved",
+        "status.installed&&status.resolved&&status.claimed&&status.nativeComponentsResolved",
         "!status.claimed",
         "Extensions tab");
 

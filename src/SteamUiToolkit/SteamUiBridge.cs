@@ -2,6 +2,7 @@ using System;
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -211,15 +212,22 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
     /// <summary>Maximum decoded payload size accepted from injected code.</summary>
     public const int MaximumPayloadCharacters = 16 * 1024;
 
-    /// <summary>Maximum size of a state or response payload delivered to the document.</summary>
+    /// <summary>The largest envelope handed to the document in one evaluation.</summary>
     /// <remarks>
-    ///     Deliveries go the other way: the host's own state into the document it injected, in one
-    ///     Runtime.evaluate. A page that reviews a whole game library with its artwork is far larger
-    ///     than anything the document sends, and holding it to the inbound cap refused it without a
-    ///     word to the page, which kept showing the last state it had been given. The inbound cap
-    ///     stays as it is; a request never needs to be large.
+    ///     Deliveries go the other way from requests: the host's own state into the document it
+    ///     injected. A larger envelope is split into parts of this size, each delivered in its own
+    ///     evaluation and reassembled by the injected side before any subscriber sees it, so a
+    ///     surface publishes one state however large it is.
     /// </remarks>
-    public const int MaximumDeliveryCharacters = 1024 * 1024;
+    public const int DeliveryPartCharacters = 256 * 1024;
+
+    /// <summary>The largest envelope delivered at all, in parts.</summary>
+    /// <remarks>
+    ///     A guard against a runaway publication, not a size any surface is expected to reach. A
+    ///     state past it is refused, and the refusal itself is delivered, so the page can say so
+    ///     instead of showing the last state it was given as if it were current.
+    /// </remarks>
+    public const int MaximumDeliveryCharacters = 32 * 1024 * 1024;
 
     private const string Namespace = SteamUiBridgeIdentity.Namespace;
     private const string BindingName = SteamUiBridgeIdentity.BindingName;
@@ -252,8 +260,15 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
     // everything without this needing to be consulted about it.
     private readonly ConcurrentDictionary<string, string> _published = new(StringComparer.Ordinal);
 
+    // The revision a surface declared for the state it last landed, for a publication that has one,
+    // with the document it landed in: a revision held by a document that has since been replaced
+    // holds nothing, so the new document is always published to.
+    private readonly ConcurrentDictionary<string, (long Revision, SteamUiGenerations Generations)>
+        _publishedRevisions = new(StringComparer.Ordinal);
+
     private readonly object _stateSync = new();
     private readonly ISteamUiTransport _transport;
+    private long _deliverySequence;
     private int _disposed;
     private long _generationEpoch;
     private SteamUiGenerations _generations;
@@ -433,32 +448,73 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             || request.ContextGeneration != generations.ExecutionContext
             || request.DocumentGeneration != generations.Document
             || !_allowedCommands.TryGetValue(request.PatchId, out var commands)
-            || !SteamUiBridgeAuthorizer.Contains(commands, request.Command)
-            || (payload.HasValue && ExceedsDeliveryLimit(payload.Value)))
+            || !SteamUiBridgeAuthorizer.Contains(commands, request.Command))
         {
             return false;
         }
 
-        return await DeliverAsync(
-                BuildResponse(request, ok, payload, error),
-                generations,
-                cancellationToken)
-            .ConfigureAwait(false);
+        var envelope = BuildResponse(request, ok, payload, error);
+        if (envelope.Length > MaximumDeliveryCharacters)
+        {
+            // The caller is waiting on this answer, so the refusal is the answer: a request that
+            // simply timed out would tell the page nothing about why.
+            envelope = BuildResponse(request, false, null, "The answer was too large to deliver.");
+        }
+
+        return await DeliverAsync(envelope, generations, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Publishes immutable semantic state to subscribers of one allowlisted patch.</summary>
     /// <param name="patchId">The exact allowlisted patch identity.</param>
-    /// <param name="payload">Bounded semantic state with no raw device or host data.</param>
+    /// <param name="payload">Semantic state with no raw device or host data.</param>
     /// <param name="cancellationToken">Cancels delivery.</param>
     /// <returns>True when the current document accepted the state envelope.</returns>
-    public async Task<bool> PublishStateAsync(
+    public Task<bool> PublishStateAsync(
         string patchId,
         JsonElement payload,
         CancellationToken cancellationToken = default)
     {
-        if (!TryGetReadyGenerations(out var generations)
-            || !_allowedCommands.ContainsKey(patchId)
-            || ExceedsDeliveryLimit(payload))
+        return PublishStateAsync(patchId, payload, null, cancellationToken);
+    }
+
+    /// <summary>Publishes state the surface has stamped with a revision.</summary>
+    /// <param name="patchId">The exact allowlisted patch identity.</param>
+    /// <param name="payload">Semantic state with no raw device or host data.</param>
+    /// <param name="revision">The surface's revision for this state; see <see cref="IsPublished" />.</param>
+    /// <param name="cancellationToken">Cancels delivery.</param>
+    /// <returns>True when the current document accepted the state envelope.</returns>
+    public Task<bool> PublishStateAsync(
+        string patchId,
+        JsonElement payload,
+        long revision,
+        CancellationToken cancellationToken = default)
+    {
+        return PublishStateAsync(patchId, payload, (long?)revision, cancellationToken);
+    }
+
+    /// <summary>Whether the current document already holds this revision of a surface's state.</summary>
+    /// <param name="patchId">The patch identity.</param>
+    /// <param name="revision">The revision the surface would publish now.</param>
+    /// <returns>True when publishing it again would deliver nothing new.</returns>
+    /// <remarks>
+    ///     Lets a publication with a revision skip reading and serializing its state at all on a round
+    ///     that was raised by some other surface's change. A new document clears it.
+    /// </remarks>
+    public bool IsPublished(string patchId, long revision)
+    {
+        return TryGetReadyGenerations(out var generations)
+               && _publishedRevisions.TryGetValue(patchId, out var published)
+               && published.Revision == revision
+               && published.Generations == generations;
+    }
+
+    private async Task<bool> PublishStateAsync(
+        string patchId,
+        JsonElement payload,
+        long? revision,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetReadyGenerations(out var generations) || !_allowedCommands.ContainsKey(patchId))
         {
             return false;
         }
@@ -471,7 +527,21 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         if (_published.TryGetValue(patchId, out var delivered)
             && string.Equals(delivered, envelope, StringComparison.Ordinal))
         {
+            Remember(patchId, revision, generations);
             return true;
+        }
+
+        if (envelope.Length > MaximumDeliveryCharacters)
+        {
+            // Delivered rather than only logged: the page is showing the last state it was given, and
+            // the one place that can tell the user it is stale is the page.
+            await DeliverAsync(
+                    BuildRefusal(patchId, "This state is too large to deliver.", generations),
+                    generations,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            Forget(patchId);
+            return false;
         }
 
         var accepted = await DeliverAsync(envelope, generations, cancellationToken)
@@ -479,14 +549,33 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         if (accepted)
         {
             _published[patchId] = envelope;
+            Remember(patchId, revision, generations);
         }
         else
         {
             // A refused envelope was never taken, so the next round has to offer it again.
-            _published.TryRemove(patchId, out _);
+            Forget(patchId);
         }
 
         return accepted;
+    }
+
+    private void Remember(string patchId, long? revision, SteamUiGenerations generations)
+    {
+        if (revision is { } value)
+        {
+            _publishedRevisions[patchId] = (value, generations);
+        }
+        else
+        {
+            _publishedRevisions.TryRemove(patchId, out _);
+        }
+    }
+
+    private void Forget(string patchId)
+    {
+        _published.TryRemove(patchId, out _);
+        _publishedRevisions.TryRemove(patchId, out _);
     }
 
     /// <summary>Hands one envelope to the injected bridge of the expected generation.</summary>
@@ -494,20 +583,79 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
     /// <param name="generations">The generations the envelope was built for.</param>
     /// <param name="cancellationToken">Cancels delivery.</param>
     /// <returns>True when that document accepted the envelope.</returns>
+    /// <remarks>
+    ///     An envelope past <see cref="DeliveryPartCharacters" /> goes in parts under one delivery id,
+    ///     each acknowledged before the next is sent. The injected side keeps only the parts of the
+    ///     delivery it is assembling, so a set cut short by a failed part or a new document is dropped
+    ///     there, never delivered half.
+    /// </remarks>
     private async Task<bool> DeliverAsync(
         string envelope,
         SteamUiGenerations generations,
         CancellationToken cancellationToken)
     {
-        var expression = "(()=>{const b=window[" + SteamCef.JsString(Namespace)
-                                                 + "];return JSON.stringify({ok:!!(b&&b.deliver(JSON.parse("
-                                                 + SteamCef.JsString(envelope) + ")))});})()";
+        var target = "window[" + SteamCef.JsString(Namespace) + "]";
+        if (envelope.Length <= DeliveryPartCharacters)
+        {
+            return await EvaluateDeliveryAsync(
+                    "b.deliver(JSON.parse(" + SteamCef.JsString(envelope) + "))", target, generations,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        var id = Interlocked.Increment(ref _deliverySequence);
+        var parts = SplitParts(envelope);
+        for (var index = 0; index < parts.Count; index++)
+        {
+            var call = "b.deliverPart({id:" + id.ToString(CultureInfo.InvariantCulture)
+                                            + ",index:" + index.ToString(CultureInfo.InvariantCulture)
+                                            + ",count:" + parts.Count.ToString(CultureInfo.InvariantCulture)
+                                            + ",contextGeneration:"
+                                            + generations.ExecutionContext.ToString(CultureInfo.InvariantCulture)
+                                            + ",documentGeneration:"
+                                            + generations.Document.ToString(CultureInfo.InvariantCulture)
+                                            + ",text:" + SteamCef.JsString(parts[index]) + "})";
+            if (!await EvaluateDeliveryAsync(call, target, generations, cancellationToken).ConfigureAwait(false))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private async Task<bool> EvaluateDeliveryAsync(
+        string call, string target, SteamUiGenerations generations, CancellationToken cancellationToken)
+    {
+        var expression = "(()=>{const b=" + target + ";return JSON.stringify({ok:!!(b&&" + call + ")});})()";
         var result = await _transport.EvaluateAsync(
             SteamUiTargetRole.SharedJsContext,
             expression,
             OperationTimeout,
             cancellationToken).ConfigureAwait(false);
         return IsPositiveAcknowledgement(result, generations, out _);
+    }
+
+    /// <summary>Splits an envelope into delivery parts, never between the halves of a surrogate pair.</summary>
+    /// <param name="envelope">The envelope text.</param>
+    /// <returns>The parts, in order.</returns>
+    internal static IReadOnlyList<string> SplitParts(string envelope)
+    {
+        List<string> parts = [];
+        var start = 0;
+        while (start < envelope.Length)
+        {
+            var end = Math.Min(start + DeliveryPartCharacters, envelope.Length);
+            if (end < envelope.Length && char.IsHighSurrogate(envelope[end - 1]))
+            {
+                end--;
+            }
+
+            parts.Add(envelope[start..end]);
+            start = end;
+        }
+
+        return parts;
     }
 
     /// <summary>Removes only the host-owned bridge namespace and Runtime binding.</summary>
@@ -721,6 +869,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         // republish anyway; dropping them here keeps a stale document's state out of the comparison
         // rather than relying on that.
         _published.Clear();
+        _publishedRevisions.Clear();
     }
 
     private bool TryGetReadyGenerations(out SteamUiGenerations generations)
@@ -735,28 +884,16 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
     /// <summary>Whether a payload's raw JSON exceeds <see cref="MaximumPayloadCharacters" />.</summary>
     /// <param name="payload">The payload to measure.</param>
     /// <returns>True when its raw text is longer than the limit in UTF-16 characters.</returns>
-    internal static bool ExceedsPayloadLimit(JsonElement payload)
-    {
-        return Exceeds(payload, MaximumPayloadCharacters);
-    }
-
-    /// <summary>Whether a payload's raw JSON exceeds <see cref="MaximumDeliveryCharacters" />.</summary>
-    /// <param name="payload">The payload to measure.</param>
-    /// <returns>True when its raw text is longer than the limit in UTF-16 characters.</returns>
-    internal static bool ExceedsDeliveryLimit(JsonElement payload)
-    {
-        return Exceeds(payload, MaximumDeliveryCharacters);
-    }
-
     /// <remarks>
     ///     UTF-8 never takes fewer bytes than UTF-16 takes characters, so a raw value within the limit in
     ///     bytes is within it in characters, and only a longer one is decoded to count. Neither
     ///     materializes the text the way measuring <see cref="JsonElement.GetRawText" /> did.
     /// </remarks>
-    private static bool Exceeds(JsonElement payload, int limit)
+    internal static bool ExceedsPayloadLimit(JsonElement payload)
     {
         var raw = JsonMarshal.GetRawUtf8Value(payload);
-        return raw.Length > limit && Encoding.UTF8.GetCharCount(raw) > limit;
+        return raw.Length > MaximumPayloadCharacters
+               && Encoding.UTF8.GetCharCount(raw) > MaximumPayloadCharacters;
     }
 
     /// <summary>Reads an injected expression's <c>{ok:true}</c> answer for the expected generation.</summary>
@@ -826,6 +963,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             writer.WriteNumber("contextGeneration", state.Generations.ExecutionContext);
             writer.WriteNumber("documentGeneration", state.Generations.Document);
             writer.WriteNumber("maximumPending", MaximumPendingRequests);
+            writer.WriteNumber("maximumPayloadCharacters", MaximumPayloadCharacters);
             writer.WriteNumber("timeoutMilliseconds", RequestTimeoutMilliseconds);
             writer.WriteStartObject("allowed");
             foreach (var pair in state.Host._allowedCommands)
@@ -886,6 +1024,18 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             writer.WriteNumber("documentGeneration", state.Generations.Document);
             writer.WritePropertyName("payload");
             state.Payload.WriteTo(writer);
+        });
+    }
+
+    private static string BuildRefusal(string patchId, string reason, SteamUiGenerations generations)
+    {
+        return WriteJson((PatchId: patchId, Reason: reason, Generations: generations), static (writer, state) =>
+        {
+            writer.WriteString("type", "refused");
+            writer.WriteString("patchId", state.PatchId);
+            writer.WriteNumber("contextGeneration", state.Generations.ExecutionContext);
+            writer.WriteNumber("documentGeneration", state.Generations.Document);
+            writer.WriteString("reason", state.Reason);
         });
     }
 }

@@ -71,12 +71,41 @@ internal static class SteamClientScript
     /// </remarks>
     internal static string AppDetailsPromise(uint appId, int timeoutMilliseconds)
     {
-        return "new Promise(res=>{let t;try{const h=SteamClient.Apps.RegisterForAppDetails(" +
-               AppId(appId) + ",d=>{clearTimeout(t);try{h.unregister();}catch(_){}res(d);});" +
+        return "(" + AppDetailsFunction(timeoutMilliseconds) + ")(" + AppId(appId) + ")";
+    }
+
+    /// <summary>
+    ///     A function expression taking an app id and resolving like <see cref="AppDetailsPromise" />,
+    ///     for a script that reads the details of several apps.
+    /// </summary>
+    /// <param name="timeoutMilliseconds">How long an unknown id may keep its promise open.</param>
+    internal static string AppDetailsFunction(int timeoutMilliseconds)
+    {
+        return "(id=>new Promise(res=>{let t;try{const h=SteamClient.Apps.RegisterForAppDetails(" +
+               "id,d=>{clearTimeout(t);try{h.unregister();}catch(_){}res(d);});" +
                "t=setTimeout(()=>{try{h.unregister();}catch(_){}res(null);}," +
                timeoutMilliseconds.ToString(CultureInfo.InvariantCulture) + ");}" +
-               "catch(_){res(null);}})";
+               "catch(_){res(null);}}))";
     }
+
+    /// <summary>
+    ///     A statement defining <c>shortcutIds()</c>: the ids of every non-Steam shortcut in the running
+    ///     client's library, or null when the library is not loaded.
+    /// </summary>
+    /// <remarks>
+    ///     Read from the all-apps collection, because the games collection leaves shortcuts out. An app
+    ///     that cannot say whether it is a shortcut is judged by its id, which Steam generates in the top
+    ///     half of the unsigned range for every shortcut.
+    /// </remarks>
+    internal const string ShortcutIdsFunction =
+        "const shortcutApps=()=>{const ac=window.collectionStore?.allAppsCollection;" +
+        "const all=ac&&(ac.allApps||ac.visibleApps);if(!all)return null;" +
+        "const out=[];const seen=new Set();" +
+        "for(const a of all){const id=a.appid>>>0;" +
+        "const sc=typeof a.BIsShortcut==='function'?!!a.BIsShortcut():id>=2147483648;" +
+        "if(!sc||seen.has(id))continue;seen.add(id);out.push({id,name:a.display_name||''});}" +
+        "return out;};" +
+        "const shortcutIds=()=>{const s=shortcutApps();return s?new Set(s.map(a=>a.id)):null;};";
 
     /// <summary>Runs an expression through the given transport, or the session's when none is given.</summary>
     /// <param name="transport">A specific transport, or null for <see cref="SteamUiTransportSession" />.</param>

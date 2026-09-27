@@ -231,8 +231,16 @@ assert.ok(ids.includes("steam-ui.power-limit") && ids.length >= 6);
 const bridgeConfig = { version: 1, contextGeneration: 1, documentGeneration: 1,
   allowed: Object.fromEntries(ids.map(id => [id, []])) };
 const bridge = runInNewContext(
-  `${subscription} ({subscribe, deliver});`,
-  { config: bridgeConfig, subscribers: new Map(), latestStates: new Map(), pending: new Map() },
+  `${subscription} ({subscribe, subscribeRefusal, deliver, deliverPart});`,
+  {
+    config: bridgeConfig,
+    subscribers: new Map(),
+    latestStates: new Map(),
+    refusalSubscribers: new Map(),
+    latestRefusals: new Map(),
+    assembling: null,
+    pending: new Map(),
+  },
   { timeout: 1000 },
 );
 for (const patchId of ids) {
@@ -251,3 +259,37 @@ for (const patchId of ids) {
   assert.deepEqual(seen, [1, 2, 3]);
 }
 console.log(`Steam bridge: cached and live subscriber failures isolated for ${ids.length} module IDs.`);
+
+// An envelope too large for one evaluation arrives in parts and reaches subscribers once, whole.
+{
+  const patchId = ids[0];
+  const seen = [];
+  const refusals = [];
+  bridge.subscribe(patchId, (value) => seen.push(value));
+  bridge.subscribeRefusal(patchId, (reason) => refusals.push(reason));
+  const text = JSON.stringify({ ...bridgeConfig, type: "state", patchId, payload: { big: "x".repeat(50) } });
+  const cut = [text.slice(0, 20), text.slice(20, 45), text.slice(45)];
+  const part = (id, index, text, extra = {}) =>
+    bridge.deliverPart({ ...bridgeConfig, id, index, count: cut.length, text, ...extra });
+  assert.equal(part(7, 0, cut[0]), true);
+  assert.equal(part(7, 1, cut[1]), true);
+  assert.equal(seen.length, 1, "nothing is delivered before the last part");
+  assert.equal(part(7, 2, cut[2]), true);
+  assert.equal(seen.at(-1).big.length, 50, "the reassembled state reaches subscribers");
+
+  // A set cut short is dropped: a new id replaces it, and a part out of order is refused.
+  assert.equal(part(8, 0, cut[0]), true);
+  assert.equal(part(9, 1, cut[1]), false, "a part of another delivery is refused");
+  assert.equal(part(8, 2, cut[2]), false, "the interrupted set is gone");
+  assert.equal(part(10, 0, cut[0], { documentGeneration: 99 }), false, "a stale document is refused");
+
+  // A refusal reaches the surface, and the next state clears it.
+  assert.equal(
+    bridge.deliver({ ...bridgeConfig, type: "refused", patchId, reason: "too large" }),
+    true,
+  );
+  assert.deepEqual(refusals, ["too large"]);
+  assert.equal(bridge.deliver({ ...bridgeConfig, type: "state", patchId, payload: 5 }), true);
+  assert.deepEqual(refusals, ["too large", null]);
+}
+console.log("Steam bridge: parted deliveries reassemble once, and refusals reach the surface.");

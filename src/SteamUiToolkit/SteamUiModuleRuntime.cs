@@ -298,6 +298,15 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
                             continue;
                         }
 
+                        // A revision the document already holds needs no read at all: a round is
+                        // raised by any surface's change, and rebuilding every large state on each
+                        // one was the bulk of the idle cost.
+                        var revision = publication.Revision?.Invoke();
+                        if (revision is { } current && _bridge.IsPublished(publication.PatchId, current))
+                        {
+                            continue;
+                        }
+
                         var payload = await publication.Read().ConfigureAwait(false);
                         // Null publishes nothing this round, which keeps a reading that is
                         // momentarily unavailable distinct from a zero.
@@ -306,7 +315,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
                             continue;
                         }
 
-                        deliveries.Add(PublishOneAsync(publication.PatchId, state));
+                        deliveries.Add(PublishOneAsync(publication.PatchId, state, revision));
                     }
                     catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
                     {
@@ -344,16 +353,19 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
     /// <summary>Delivers one publication's state and reports only its own outcome.</summary>
     /// <param name="patchId">The publishing patch.</param>
     /// <param name="state">The semantic state to deliver.</param>
+    /// <param name="revision">The state's revision, when its publication declares one.</param>
     /// <remarks>
     ///     Deliberately faultless. These run together under one <see cref="Task.WhenAll(Task[])" />,
     ///     which surfaces a single exception and would otherwise let the first failing surface stand in
     ///     for the rest, hiding which one actually broke.
     /// </remarks>
-    private async Task PublishOneAsync(string patchId, JsonElement state)
+    private async Task PublishOneAsync(string patchId, JsonElement state, long? revision)
     {
         try
         {
-            var accepted = await _bridge.PublishStateAsync(patchId, state, _shutdown.Token)
+            var accepted = await (revision is { } value
+                    ? _bridge.PublishStateAsync(patchId, state, value, _shutdown.Token)
+                    : _bridge.PublishStateAsync(patchId, state, _shutdown.Token))
                 .ConfigureAwait(false);
             if (!accepted)
             {

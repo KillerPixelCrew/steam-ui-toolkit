@@ -82,13 +82,67 @@ public sealed class SteamClientTests
     }
 
     [Fact]
-    public void AddShortcutReplyCarriesTheGeneratedId()
+    public void AddShortcutReplyCarriesTheConfirmedId()
     {
-        var result = SteamApps.ParseAddShortcut(CefEvalResult.Ok("""{"ok":true,"value":"2147483650"}"""));
+        var result = SteamApps.ParseAddShortcut(
+            CefEvalResult.Ok("""{"ok":true,"value":"2147483650","confirmed":true,"mismatch":""}"""));
 
         Assert.True(result.Succeeded);
+        Assert.True(result.Confirmed);
         Assert.Equal(2147483650u, result.AppId);
         Assert.Null(result.Error);
+        Assert.Null(result.Mismatch);
+    }
+
+    [Fact]
+    public void AnAddTheLibraryDidNotConfirmKeepsItsIdAndItsReason()
+    {
+        // The entry may exist; the caller records it as unconfirmed and never writes to the id.
+        var result = SteamApps.ParseAddShortcut(CefEvalResult.Ok(
+            """{"ok":true,"value":"2147483650","confirmed":false,"err":"Steam reported no new entry after creating this shortcut."}"""));
+
+        Assert.True(result.Succeeded);
+        Assert.False(result.Confirmed);
+        Assert.Equal(2147483650u, result.AppId);
+        Assert.Equal("Steam reported no new entry after creating this shortcut.", result.Error);
+    }
+
+    [Fact]
+    public void AFieldThatDidNotReadBackIsReportedWithAConfirmedAdd()
+    {
+        var result = SteamApps.ParseAddShortcut(CefEvalResult.Ok(
+            """{"ok":true,"value":"2147483650","confirmed":true,"mismatch":"Steam holds a different name than was written."}"""));
+
+        Assert.True(result.Confirmed);
+        Assert.Equal("Steam holds a different name than was written.", result.Mismatch);
+    }
+
+    [Fact]
+    public void AShortcutListIsReadWhole()
+    {
+        var result = SteamApps.ParseShortcuts(CefEvalResult.Ok(
+            """{"ok":true,"shortcuts":[{"id":"2147483650","name":"Game","exe":"\"C:\\G\\g.exe\"","dir":"C:\\G","args":"-x"}]}"""));
+
+        Assert.True(result.Succeeded);
+        var shortcut = Assert.Single(result.Shortcuts!);
+        Assert.Equal(new SteamShortcut(2147483650u, "Game", "\"C:\\G\\g.exe\"", "C:\\G", "-x"), shortcut);
+    }
+
+    [Fact]
+    public void AnEmptyLibraryIsNotAFailedRead()
+    {
+        var empty = SteamApps.ParseShortcuts(CefEvalResult.Ok("""{"ok":true,"shortcuts":[]}"""));
+        var failed = SteamApps.ParseShortcuts(
+            CefEvalResult.Ok("""{"ok":false,"err":"Steam did not return the details for shortcut 2147483650."}"""));
+        var unreachable = SteamApps.ParseShortcuts(CefEvalResult.Unreachable("port closed"));
+
+        Assert.True(empty.Succeeded);
+        Assert.Empty(empty.Shortcuts!);
+        Assert.False(failed.Succeeded);
+        Assert.Null(failed.Shortcuts);
+        Assert.Contains("2147483650", failed.Error, StringComparison.Ordinal);
+        Assert.False(unreachable.Reachable);
+        Assert.Null(unreachable.Shortcuts);
     }
 
     [Fact]
@@ -157,7 +211,8 @@ public sealed class SteamClientTests
         Assert.Equal("C:\\g.exe", result.Details?.ShortcutExe);
         Assert.Equal(string.Empty, result.Details?.InstallFolder);
         var expression = Assert.Single(transport.Expressions);
-        Assert.Contains("RegisterForAppDetails(2147483650,", expression);
+        Assert.Contains("RegisterForAppDetails(id,", expression);
+        Assert.Contains(")(2147483650)", expression);
         Assert.Contains("h.unregister()", expression);
     }
 

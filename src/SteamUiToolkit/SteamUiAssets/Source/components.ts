@@ -210,36 +210,22 @@ function createNativeComponentHost() {
     if (typeof enabled !== "boolean" || enabled === state.enabled) return;
     void sendCommand(definition, definition.command, { enabled }).catch(() => {});
   };
-  const uniqueFunction = (exports, requiredTokens) => {
-    const matches = Object.values(exports).filter(
+  // The one function export carrying every token. Through the shared matcher, so an export Steam
+  // aliases under two names counts once and a getter that throws counts as no match.
+  const uniqueFunction = (exports, requiredTokens) =>
+    uniqueSteamExport(
+      exports,
       (value) =>
         typeof value === "function" &&
         requiredTokens.every((token) => String(value).includes(token)),
     );
-    return matches.length === 1 ? matches[0] : null;
-  };
-  const uniqueFunctionWhere = (exports, test) => {
-    const matches = Object.values(exports).filter((value) => {
-      if (typeof value !== "function") return false;
-      const source = String(value);
-      return !source.startsWith("class") && test(source);
-    });
-    return matches.length === 1 ? matches[0] : null;
-  };
-  const uniqueObject = (exports, predicate) => {
-    const matches = Object.values(exports).filter(
-      (value) => value && typeof value === "object" && predicate(value),
-    );
-    return matches.length === 1 ? matches[0] : null;
-  };
   const createControlRuntime = () => {
     const controls = resolveSteamFieldComponents(runtime);
-    const layoutFactory = runtime.findUnique(["PanelSectionTitle", "PanelSectionRow", "spinner"]);
+    const panel = resolveSteamPanelComponents(runtime);
     const localizationFactory = runtime.findUnique(LocalizationTokens);
-    if (!controls || !layoutFactory || !localizationFactory) return null;
+    if (!controls || !panel || !localizationFactory) return null;
 
     const react = controls.react;
-    const layout = runtime(layoutFactory[0]);
     const localization = runtime(localizationFactory[0]);
     const slider = controls.sliderField;
     const dropdown = controls.dropdown;
@@ -263,16 +249,16 @@ function createNativeComponentHost() {
           "spacingBetweenLabelAndChild",
         ])
       : null;
-    const section = uniqueFunction(layout, ["PanelSectionTitle", "spinner"]);
-    const row = uniqueObject(
-      layout,
-      (value) => value.$$typeof && typeof value.render === "function",
-    );
+    const { section, row } = panel;
     // Valve's localize-with-fallback, by its shape (isLocalizer). When the minifier broke the older
     // name-based match, every Quick Access row refused with "React, fields, layout or localization
     // runtime was not a unique match".
-    const localize = uniqueFunctionWhere(localization, isLocalizer);
-    if (!slider || !dropdown || !section || !row || !localize) return null;
+    const localize = uniqueSteamExport(localization, (value) => {
+      if (typeof value !== "function") return false;
+      const source = String(value);
+      return !source.startsWith("class") && isLocalizer(source);
+    });
+    if (!slider || !dropdown || !localize) return null;
     // The toggle and the label field are deliberately not in that guard. They arrived after the
     // other four, so a client where either cannot be found still gets every control that does not
     // need one, rather than losing the whole native surface.

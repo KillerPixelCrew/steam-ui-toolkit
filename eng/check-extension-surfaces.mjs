@@ -7,6 +7,7 @@ import {
   loadAsset,
   readSource,
   sharedFragments,
+  slice,
   tick,
   withSource,
 } from "./check-harness.mjs";
@@ -50,7 +51,23 @@ const react = createReact({
   },
   useEffect: () => {},
 });
-const NativePanel = withSource(() => null, "onActivate onCancel focusableIfEmpty focusClassName");
+// Steam's components, each with the source text the resolvers fingerprint it by. The tab draws
+// with these and nothing else, so the check runs the path a real client takes.
+const named = (name, source) =>
+  withSource(Object.defineProperty(() => null, "name", { value: name }), source);
+const NativePanel = named("Focusable", "onActivate onCancel focusableIfEmpty focusClassName");
+const Slider = named("Slider", "onChangeComplete notchCount valueSuffix explainerTitle");
+const Dropdown = named("Dropdown", "contextMenuPositionOptions childrenContainerWidth menuLabel");
+const Toggle = named("Toggle", "OnToggleChange this.Toggle()");
+const Button = named("Button", '"DialogButton","_DialogLayout","Secondary"');
+const Primary = named("Primary", '"DialogButton","_DialogLayout","Primary"');
+const TextField = named("TextField", "class TextField");
+TextField.validateUrl = () => true;
+TextField.validateEmail = () => true;
+const ValueField = named("ValueField", 'label:t,focusable:!0,inlineWrap:"shift-children-below"');
+const SmallButton = named("SmallButton", '"DialogButton _DialogLayout Small"');
+const PanelSection = named("PanelSection", "PanelSectionTitle spinner");
+const PanelRow = { $$typeof: Symbol.for("react.forward_ref"), render: () => null };
 // Valve's own tab array, kept across renders the way the client keeps it: the gate pushes into it
 // in place, so the array is what proves the tab is added once and taken out on removal.
 const qamTabs = [];
@@ -76,11 +93,38 @@ const jsx = {
 };
 const originalJsx = jsx.jsx;
 let nativeAvailable = true;
-const runtime = (id) => (id === "react" ? react : { memo });
-runtime.findUnique = (tokens) => [tokens.includes("useState") ? "react" : "qam"];
+const modules = {
+  react: { tokens: ["react.transitional.element", "useState", "cloneElement", "createElement"], exports: react },
+  fields: {
+    tokens: ["DialogSlider_Container", "DropDownField", "SliderField"],
+    exports: { Slider, Dropdown, Toggle, Button, Primary, TextField, ValueField, SmallButton },
+  },
+  focusable: { tokens: ["focusableIfEmpty", "onActivate", '"Panel"'], exports: { NativePanel } },
+  layout: { tokens: ["PanelSectionTitle", "PanelSectionRow", "spinner"], exports: { PanelSection, PanelRow } },
+  qam: { tokens: ["QuickAccessMenuBrowserView"], exports: { memo } },
+  // The game menu module is found, never read: the menu gate claims its class through the JSX
+  // runtime instead.
+  gameMenu: {
+    tokens: ["GetTargetApps", "BuildManageSubmenu", "GetPrimaryActionMenuItem"],
+    exports: {},
+  },
+};
+const moduleFor = (tokens) =>
+  Object.keys(modules).find(
+    (id) =>
+      (nativeAvailable || id !== "layout") &&
+      tokens.every((token) => modules[id].tokens.includes(token)),
+  );
+const runtime = (id) => modules[id].exports;
+runtime.findUnique = (tokens) => (moduleFor(tokens) ? [moduleFor(tokens), ""] : null);
 runtime.resolve = () => jsx;
-runtime.exported = (_tokens, predicate) =>
-  nativeAvailable && predicate(NativePanel) ? NativePanel : null;
+runtime.exported = (tokens, predicate) => {
+  const id = moduleFor(tokens);
+  if (!id) throw new Error("absent");
+  const fits = Object.values(modules[id].exports).filter((value) => predicate(value));
+  if (fits.length !== 1) throw new Error("ambiguous");
+  return fits[0];
+};
 const globals = {
   getWebpackRuntime: () => runtime,
   subscribe: (id, callback) => {
@@ -95,8 +139,11 @@ const globals = {
   createIconRenderer: () => () => null,
   window,
 };
+// The settings renderer sits after the icons, outside the shared fragments; the tab draws its
+// settings with it.
 const code =
   sharedFragments(asset) +
+  slice(asset, "const SteamGlyphPattern", "function createAudioNamespace") +
   gateSource(asset, "createExtensionsTab", "extensionsTab") +
   gateSource(asset, "createGameContextMenu", "gameContextMenu");
 const { extensions, menu, createExtensions, unclaimedValue } = instantiate(
@@ -145,14 +192,17 @@ const tab = ours[0];
 // Steam keys its tabs by number and selects by that number, and its tabs carry a string title.
 assert.equal(typeof tab.key, "number", "the tab must be keyed the way Steam keys its own");
 assert.equal(typeof tab.strTitle, "string", "the tab must carry the string title Valve's tabs do");
-// The fixture resolves none of Valve's panel pieces, so this is the plain fallback: the panel's one
-// child is the list of extension sections, and a section holds the name, the detail, then the
-// actions.
+// The panel's one child is its list of sections: one Steam PanelSection per extension, titled with
+// its name, holding a PanelSectionRow for the detail and one per action.
 const panel = tab.panel.type();
-const row = panel.props.children[0][0];
-const action = row.props.children[2];
-assert.equal(action.type, NativePanel, "actions participate in Steam's focus graph");
-action.props.onActivate();
+const section = panel.props.children[0][0];
+assert.equal(section.type, PanelSection, "an extension is drawn as Steam's PanelSection");
+assert.equal(section.props.title, "One", "Steam's section titles it with the extension's name");
+const actionRow = section.props.children[1];
+assert.equal(actionRow.type, PanelRow, "each line sits in Steam's PanelSectionRow");
+const action = actionRow.props.children[0];
+assert.equal(action.type, Button, "an action is Steam's DialogButton");
+action.props.onClick();
 assert.deepEqual(requests[0].slice(0, 3), [
   "steam-ui.extensions-tab",
   "activate",
@@ -164,7 +214,7 @@ assert.deepEqual(navigation, [], "an action that answers with nothing navigates 
 // An action may answer with a page to open. The panel has to close first, or the page renders
 // behind it and a controller user cannot tell the button did anything.
 nextAnswer = { route: "/wsgm/library-import" };
-action.props.onActivate();
+action.props.onClick();
 await tick();
 assert.deepEqual(
   navigation,
@@ -176,7 +226,7 @@ assert.deepEqual(
 // nowhere rather than handing it to Steam's router.
 navigation.length = 0;
 nextAnswer = { route: "not-a-route" };
-action.props.onActivate();
+action.props.onClick();
 await tick();
 assert.deepEqual(navigation, ["closed"], "an unusable route is refused by the shared bound");
 nextAnswer = undefined;
@@ -208,10 +258,12 @@ const textItem = (revision, textValue) => ({
     },
   ],
 });
-const inputOf = (panel) => panel.props.children[0][0].props.children[2].props.children[1];
+// A text setting is Steam's TextField, in the row after the detail.
+const inputOf = (panel) => panel.props.children[0][0].props.children[1].props.children[0];
 subscriptions.get("steam-ui.extensions-tab")(textItem(3, "alpha"));
+assert.equal(inputOf(renderPanel()).type, TextField, "a text setting is Steam's TextField");
 assert.equal(inputOf(renderPanel()).props.value, "alpha");
-inputOf(renderPanel()).props.onChange({ currentTarget: { value: "beta" } });
+inputOf(renderPanel()).props.onChange({ target: { value: "beta" } });
 assert.equal(inputOf(renderPanel()).props.value, "beta", "the draft survives a re-render");
 subscriptions.get("steam-ui.extensions-tab")(textItem(4, "gamma"));
 assert.equal(
@@ -220,16 +272,48 @@ assert.equal(
   "a newer configuration revision replaces the draft",
 );
 
-// A refused save drops the draft too, so the box stops showing and resending a rejected value.
+// Leaving the box sends it once; a refused save drops the draft, so the box stops showing and
+// resending a rejected value.
 subscriptions.get("steam-ui.extensions-tab")(textItem(5, "delta"));
-inputOf(renderPanel()).props.onChange({ currentTarget: { value: "epsilon" } });
+inputOf(renderPanel()).props.onChange({ target: { value: "epsilon" } });
 assert.equal(inputOf(renderPanel()).props.value, "epsilon");
 refuseRequests = true;
-renderPanel().props.children[0][0].props.children[2].props.children[2].props.onActivate();
+const sentBefore = requests.length;
+inputOf(renderPanel()).props.onBlur();
+assert.deepEqual(requests.at(-1).slice(0, 3), [
+  "steam-ui.extensions-tab",
+  "configure",
+  { id: "one", key: "token", value: "epsilon", revision: 5 },
+]);
+assert.equal(requests.length, sentBefore + 1);
 await Promise.resolve();
 await Promise.resolve();
 refuseRequests = false;
 assert.equal(inputOf(renderPanel()).props.value, "delta", "a refused save drops the draft");
+
+// A choice is Steam's dropdown, and an order is Steam's move buttons sending the joined list.
+subscriptions.get("steam-ui.extensions-tab")({
+  items: [
+    {
+      id: "one",
+      name: "One",
+      version: "1",
+      status: "Ready",
+      configurationRevision: 6,
+      settings: [
+        { key: "mode", label: "Mode", kind: "text", choices: ["a", "b"], textValue: "a" },
+        { key: "tabs", label: "Tabs", kind: "order", choices: ["x", "y"], textValue: "y,x" },
+      ],
+    },
+  ],
+});
+const rendered = renderPanel().props.children[0][0].props.children;
+assert.equal(rendered[1].props.children[0].type, Dropdown, "a choice is Steam's dropdown");
+const order = rendered[2].props.children[0];
+const firstMove = order.props.children.flat()[1].props.value.props.children[1];
+assert.equal(firstMove.type, SmallButton, "an order moves with Steam's small buttons");
+firstMove.props.onClick();
+assert.deepEqual(requests.at(-1)[2], { id: "one", key: "tabs", value: "x,y", revision: 6 });
 
 const replacement = createExtensions();
 assert.equal(replacement.install().ok, true, "a fresh gate resolves its durable owned original");
@@ -245,8 +329,11 @@ assert.equal(replacement.remove().ok, true, "the retry completes the cleanup");
 assert.equal(memo.type, originalRoot);
 
 nativeAvailable = false;
-assert.equal(createExtensions().install().ok, false, "missing native controls refuse installation");
+const refused = createExtensions();
+assert.equal(refused.install().ok, false, "missing native components refuse installation");
+assert.match(refused.status().lastError, /panel section and row/u, "the refusal names what is missing");
 assert.equal(memo.type, originalRoot);
+nativeAvailable = true;
 
 // No document or MutationObserver exists in this fixture, just as no visible DOM is available in
 // SharedJSContext. Class discovery must happen before React creates the first instance.

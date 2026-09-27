@@ -11,13 +11,6 @@
 // areas; its gamepad capsule composes LibraryItemBox with Portrait or Landscape, then the image,
 // then the shine, then LibraryItemOverlayOuterArea around LibraryItemOverlayInnerArea.
 
-// The same three tokens the library badge finds this map by.
-const SteamLibraryClassTokens = [
-    'ControllerSupportIcon:"',
-    'LibraryItemIcons:"',
-    'LibraryItemBox:"',
-] as const;
-
 // Every class the capsule uses. A map that lost one of them is not the map this was written
 // against, so the capsule is unavailable rather than half-styled.
 const SteamLibraryClassNames = [

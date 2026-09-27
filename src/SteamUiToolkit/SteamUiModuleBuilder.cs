@@ -30,6 +30,39 @@ public static class SteamUiModuleBuilder
         JsonTypeInfo<T> typeInfo)
         where T : class
     {
+        return Create(patchId, enabled, read, typeInfo, null);
+    }
+
+    /// <summary>Creates a typed state publication that the host stamps with a revision.</summary>
+    /// <typeparam name="T">The published reference-type state.</typeparam>
+    /// <param name="patchId">The patch receiving the state.</param>
+    /// <param name="enabled">Whether this publication is currently active.</param>
+    /// <param name="read">Reads the current state, or null to publish nothing.</param>
+    /// <param name="typeInfo">Source-generated serializer metadata for the state.</param>
+    /// <param name="revision">
+    ///     The state's current revision; see <see cref="SteamUiStatePublication.Revision" />.
+    /// </param>
+    /// <returns>The module publication.</returns>
+    public static SteamUiStatePublication Publication<T>(
+        string patchId,
+        Func<bool> enabled,
+        Func<ValueTask<T?>> read,
+        JsonTypeInfo<T> typeInfo,
+        Func<long> revision)
+        where T : class
+    {
+        ArgumentNullException.ThrowIfNull(revision);
+        return Create(patchId, enabled, read, typeInfo, revision);
+    }
+
+    private static SteamUiStatePublication Create<T>(
+        string patchId,
+        Func<bool> enabled,
+        Func<ValueTask<T?>> read,
+        JsonTypeInfo<T> typeInfo,
+        Func<long>? revision)
+        where T : class
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(patchId);
         ArgumentNullException.ThrowIfNull(enabled);
         ArgumentNullException.ThrowIfNull(read);
@@ -38,7 +71,7 @@ public static class SteamUiModuleBuilder
         {
             var state = await read().ConfigureAwait(false);
             return state is null ? null : JsonSerializer.SerializeToElement(state, typeInfo);
-        });
+        }, revision);
     }
 
     /// <summary>Creates a command that validates one exact payload before invoking its backend.</summary>

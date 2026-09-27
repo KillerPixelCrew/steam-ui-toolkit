@@ -106,8 +106,14 @@ plugins. **`SteamGameContextMenuSurface.Module`** adds host-owned commands to th
 library and gear menu. Its backend receives Steam's positive app ID and an exact command ID, after
 the surface has rejected every other payload shape. The shared JSX interceptor recognizes the
 private menu class before its first render, so the first opening includes the commands without a
-visible-DOM scan. Extensions-tab actions use Steam's native focusable Panel for controller and
-pointer activation; the probe recognizes its own installed wrapper.
+visible-DOM scan. The Extensions tab draws each plugin as Steam's own PanelSection, its actions as
+DialogButtons and its settings with the same Steam fields a settings page uses, and refuses to
+install on a client missing one of them; the probe recognizes its own installed wrapper.
+
+**`registerSteamPage`** declares a host's own page inside Steam: its gate, its state subscription
+and the frame that says why it cannot draw yet, with **`SteamPagePatch.Create`** as its patch.
+Large state reaches a page in parts and is reassembled before the page sees it; a state too large
+to deliver at all reaches the page as a refusal it can show.
 
 **`SteamStorageSurface.Module`** revives Steam's own SteamOS storage management on Windows. The
 whole UI hangs off one unanswered service question, so the gate claims `SendMsg` on the service

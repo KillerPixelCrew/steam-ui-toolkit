@@ -46,6 +46,14 @@
     const pending = new Map();
     const subscribers = new Map();
     const latestStates = new Map();
+    // Why the host could not deliver a patch's state, until a state arrives again. A surface shows
+    // it: the state it holds is the last one it was given, and without this it would pass for
+    // current.
+    const refusalSubscribers = new Map();
+    const latestRefusals = new Map();
+    // The one delivery being reassembled from parts. A new delivery id replaces it, so a set cut
+    // short is dropped rather than delivered half.
+    let assembling: { id: number; count: number; parts: string[] } | null = null;
     let nextSequence = 0;
     let disposed = false;
 
@@ -108,6 +116,11 @@
             documentGeneration: config.documentGeneration,
             payload: payload ?? null,
         };
+        // The host drops a request past its bound without an answer, so it is refused here, where
+        // the caller still gets a reason instead of waiting out the timeout.
+        if (JSON.stringify(envelope).length > config.maximumPayloadCharacters) {
+            return Promise.reject(new Error("The request is too large to send."));
+        }
         return new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
                 pending.delete(sequence);
@@ -143,6 +156,33 @@
         }
         return () => set.delete(callback);
     };
+    // Tells a surface when its state could not be delivered: called with the reason, and with null
+    // once a state arrives again. Replayed on subscription like state is.
+    const subscribeRefusal = (patchId, callback) => {
+        if (!Object.hasOwn(config.allowed, patchId) || typeof callback !== "function")
+            throw new Error("subscription not allowlisted");
+        let set = refusalSubscribers.get(patchId);
+        if (!set) refusalSubscribers.set(patchId, (set = new Set()));
+        set.add(callback);
+        if (latestRefusals.has(patchId)) {
+            try {
+                callback(latestRefusals.get(patchId));
+            } catch {
+            }
+        }
+        return () => set.delete(callback);
+    };
+    const reportRefusal = (patchId, reason) => {
+        if (reason === null ? !latestRefusals.has(patchId) : latestRefusals.get(patchId) === reason) return;
+        if (reason === null) latestRefusals.delete(patchId);
+        else latestRefusals.set(patchId, reason);
+        for (const callback of [...(refusalSubscribers.get(patchId) ?? [])]) {
+            try {
+                callback(reason);
+            } catch {
+            }
+        }
+    };
     const deliver = (envelope) => {
         if (
             !envelope ||
@@ -164,6 +204,7 @@
         if (envelope.type === "state") {
             if (!Object.hasOwn(config.allowed, envelope.patchId)) return false;
             latestStates.set(envelope.patchId, envelope.payload);
+            reportRefusal(envelope.patchId, null);
             const set = subscribers.get(envelope.patchId);
             if (!set) return true;
             for (const callback of [...set]) {
@@ -174,7 +215,49 @@
             }
             return true;
         }
+        if (envelope.type === "refused") {
+            if (!Object.hasOwn(config.allowed, envelope.patchId) || typeof envelope.reason !== "string")
+                return false;
+            reportRefusal(envelope.patchId, envelope.reason.slice(0, 240));
+            return true;
+        }
         return false;
+    };
+    // One part of an envelope too large for a single evaluation. Parts arrive in order, each
+    // acknowledged before the next is sent; the last one delivers the reassembled envelope.
+    const deliverPart = (part) => {
+        if (
+            !part ||
+            part.contextGeneration !== config.contextGeneration ||
+            part.documentGeneration !== config.documentGeneration ||
+            !Number.isSafeInteger(part.id) ||
+            !Number.isSafeInteger(part.count) ||
+            part.count < 2 ||
+            !Number.isSafeInteger(part.index) ||
+            part.index < 0 ||
+            part.index >= part.count ||
+            typeof part.text !== "string"
+        )
+            return false;
+        if (part.index === 0) assembling = { id: part.id, count: part.count, parts: [] };
+        if (
+            !assembling ||
+            assembling.id !== part.id ||
+            assembling.count !== part.count ||
+            assembling.parts.length !== part.index
+        ) {
+            assembling = null;
+            return false;
+        }
+        assembling.parts.push(part.text);
+        if (assembling.parts.length < assembling.count) return true;
+        const text = assembling.parts.join("");
+        assembling = null;
+        try {
+            return deliver(JSON.parse(text));
+        } catch {
+            return false;
+        }
     };
     const dispose = (reason) => {
         if (disposed) return;
@@ -205,6 +288,9 @@
         pending.clear();
         subscribers.clear();
         latestStates.clear();
+        refusalSubscribers.clear();
+        latestRefusals.clear();
+        assembling = null;
         actionGenerations.clear();
     };
 
@@ -236,7 +322,9 @@
         documentGeneration: config.documentGeneration,
         request,
         subscribe,
+        subscribeRefusal,
         deliver,
+        deliverPart,
         dispose,
         // Looked up at call time, not captured: a gate registers after this object is frozen, and the
         // host asks for one long after that. Returning null for an unknown name rather than throwing

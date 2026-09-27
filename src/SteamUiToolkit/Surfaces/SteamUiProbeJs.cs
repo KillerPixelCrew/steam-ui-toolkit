@@ -45,6 +45,20 @@ public static class SteamUiProbeJs
     /// <summary>The source token of Steam's native modal-manager entry point.</summary>
     public const string NativeShowModalTokens = "['props.bDisableBackgroundDismiss']";
 
+    /// <summary>The source tokens of the layout module exporting Valve's PanelSection and PanelSectionRow.</summary>
+    /// <remarks>The tokens <c>resolveSteamPanelComponents</c> resolves the module by.</remarks>
+    public const string PanelLayoutTokens = "['PanelSectionTitle','PanelSectionRow','spinner']";
+
+    /// <summary>The source tokens of Steam's library item class map, which the library capsule is styled by.</summary>
+    /// <remarks>The tokens <c>resolveSteamLibraryClasses</c> and the library badge resolve the map by.</remarks>
+    public const string LibraryClassTokens = """['ControllerSupportIcon:"','LibraryItemIcons:"','LibraryItemBox:"']""";
+
+    /// <summary>The source token of the routed sidebar Steam's Settings page is built on.</summary>
+    public const string SettingsSidebarTokens = "['disableRouteReporting']";
+
+    /// <summary>The source tokens of Steam's generic confirm modal.</summary>
+    public const string ConfirmModalTokens = "['strMiddleButtonText','bProgressDialog','bAlertDialog']";
+
     /// <summary>
     ///     The source markers of Steam's back-stack Route, which gives a custom page native back
     ///     navigation.

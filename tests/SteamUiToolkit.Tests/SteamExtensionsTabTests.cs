@@ -18,12 +18,26 @@ public sealed class SteamExtensionsTabTests
         Assert.Contains("claimable", probe, StringComparison.Ordinal);
 
         using var compatible = JsonDocument.Parse(
-            """{"qamModule":1,"memoExports":1,"claimable":true,"react":1}""");
+            """{"qamModule":1,"memoExports":1,"claimable":true,"react":1,"focusable":1,"controls":1,"panel":1}""");
         using var ambiguous = JsonDocument.Parse(
-            """{"qamModule":1,"memoExports":2,"claimable":true,"react":1}""");
+            """{"qamModule":1,"memoExports":2,"claimable":true,"react":1,"focusable":1,"controls":1,"panel":1}""");
 
         Assert.True(Gate.Compatible(compatible.RootElement));
         Assert.False(Gate.Compatible(ambiguous.RootElement));
+    }
+
+    [Fact]
+    public void ProbeRequiresTheSteamComponentsTheTabDrawsWith()
+    {
+        // The tab draws nothing of its own, so a client missing one of these gets no tab rather than
+        // an imitation of one.
+        var probe = Gate.ProbeExpression;
+        Assert.Contains(SteamUiProbeJs.PanelLayoutTokens, probe, StringComparison.Ordinal);
+        Assert.Contains(SteamUiProbeJs.NativeFieldTokens, probe, StringComparison.Ordinal);
+
+        using var noPanel = JsonDocument.Parse(
+            """{"qamModule":1,"memoExports":1,"claimable":true,"react":1,"focusable":1,"controls":1,"panel":0}""");
+        Assert.False(Gate.Compatible(noPanel.RootElement));
     }
 
     [Fact]

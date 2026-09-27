@@ -362,6 +362,21 @@ const SteamUiIconShapes: Readonly<Record<string, readonly SteamUiIconShape[]>> =
         ],
         ["path", {d: "M12 4.8a7.2 7.2 0 0 1 0 14.4V4.8Z"}],
     ],
+
+    // -- Quick Access tabs ----------------------------------------------------------------------
+
+    // The Extensions tab: a puzzle piece, the shape that means "something added in". Its own
+    // drawing rather than the power plug it used to borrow from the "When plugged in" row.
+    extensions: [
+        [
+            "path",
+            {
+                d:
+                    "M9 3.5a2.5 2.5 0 0 1 5 0V5h4a1 1 0 0 1 1 1v4h-1.5a2.5 2.5 0 0 0 0 5H19v4a1 1 0 0 1-1 1h-4v-1.5" +
+                    "a2.5 2.5 0 0 0-5 0V20H5a1 1 0 0 1-1-1v-4h1.5a2.5 2.5 0 0 0 0-5H4V6a1 1 0 0 1 1-1h4V3.5Z",
+            },
+        ],
+    ],
 });
 
 // Builds icons with Steam's own React, and caches the result: a React element is immutable, so one

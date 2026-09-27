@@ -129,6 +129,40 @@ public static class SteamUiPayload
         return true;
     }
 
+    /// <summary>Reads one required string property that may be empty, within a length bound.</summary>
+    /// <param name="payload">The request payload.</param>
+    /// <param name="propertyName">The property to read.</param>
+    /// <param name="maximumLength">Longest accepted string.</param>
+    /// <param name="value">The string, empty included, when this returns true.</param>
+    /// <returns>Whether the property is present, a string and within the bound.</returns>
+    /// <remarks>
+    ///     For a value whose empty spelling means something, such as "no filter" or "back to the
+    ///     default", which <see cref="TryReadBoundedString" /> would refuse.
+    /// </remarks>
+    public static bool TryReadString(
+        JsonElement payload,
+        string propertyName,
+        int maximumLength,
+        out string value)
+    {
+        value = string.Empty;
+        if (payload.ValueKind != JsonValueKind.Object
+            || !payload.TryGetProperty(propertyName, out var property)
+            || property.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        var candidate = property.GetString() ?? string.Empty;
+        if (candidate.Length > maximumLength)
+        {
+            return false;
+        }
+
+        value = candidate;
+        return true;
+    }
+
     /// <summary>Whether the payload object carries exactly this many properties.</summary>
     /// <param name="payload">The request payload.</param>
     /// <param name="propertyCount">The exact property count required.</param>

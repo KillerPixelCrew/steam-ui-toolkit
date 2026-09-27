@@ -16,10 +16,17 @@ namespace SteamUiToolkit;
 ///     Produces the current value, or <see langword="null" /> to publish nothing this
 ///     round — which is how a reading that is momentarily unavailable stays distinct from a zero.
 /// </param>
+/// <param name="Revision">
+///     The surface's revision of that value, or <see langword="null" /> when it has none. With one, a
+///     round whose revision the document already holds skips <paramref name="Read" /> entirely, so a
+///     large state is neither rebuilt nor serialized on rounds raised by other surfaces. The revision
+///     has to change whenever the value would.
+/// </param>
 public sealed record SteamUiStatePublication(
     string PatchId,
     Func<bool> Enabled,
-    Func<ValueTask<JsonElement?>> Read);
+    Func<ValueTask<JsonElement?>> Read,
+    Func<long>? Revision = null);
 
 /// <summary>The outcome of one semantic command.</summary>
 /// <param name="Succeeded">Whether the command changed what it claimed to change.</param>
