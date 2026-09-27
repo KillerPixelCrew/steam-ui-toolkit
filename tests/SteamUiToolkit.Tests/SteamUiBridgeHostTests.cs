@@ -119,7 +119,7 @@ public sealed class SteamUiBridgeHostTests
         Assert.False(await host.PublishStateAsync("not.allowlisted", TestJson.Parse("{}")));
         Assert.False(await host.PublishStateAsync(
             "example.performance",
-            TestJson.Parse("{\"value\":\"" + new string('x', SteamUiBridgeHost.MaximumPayloadCharacters)
+            TestJson.Parse("{\"value\":\"" + new string('x', SteamUiBridgeHost.MaximumDeliveryCharacters)
                                            + "\"}")));
         Assert.Equal(afterBootstrap, transport.Expressions.Count);
 
@@ -155,12 +155,28 @@ public sealed class SteamUiBridgeHostTests
         Assert.True(await host.BootstrapAsync());
         var afterBootstrap = transport.Expressions.Count;
         var oversized = TestJson.Parse(
-            "{\"value\":\"" + new string('x', SteamUiBridgeHost.MaximumPayloadCharacters)
+            "{\"value\":\"" + new string('x', SteamUiBridgeHost.MaximumDeliveryCharacters)
                             + "\"}");
 
         Assert.False(await host.RespondAsync(
             Request(transport.Generations, 1, 1), true, oversized, null));
         Assert.Equal(afterBootstrap, transport.Expressions.Count);
+    }
+
+    [Fact]
+    public async Task DeliveriesMayExceedTheInboundPayloadCap()
+    {
+        await using var transport = new FakeSteamUiTransport();
+        await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
+        Assert.True(await host.BootstrapAsync());
+        var afterBootstrap = transport.Expressions.Count;
+        var large = TestJson.Parse(
+            "{\"value\":\"" + new string('x', SteamUiBridgeHost.MaximumPayloadCharacters)
+                            + "\"}");
+
+        Assert.True(await host.PublishStateAsync("example.performance", large));
+        Assert.True(await host.RespondAsync(Request(transport.Generations, 1, 1), true, large, null));
+        Assert.Equal(afterBootstrap + 2, transport.Expressions.Count);
     }
 
     [Fact]

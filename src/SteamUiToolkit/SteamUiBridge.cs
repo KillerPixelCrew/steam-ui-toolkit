@@ -211,6 +211,16 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
     /// <summary>Maximum decoded payload size accepted from injected code.</summary>
     public const int MaximumPayloadCharacters = 16 * 1024;
 
+    /// <summary>Maximum size of a state or response payload delivered to the document.</summary>
+    /// <remarks>
+    ///     Deliveries go the other way: the host's own state into the document it injected, in one
+    ///     Runtime.evaluate. A page that reviews a whole game library with its artwork is far larger
+    ///     than anything the document sends, and holding it to the inbound cap refused it without a
+    ///     word to the page, which kept showing the last state it had been given. The inbound cap
+    ///     stays as it is; a request never needs to be large.
+    /// </remarks>
+    public const int MaximumDeliveryCharacters = 1024 * 1024;
+
     private const string Namespace = SteamUiBridgeIdentity.Namespace;
     private const string BindingName = SteamUiBridgeIdentity.BindingName;
 
@@ -424,7 +434,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             || request.DocumentGeneration != generations.Document
             || !_allowedCommands.TryGetValue(request.PatchId, out var commands)
             || !SteamUiBridgeAuthorizer.Contains(commands, request.Command)
-            || (payload.HasValue && ExceedsPayloadLimit(payload.Value)))
+            || (payload.HasValue && ExceedsDeliveryLimit(payload.Value)))
         {
             return false;
         }
@@ -448,7 +458,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
     {
         if (!TryGetReadyGenerations(out var generations)
             || !_allowedCommands.ContainsKey(patchId)
-            || ExceedsPayloadLimit(payload))
+            || ExceedsDeliveryLimit(payload))
         {
             return false;
         }
@@ -725,16 +735,28 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
     /// <summary>Whether a payload's raw JSON exceeds <see cref="MaximumPayloadCharacters" />.</summary>
     /// <param name="payload">The payload to measure.</param>
     /// <returns>True when its raw text is longer than the limit in UTF-16 characters.</returns>
+    internal static bool ExceedsPayloadLimit(JsonElement payload)
+    {
+        return Exceeds(payload, MaximumPayloadCharacters);
+    }
+
+    /// <summary>Whether a payload's raw JSON exceeds <see cref="MaximumDeliveryCharacters" />.</summary>
+    /// <param name="payload">The payload to measure.</param>
+    /// <returns>True when its raw text is longer than the limit in UTF-16 characters.</returns>
+    internal static bool ExceedsDeliveryLimit(JsonElement payload)
+    {
+        return Exceeds(payload, MaximumDeliveryCharacters);
+    }
+
     /// <remarks>
     ///     UTF-8 never takes fewer bytes than UTF-16 takes characters, so a raw value within the limit in
     ///     bytes is within it in characters, and only a longer one is decoded to count. Neither
     ///     materializes the text the way measuring <see cref="JsonElement.GetRawText" /> did.
     /// </remarks>
-    internal static bool ExceedsPayloadLimit(JsonElement payload)
+    private static bool Exceeds(JsonElement payload, int limit)
     {
         var raw = JsonMarshal.GetRawUtf8Value(payload);
-        return raw.Length > MaximumPayloadCharacters
-               && Encoding.UTF8.GetCharCount(raw) > MaximumPayloadCharacters;
+        return raw.Length > limit && Encoding.UTF8.GetCharCount(raw) > limit;
     }
 
     /// <summary>Reads an injected expression's <c>{ok:true}</c> answer for the expected generation.</summary>

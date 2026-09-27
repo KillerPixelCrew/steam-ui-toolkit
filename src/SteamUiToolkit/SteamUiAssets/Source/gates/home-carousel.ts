@@ -33,9 +33,10 @@
 // component's own default of 3, which is what this gate restores.
 //
 // Ordering is done here rather than by the host, deliberately: the candidate set is every installed
-// and every owned game with its play and purchase timestamps, which does not fit the bridge's
-// 16 KiB payload bound for any real library. The host owns which libraries count and whether
-// uninstalled games appear; this owns reading Steam's data and projecting it into the carousel.
+// and every owned game with its play and purchase timestamps, which is Steam's own data and already
+// in this document; the host has no better copy to publish. The host owns which libraries count and
+// whether uninstalled games appear; this owns reading Steam's data and projecting it into the
+// carousel.
 //
 // Reactivity comes from Steam's own mobx-react-lite `useObserver`, the hook Steam's `on()` is
 // built on: the wrapper reads the three collections it draws from inside it, so Steam re-renders

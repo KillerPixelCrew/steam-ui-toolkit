@@ -100,6 +100,18 @@ const resolveSteamFieldComponents = (runtime) => {
         const source = String(value);
         return DropdownMarkers.every((token) => source.includes(token));
     });
+    // The bare dropdown that DropDownField wraps in a labelled row: a toolbar wants the button on
+    // its own. Chosen the way decky-frontend-lib chooses it, by the two prototype members only it
+    // declares, tested by name so no getter runs. Wanted, not required: a page that lacks it draws
+    // the labelled field.
+    const dropdownControl = uniqueSteamExport(
+        fields,
+        (value) =>
+            typeof value === "function" &&
+            !!value.prototype &&
+            "SetSelectedOption" in value.prototype &&
+            "BuildMenu" in value.prototype,
+    );
     const toggleField = uniqueSteamExport(fields, (value) => {
         const source = sourceOfSteamComponent(value);
         return source.includes("OnToggleChange") && source.includes("this.Toggle()");
@@ -128,6 +140,7 @@ const resolveSteamFieldComponents = (runtime) => {
         react,
         sliderField,
         dropdown,
+        dropdownControl,
         toggleField,
         dialogButton,
         dialogButtonPrimary,

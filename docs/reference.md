@@ -461,7 +461,9 @@ everything once restarted a machine and signed Steam out.
 
 `SteamUiBridgeIdentity.Namespace = "__steamUi_v1_28d7c54a"`,
 `BindingName = "__steamUiBridge_v1_7b24d11c"`. `SteamUiBridgeHost.SchemaVersion = 1`,
-`MaximumPayloadCharacters = 16 KiB`, `OperationTimeout = 5 s`, a 64-slot request channel.
+`MaximumPayloadCharacters = 16 KiB` for what the document sends, `MaximumDeliveryCharacters = 1 MiB`
+for the state and responses the host delivers to it, `OperationTimeout = 5 s`, a 64-slot request
+channel.
 
 `BootstrapAsync` installs the binding, reads the snapshot after the install so a generation raised
 by it is the baseline, substitutes the configuration JSON for the literal
@@ -697,7 +699,7 @@ evaluated and its place among the discovered fragments does not matter.
 | Transport event channels                                                              | 256 notifications, 64 generations, drop oldest                 |
 | Patch bounds default                                                                  | 8 s, 96 KiB, 2048                                              |
 | Fingerprint bound                                                                     | 512                                                            |
-| Bridge schema, payload cap, operation timeout, request channel                        | 1, 16 KiB, 5 s, 64                                             |
+| Bridge schema, inbound payload cap, delivery cap, operation timeout, request channel  | 1, 16 KiB, 1 MiB, 5 s, 64                                      |
 | Injected `maximumPending`, `timeoutMilliseconds`                                      | 32, 5000                                                       |
 | Bridge namespace, binding                                                             | `__steamUi_v1_28d7c54a`, `__steamUiBridge_v1_7b24d11c`         |
 | Configuration placeholder, bundle marker                                              | `__STEAM_UI_CONFIGURATION_JSON__`, `// @steam-ui-bundle-start` |
@@ -714,7 +716,7 @@ evaluated and its place among the discovered fragments does not matter.
 | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `SteamUiCdpConnectionTests`, `PersistentSteamUiTransportTests` | CDP connection (orphan ids, malformed frames, cancellation, slow and throwing handlers); persistent transport (domains before publication, generation advances, one-shot leases, discarded late connections, master switch, health restoration, backoff, invalid deadlines)                                                                                                                                                                                                                                                                                                 |
 | `SteamUiPatchManagerTests`                                     | bounds, kill switches, retraction of an incompatible or unverified patch, removal failure, per-phase budgets, failure isolation between patches, re-verification without reapplying, generation epoch guards, required structural flags                                                                                                                                                                                                                                                                                                                                     |
-| `SteamUiBridgeHostTests`, `SteamUiBridgeAuthorizerTests`       | replay, malformed and oversized notifications, generation replacement, structured acknowledgements, disposal; the authorizer's allowlist, replay, stale generation and cancel rules, and the real camelCase envelope captured from a live client                                                                                                                                                                                                                                                                                                                            |
+| `SteamUiBridgeHostTests`, `SteamUiBridgeAuthorizerTests`       | replay, malformed and oversized notifications, the two payload caps (a delivery past the inbound cap goes out, one past the delivery cap does not), generation replacement, structured acknowledgements, disposal; the authorizer's allowlist, replay, stale generation and cancel rules, and the real camelCase envelope captured from a live client                                                                                                                                                                                                                                                                                                                            |
 | `SteamUiExtensionHostTests`                                    | every rejection reason and conflict rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `SteamUiModuleTests`                                           | module set rules, publication isolation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `SteamUiEndpointDiscoveryTests`                                | the two role matchers against real URLs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -936,8 +938,9 @@ gate renders the carousel's own function component and clears that prop so the c
 applies, which is what the Play Next carousel on the same page already gets.
 
 The order is decided in the gate because its inputs — every installed and owned game with its
-timestamps — do not fit the bridge's 16 KiB payload. The host decides which games are excluded and
-whether uninstalled games appear:
+timestamps — are Steam's own data, already in the document, and republishing them from the host on
+every change would be the wrong direction. The host decides which games are excluded and whether
+uninstalled games appear:
 
 1. Steam's own running-game prefix, when the list has one: the running game and its separator.
 2. The most recently played installed game, pinned first, as Steam pins it.
@@ -1133,6 +1136,12 @@ the grow animation and the shine are Steam's CSS for those classes.
 module beside the toggle's base class and takes the toggle's props. It is found by
 `DialogCheckbox_Container` and is null on a client without it, so a page treats it as wanted rather
 than required.
+
+It also returns `dropdownControl`: the bare dropdown button that `DropDownField` wraps in a labelled
+row, for a toolbar that wants the control on its own. It is the field module's export whose
+prototype declares `SetSelectedOption` and `BuildMenu`, the members decky-frontend-lib chooses it
+by, and takes the dropdown's own props: `rgOptions`, `selectedOption`, `onChange`, `disabled`,
+`menuLabel`, `strDefaultLabel`. Null when it is not a unique match; a page then draws the field.
 
 `showSteamFilePicker(ui, {title, mode, extensions, start})` opens a folder or file picker as a Steam
 modal and resolves with the chosen path, or null when cancelled. A opens a folder or chooses a file, X
