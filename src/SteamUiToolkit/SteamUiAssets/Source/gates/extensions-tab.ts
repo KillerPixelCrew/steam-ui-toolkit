@@ -47,6 +47,13 @@ function createExtensionsTab() {
   let runtime;
   let react;
   let focusable;
+  // Valve's own panel pieces, the ones every Quick Access tab is built from: PanelSection with its
+  // title, PanelSectionRow, DialogButton and ToggleField. Wanted, not required: a client where one
+  // is not a unique match draws the plain markup below instead, so the tab still exists.
+  let section: any = null;
+  let row: any = null;
+  let dialogButton: any = null;
+  let toggleField: any = null;
   let memo: any = null;
   let installed = false;
   let unsubscribe: (() => void) | null = null;
@@ -171,6 +178,15 @@ function createExtensionsTab() {
     const settingControl = (item, setting) => {
       const draftKey = `${item.id}:${setting.key}`;
       if (setting.kind === "boolean") {
+        if (toggleField) {
+          return react.createElement(toggleField, {
+            key: setting.key,
+            label: setting.label,
+            checked: !!setting.booleanValue,
+            controlled: true,
+            onChange: (value) => configure(item, setting, !!value),
+          });
+        }
         return react.createElement(
           focusable,
           {
@@ -182,6 +198,7 @@ function createExtensionsTab() {
               display: "flex",
               justifyContent: "space-between",
               width: "100%",
+              boxSizing: "border-box",
               padding: "10px 12px",
               margin: "3px 0",
               color: "inherit",
@@ -338,31 +355,16 @@ function createExtensionsTab() {
         ),
       );
     };
-    const rows = items.map((item) =>
-      react.createElement(
-        "section",
-        {
-          key: item.id,
-          style: {
-            display: "block",
-            width: "100%",
-            textAlign: "left",
-            padding: "12px 16px",
-            margin: "4px 0",
-            color: "inherit",
-            background: "rgba(255,255,255,.06)",
-            border: "0",
-            borderRadius: "3px",
-          },
-        },
-        react.createElement("div", { style: { fontWeight: 700 } }, item.name),
-        react.createElement(
-          "div",
-          { style: { fontSize: "0.8em", opacity: 0.75 } },
-          [item.version, item.status, item.detail].filter((part) => !!part).join(" · "),
-        ),
-        ...(item.actions ?? []).map((action) =>
-          react.createElement(
+    // An action is Steam's DialogButton, which the Quick Access panel already knows how to lay out
+    // and focus; the plain focusable is the fallback.
+    const actionControl = (action) =>
+      dialogButton
+        ? react.createElement(
+            dialogButton,
+            { key: action.id, onClick: () => activate(action.id) },
+            action.label,
+          )
+        : react.createElement(
             focusable,
             {
               key: action.id,
@@ -371,6 +373,7 @@ function createExtensionsTab() {
               onActivate: () => activate(action.id),
               style: {
                 width: "100%",
+                boxSizing: "border-box",
                 marginTop: "8px",
                 padding: "9px 12px",
                 color: "inherit",
@@ -381,20 +384,73 @@ function createExtensionsTab() {
               },
             },
             action.label,
+          );
+    const detailOf = (item) =>
+      [item.version, item.status, item.detail].filter((part) => !!part).join(" · ");
+    // One PanelSection per extension, titled with its name, its rows the way Valve's tabs and
+    // decky's plugin list lay theirs out; Steam draws the tab's own title above, so the panel adds
+    // no heading of its own.
+    const rows = items.map((item) =>
+      section && row
+        ? react.createElement(
+            section,
+            { key: item.id, title: item.name },
+            detailOf(item)
+              ? react.createElement(
+                  row,
+                  null,
+                  react.createElement(
+                    "div",
+                    { style: { fontSize: "12px", opacity: 0.75, padding: "2px 0 6px" } },
+                    detailOf(item),
+                  ),
+                )
+              : null,
+            ...(item.actions ?? []).map((action) =>
+              react.createElement(row, { key: `action-${action.id}` }, actionControl(action)),
+            ),
+            ...(item.settings ?? []).map((setting) =>
+              react.createElement(
+                row,
+                { key: `setting-${setting.key}` },
+                settingControl(item, setting),
+              ),
+            ),
+          )
+        : react.createElement(
+            "section",
+            {
+              key: item.id,
+              style: {
+                display: "block",
+                width: "100%",
+                boxSizing: "border-box",
+                textAlign: "left",
+                padding: "12px 16px",
+                margin: "4px 0",
+                color: "inherit",
+                background: "rgba(255,255,255,.06)",
+                border: "0",
+                borderRadius: "3px",
+              },
+            },
+            react.createElement("div", { style: { fontWeight: 700 } }, item.name),
+            react.createElement("div", { style: { fontSize: "0.8em", opacity: 0.75 } }, detailOf(item)),
+            ...(item.actions ?? []).map(actionControl),
+            ...(item.settings ?? []).map((setting) => settingControl(item, setting)),
           ),
-        ),
-        ...(item.settings ?? []).map((setting) => settingControl(item, setting)),
-      ),
     );
     return react.createElement(
       "div",
-      { className: "steam-ui-extensions-tab", style: { padding: "16px" } },
-      react.createElement("h2", null, "Extensions"),
+      {
+        className: "steam-ui-extensions-tab",
+        style: section && row ? undefined : { padding: "16px", boxSizing: "border-box" },
+      },
       rows.length
         ? rows
         : react.createElement(
             "div",
-            { style: { opacity: 0.7 } },
+            { style: { opacity: 0.7, padding: "16px" } },
             "No Steam UI extensions are installed.",
           ),
     );
@@ -432,6 +488,29 @@ function createExtensionsTab() {
       lastError = "Native Steam focusable control was not a unique match";
       return false;
     }
+    // Valve's panel pieces, by the fingerprints the Quick Access component host resolves them by.
+    const layoutFactory = runtime.findUnique(["PanelSectionTitle", "PanelSectionRow", "spinner"]);
+    const layout = layoutFactory ? runtime(layoutFactory[0]) : null;
+    section = layout
+      ? uniqueSteamExport(layout, (value) => {
+          if (typeof value !== "function") return false;
+          const source = String(value);
+          return source.includes("PanelSectionTitle") && source.includes("spinner");
+        })
+      : null;
+    row = layout
+      ? uniqueSteamExport(
+          layout,
+          (value) =>
+            !!value &&
+            typeof value === "object" &&
+            !!value.$$typeof &&
+            typeof value.render === "function",
+        )
+      : null;
+    const fields = resolveSteamFieldComponents(runtime);
+    dialogButton = fields?.dialogButton ?? null;
+    toggleField = fields?.toggleField ?? null;
     const qam = runtime.findUnique([QamToken]);
     if (!qam) {
       lastError = "Quick Access module was not a unique match";
@@ -522,6 +601,8 @@ function createExtensionsTab() {
     installed,
     resolved: !!memo,
     nativeFocusableResolved: !!focusable,
+    nativePanelResolved: !!(section && row),
+    nativeButtonResolved: !!dialogButton,
     claimed: memberClaimed(memo, "type", claimKeys),
     items: desired.items.length,
     revision: desired.revision,

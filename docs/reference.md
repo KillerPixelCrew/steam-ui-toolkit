@@ -1315,9 +1315,15 @@ finite numbers and bounded text are the only values accepted. A value typed into
 box belongs to the revision it was typed against: a newer published revision and a refused save both
 drop it, so the box never shows or resends a value the host has replaced or rejected. Secret
 settings render as password inputs and their current value should be omitted from published state.
-Action and save controls use Steam's native focusable Panel. The Quick Access memo claim retains its
-original member snapshot, and both discovery and subsequent probes recognize that snapshot rather
-than rejecting the installed wrapper.
+Each item is drawn as Steam's own `PanelSection`, titled with the item's name, with its detail,
+actions and settings in `PanelSectionRow` rows; an action is Steam's `DialogButton` and a boolean
+setting Steam's `ToggleField`, the pieces every Quick Access tab is built from, so focus and D-pad
+navigation behave as they do in Valve's tabs. The panel adds no heading of its own; Steam titles
+the tab. On a client where one of those is not a unique match the tab falls back to plain markup
+whose action and save controls use Steam's native focusable Panel, which is what the emitted
+checks exercise. The Quick Access memo claim retains its original member snapshot, and both
+discovery and subsequent probes recognize that snapshot rather than rejecting the installed
+wrapper.
 
 An `activate` answer carrying a `route` opens that page, the same contract the game context menu
 follows, and the only way a host can navigate from this tab. The panel is closed first through

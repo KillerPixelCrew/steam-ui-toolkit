@@ -145,8 +145,11 @@ const tab = ours[0];
 // Steam keys its tabs by number and selects by that number, and its tabs carry a string title.
 assert.equal(typeof tab.key, "number", "the tab must be keyed the way Steam keys its own");
 assert.equal(typeof tab.strTitle, "string", "the tab must carry the string title Valve's tabs do");
+// The fixture resolves none of Valve's panel pieces, so this is the plain fallback: the panel's one
+// child is the list of extension sections, and a section holds the name, the detail, then the
+// actions.
 const panel = tab.panel.type();
-const row = panel.props.children[1][0];
+const row = panel.props.children[0][0];
 const action = row.props.children[2];
 assert.equal(action.type, NativePanel, "actions participate in Steam's focus graph");
 action.props.onActivate();
@@ -205,7 +208,7 @@ const textItem = (revision, textValue) => ({
     },
   ],
 });
-const inputOf = (panel) => panel.props.children[1][0].props.children[2].props.children[1];
+const inputOf = (panel) => panel.props.children[0][0].props.children[2].props.children[1];
 subscriptions.get("steam-ui.extensions-tab")(textItem(3, "alpha"));
 assert.equal(inputOf(renderPanel()).props.value, "alpha");
 inputOf(renderPanel()).props.onChange({ currentTarget: { value: "beta" } });
@@ -222,7 +225,7 @@ subscriptions.get("steam-ui.extensions-tab")(textItem(5, "delta"));
 inputOf(renderPanel()).props.onChange({ currentTarget: { value: "epsilon" } });
 assert.equal(inputOf(renderPanel()).props.value, "epsilon");
 refuseRequests = true;
-renderPanel().props.children[1][0].props.children[2].props.children[2].props.onActivate();
+renderPanel().props.children[0][0].props.children[2].props.children[2].props.onActivate();
 await Promise.resolve();
 await Promise.resolve();
 refuseRequests = false;
