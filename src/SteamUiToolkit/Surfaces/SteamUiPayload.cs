@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Text.Json;
 
 namespace SteamUiToolkit;
@@ -160,6 +161,70 @@ public static class SteamUiPayload
         }
 
         value = candidate;
+        return true;
+    }
+
+    /// <summary>Reads one required string property that may be null, within a length bound.</summary>
+    /// <param name="payload">The request payload.</param>
+    /// <param name="propertyName">The property to read.</param>
+    /// <param name="maximumLength">Longest accepted string.</param>
+    /// <param name="value">The string, or null for a JSON null, when this returns true.</param>
+    /// <returns>Whether the property is present and either null or a non-blank string within the bound.</returns>
+    /// <remarks>For a selection that can also be cleared, where null is the clearing spelling.</remarks>
+    public static bool TryReadNullableString(
+        JsonElement payload,
+        string propertyName,
+        int maximumLength,
+        out string? value)
+    {
+        value = null;
+        if (payload.ValueKind != JsonValueKind.Object || !payload.TryGetProperty(propertyName, out var property))
+        {
+            return false;
+        }
+
+        return property.ValueKind == JsonValueKind.Null
+               || TryReadBoundedString(payload, propertyName, maximumLength, out value!);
+    }
+
+    /// <summary>Reads one required array of non-blank strings, within a count and a length bound.</summary>
+    /// <param name="payload">The request payload.</param>
+    /// <param name="propertyName">The property to read.</param>
+    /// <param name="maximumCount">The most strings accepted.</param>
+    /// <param name="maximumLength">Longest accepted string.</param>
+    /// <param name="values">The strings, in order, when this returns true.</param>
+    /// <returns>Whether the property is an array of that shape; an empty array is accepted.</returns>
+    public static bool TryReadStrings(
+        JsonElement payload,
+        string propertyName,
+        int maximumCount,
+        int maximumLength,
+        out IReadOnlyList<string> values)
+    {
+        values = [];
+        if (payload.ValueKind != JsonValueKind.Object
+            || !payload.TryGetProperty(propertyName, out var property)
+            || property.ValueKind != JsonValueKind.Array
+            || property.GetArrayLength() > maximumCount)
+        {
+            return false;
+        }
+
+        List<string> read = [];
+        foreach (var item in property.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String
+                || item.GetString() is not { } text
+                || string.IsNullOrWhiteSpace(text)
+                || text.Length > maximumLength)
+            {
+                return false;
+            }
+
+            read.Add(text);
+        }
+
+        values = read;
         return true;
     }
 

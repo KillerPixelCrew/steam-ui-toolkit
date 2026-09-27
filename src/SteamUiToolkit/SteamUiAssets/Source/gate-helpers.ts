@@ -299,12 +299,14 @@ const showSteamModal = (
 // Steam's gamepad button codes, as a Focusable's onButtonDown reports them in event.detail.button.
 const SteamGamepadButton = Object.freeze({TriggerLeft: 7, TriggerRight: 8} as const);
 
-// An onButtonDown handler that turns the triggers into a step: -1 for LT, +1 for RT. Any other
-// button is left to Steam.
+// An onButtonDown handler that turns the triggers into a step: -1 for LT, +1 for RT. A trigger it
+// handles goes no further, so the same press does not also scroll the page; any other button is
+// left to Steam.
 const onSteamTriggers = (step: (delta: number) => void) => (event: any) => {
     const button = event?.detail?.button;
-    if (button === SteamGamepadButton.TriggerLeft) step(-1);
-    else if (button === SteamGamepadButton.TriggerRight) step(1);
+    if (button !== SteamGamepadButton.TriggerLeft && button !== SteamGamepadButton.TriggerRight) return;
+    event?.stopPropagation?.();
+    step(button === SteamGamepadButton.TriggerRight ? 1 : -1);
 };
 
 // Closes whichever side panel is open, so a route followed from inside one is not rendered behind

@@ -1164,7 +1164,8 @@ onChange, disabled})` draws it where the client has it and the labelled field ot
 with no modal manager. `resolveSteamPanelComponents(runtime)` answers Valve's `PanelSection` and
 `PanelSectionRow`, the pieces every Quick Access tab is built from, for the Quick Access row host and
 the Extensions tab alike. `SteamGamepadButton` names the button codes a Focusable's `onButtonDown`
-reports, and `onSteamTriggers(step)` turns LT and RT into a step of -1 and +1.
+reports, and `onSteamTriggers(step)` turns LT and RT into a step of -1 and +1 and stops a trigger it
+handled, so the same press does not also scroll the page.
 
 `showSteamFilePicker(ui, {title, mode, extensions, start})` opens a folder or file picker as a Steam
 modal and resolves with the chosen path, or null when cancelled. A opens a folder or chooses a file, X
@@ -1330,7 +1331,9 @@ protobuf field names; the two-layer hiding rule, the external-display twins, the
 and the limits-and-settings pairing are documented on the types.
 
 Every gate's payload is read with `SteamUiPayload` (exact object shape, bounded strings, ranges),
-and a malformed one is refused with a fixed reason before the backend runs. `SteamUiBridgePatch`
+and a malformed one is refused with a fixed reason before the backend runs. Its readers cover a
+non-blank string, a string that may be empty (`TryReadString`), one that may be null for "clear"
+(`TryReadNullableString`), a bounded array of strings (`TryReadStrings`), booleans and integers. `SteamUiBridgePatch`
 installs the bridge; register it in the same manager as dependent surfaces, but do not rely on call
 order because the manager synchronizes patches by stable id and retries unmet conditions. Every row
 shares the resource key `steam-ui.performance-root` so the mounted set serializes. Patch ids and
