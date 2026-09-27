@@ -1368,13 +1368,16 @@ nothing and the caller may offer the request again.
 reproduces Steam's own derivation. Steam persists the entry to `shortcuts.vdf` immediately, as it
 does for every other write here.
 
-The launch fields are written twice in the same script, deliberately. `AddShortcut`'s positional
-contract past the name is not one this library has verified across client builds, while
-`SetShortcutExe` and `SetShortcutLaunchOptions` are the calls `SetShortcutLaunchAsync` already
-relies on. Re-asserting Target, working directory and arguments through the setters means a client
-that reads the positional arguments differently still ends up with the intended values instead of an
-unlaunchable entry. Each setter is guarded by its own `typeof` check, as `AddShortcut` itself is: a
-missing export is reported as a refusal, never assumed present.
+The fields are written twice in the same script, deliberately. `AddShortcut`'s positional contract
+is not one this library has verified across client builds, while `SetShortcutName`,
+`SetShortcutExe` and `SetShortcutLaunchOptions` are the calls `SetShortcutLaunchAsync` and every
+shortcut manager rely on. Re-asserting the name, Target, working directory and arguments through
+the setters means a client that reads the positional arguments differently still ends up with the
+intended values. The name is the one that bites: the client on the reference Claw ignores the name
+it is passed and calls the entry after its executable, so until the name was set again every
+imported game was called `wsgm.packagedlaunch` (2026-09-27). Each setter is guarded by its own
+`typeof` check, as `AddShortcut` itself is: a missing export is reported as a refusal, never assumed
+present.
 
 The id crosses as a decimal string, because a shortcut id occupies the top half of the unsigned
 32-bit range and reads back negative as a JSON number. `ParseAddShortcut` refuses anything that is

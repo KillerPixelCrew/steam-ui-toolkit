@@ -195,12 +195,15 @@ public static class SteamApps
     ///         no restart is needed and no caller has to reproduce Steam's derivation.
     ///     </para>
     ///     <para>
-    ///         The launch fields are written twice on purpose. <c>AddShortcut</c>'s positional contract
-    ///         past the name is not one this library has verified across client builds, while
+    ///         The fields are written twice on purpose. <c>AddShortcut</c>'s positional contract is not
+    ///         one this library has verified across client builds, while <c>SetShortcutName</c>,
     ///         <c>SetShortcutExe</c> and <c>SetShortcutLaunchOptions</c> are the calls
-    ///         <see cref="SetShortcutLaunchAsync" /> already relies on. Re-asserting all three in the same
-    ///         script means a client that reads the positional arguments differently still ends up with
-    ///         the intended Target, working directory and arguments rather than an unlaunchable entry.
+    ///         <see cref="SetShortcutLaunchAsync" /> and every shortcut manager rely on. Re-asserting
+    ///         all four in the same script means a client that reads the positional arguments
+    ///         differently still ends up with the intended name, Target, working directory and
+    ///         arguments. The name is the one that bites: the client on the reference Claw ignores
+    ///         the name it is passed and calls the entry after its executable, so an import named
+    ///         every game <c>wsgm.packagedlaunch</c> until the name was set again (2026-09-27).
     ///     </para>
     /// </remarks>
     public static async Task<SteamShortcutAddResult> AddShortcutAsync(
@@ -224,6 +227,7 @@ public static class SteamApps
             "const raw=await A.AddShortcut(name,exe,dir,args);" +
             "const id=Number(raw)>>>0;" +
             "if(!id)return JSON.stringify({ok:false,err:'Steam did not report a shortcut id.'});" +
+            "if(typeof A.SetShortcutName==='function')await A.SetShortcutName(id,name);" +
             "if(typeof A.SetShortcutExe==='function')await A.SetShortcutExe(id,exe);" +
             "if(typeof A.SetShortcutStartDir==='function')await A.SetShortcutStartDir(id,dir);" +
             "if(typeof A.SetShortcutLaunchOptions==='function')await A.SetShortcutLaunchOptions(id,args);" +
