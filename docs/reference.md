@@ -775,6 +775,7 @@ for fixtures and diagnostics.
 | `SteamLibraryBadgeSurface`    | a library badge on every library tile                     | claims the tile memo's `type`, replaces the Steam Input badge element with a row of two            | `SteamLibraryBadgeState`     | hears the Home layout (Big Art Mode) report                                                |
 | `SteamHomeCarouselSurface`    | Big Picture Home's carousel                               | claims Home's memo `type`, replaces the carousel's `games` array and bounds its overscan           | `SteamHomeCarouselState`     | hears what the carousel holds after each rebuild                                           |
 | `SteamScreensaverSurface`     | host rows in the Screensaver settings section             | a transform on the shared `useMemo` claim wraps the customization page and its Screensaver section | `SteamScreensaverState`      | hears Steam's screensaver timeouts; applies a row's choice                                 |
+| `SteamFilePickerSurface`      | the folder and file picker a host page opens              | none: `showSteamFilePicker` draws a Steam modal on the page that asks                              | none                         | lists the drives and user folders; lists one folder's subfolders and matching files        |
 
 ### Game overrides
 
@@ -1115,6 +1116,32 @@ An item's icon is a toolkit glyph by name, or `glyph`: SVG path data on a 24x24 
 `renderSteamGlyph` as one `currentColor` path with even-odd holes and no size of its own. That is how
 Valve draws the menu's icons, which the row's icon box sizes, so a host's mark sits beside Home and
 Library as one of them. Only path commands and numbers are accepted.
+
+### Library capsules, the checkbox and the file picker
+
+`library-capsule.ts` draws a library capsule the way Steam's gamepad library draws one, for titles
+Steam does not know yet, whose app overview Steam's own capsule component would need.
+`resolveSteamLibraryClasses(runtime)` finds the library item class map by the three tokens the library
+badge uses and returns null unless `LibraryItemBox`, `Portrait`, `Landscape`, `PortraitImage`,
+`LibraryItemBoxShine`, `LibraryItemOverlayOuterArea` and `LibraryItemOverlayInnerArea` are all
+there. `createSteamCapsule(ui, classes)` returns one component; make it once per resolution. Its
+props are `asset` (grid, wide, hero, logo or icon: the shape), `image`, `placeholder`, `width`,
+`dimmed`, `overlay`, `caption` and `focus`, which is passed to Steam's Focusable. The focus ring,
+the grow animation and the shine are Steam's CSS for those classes.
+
+`resolveSteamUiComponents` also returns `checkbox`: Steam's `DialogCheckbox`, which lives in its own
+module beside the toggle's base class and takes the toggle's props. It is found by
+`DialogCheckbox_Container` and is null on a client without it, so a page treats it as wanted rather
+than required.
+
+`showSteamFilePicker(ui, {title, mode, extensions, start})` opens a folder or file picker as a Steam
+modal and resolves with the chosen path, or null when cancelled. A opens a folder or chooses a file, X
+uses the current folder, Y goes up a level and B cancels. It lists through the
+`steam-ui.file-picker` commands; register `SteamFilePickerSurface.Module(enabled)` to answer them. The
+module has no patch and publishes nothing. It lists names only, skips hidden and system entries,
+never opens a file, and caps a listing at `MaximumEntries`.
+
+Mapped from the installed client offline on 2026-09-27; none of the three has had a live pass yet.
 
 ### Settings pages
 

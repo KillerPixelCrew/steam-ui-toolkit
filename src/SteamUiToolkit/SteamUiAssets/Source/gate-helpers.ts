@@ -177,12 +177,22 @@ const resolveSteamUiComponents = (runtime) => {
               )
         : null;
 
+    // Steam's own checkbox, the DialogCheckbox its dialogs tick options with. It lives in its own
+    // module beside the toggle's base class and takes the same props: label, description, checked,
+    // onChange, disabled. Wanted, not required: a page that needs it says so.
+    const checkbox = optionalSteamExport(
+        runtime,
+        ["DialogCheckbox_Container"],
+        (value) => typeof value === "function" && String(value).includes('"DialogCheckbox"+'),
+    );
+
     return {
         ...fields,
         focusable,
         tabs,
         modalRoot,
         showModal,
+        checkbox,
     };
 };
 

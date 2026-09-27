@@ -290,8 +290,11 @@ not implement their own registry scan; the bridge and the built-in probes use th
 
 Consumer-owned native pages can use the public `SteamUiProbeJs` token constants for preflight and
 the composed asset's shared `resolveSteamUiComponents` helper for Steam's focusable, tabs, dialog
-buttons, fields and modal manager. Missing or ambiguous controls are capabilities to refuse, not a
-reason to draw lookalike controls.
+buttons, fields, checkbox and modal manager. Missing or ambiguous controls are capabilities to refuse,
+not a reason to draw lookalike controls. Two elements Steam has no component for are built from its
+own classes and components instead: `createSteamCapsule` draws a library capsule for a title Steam
+does not have yet, and `showSteamFilePicker` opens a folder or file picker as a Steam modal, answered
+by `SteamFilePickerSurface`.
 
 The library is the machinery and the surfaces, and the data behind them is yours. You supply:
 
