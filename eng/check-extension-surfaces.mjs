@@ -369,15 +369,39 @@ assert.deepEqual(requests.at(-1).slice(0, 3), [
 ]);
 themesPanel = renderPanel();
 themesSection = themesPanel.props.children[1][0];
-const bodyRows = themesSection.props.children.slice(1).flat().filter(Boolean);
+let bodyRows = themesSection.props.children.slice(1).flat().filter(Boolean);
 assert.equal(bodyRows[0].props.children[0].props.children[0].type, Button, "unfolded at once: the action is drawn");
 const themeToggle = bodyRows[1].props.children[0];
 assert.equal(themeToggle.type, Toggle);
 assert.equal(themeToggle.props.description, "v2.1 · Squishy", "a setting's description reaches Steam's field");
-const nested = bodyRows[2].props.children[0];
+// A switch's settings start folded under a small heading of their own, indented like them.
+const settingsHeading = bodyRows[2].props.children[0];
+assert.equal(settingsHeading.props.className, "steam-ui-kit-nested");
+const settingsFold = settingsHeading.props.children[0];
+assert.equal(settingsFold.type, NativePanel, "the settings heading is Steam's Focusable");
+assert.equal(settingsFold.props.className, "steam-ui-kit-header sub");
+assert.equal(settingsFold.props.onOKActionDescription, "Expand");
+assert.equal(settingsFold.props.children[0].props.children[0].props.children[0], "2 settings");
+const lightToggle = bodyRows[3].props.children[0];
+assert.equal(lightToggle.type, Toggle);
+assert.equal(bodyRows.length, 5, "folded settings, a child of a switch that is off, and one with no parent switch, are not drawn");
+assert.equal(bodyRows[4].props.children[0].type, TextField, "without a modal a colour is its text");
+assert.equal(bodyRows[4].props.children[0].props.value, "#ff0000");
+settingsFold.props.onActivate();
+assert.deepEqual(requests.at(-1).slice(0, 3), [
+  "steam-ui.extensions-tab",
+  "collapse",
+  { id: "wsgm.themes:theme:dark", collapsed: false },
+]);
+themesPanel = renderPanel();
+themesSection = themesPanel.props.children[1][0];
+bodyRows = themesSection.props.children.slice(1).flat().filter(Boolean);
+assert.equal(bodyRows.length, 7, "opened at once: the switch's settings follow their heading");
+assert.equal(bodyRows[2].props.children[0].props.children[0].props.className, "steam-ui-kit-header open sub");
+const nested = bodyRows[3].props.children[0];
 assert.equal(nested.props.className, "steam-ui-kit-nested", "a child setting is drawn indented with the kit");
 assert.equal(nested.props.children[0].type, Dropdown);
-const blur = bodyRows[3].props.children[0].props.children[0];
+const blur = bodyRows[4].props.children[0].props.children[0];
 assert.equal(blur.type, Slider, "a number with choices is a slider");
 assert.equal(blur.props.max, 2);
 assert.equal(blur.props.showValue, false);
@@ -388,18 +412,13 @@ assert.deepEqual(
 );
 blur.props.onChangeComplete(2);
 assert.deepEqual(requests.at(-1)[2], { id: "wsgm.themes", key: "patch:dark:blur", value: 2, revision: 9 });
-const lightToggle = bodyRows[4].props.children[0];
-assert.equal(lightToggle.type, Toggle);
-assert.equal(bodyRows.length, 6, "a child of a switch that is off, and one with no parent switch, are not drawn");
-assert.equal(bodyRows[5].props.children[0].type, TextField, "without a modal a colour is its text");
-assert.equal(bodyRows[5].props.children[0].props.value, "#ff0000");
-lightToggle.props.onChange(true);
+bodyRows[5].props.children[0].props.onChange(true);
 themesPanel = renderPanel();
 themesSection = themesPanel.props.children[1][0];
 assert.equal(
   themesSection.props.children.slice(1).flat().filter(Boolean).length,
-  7,
-  "switching a parent on shows its children before the host answers",
+  8,
+  "switching a parent on shows its settings heading before the host answers",
 );
 // The host's next word on the fold wins over the local one.
 subscriptions.get("steam-ui.extensions-tab")(themes(true, 10));

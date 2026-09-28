@@ -2,18 +2,18 @@ using static SteamUiToolkit.Tests.Fakes.SurfaceDispatch;
 
 namespace SteamUiToolkit.Tests;
 
-/// <summary>The panel fold list: its wire shape, and the one command that changes it.</summary>
+/// <summary>The panel's open sections: their wire shape, and the one command that changes them.</summary>
 public sealed class SteamPanelFoldsTests
 {
     [Fact]
-    public void TheFoldListReachesTheWireUnderTheNameThePanelReads()
+    public void TheOpenSectionsReachTheWireUnderTheNameThePanelReads()
     {
         var wire = SteamPanelFoldsSurface.Serialize(new SteamPanelFoldsState(["Power profiles", "Charging"]));
 
-        var folded = wire.GetProperty("folded");
-        Assert.Equal(2, folded.GetArrayLength());
-        Assert.Equal("Power profiles", folded[0].GetString());
-        Assert.Equal("Charging", folded[1].GetString());
+        var open = wire.GetProperty("open");
+        Assert.Equal(2, open.GetArrayLength());
+        Assert.Equal("Power profiles", open[0].GetString());
+        Assert.Equal("Charging", open[1].GetString());
     }
 
     [Fact]

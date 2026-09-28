@@ -99,6 +99,7 @@ function createExtensionsTab() {
     optionalText(setting.description, 512) &&
     optionalText(setting.parent, 128) &&
     optionalFlag(setting.highlight) &&
+    optionalFlag(setting.collapsed) &&
     (setting.choices === undefined ||
       setting.choices === null ||
       (Array.isArray(setting.choices) &&
@@ -337,17 +338,23 @@ function createExtensionsTab() {
     };
     const detailOf = (item) =>
       [item.version, item.status, item.detail].filter((part) => !!part).join(" · ");
-    const isCollapsed = (item) => {
-      const fold = folds[item.id];
-      return fold && fold.revision === desired.revision ? fold.collapsed : !!item.collapsed;
+    // A fold is the item's, or a switch's settings' under the item id and the switch's key. The
+    // local word holds until the host publishes again; then the host's wins.
+    const foldState = (id, published) => {
+      const fold = folds[id];
+      return fold && fold.revision === desired.revision ? fold.collapsed : published;
     };
-    const toggleFold = (item) => {
-      const collapsed = !isCollapsed(item);
-      setFolds((previous) => ({ ...previous, [item.id]: { collapsed, revision: desired.revision } }));
-      void request(patchId, "collapse", { id: item.id, collapsed }).catch(() =>
+    const isCollapsed = (item) => foldState(item.id, !!item.collapsed);
+    // Every fold starts folded: a switch's settings are folded unless the host says otherwise.
+    const settingFoldId = (item, setting) => `${item.id}:${setting.key}`;
+    const isSettingCollapsed = (item, setting) =>
+      foldState(settingFoldId(item, setting), setting.collapsed !== false);
+    const toggleFold = (id, collapsed) => {
+      setFolds((previous) => ({ ...previous, [id]: { collapsed, revision: desired.revision } }));
+      void request(patchId, "collapse", { id, collapsed }).catch(() =>
         setFolds((previous) => {
           const next = { ...previous };
-          delete next[item.id];
+          delete next[id];
           return next;
         }),
       );
@@ -363,7 +370,7 @@ function createExtensionsTab() {
           title: item.name,
           detail: detailOf(item),
           collapsed: isCollapsed(item),
-          onToggle: () => toggleFold(item),
+          onToggle: () => toggleFold(item.id, !isCollapsed(item)),
         }),
       );
     // Actions in the kit's grid: two short labels side by side, a long one across the row, rather
@@ -383,6 +390,36 @@ function createExtensionsTab() {
             ),
           )
         : null;
+    // A switch's settings fold under a small heading of their own, drawn indented like them and
+    // only while the switch is on; the heading names how many there are. Everything else is one
+    // line per setting, in the order published.
+    const childrenOf = (item, setting) =>
+      setting.kind === "boolean"
+        ? (item.settings ?? []).filter((candidate) => candidate.parent === setting.key)
+        : [];
+    const settingLines = (item) =>
+      (item.settings ?? []).flatMap((setting) => {
+        if (setting.parent) return [];
+        const children = childrenOf(item, setting);
+        const line = settingLine(item, setting);
+        if (!children.length || !parentOn(item, { parent: setting.key })) return [line];
+        const collapsed = isSettingCollapsed(item, setting);
+        const heading = h(
+          panel.row,
+          { key: `fold-${setting.key}` },
+          h(
+            "div",
+            { className: "steam-ui-kit-nested" },
+            renderSteamUiHeader(ui, {
+              title: children.length === 1 ? "1 setting" : `${children.length} settings`,
+              collapsed,
+              sub: true,
+              onToggle: () => toggleFold(settingFoldId(item, setting), !collapsed),
+            }),
+          ),
+        );
+        return [line, heading, ...(collapsed ? [] : children.map((child) => settingLine(item, child)))];
+      });
     const body = (item) => [
       !item.collapsible && detailOf(item)
         ? h(
@@ -392,7 +429,7 @@ function createExtensionsTab() {
           )
         : null,
       actionsRow(item),
-      ...(item.settings ?? []).map((setting) => settingLine(item, setting)),
+      ...settingLines(item),
     ];
     // One PanelSection per extension, titled with its name, and one PanelSectionRow per line in it,
     // the way Valve's own tabs and decky's plugin list lay theirs out, each drawn as a kit block so

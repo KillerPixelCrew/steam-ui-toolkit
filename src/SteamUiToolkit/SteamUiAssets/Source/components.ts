@@ -228,11 +228,12 @@ function createNativeComponentHost() {
   };
   // The one function export carrying every token. Through the shared matcher, so an export Steam
   // aliases under two names counts once and a getter that throws counts as no match.
-  // The host's list of folded section ids, or null until it publishes one.
+  // The host's list of open section ids, or null until it publishes one. Every section starts
+  // folded, so the list names what the user opened.
   const normalizePanelFoldsState = (value) => {
-    if (!value || typeof value !== "object" || !Array.isArray(value.folded)) return null;
+    if (!value || typeof value !== "object" || !Array.isArray(value.open)) return null;
     return new Set(
-      value.folded
+      value.open
         .filter((id) => typeof id === "string" && id.length > 0 && id.length <= 96)
         .slice(0, 256),
     );
@@ -241,7 +242,7 @@ function createNativeComponentHost() {
   // moment, and a host without the folds module never answers at all.
   const foldOverrides = new Map<string, boolean>();
   const isFolded = (folds, id) =>
-    foldOverrides.has(id) ? foldOverrides.get(id) : !!(folds && folds.has(id));
+    foldOverrides.has(id) ? foldOverrides.get(id) : !(folds && folds.has(id));
   const setFolded = (id, folded) => {
     foldOverrides.set(id, folded);
     notify();

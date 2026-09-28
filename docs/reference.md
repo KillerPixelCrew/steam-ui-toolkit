@@ -1429,13 +1429,15 @@ titles the tab, which draws its own `extensions` glyph.
 A setting with a `parent` names a boolean setting on the same item and is drawn indented under it,
 only while that switch is on, as the user last set it or as the host published it; the way
 CSSLoader shows a theme's patches only for an enabled theme. A parent that is not a switch on the
-item hides the setting, since nothing could open it.
+item hides the setting, since nothing could open it. A switch's settings fold under a small heading
+of their own ("3 settings"), folded unless the switch's `collapsed` is false; the heading sends
+`collapse` with `<item id>:<switch key>` as its id, so the host keeps that fold like an item's.
 
 An item that is `collapsible` is headed by a focusable row carrying its name, its detail line and
 a caret (`sectionOpen`, `sectionClosed`) instead of the section's own title, because the title
 Steam draws cannot take focus and a controller has to be able to land on the fold; it is drawn as
 a title, not a button, so a folded section reads as a heading. Its rows are drawn only while it is
-open. An item's actions share one wrapping row, so two short ones sit side by side, and a dropdown
+open, and every fold starts folded: the host publishes `collapsed` true until the user opens it. An item's actions share one wrapping row, so two short ones sit side by side, and a dropdown
 setting goes under its label (`layout: "below"`), as CSSLoader draws a patch in the panel. The header sends `collapse {id,collapsed}` to
 `ISteamExtensionsTabBackend.CollapseAsync`, shows the fold at once, and keeps it until the host
 publishes the item again; the host's `collapsed` then wins, so a fold the host did not keep is

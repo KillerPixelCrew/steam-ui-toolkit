@@ -6,15 +6,16 @@ using System.Threading.Tasks;
 
 namespace SteamUiToolkit;
 
-/// <summary>Which sections of the Performance and Quick Settings tabs are folded.</summary>
+/// <summary>Which sections of the Performance and Quick Settings tabs are open.</summary>
 /// <remarks>
 ///     A section is named by its title, the one the panel draws: "Power profiles", "Display and
-///     frame rate", "Power limits", "Controller", "Display", "Charging" and "RGB lighting". The
-///     injected host folds a section the moment it is asked and keeps that for the session; this
-///     state is what makes the fold outlive Steam rebuilding the tab.
+///     frame rate", "Power limits", "Controller", "Display", "Charging" and "RGB lighting". Every
+///     section starts folded, so the state lists the ones the user opened. The injected host folds
+///     or opens a section the moment it is asked and keeps that for the session; this state is what
+///     makes the fold outlive Steam rebuilding the tab.
 /// </remarks>
-/// <param name="Folded">The titles of the folded sections, at most 256 of up to 96 characters.</param>
-public sealed record SteamPanelFoldsState(IReadOnlyList<string> Folded);
+/// <param name="Open">The titles of the open sections, at most 256 of up to 96 characters.</param>
+public sealed record SteamPanelFoldsState(IReadOnlyList<string> Open);
 
 /// <summary>Keeps the folds of the panel's sections.</summary>
 public interface ISteamPanelFoldsBackend
@@ -27,7 +28,7 @@ public interface ISteamPanelFoldsBackend
     Task<SteamUiCommandResult> SetFoldedAsync(string id, bool folded, CancellationToken cancellationToken);
 }
 
-/// <summary>The fold list read by the Performance and Quick Settings panel roots.</summary>
+/// <summary>The open-section list read by the Performance and Quick Settings panel roots.</summary>
 public static class SteamPanelFoldsSurface
 {
     /// <summary>Identity for ownership, state and commands.</summary>
@@ -52,7 +53,7 @@ public static class SteamPanelFoldsSurface
 
     /// <summary>Declares the patch, state publication and command handler.</summary>
     /// <param name="enabled">Whether publication is enabled.</param>
-    /// <param name="read">Reads the current fold list.</param>
+    /// <param name="read">Reads the currently open sections.</param>
     /// <param name="backend">Keeps the folds.</param>
     /// <param name="id">Module identity.</param>
     /// <returns>The module to register.</returns>

@@ -23,6 +23,9 @@ const SteamUiKitStyles = `
 .steam-ui-kit-header-icon{display:flex;flex:0 0 auto;color:rgba(255,255,255,.8)}
 .steam-ui-kit-header-icon svg{width:18px;height:18px}
 .steam-ui-kit-header-text{min-width:0;flex:1 1 auto}
+.steam-ui-kit-header.sub{padding:6px 10px}
+.steam-ui-kit-header.sub .steam-ui-kit-header-title{font-size:13px;font-weight:600;letter-spacing:0;text-transform:none;color:rgba(255,255,255,.75)}
+.steam-ui-kit-header.sub.open .steam-ui-kit-header-title{color:#fff}
 .steam-ui-kit-header-title{font-size:12px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .steam-ui-kit-header.open .steam-ui-kit-header-title{color:#fff}
 .steam-ui-kit-header-detail{font-size:12px;color:rgba(255,255,255,.55);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -121,6 +124,8 @@ const renderSteamUiHeader = (
     collapsed?: boolean;
     onToggle?: () => void;
     caret?: any;
+    // A smaller heading inside a section: a switch's own settings folding under it.
+    sub?: boolean;
   },
 ) => {
   const h = ui.react.createElement;
@@ -140,7 +145,7 @@ const renderSteamUiHeader = (
     ),
     caret ? h("div", { className: "steam-ui-kit-header-caret" }, caret) : null,
   ].filter((child) => child !== null);
-  const className = `steam-ui-kit-header${collapsed ? "" : " open"}${folds ? "" : " plain"}`;
+  const className = `steam-ui-kit-header${collapsed ? "" : " open"}${folds ? "" : " plain"}${props.sub ? " sub" : ""}`;
   return folds
     ? h(
         ui.focusable ?? "div",

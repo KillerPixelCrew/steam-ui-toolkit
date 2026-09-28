@@ -32,6 +32,11 @@ public sealed record SteamExtensionsTabAction(string Id, string Label);
 ///     only for an enabled theme.
 /// </param>
 /// <param name="Highlight">Whether the description is drawn in the accent colour, for "update available".</param>
+/// <param name="Collapsed">
+///     For a switch with settings under it: whether those settings are folded away under a heading
+///     of their own. Null leaves them folded, which is how every fold starts; the heading sends
+///     <c>collapse</c> with the item id, a colon and this setting's key as its id.
+/// </param>
 public sealed record SteamExtensionsTabSetting(
     string Key,
     string Label,
@@ -44,7 +49,8 @@ public sealed record SteamExtensionsTabSetting(
     IReadOnlyList<string>? Choices = null,
     string? Description = null,
     string? Parent = null,
-    bool Highlight = false);
+    bool Highlight = false,
+    bool? Collapsed = null);
 
 /// <summary>One extension shown in the Quick Access Extensions tab.</summary>
 /// <param name="Id">Opaque extension instance identity returned when a setting changes.</param>
@@ -226,7 +232,8 @@ public static class SteamExtensionsTabSurface
     private static bool TryReadCollapse(JsonElement payload, out (string Id, bool Collapsed) value)
     {
         value = default;
-        if (!SteamUiPayload.TryReadBoundedString(payload, "id", 96, out var id)
+        // 160, not the 96 an item id gets: a setting's fold is named by the item id and the key.
+        if (!SteamUiPayload.TryReadBoundedString(payload, "id", 160, out var id)
             || !SteamUiPayload.TryReadBoolean(payload, "collapsed", out var collapsed)
             || !SteamUiPayload.HasExactly(payload, 2))
         {

@@ -125,7 +125,8 @@ public sealed class SteamExtensionsTabTests
                 "Ready",
                 Settings:
                 [
-                    new SteamExtensionsTabSetting("theme:dark", "Dark Deck", "boolean", true, Description: "v2.1"),
+                    new SteamExtensionsTabSetting(
+                        "theme:dark", "Dark Deck", "boolean", true, Description: "v2.1", Collapsed: false),
                     new SteamExtensionsTabSetting(
                         "patch:dark:blur", "Blur", "number", NumberValue: 1, Choices: ["Off", "High"],
                         Parent: "theme:dark"),
@@ -140,6 +141,8 @@ public sealed class SteamExtensionsTabTests
         Assert.True(item.GetProperty("collapsed").GetBoolean());
         var settings = item.GetProperty("settings");
         Assert.Equal("v2.1", settings[0].GetProperty("description").GetString());
+        Assert.False(settings[0].GetProperty("collapsed").GetBoolean());
+        Assert.False(settings[1].TryGetProperty("collapsed", out var noFold) && noFold.ValueKind != JsonValueKind.Null);
         Assert.Equal("theme:dark", settings[1].GetProperty("parent").GetString());
         Assert.Equal("color", settings[2].GetProperty("kind").GetString());
     }
