@@ -8,8 +8,7 @@ namespace SteamUiToolkit;
 
 /// <summary>Whether Steam's power menu offers its Switch to Desktop entry.</summary>
 /// <param name="Visible">True while the host has a desktop to switch to.</param>
-/// <param name="Revision">Monotonic host observation revision.</param>
-public sealed record SteamPowerMenuState(bool Visible, long Revision = 0);
+public sealed record SteamPowerMenuState(bool Visible);
 
 /// <summary>Answers Steam's Switch to Desktop entry.</summary>
 public interface ISteamPowerMenuBackend
@@ -50,7 +49,7 @@ public static class SteamPowerMenuSurface
             return JSON.stringify({
               menuModule:count(['#Quit_Shutdown','#SwitchToDesktop']),
               react:count({{SteamUiProbeJs.ReactTokens}}),
-              jsx:count(['react.transitional.element','.jsx','.jsxs'])
+              jsx:count({{SteamUiProbeJs.JsxRuntimeTokens}})
             });
           {{SteamUiProbeJs.Close}}
           """,
@@ -91,18 +90,7 @@ public static class SteamPowerMenuSurface
             SteamSurfaceJsonContext.Default.SteamPowerMenuState,
             [Patch],
             [
-                SteamSurfaceModule.Command<bool>(
-                    PatchId,
-                    "switchToDesktop",
-                    TryReadEmpty,
-                    (_, cancellationToken) => backend.SwitchToDesktopAsync(cancellationToken),
-                    "The power menu switch payload is invalid.")
+                SteamSurfaceModule.Command(PatchId, "switchToDesktop", backend.SwitchToDesktopAsync)
             ]);
-    }
-
-    private static bool TryReadEmpty(JsonElement payload, out bool empty)
-    {
-        empty = SteamUiPayload.HasExactly(payload, 0);
-        return empty;
     }
 }

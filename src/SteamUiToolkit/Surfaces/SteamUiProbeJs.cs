@@ -23,6 +23,10 @@ public static class SteamUiProbeJs
     public const string ReactTokens =
         "['react.transitional.element','useState','cloneElement','createElement']";
 
+    /// <summary>The source tokens of the JSX runtime module the shared element interceptor claims.</summary>
+    /// <remarks>The tokens <c>JsxRuntimeTokens</c> in <c>gate-helpers.ts</c> resolves the module by.</remarks>
+    public const string JsxRuntimeTokens = "['react.transitional.element','.jsx','.jsxs']";
+
     /// <summary>The source tokens of the module exporting Valve's slider and dropdown fields.</summary>
     public const string NativeFieldTokens = "['DialogSlider_Container','DropDownField','SliderField']";
 

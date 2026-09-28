@@ -57,7 +57,7 @@ public static class SteamGameContextMenuSurface
             return JSON.stringify({
               menuModule:1,
               react:count({{SteamUiProbeJs.ReactTokens}}),
-              jsx:count(['react.transitional.element','.jsx','.jsxs'])
+              jsx:count({{SteamUiProbeJs.JsxRuntimeTokens}})
             });
           {{SteamUiProbeJs.Close}}
           """,

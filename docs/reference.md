@@ -1475,7 +1475,7 @@ shares `steam-ui.jsx-runtime` and recognizes the menu root, a module-private obs
 or Shutdown child as the root passes through the element interceptor; `#Quit_Shutdown` occurs once
 in the client. While `Visible` is true it appends one section at the end, where Valve places the
 entry: Valve's separator and a destructive item of the plain type the menu rendered, labelled with
-Steam's localized `#SwitchToDesktop`. Selecting it sends exactly `switchToDesktop {}` to
+Steam's localized `#SwitchToDesktop`. Selecting it sends `switchToDesktop` to
 `ISteamPowerMenuBackend`; the host owns the switch and decides when a desktop exists to return to.
 Removal releases the named element interceptor. `eng/check-power-menu.mjs` covers the emitted gate.
 

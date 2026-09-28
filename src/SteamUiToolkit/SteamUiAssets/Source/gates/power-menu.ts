@@ -15,7 +15,6 @@
 // return to.
 function createPowerMenu() {
     const patchId = "steam-ui.power-menu";
-    const TransformName = "powerMenu";
     const PowerTokens = new Set(["#Sleep", "#Quit_Sleep", "#Shutdown", "#Quit_Shutdown"]);
     const LabelToken = "#SwitchToDesktop";
     const EntryKey = "steam-ui-power-menu-desktop";
@@ -28,8 +27,13 @@ function createPowerMenu() {
     let localize: ((token: string) => unknown) | null = null;
     let installed = false;
     let visible = false;
-    let revision = 0;
     let unsubscribe: (() => void) | null = null;
+    // What the first power menu rendered, kept for the session: the menu's own type, which makes
+    // every later element a single identity test, the item and separator types, and the label.
+    let menuType: unknown = null;
+    let itemType: unknown = null;
+    let separatorType: unknown = null;
+    let label = "";
     let lastOutcome = "never rendered";
     let lastError = "";
 
@@ -40,12 +44,12 @@ function createPowerMenu() {
     // entries that carry a localization token instead. Found among what the menu rendered, inside
     // the fragments Valve groups its sections in.
     const findItemType = (children, depth = 0) => {
-        if (depth > MaximumDepth) return null;
+        if (depth > MaximumDepth || !Array.isArray(children)) return null;
         for (const child of children) {
             if (!react.isValidElement(child)) continue;
             const props: any = child.props ?? {};
             if (child.type === react.Fragment) {
-                const found = findItemType(react.Children.toArray(props.children), depth + 1);
+                const found = findItemType(props.children, depth + 1);
                 if (found) return found;
             } else if (
                 typeof props.onSelected === "function" &&
@@ -63,7 +67,8 @@ function createPowerMenu() {
     const findSeparator = (children) => {
         for (const child of children) {
             if (!react.isValidElement(child) || child.type !== react.Fragment) continue;
-            const first = react.Children.toArray((child.props as any)?.children)[0];
+            const inner = (child.props as any)?.children;
+            const first = Array.isArray(inner) ? inner[0] : inner;
             if (
                 react.isValidElement(first) &&
                 first.type !== react.Fragment &&
@@ -81,29 +86,40 @@ function createPowerMenu() {
             // A refusal stays host-authoritative and must not make Steam's menu fail.
         });
     };
+    const entryProps = {tone: "destructive", onSelected: activate};
+
+    // Recognises the power menu the first time it renders and remembers what it drew with.
+    const learn = (type, children) => {
+        if (children.length > MaximumChildren || !children.some(isPowerEntry)) return false;
+        const item = findItemType(children);
+        if (!item) {
+            lastOutcome = "menu item type absent";
+            return false;
+        }
+        menuType = type;
+        itemType = item;
+        separatorType = findSeparator(children);
+        label = localizedOr(localize, LabelToken, "Switch to Desktop");
+        return true;
+    };
 
     const transform = (create, type, props, key) => {
-        if (!visible || typeof props?.onCancel !== "function" || typeof props.label !== "string") return undefined;
-        if (!installed || !Array.isArray(props.children)) return undefined;
-        const children = props.children;
-        if (children.length > MaximumChildren || !children.some(isPowerEntry)) return undefined;
-        if (children.some((child) => child?.key === EntryKey)) return undefined;
-
-        const flat = react.Children.toArray(children);
-        const itemType = findItemType(flat);
-        if (!itemType) {
-            lastOutcome = "menu item type absent";
+        if (!visible || (menuType !== null && type !== menuType)) return undefined;
+        const children = props?.children;
+        if (!Array.isArray(children)) return undefined;
+        if (menuType === null) {
+            if (typeof props.onCancel !== "function" || typeof props.label !== "string") return undefined;
+            if (!learn(type, children)) return undefined;
+        } else if (!children.some(isPowerEntry)) {
+            // Valve's menu component draws other menus too.
             return undefined;
         }
-        const separatorType = findSeparator(flat);
-        const entry = react.createElement(
-            itemType,
-            {tone: "destructive", onSelected: activate},
-            localizedOr(localize, LabelToken, "Switch to Desktop"),
+        const section = react.createElement(
+            react.Fragment,
+            {key: EntryKey},
+            separatorType ? react.createElement(separatorType) : null,
+            react.createElement(itemType, entryProps, label),
         );
-        const section = separatorType
-            ? react.createElement(react.Fragment, {key: EntryKey}, react.createElement(separatorType), entry)
-            : react.createElement(react.Fragment, {key: EntryKey}, entry);
         lastOutcome = `appended${separatorType ? "" : " without separator"}`;
         return create(type, {...props, children: [...children, section]}, key);
     };
@@ -120,8 +136,8 @@ function createPowerMenu() {
             return false;
         }
         jsxRuntime = runtime.resolve([...JsxRuntimeTokens]);
-        if (typeof jsxRuntime?.jsx !== "function" || typeof jsxRuntime?.jsxs !== "function") {
-            lastError = "JSX runtime lacks jsx or jsxs";
+        if (!jsxRuntime) {
+            lastError = "JSX runtime was not a unique match";
             return false;
         }
         // Wanted, not required: without it the label is the English string.
@@ -134,24 +150,22 @@ function createPowerMenu() {
         if (!attemptResolution(resolve, (error) => (lastError = "Power menu resolution failed: " + String(error)))) {
             return {ok: false, error: lastError};
         }
-        installed = true;
-        const claim = interceptElements(jsxRuntime, TransformName, transform);
+        const claim = interceptElements(jsxRuntime, patchId, transform);
         if (!claim.ok) {
-            installed = false;
             lastError = claim.error ?? "the JSX runtime could not be intercepted";
             return {ok: false, error: lastError};
         }
+        installed = true;
         lastError = "";
         unsubscribe = subscribe(patchId, (state) => {
             visible = state?.visible === true;
-            revision = Number.isSafeInteger(state?.revision) ? state.revision : 0;
         });
         return {ok: true, installed: true};
     };
 
     const remove = () => {
         if (!installed) return {ok: true, absent: true};
-        const released = releaseElements(jsxRuntime, TransformName);
+        const released = releaseElements(jsxRuntime, patchId);
         if (!released.ok) {
             lastError = released.error ?? "Power menu release failed";
             return {ok: false, error: lastError};
@@ -159,7 +173,8 @@ function createPowerMenu() {
         installed = false;
         unsubscribe = endSubscription(unsubscribe);
         visible = false;
-        revision = 0;
+        menuType = itemType = separatorType = null;
+        label = "";
         lastOutcome = "removed";
         return {ok: true, removed: true};
     };
@@ -168,10 +183,10 @@ function createPowerMenu() {
         ok: true,
         installed,
         resolved: !!react && !!jsxRuntime,
-        claimed: elementsIntercepted(jsxRuntime, TransformName),
+        claimed: elementsIntercepted(jsxRuntime, patchId),
         localized: !!localize,
+        recognised: menuType !== null,
         visible,
-        revision,
         lastOutcome,
         lastError,
     });

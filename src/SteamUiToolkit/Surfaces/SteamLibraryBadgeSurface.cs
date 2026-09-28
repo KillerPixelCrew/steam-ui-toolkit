@@ -99,7 +99,7 @@ public static class SteamLibraryBadgeSurface
           {{SteamUiProbeJs.Preamble("steam_ui_library_details_probe_")}}
             return JSON.stringify({
               react:count({{SteamUiProbeJs.ReactTokens}}),
-              runtime:count(['react.transitional.element','.jsx','.jsxs']),
+              runtime:count({{SteamUiProbeJs.JsxRuntimeTokens}}),
               classMap:count(['GameStatsSection:"','PlayBarDetailLabel:"','LastPlayedInfo:"']),
               localization:count({{SteamUiProbeJs.LocalizationTokens}})
             });

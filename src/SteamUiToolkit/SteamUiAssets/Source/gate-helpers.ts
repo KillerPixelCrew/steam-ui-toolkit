@@ -390,21 +390,18 @@ const isLocalizer = (source: string) =>
     !source.includes("!=null") &&
     !source.includes("createElement");
 
-// Valve's localize-with-fallback from the localization module, or null when the module or the
-// function is not a unique match. Wanted, never required, by the gates that label an entry with
-// Steam's own string: without it they fall back to the English word.
+// Valve's localize-with-fallback from the localization module, by its shape (isLocalizer), or null
+// when the module or the function is not a unique match. When the minifier broke the older
+// name-based match, every Quick Access row refused with "React, fields, layout or localization
+// runtime was not a unique match".
 const resolveSteamLocalizer = (runtime): ((token: string) => unknown) | null => {
     const localization = runtime.findUnique([...LocalizationTokens]);
     if (!localization) return null;
-    const exports = runtime(localization[0]);
-    const candidates = new Set(
-        Object.values(exports).filter((value) => {
-            if (typeof value !== "function") return false;
-            const source = String(value);
-            return !source.startsWith("class") && isLocalizer(source);
-        }),
-    );
-    return candidates.size === 1 ? ([...candidates][0] as (token: string) => unknown) : null;
+    return uniqueSteamExport(runtime(localization[0]), (value) => {
+        if (typeof value !== "function") return false;
+        const source = String(value);
+        return !source.startsWith("class") && isLocalizer(source);
+    });
 };
 
 // Steam's string for a token, or the fallback when the localizer is absent or has no string.

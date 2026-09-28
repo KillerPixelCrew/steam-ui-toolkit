@@ -103,7 +103,7 @@ assert.equal(gate.install().ok, true);
 assert.ok(gate.status().claimed && gate.status().resolved && gate.status().localized);
 assert.equal(entryOf(powerMenu()), undefined, "nothing before the host publishes");
 
-publish({ visible: true, revision: 1 });
+publish({ visible: true });
 const tree = powerMenu();
 const section = entryOf(tree);
 assert.ok(section, "the entry is appended once published");
@@ -125,10 +125,12 @@ const other = runtime.jsxs(Menu, {
   onCancel() {},
   children: [runtime.jsx(Item, { onSelected() {}, children: "Something" })],
 });
-assert.equal(entryOf(other), undefined, "only the power menu gets the entry");
+assert.equal(entryOf(other), undefined, "a menu of the same type without the power entries stays Steam's");
 
-publish({ visible: false, revision: 2 });
+publish({ visible: false });
 assert.equal(entryOf(powerMenu()), undefined, "withdrawn when the host hides it");
+publish({ visible: true });
+assert.equal(powerMenu().props.children.filter((child) => child?.key === "steam-ui-power-menu-desktop").length, 1, "drawn once on a later render");
 
 assert.equal(gate.remove().ok, true);
 assert.equal(runtime.jsx, originalJsx, "the runtime is handed back");

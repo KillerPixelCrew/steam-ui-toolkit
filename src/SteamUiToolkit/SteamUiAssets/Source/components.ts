@@ -243,11 +243,9 @@ function createNativeComponentHost() {
   const createControlRuntime = () => {
     const controls = resolveSteamFieldComponents(runtime);
     const panel = resolveSteamPanelComponents(runtime);
-    const localizationFactory = runtime.findUnique(LocalizationTokens);
-    if (!controls || !panel || !localizationFactory) return null;
+    if (!controls || !panel) return null;
 
     const react = controls.react;
-    const localization = runtime(localizationFactory[0]);
     const slider = controls.sliderField;
     const dropdown = controls.dropdown;
     // Steam's own ToggleField, from the same module as the slider and dropdown above. Selected by
@@ -271,14 +269,8 @@ function createNativeComponentHost() {
         ])
       : null;
     const { section, row } = panel;
-    // Valve's localize-with-fallback, by its shape (isLocalizer). When the minifier broke the older
-    // name-based match, every Quick Access row refused with "React, fields, layout or localization
-    // runtime was not a unique match".
-    const localize = uniqueSteamExport(localization, (value) => {
-      if (typeof value !== "function") return false;
-      const source = String(value);
-      return !source.startsWith("class") && isLocalizer(source);
-    });
+    // Valve's localize-with-fallback; every row's label needs it.
+    const localize = resolveSteamLocalizer(runtime);
     if (!slider || !dropdown || !localize) return null;
     // The toggle and the label field are deliberately not in that guard. They arrived after the
     // other four, so a client where either cannot be found still gets every control that does not

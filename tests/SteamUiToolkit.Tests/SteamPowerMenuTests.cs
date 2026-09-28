@@ -29,14 +29,13 @@ public sealed class SteamPowerMenuTests
     [Fact]
     public void VisibilityReachesTheWire()
     {
-        var wire = SteamPowerMenuSurface.Serialize(new SteamPowerMenuState(true, 4));
+        var wire = SteamPowerMenuSurface.Serialize(new SteamPowerMenuState(true));
 
         Assert.True(wire.GetProperty("visible").GetBoolean());
-        Assert.Equal(4, wire.GetProperty("revision").GetInt64());
     }
 
     [Fact]
-    public async Task SwitchAcceptsOnlyTheEmptyPayload()
+    public async Task SwitchReachesTheBackend()
     {
         RecordingBackend backend = new();
         SteamUiModuleSet set = new(
@@ -48,11 +47,8 @@ public sealed class SteamPowerMenuTests
         ]);
 
         var applied = await DispatchAsync(set, SteamPowerMenuSurface.PatchId, "switchToDesktop", "{}");
-        var refused = await DispatchAsync(
-            set, SteamPowerMenuSurface.PatchId, "switchToDesktop", """{"force":true}""");
 
         Assert.True(applied.Succeeded);
-        Assert.Equal("The power menu switch payload is invalid.", refused.Error);
         Assert.Equal(["switch-to-desktop"], backend.Calls);
     }
 }
