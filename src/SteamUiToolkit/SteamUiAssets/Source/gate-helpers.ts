@@ -390,6 +390,34 @@ const isLocalizer = (source: string) =>
     !source.includes("!=null") &&
     !source.includes("createElement");
 
+// Valve's localize-with-fallback from the localization module, or null when the module or the
+// function is not a unique match. Wanted, never required, by the gates that label an entry with
+// Steam's own string: without it they fall back to the English word.
+const resolveSteamLocalizer = (runtime): ((token: string) => unknown) | null => {
+    const localization = runtime.findUnique([...LocalizationTokens]);
+    if (!localization) return null;
+    const exports = runtime(localization[0]);
+    const candidates = new Set(
+        Object.values(exports).filter((value) => {
+            if (typeof value !== "function") return false;
+            const source = String(value);
+            return !source.startsWith("class") && isLocalizer(source);
+        }),
+    );
+    return candidates.size === 1 ? ([...candidates][0] as (token: string) => unknown) : null;
+};
+
+// Steam's string for a token, or the fallback when the localizer is absent or has no string.
+const localizedOr = (localize: ((token: string) => unknown) | null, token: string, fallback: string) => {
+    try {
+        const text = localize?.(token);
+        if (typeof text === "string" && text && text !== token) return text;
+    } catch {
+        // The fallback stands in for a localizer that did not answer.
+    }
+    return fallback;
+};
+
 // mobx-react-lite's useObserver, found by its shape in the module that carries the startup check,
 // or null. Wanted by the surfaces that use it, never required.
 const findUseObserver = (runtime) => {

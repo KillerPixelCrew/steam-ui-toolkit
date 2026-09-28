@@ -427,15 +427,7 @@ function createLibraryDetails() {
     let unsubscribe: (() => void) | null = null;
     let reading = readLibraryBadgeState(null);
 
-    const label = () => {
-        try {
-            const text = localize?.(LabelToken);
-            if (typeof text === "string" && text && text !== LabelToken) return text;
-        } catch {
-            // The English word stands in for a localizer that did not resolve or answer.
-        }
-        return "Library";
-    };
+    const label = () => localizedOr(localize, LabelToken, "Library");
 
     const overviewIn = (children: unknown[]) => {
         for (const child of children) {
@@ -505,19 +497,7 @@ function createLibraryDetails() {
         };
 
         // Wanted, not required: without it the label is the English word.
-        localize = null;
-        const localization = runtime.findUnique([...LocalizationTokens]);
-        if (localization) {
-            const exports = runtime(localization[0]);
-            const candidates = new Set(
-                Object.values(exports).filter((value) => {
-                    if (typeof value !== "function") return false;
-                    const source = String(value);
-                    return !source.startsWith("class") && isLocalizer(source);
-                }),
-            );
-            if (candidates.size === 1) localize = [...candidates][0] as (token: string) => unknown;
-        }
+        localize = resolveSteamLocalizer(runtime);
         return true;
     };
 

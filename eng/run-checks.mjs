@@ -20,6 +20,7 @@ const checks = [
   "check-home-carousel.mjs",
   "check-screensaver.mjs",
   "check-extension-surfaces.mjs",
+  "check-power-menu.mjs",
   "check-theme-styles.mjs",
   "check-ui-kit.mjs",
 ];

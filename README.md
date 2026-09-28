@@ -106,7 +106,10 @@ plugins. **`SteamGameContextMenuSurface.Module`** adds host-owned commands to th
 library and gear menu. Its backend receives Steam's positive app ID and an exact command ID, after
 the surface has rejected every other payload shape. The shared JSX interceptor recognizes the
 private menu class before its first render, so the first opening includes the commands without a
-visible-DOM scan. The Extensions tab draws each plugin as Steam's own PanelSection, its actions as
+visible-DOM scan. **`SteamPowerMenuSurface.Module`** revives Steam's own Switch to Desktop entry in
+the Big Picture power menu while the host publishes it visible, and hands its selection to
+`ISteamPowerMenuBackend`.
+The Extensions tab draws each plugin as Steam's own PanelSection, its actions as
 DialogButtons and its settings with the same Steam fields a settings page uses, and refuses to
 install on a client missing one of them; the probe recognizes its own installed wrapper. An item
 folds, a setting can carry a description and belong to a switch on the same item, and

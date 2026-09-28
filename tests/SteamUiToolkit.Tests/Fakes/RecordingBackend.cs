@@ -27,7 +27,8 @@ internal sealed class RecordingBackend :
     ISteamHybridCoreBackend,
     ISteamCpuBoostBackend,
     ISteamExtensionsTabBackend,
-    ISteamGameContextMenuBackend
+    ISteamGameContextMenuBackend,
+    ISteamPowerMenuBackend
 {
     internal List<string> Calls { get; } = [];
 
@@ -250,6 +251,11 @@ internal sealed class RecordingBackend :
     public Task<SteamUiCommandResult> ActivateAsync(uint appId, string id, CancellationToken cancellationToken)
     {
         return Record($"game-menu {appId} {id}", cancellationToken);
+    }
+
+    public Task<SteamUiCommandResult> SwitchToDesktopAsync(CancellationToken cancellationToken)
+    {
+        return Record("switch-to-desktop", cancellationToken);
     }
 
     private Task<SteamUiCommandResult> Record(string call, CancellationToken cancellationToken)
