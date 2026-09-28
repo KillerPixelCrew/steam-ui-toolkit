@@ -109,16 +109,16 @@ public sealed class SteamUiPatchManagerTests
     }
 
     [Fact]
-    public async Task APatchRefusedBeforeSteamFinishedLoadingIsProbedAgainWithoutAnotherReload()
+    public async Task ATargetNotReadyWhileSteamLoadsIsProbedAgainWithoutAnotherReload()
     {
         await using var transport = new FakeSteamUiTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        var patch = new FakePatch { Bounds = FixtureBounds, Compatible = false };
+        var patch = new FakePatch { Bounds = FixtureBounds, TargetPresent = false };
         manager.Register(patch);
 
         await manager.SynchronizeAsync();
-        Assert.Equal(SteamUiPatchState.Incompatible, Assert.Single(manager.GetSnapshots()).State);
-        patch.Compatible = true;
+        Assert.Equal(SteamUiPatchState.AbsentTarget, Assert.Single(manager.GetSnapshots()).State);
+        patch.TargetPresent = true;
 
         // The first retry is a second after the refusal, past the shared helper's one-second wait.
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -128,6 +128,14 @@ public sealed class SteamUiPatchManagerTests
         }
 
         Assert.Equal(1, patch.ApplyCalls);
+    }
+
+    [Fact]
+    public void AProbeThatSaysSteamIsStillLoadingIsNotAVerdict()
+    {
+        Assert.True(SteamUiPatchEvaluation.NotReady(TestJson.Parse("{\"notReady\":1,\"routerFound\":0}")));
+        Assert.False(SteamUiPatchEvaluation.NotReady(TestJson.Parse("{\"notReady\":0}")));
+        Assert.False(SteamUiPatchEvaluation.NotReady(TestJson.Parse("{\"routerFound\":0}")));
     }
 
     [Fact]

@@ -228,7 +228,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _resourceGates =
         new(StringComparer.Ordinal);
 
-    /// <summary>How many times a refused patch is probed again within one generation: 1, 2, 4, 8 and 16 s after.</summary>
+    /// <summary>How many times an absent target is probed again within one generation: 1, 2, 4, 8 and 16 s after.</summary>
     private const int SettleRetryLimit = 5;
 
     private readonly SemaphoreSlim _schedulerGate = new(1, 1);
@@ -617,6 +617,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
                     SteamUiPatchState.AbsentTarget,
                     null,
                     probe.Diagnostic);
+                ScheduleSettleRetry(entry, generationEpoch);
                 return;
             }
 
@@ -643,7 +644,6 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
                         SteamUiPatchState.Incompatible,
                         null,
                         diagnostic);
-                    ScheduleSettleRetry(entry, generationEpoch);
                 }
 
                 return;
@@ -923,11 +923,12 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
     }
 
     /// <summary>
-    ///     Probes a refused patch again a few times, backing off, within the same generation. A Steam
-    ///     window that has just loaded is probed before it has mounted everything: the custom pages'
-    ///     router was absent three seconds into a reload on 2026-09-28, the patch was refused, and
-    ///     nothing asked again until the next reload, so every custom page stayed blank. A patch that
-    ///     is truly incompatible is refused the same way each time and costs five probes.
+    ///     Probes a patch whose target was absent again a few times, backing off, within the same
+    ///     generation. A Steam window that has just loaded is probed before it has mounted everything:
+    ///     the custom pages' router was absent three seconds into a reload on 2026-09-28, the patch
+    ///     was refused as incompatible, and nothing asked again until the next reload, so every custom
+    ///     page stayed blank. A probe now says so with <c>notReady</c> and is recorded as an absent
+    ///     target; an incompatible verdict stands for the generation.
     /// </summary>
     private void ScheduleSettleRetry(PatchEntry entry, long generationEpoch)
     {

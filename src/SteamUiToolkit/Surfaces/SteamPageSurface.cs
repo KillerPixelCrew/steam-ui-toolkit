@@ -127,6 +127,8 @@ public static class SteamPageSurface
               backstackModule:backstack?1:0,
               steamRoute:routes.size,
               routerFound:memo?1:0,
+              // The router's module is there and its memo is not mounted yet: a window still loading.
+              notReady:!memo&&host&&key?1:0,
               claimable:{{SteamUiProbeJs.Replaceable("descriptor")}},
               claimed:{{SteamUiProbeJs.Claimed("memo?.type", "PageHost")}},
               // The switch itself, matched the way the gate matches the list it renders.

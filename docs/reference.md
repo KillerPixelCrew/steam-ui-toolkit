@@ -1335,7 +1335,8 @@ Display group before Valve's common controls, with Charging and RGB lighting gro
 Valve's own sections between are wrapped in `steam-ui-kit-valve`, which gives their `PanelSection`s
 the same block look and the kit's heading. What remains of Valve's Performance tree once the FPS
 rows are hidden is the battery line, wrapped in `steam-ui-kit-battery`, which draws it at one line's
-height: the row is found as the only element with exactly three children, so no hashed class is
+height: the row is found as the element with three children whose middle one, the percentage, is not
+empty (the section around it has three too, two of them empty), so no hashed class is
 named. RGB brightness stays visible; an Edit color toggle reveals the zone and HSV controls. If
 Valve's toggle component is unavailable, the color editor is omitted while charging and brightness
 remain usable. A group with no registered row is omitted. A group whose host rows all render

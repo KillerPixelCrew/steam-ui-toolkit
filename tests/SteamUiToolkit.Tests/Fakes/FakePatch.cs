@@ -10,6 +10,8 @@ internal sealed class FakePatch(string id = "fixture.patch", string resourceKey 
 
     internal bool Compatible { get; set; } = true;
 
+    internal bool TargetPresent { get; set; } = true;
+
     internal bool ThrowOnApply { get; init; }
 
     internal bool BlockVerification { get; init; }
@@ -52,7 +54,7 @@ internal sealed class FakePatch(string id = "fixture.patch", string resourceKey 
         cancellationToken.ThrowIfCancellationRequested();
         await DelayAsync(cancellationToken);
         return new SteamUiPatchProbeResult(
-            true,
+            TargetPresent,
             Compatible,
             Compatible,
             Compatible ? "fixture-fingerprint" : null,

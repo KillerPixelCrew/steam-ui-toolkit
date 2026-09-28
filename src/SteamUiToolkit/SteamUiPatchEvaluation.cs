@@ -142,6 +142,12 @@ public static class SteamUiPatchEvaluation
         try
         {
             using var document = JsonDocument.Parse(result.Value);
+            if (NotReady(document.RootElement))
+            {
+                return new SteamUiPatchProbeResult(
+                    false, false, false, null, "Steam has not finished loading: " + Bounded(result.Value));
+            }
+
             var matched = compatible(document.RootElement);
             return new SteamUiPatchProbeResult(
                 true,
@@ -154,6 +160,18 @@ public static class SteamUiPatchEvaluation
         {
             return new SteamUiPatchProbeResult(true, false, false, null, ex.Message);
         }
+    }
+
+    /// <summary>
+    ///     Whether a probe says Steam has not finished loading what the patch needs: a
+    ///     <c>notReady</c> of 1. The manager records that as an absent target and probes again while
+    ///     the window settles, where an incompatible verdict stands for the generation.
+    /// </summary>
+    /// <param name="root">The parsed probe result.</param>
+    /// <returns>True when the probe reported <c>notReady: 1</c>.</returns>
+    public static bool NotReady(JsonElement root)
+    {
+        return root.ValueKind == JsonValueKind.Object && IsOne(root, "notReady");
     }
 
     /// <summary>Whether a probe counted exactly one match for a required structural token set.</summary>

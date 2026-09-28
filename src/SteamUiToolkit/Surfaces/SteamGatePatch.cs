@@ -185,6 +185,12 @@ public sealed class SteamGatePatch : ISteamUiPatch
         try
         {
             using var document = JsonDocument.Parse(result.Value);
+            if (SteamUiPatchEvaluation.NotReady(document.RootElement))
+            {
+                return new SteamUiPatchProbeResult(
+                    false, false, false, null, "Steam has not finished loading: " + result.Value);
+            }
+
             var matched = compatible(document.RootElement);
             return new SteamUiPatchProbeResult(
                 true,
