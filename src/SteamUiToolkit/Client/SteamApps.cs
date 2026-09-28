@@ -170,7 +170,7 @@ public static class SteamApps
     private static readonly TimeSpan Budget = TimeSpan.FromSeconds(20);
 
     // One change to the client's library at a time, whoever asks for it.
-    private static readonly SemaphoreSlim Writes = new(1, 1);
+    internal static readonly SemaphoreSlim Writes = new(1, 1);
 
     /// <summary>
     ///     Converts a stored app id to the unsigned 32-bit id Steam's client API expects. A shortcut id

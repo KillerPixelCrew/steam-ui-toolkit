@@ -692,4 +692,38 @@ public sealed class SteamClientTests
         Assert.Throws<ArgumentOutOfRangeException>(
             () => new SteamAppLifetimeMonitor(new FakeSteamUiTransport(), TimeSpan.FromMilliseconds(10)));
     }
+
+    // ---- Collections ----
+
+    [Fact]
+    public void ACollectionIsOwnedByItsIdAndChangedByDifference()
+    {
+        var script = SteamCollections.SyncScript("uc-1", "Epic \"Games\"", [3000000001u, 440u], [3000000002u], true);
+
+        Assert.Contains("const existing=\"uc-1\";", script, StringComparison.Ordinal);
+        Assert.Contains("find(c=>c.id===existing)", script, StringComparison.Ordinal);
+        Assert.Contains("const want=[3000000001,440],drop=new Set([3000000002])", script, StringComparison.Ordinal);
+        Assert.Contains("NewUnsavedCollection(\"Epic \\u0022Games\\u0022\"", script, StringComparison.Ordinal);
+        Assert.Contains("a.appid>>>0", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("displayName===", script, StringComparison.Ordinal);
+        Assert.Contains("if(true&&apps().length===0)", script, StringComparison.Ordinal);
+        Assert.Contains("const existing=null;", SteamCollections.SyncScript(null, "X", [], [], false),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ACollectionReplyCarriesItsIdAndCountOrTheRefusal()
+    {
+        var synced = SteamCollections.ParseSync(CefEvalResult.Ok("""{"ok":true,"id":"uc-9","count":4}"""));
+        Assert.Equal((true, "uc-9", 4), (synced.Succeeded, synced.Id, synced.Count));
+
+        var deleted = SteamCollections.ParseSync(CefEvalResult.Ok("""{"ok":true,"id":null,"count":0}"""));
+        Assert.True(deleted.Succeeded);
+        Assert.Null(deleted.Id);
+
+        var refused = SteamCollections.ParseSync(CefEvalResult.Ok("""{"ok":false,"err":"not loaded"}"""));
+        Assert.Equal((true, false, "not loaded"), (refused.Reachable, refused.Accepted, refused.Error));
+
+        Assert.False(SteamCollections.ParseSync(CefEvalResult.Unreachable("closed")).Reachable);
+    }
 }
