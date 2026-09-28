@@ -192,15 +192,16 @@ const tab = ours[0];
 // Steam keys its tabs by number and selects by that number, and its tabs carry a string title.
 assert.equal(typeof tab.key, "number", "the tab must be keyed the way Steam keys its own");
 assert.equal(typeof tab.strTitle, "string", "the tab must carry the string title Valve's tabs do");
-// The panel's one child is its list of sections: one Steam PanelSection per extension, titled with
-// its name, holding a PanelSectionRow for the detail and one per action.
+// The panel carries its one style rule and then its list of sections: one Steam PanelSection per
+// extension, titled with its name, holding a PanelSectionRow for the detail and one for the actions.
 const panel = tab.panel.type();
-const section = panel.props.children[0][0];
+const section = panel.props.children[1][0];
 assert.equal(section.type, PanelSection, "an extension is drawn as Steam's PanelSection");
 assert.equal(section.props.title, "One", "Steam's section titles it with the extension's name");
 const actionRow = section.props.children[1];
 assert.equal(actionRow.type, PanelRow, "each line sits in Steam's PanelSectionRow");
-const action = actionRow.props.children[0];
+assert.equal(actionRow.props.children[0].type, NativePanel, "the actions share one focusable row");
+const action = actionRow.props.children[0].props.children[0];
 assert.equal(action.type, Button, "an action is Steam's DialogButton");
 action.props.onClick();
 assert.deepEqual(requests[0].slice(0, 3), [
@@ -258,8 +259,8 @@ const textItem = (revision, textValue) => ({
     },
   ],
 });
-// A text setting is Steam's TextField, in the row after the detail.
-const inputOf = (panel) => panel.props.children[0][0].props.children[1].props.children[0];
+// A text setting is Steam's TextField, in the row after the detail and the (empty) actions row.
+const inputOf = (panel) => panel.props.children[1][0].props.children[2].props.children[0];
 subscriptions.get("steam-ui.extensions-tab")(textItem(3, "alpha"));
 assert.equal(inputOf(renderPanel()).type, TextField, "a text setting is Steam's TextField");
 assert.equal(inputOf(renderPanel()).props.value, "alpha");
@@ -307,9 +308,10 @@ subscriptions.get("steam-ui.extensions-tab")({
     },
   ],
 });
-const rendered = renderPanel().props.children[0][0].props.children;
-assert.equal(rendered[1].props.children[0].type, Dropdown, "a choice is Steam's dropdown");
-const order = rendered[2].props.children[0];
+const rendered = renderPanel().props.children[1][0].props.children;
+assert.equal(rendered[2].props.children[0].type, Dropdown, "a choice is Steam's dropdown");
+assert.equal(rendered[2].props.children[0].props.layout, "below", "the dropdown goes under its label in the panel");
+const order = rendered[3].props.children[0];
 const firstMove = order.props.children.flat()[1].props.value.props.children[1];
 assert.equal(firstMove.type, SmallButton, "an order moves with Steam's small buttons");
 firstMove.props.onClick();
@@ -345,25 +347,26 @@ const themes = (collapsed, revision, extra = {}) => ({
 });
 subscriptions.get("steam-ui.extensions-tab")(themes(true, 9));
 let themesPanel = renderPanel();
-let themesSection = themesPanel.props.children[0][0];
+let themesSection = themesPanel.props.children[1][0];
 assert.equal(themesSection.props.title, undefined, "a collapsible section is not titled by Steam's section");
 const headerRow = themesSection.props.children[0];
 assert.equal(headerRow.type, PanelRow);
 const headerButton = headerRow.props.children[0];
-assert.equal(headerButton.type, Button, "the header is Steam's DialogButton, so a controller can land on it");
+assert.equal(headerButton.type, NativePanel, "the header is Steam's Focusable, so a controller can land on it");
+assert.equal(headerButton.props.onOKActionDescription, "Expand");
 assert.equal(headerButton.props.children[0].props.children[0].props.children[0], "Themes");
 assert.equal(headerButton.props.children[0].props.children[1].props.children[0], "Ready · 3 enabled");
 assert.equal(themesSection.props.children.length, 1, "a folded section draws its header and nothing else");
-headerButton.props.onClick();
+headerButton.props.onActivate();
 assert.deepEqual(requests.at(-1).slice(0, 3), [
   "steam-ui.extensions-tab",
   "collapse",
   { id: "wsgm.themes", collapsed: false },
 ]);
 themesPanel = renderPanel();
-themesSection = themesPanel.props.children[0][0];
+themesSection = themesPanel.props.children[1][0];
 const bodyRows = themesSection.props.children.slice(1).flat().filter(Boolean);
-assert.equal(bodyRows[0].props.children[0].type, Button, "unfolded at once: the action is drawn");
+assert.equal(bodyRows[0].props.children[0].props.children[0].type, Button, "unfolded at once: the action is drawn");
 const themeToggle = bodyRows[1].props.children[0];
 assert.equal(themeToggle.type, Toggle);
 assert.equal(themeToggle.props.description, "v2.1 · Squishy", "a setting's description reaches Steam's field");
@@ -388,7 +391,7 @@ assert.equal(bodyRows[5].props.children[0].type, TextField, "without a modal a c
 assert.equal(bodyRows[5].props.children[0].props.value, "#ff0000");
 lightToggle.props.onChange(true);
 themesPanel = renderPanel();
-themesSection = themesPanel.props.children[0][0];
+themesSection = themesPanel.props.children[1][0];
 assert.equal(
   themesSection.props.children.slice(1).flat().filter(Boolean).length,
   7,
@@ -397,7 +400,7 @@ assert.equal(
 // The host's next word on the fold wins over the local one.
 subscriptions.get("steam-ui.extensions-tab")(themes(true, 10));
 themesPanel = renderPanel();
-assert.equal(themesPanel.props.children[0][0].props.children.length, 1, "a new publication folds it again");
+assert.equal(themesPanel.props.children[1][0].props.children.length, 1, "a new publication folds it again");
 subscriptions.get("steam-ui.extensions-tab")({ items: [], revision: 11 });
 
 const replacement = createExtensions();

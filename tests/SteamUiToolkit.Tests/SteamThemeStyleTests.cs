@@ -17,20 +17,25 @@ public sealed class SteamThemeStyleTests
     }
 
     [Fact]
-    public void TheProbeReadsSteamsPopupManagerAndNothingElse()
+    public void TheProbeReadsSteamsPopupManagerAndItsReactRootAndNoModule()
     {
         // The gate touches documents, not modules: no webpack capture, no module id, no export.
         var probe = Gate.ProbeExpression;
 
         Assert.Contains("g_PopupManager", probe, StringComparison.Ordinal);
         Assert.Contains("GetPopups", probe, StringComparison.Ordinal);
+        Assert.Contains("__reactContainer$", probe, StringComparison.Ordinal);
         Assert.DoesNotContain("webpackChunk", probe, StringComparison.Ordinal);
 
-        using var compatible = JsonDocument.Parse("""{"popupManager":1,"popups":3}""");
-        using var absent = JsonDocument.Parse("""{"popupManager":0,"popups":0}""");
+        // Either way to the windows will do: the popup manager, or a mounted tree whose portals
+        // are the windows the manager does not list.
+        using var manager = JsonDocument.Parse("""{"popupManager":1,"popups":3,"reactRoot":0}""");
+        using var tree = JsonDocument.Parse("""{"popupManager":0,"popups":0,"reactRoot":1}""");
+        using var neither = JsonDocument.Parse("""{"popupManager":0,"popups":0,"reactRoot":0}""");
 
-        Assert.True(Gate.Compatible(compatible.RootElement));
-        Assert.False(Gate.Compatible(absent.RootElement));
+        Assert.True(Gate.Compatible(manager.RootElement));
+        Assert.True(Gate.Compatible(tree.RootElement));
+        Assert.False(Gate.Compatible(neither.RootElement));
     }
 
     [Fact]

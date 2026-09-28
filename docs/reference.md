@@ -1382,10 +1382,12 @@ only while that switch is on, as the user last set it or as the host published i
 CSSLoader shows a theme's patches only for an enabled theme. A parent that is not a switch on the
 item hides the setting, since nothing could open it.
 
-An item that is `collapsible` is headed by a `DialogButton` carrying its name, its detail line and
+An item that is `collapsible` is headed by a focusable row carrying its name, its detail line and
 a caret (`sectionOpen`, `sectionClosed`) instead of the section's own title, because the title
-Steam draws cannot take focus and a controller has to be able to land on the fold. Its rows are
-drawn only while it is open. The header sends `collapse {id,collapsed}` to
+Steam draws cannot take focus and a controller has to be able to land on the fold; it is drawn as
+a title, not a button, so a folded section reads as a heading. Its rows are drawn only while it is
+open. An item's actions share one wrapping row, so two short ones sit side by side, and a dropdown
+setting goes under its label (`layout: "below"`), as CSSLoader draws a patch in the panel. The header sends `collapse {id,collapsed}` to
 `ISteamExtensionsTabBackend.CollapseAsync`, shows the fold at once, and keeps it until the host
 publishes the item again; the host's `collapsed` then wins, so a fold the host did not keep is
 undone by its next word.
@@ -1434,11 +1436,22 @@ URL, or `!name` for a class on the document's root elements. There is no command
 because the host published it.
 
 CSSLoader attaches a debugger session to each of Steam's page targets and appends one `<style>`
-per block to that document's head. Every one of those windows is a popup Steam opens from
-SharedJSContext and keeps in `g_PopupManager`, so the gate reaches the same documents from the one
-context the toolkit already holds, with no connection per window. The probe reads the popup manager
-by the name Valve publishes it under and counts its popups; it captures no webpack runtime and names
-no module. Verification is `installed` and `resolved`.
+per block to that document's head. Every one of those windows is rendered from SharedJSContext, so
+the gate reaches the same documents from the one context the toolkit already holds, with no
+connection per window, gathering them from two places: every popup `g_PopupManager` lists, and every
+document a React portal in SharedJSContext's mounted trees renders into. Both are needed. On the
+Windows client of 2026-09-28 the manager held the Big Picture window and its context menus only;
+Quick Access, the main menu and the toasts existed to SharedJSContext as portal containers alone.
+The probe reads the popup manager by the name Valve publishes it under and whether the context has
+a mounted React root, and accepts either; it captures no webpack runtime and names no module.
+Verification is `installed` and `resolved`.
+
+A title target is tried against the window's own name as well as its document title. On the Deck
+the two are the same string; on Windows the Big Picture window is named `SP BPM_uid0` while its
+title is the localized product name (`Big-Picture-Modus` on a German client) and its URL carries
+none of the markers CSSLoader's table names, so a host names Big Picture by its window name. The
+gate's `windows()` lists every window it found with its name, title, URL and node count, for a
+host's diagnostics.
 
 On every publication whose blocks, hashes, targets or order changed, and every two seconds after
 that for a window Steam opened or navigated since, the gate brings each popup's head in step: the
@@ -1454,8 +1467,10 @@ The toolkit installs what it is given and reads none of it. Loading a theme's fi
 its class names for the running client build, resolving its patches and ordering its blocks are a
 host's. `SteamThemeStyleTests` covers the probe, the wire shape and the module's revision-stamped
 publication; `eng/check-theme-styles.mjs` covers the emitted gate's targeting by title, URL and
-class, the published order, an unchanged block kept, a changed block rebuilt, a window opened later
-styled on the next pass, a broken pattern matching nothing, and removal leaving no node behind.
+class, a window reached only through a portal, the Big Picture window matched by its name under a
+localized title, the published order, an unchanged block kept, a changed block rebuilt, a window
+opened later styled on the next pass, a broken pattern matching nothing, and removal leaving no
+node behind.
 Whether Steam still publishes `g_PopupManager` under that name, and whether a theme written for a
 given client build still styles it, are live questions.
 

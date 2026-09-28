@@ -13,8 +13,8 @@ namespace SteamUiToolkit;
 /// <param name="Css">The stylesheet text, installed verbatim; at most 4 MiB.</param>
 /// <param name="Targets">
 ///     Which windows the block is for, in CSSLoader's vocabulary: a whole-title regular expression,
-///     <c>~text~</c> for a URL substring, or <c>!name</c> for a class on the document's root elements.
-///     At least one, at most 32.
+///     tried against the window's own name as well as its title, <c>~text~</c> for a URL substring, or
+///     <c>!name</c> for a class on the document's root elements. At least one, at most 32.
 /// </param>
 /// <param name="Hash">
 ///     A short digest of <paramref name="Css" />, at most 64 characters. The gate compares hashes
@@ -34,10 +34,12 @@ public sealed record SteamThemeState(IReadOnlyList<SteamThemeStyle> Styles, long
 ///     <para>
 ///         CSSLoader attaches a debugger session to each of Steam's page targets and appends one
 ///         <c>&lt;style&gt;</c> per block to that document's head. Every one of those windows is a popup
-///         Steam opens from SharedJSContext and keeps in its popup manager, so the same documents are
-///         reachable from the one context this toolkit already holds. The gate reconciles every popup's
-///         head with the published blocks, and looks again every two seconds for a popup Steam opened
-///         or navigated since, which is what CSSLoader's forced re-injection and health check exist for.
+///         Steam renders from SharedJSContext, so the same documents are reachable from the one context
+///         this toolkit already holds: the ones its popup manager lists, and the ones its React trees
+///         render into through portals, which on Windows is where Quick Access, the main menu and the
+///         toasts are. The gate reconciles every window's head with the published blocks, and looks
+///         again every two seconds for a window Steam opened or navigated since, which is what
+///         CSSLoader's forced re-injection and health check exist for.
 ///     </para>
 ///     <para>
 ///         The toolkit installs what it is given and reads none of it. Loading a theme's files,
@@ -58,8 +60,9 @@ public static class SteamThemeStyleSurface
     /// <summary>The gate that installs the blocks into Steam's popup documents.</summary>
     /// <remarks>
     ///     The probe reads Steam's popup manager by the name Valve publishes it under, the same way the
-    ///     download sort and the side-menu snapshot read <c>SteamUIStore</c>, and counts the popups it
-    ///     holds. Nothing about webpack is required: the gate touches documents, not modules.
+    ///     download sort and the side-menu snapshot read <c>SteamUIStore</c>, and whether SharedJSContext
+    ///     has a mounted React tree; either is a way to the windows, and the gate uses both. Nothing
+    ///     about webpack is required: the gate touches documents, not modules.
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
@@ -69,13 +72,17 @@ public static class SteamThemeStyleSurface
         """
         (()=>{try{
           const manager=window.g_PopupManager;
-          const ok=!!manager&&typeof manager.GetPopups==='function';
+          const popupManager=!!manager&&typeof manager.GetPopups==='function'?1:0;
           let popups=0;
-          if(ok){try{popups=Array.from(manager.GetPopups()??[]).length;}catch{popups=0;}}
-          return JSON.stringify({popupManager:ok?1:0,popups});
+          if(popupManager){try{popups=Array.from(manager.GetPopups()??[]).length;}catch{popups=0;}}
+          // A mounted React tree, whose portals are the windows the popup manager does not list.
+          let reactRoot=0;
+          const host=document.getElementById('root');
+          if(host&&Object.keys(host).some(name=>name.startsWith('__reactContainer$')))reactRoot=1;
+          return JSON.stringify({popupManager,popups,reactRoot});
         }catch(error){return JSON.stringify({error:String(error)}); } })()
         """,
-        root => SteamUiPatchEvaluation.IsOne(root, "popupManager"),
+        root => SteamUiPatchEvaluation.IsOne(root, "popupManager") || SteamUiPatchEvaluation.IsOne(root, "reactRoot"),
         "status.installed&&status.resolved",
         "!status.installed",
         "Theme styles");

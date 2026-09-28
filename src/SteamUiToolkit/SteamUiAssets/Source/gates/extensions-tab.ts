@@ -213,7 +213,17 @@ function createExtensionsTab() {
         return { key, label: setting.label, description, kind: "color", text: setting.textValue ?? "" };
       default:
         return choices
-          ? { key, label: setting.label, description, kind: "choice", choices, text: setting.textValue ?? "" }
+          ? {
+              key,
+              label: setting.label,
+              description,
+              kind: "choice",
+              choices,
+              text: setting.textValue ?? "",
+              // Below its label, as CSSLoader draws a patch: the panel is too narrow for a
+              // dropdown beside one.
+              layout: "below",
+            }
           : { key, label: setting.label, description, kind: "text", text: setting.textValue ?? "" };
     }
   };
@@ -314,7 +324,11 @@ function createExtensionsTab() {
               "div",
               {
                 className: "steam-ui-extensions-nested",
-                style: { marginLeft: "12px", borderLeft: "2px solid rgba(255,255,255,0.12)" },
+                style: {
+                  paddingLeft: "12px",
+                  borderLeft: "2px solid rgba(255,255,255,0.12)",
+                  boxSizing: "border-box",
+                },
               },
               control,
             )
@@ -338,36 +352,68 @@ function createExtensionsTab() {
         }),
       );
     };
-    // A collapsible section is headed by a button rather than the section's own title: the title
-    // Steam draws is not focusable, and a controller has to be able to land on the fold.
+    // A collapsible section is headed by a focusable row rather than the section's own title: the
+    // title Steam draws cannot take focus, and a controller has to be able to land on the fold. It
+    // is drawn as a title with a caret, not as a button, so a folded section reads as a heading.
     const header = (item) =>
       h(
         panel.row,
         { key: "header" },
         h(
-          ui.dialogButton,
+          ui.focusable,
           {
             className: "steam-ui-extensions-header",
-            onClick: () => toggleFold(item),
+            onActivate: () => toggleFold(item),
+            onOKActionDescription: isCollapsed(item) ? "Expand" : "Collapse",
             style: {
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
-              width: "100%",
-              textAlign: "left",
+              gap: "12px",
+              padding: "8px 10px",
+              margin: "0 -10px",
+              borderRadius: "2px",
             },
           },
           h(
             "div",
             { style: { minWidth: 0 } },
-            h("div", { style: { fontWeight: 600 } }, item.name),
+            h("div", { style: { fontSize: "16px", fontWeight: 600, color: "#fff" } }, item.name),
             detailOf(item)
-              ? h("div", { style: { fontSize: "12px", opacity: 0.75 } }, detailOf(item))
+              ? h("div", { style: { fontSize: "12px", opacity: 0.7 } }, detailOf(item))
               : null,
           ),
           isCollapsed(item) ? icon("sectionClosed", 18) : icon("sectionOpen", 18),
         ),
       );
+    // Actions share one row and wrap: two short labels sit side by side, a long one takes the
+    // width, rather than every action being a full-width bar of its own.
+    const actionsRow = (item) =>
+      (item.actions ?? []).length
+        ? h(
+            panel.row,
+            { key: "actions" },
+            h(
+              ui.focusable,
+              {
+                "flow-children": "row",
+                className: "steam-ui-extensions-actions",
+                style: { display: "flex", flexWrap: "wrap", gap: "8px" },
+              },
+              ...item.actions.map((action) =>
+                h(
+                  ui.dialogButton,
+                  {
+                    key: action.id,
+                    onClick: () => activate(action.id),
+                    style: { flex: "1 1 40%", minWidth: "0", width: "auto" },
+                  },
+                  action.label,
+                ),
+              ),
+            ),
+          )
+        : null;
     const body = (item) => [
       !item.collapsible && detailOf(item)
         ? h(
@@ -376,13 +422,7 @@ function createExtensionsTab() {
             h("div", { style: { fontSize: "12px", opacity: 0.75 } }, detailOf(item)),
           )
         : null,
-      ...(item.actions ?? []).map((action) =>
-        h(
-          panel.row,
-          { key: `action-${action.id}` },
-          h(ui.dialogButton, { onClick: () => activate(action.id) }, action.label),
-        ),
-      ),
+      actionsRow(item),
       ...(item.settings ?? []).map((setting) => settingLine(item, setting)),
     ];
     // One PanelSection per extension, titled with its name, and one PanelSectionRow per line in it,
@@ -401,6 +441,11 @@ function createExtensionsTab() {
     return h(
       "div",
       { className: "steam-ui-extensions-tab" },
+      h(
+        "style",
+        null,
+        ".steam-ui-extensions-header.gpfocus,.steam-ui-extensions-header:hover{background:rgba(255,255,255,.08)}",
+      ),
       sections.length
         ? sections
         : h(

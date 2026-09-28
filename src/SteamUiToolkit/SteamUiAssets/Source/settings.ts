@@ -222,6 +222,9 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
                 rgOptions: (row.choices ?? []).map((choice) => ({data: choice.value, label: choice.label})),
                 selectedOption: draft !== undefined ? draft : row.text,
                 onChange: (option) => send(option?.data),
+                // A row may ask for the control under its label rather than beside it, which is
+                // how a dropdown fits a narrow panel.
+                layout: row.layout === "below" ? "below" : undefined,
             });
         case "range": {
             // A range with labels is one of them by index: Steam's slider names each notch and the
