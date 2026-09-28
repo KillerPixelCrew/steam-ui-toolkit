@@ -39,7 +39,7 @@ const ui = {
 const kit = instantiate(
   { window: {} },
   sharedFragments(asset) + slice(asset, "const SteamUiIconShapes =", "function createAudioNamespace"),
-  "({steamUiKitStyle, renderSteamUiHeader, renderSteamUiGroup, renderSteamUiActions," +
+  "({steamUiKitStyle, renderSteamUiHeader, renderSteamUiGroup, renderSteamUiActions, renderSteamUiMore," +
     " renderSteamUiSwatch, renderSteamUiCard, renderSteamUiGrid, renderSteamUiEmpty, renderSteamUiBanner," +
     " renderSteamUiToolbar, renderSteamUiTool, renderSteamUiChips, renderSteamUiBox, renderSteamUiGallery, renderSteamUiVideo," +
     " renderSteamUiTabbedPage, renderSteamUiDetail, SteamUiTabbedPageRequired," +
@@ -49,7 +49,7 @@ const kit = instantiate(
 // The stylesheet is one element a root renders, and every class an element uses has a rule.
 const style = kit.steamUiKitStyle(react);
 assert.equal(style.type, "style");
-for (const cls of ["page", "pane", "header", "header-icon", "group", "group-body", "blocks", "valve", "battery", "actions", "nested", "swatch", "card", "grid", "banner", "toolbar", "chips", "box", "gallery", "detail", "detail-main", "detail-aside", "page-banner", "modal-body"]) {
+for (const cls of ["page", "pane", "header", "header-icon", "group", "group-body", "blocks", "valve", "battery", "actions", "nested", "swatch", "card", "grid", "banner", "toolbar", "chips", "box", "gallery", "detail", "detail-main", "detail-aside", "page-banner", "modal-body", "more"]) {
   assert.ok(kit.SteamUiKitStyles.includes(`.steam-ui-kit-${cls}`), `a rule for steam-ui-kit-${cls}`);
 }
 
@@ -73,10 +73,12 @@ assert.equal(fixed.props.children[0].props.className, "steam-ui-kit-header-icon"
 assert.equal(fixed.props.children.length, 2, "no caret on a heading that does not fold");
 
 // A group is the heading over a body that stays mounted while folded; without a title it is a
-// plain box, and hidden takes it out of layout.
+// plain box, and hidden takes it out of layout. What is folded or hidden stays mounted but cannot take
+// the controller's focus, so navigation moves from a folded heading to the next block.
 let groupToggled = 0;
 const group = kit.renderSteamUiGroup(ui, { key: "k", title: "Power profiles", detail: "Balanced", collapsed: true, onToggle: () => groupToggled++ }, "row-a", "row-b");
-assert.equal(group.type, "div");
+assert.equal(group.type, Focusable);
+assert.equal(group.props.childFocusDisabled, false, "a shown block's heading and rows are reachable");
 assert.equal(group.key, "k");
 assert.equal(group.props.className, "steam-ui-kit-group closed");
 assert.equal(group.props.children[0].type, Focusable);
@@ -85,12 +87,27 @@ group.props.children[0].props.onActivate();
 assert.equal(groupToggled, 1);
 assert.equal(group.props.children[1].props.className, "steam-ui-kit-group-body");
 assert.deepEqual(group.props.children[1].props.children, ["row-a", "row-b"], "a folded body keeps its rows");
+assert.equal(group.props.children[1].type, Focusable);
+assert.equal(group.props.children[1].props.childFocusDisabled, true, "a folded body's rows are out of navigation");
+const open = kit.renderSteamUiGroup(ui, { title: "Open", collapsed: false, onToggle: () => {} }, "row");
+assert.equal(open.props.children[1].props.childFocusDisabled, false, "an open body's rows are reachable");
 assert.equal(kit.renderSteamUiGroup(ui, { title: "Fixed" }).props.className, "steam-ui-kit-group");
 assert.equal(kit.renderSteamUiGroup(ui, { title: "Fixed" }).props.children[0].type, "div");
-assert.equal(kit.renderSteamUiGroup(ui, { title: "Gone", hidden: true, onToggle: () => {} }).props.className, "steam-ui-kit-group hidden");
+const gone = kit.renderSteamUiGroup(ui, { title: "Gone", hidden: true, onToggle: () => {} });
+assert.equal(gone.props.className, "steam-ui-kit-group hidden");
+assert.equal(gone.props.childFocusDisabled, true, "a hidden block cannot take focus");
 const plain = kit.renderSteamUiGroup(ui, {}, "button");
 assert.equal(plain.props.className, "steam-ui-kit-group plain");
 assert.equal(plain.props.children[0], null, "no heading without a title");
+
+// A paged list's foot is one button asking for the next page.
+let more = 0;
+const moreFoot = kit.renderSteamUiMore(ui, { onClick: () => more++ });
+assert.equal(moreFoot.props.className, "steam-ui-kit-more");
+const moreButton = [moreFoot.props.children].flat()[0];
+assert.deepEqual([moreButton.props.children].flat(), ["Load More"]);
+moreButton.props.onClick();
+assert.equal(more, 1);
 
 // Actions are Steam's buttons in the kit's grid; a long label spans the row.
 const ran = [];
