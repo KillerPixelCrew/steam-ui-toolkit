@@ -371,7 +371,7 @@ const themeToggle = bodyRows[1].props.children[0];
 assert.equal(themeToggle.type, Toggle);
 assert.equal(themeToggle.props.description, "v2.1 · Squishy", "a setting's description reaches Steam's field");
 const nested = bodyRows[2].props.children[0];
-assert.equal(nested.props.className, "steam-ui-extensions-nested", "a child setting is drawn indented");
+assert.equal(nested.props.className, "steam-ui-kit-nested", "a child setting is drawn indented with the kit");
 assert.equal(nested.props.children[0].type, Dropdown);
 const blur = bodyRows[3].props.children[0].props.children[0];
 assert.equal(blur.type, Slider, "a number with choices is a slider");

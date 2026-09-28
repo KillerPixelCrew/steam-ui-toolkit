@@ -738,6 +738,7 @@ evaluated and its place among the discovered fragments does not matter.
 | `SteamClientTests`                                             | the client layer: unreachable against refused, app-id normalization, the details and library parsers, install-folder script selection and reply statuses, download activity, the running-app observer's event log and lease, and the lifetime tracker's ordering, resynchronization and outage rules                                                                                                                                                                                                                                                                        |
 | `SteamSurfaceModuleTests`                                      | each surface's `Commands` against its module's vocabulary, each refusal reason against its payload, a null reading publishing nothing                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `SteamGatePatchContractTests`                                  | each claiming gate's verify and remove predicates, and already-claimed compatibility                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `SteamPanelFoldsTests`, `eng/check-power-profile.mjs` (sections) | the fold list's wire shape and its one command; the emitted panel drawing every section as a kit group with its glyph and summary, Profile scope fixed, Reset headless, folds sent under the section's title |
 | `SteamChoiceRowTests`, `SteamWindowSurfaceTests`               | power-profile, preset and core-preference serialization and dispatch; side-menu observation, native button replay, game-window and overlay activation                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `SteamNavigationPanelTests`                                    | the panel probe's separate structural facts, selection by what an export draws rather than by its minified name, already-claimed compatibility, the published wire shape                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `eng/check-navigation-panel.mjs`                               | the emitted gate against an inert React fixture: descent to the panel root, anchoring by route and by descriptor key, orphan reporting, hiding before insertion, activation, exact restoration, reinstall                                                                                                                                                                                                                                                                                                                                                                   |
@@ -747,6 +748,7 @@ evaluated and its place among the discovered fragments does not matter.
 | `SteamScreensaverTests`, `eng/check-screensaver.mjs`           | the probe's separate facts and that it names no module id or export, the published wire shape, the exact report and choice payloads and their refusals; the emitted gate wrapping only the customization page and only its Screensaver section, appending the rows after Steam's own, reporting on first read, on change and on page open, sending a choice once and disabling the row while pending, refusing a malformed state whole, the bounded first-report retry, keeping the shared `useMemo` claim for another surface on removal and handing it back with the last |
 | `eng/check-startup.mjs` (resolver)                             | missing factories staying uncached, unique resolution, and `exported` counting aliases once, refusing two distinct fits, no fit, a missing module and an invalid predicate                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `SteamLibraryBadgeTests`, `eng/check-library.mjs` (details)    | the stat patch's compatibility, its Valve-named row lookup and shared runtime resource, the module declaring both patches under one publication; the emitted stat only on the stats row, Valve's classes and the localized label, the badge's naming rules and dimming, no duplicate, an `elements` gate transform coexisting on the one claim, a throwing transform skipped, and `jsx` and `jsxs` handed back only with the last transform                                                                                                                                 |
+| `eng/check-ui-kit.mjs`                                         | every kit element: the stylesheet's rules, the header's fold and its own caret, the group's body and hidden state, the action grid and its wide label, the card's parts and activation, the banner's dismiss, the toolbar, chips, box and gallery, a confirm sending only on OK, a prompt sending only a trimmed non-empty answer                                                                                                                                                                                                                                                              |
 | `SteamThemeStyleTests`, `eng/check-theme-styles.mjs`           | the theme-styles probe reading only Steam's popup manager, the wire shape, the revision-stamped publication; the emitted gate's targeting by title, URL and root class, the published order, an unchanged block kept, a changed block rebuilt, a late window styled on the next pass, a broken pattern matching nothing, removal leaving no node                                                                                                                                                                                                                             |
 | `SteamLibraryBadgeTests`, `eng/check-library.mjs` (badge)      | the badge probe's separate structural facts, selection of the tile and the badge by what they are rather than by name, the published wire shape, the exact layout payload; the emitted gate placing the badge left of Valve's in one row, naming the library or the internal label, green for installed and grey otherwise, no badge for a game installed nowhere, an anchorless tile left untouched, Big Art reported once per change, exact restoration, reinstall                                                                                                        |
 
@@ -1195,6 +1197,41 @@ holds, says why instead of showing "Loading…" for ever.
 read-only probe that every `SteamPageProbe` the page draws from matches exactly once, then the page
 gate's install, verified by `installed`, `resolved` and `subscribed`.
 
+### The UI kit
+
+`ui-kit.ts` is what a host draws around Steam's fields: the elements Steam ships none of, drawn
+once from plain elements and one stylesheet in the vocabulary of Steam's own panels, so a host's
+page and its Quick Access section look like the panels beside them. The rule is the toolkit's:
+Steam's field where one fits, the kit for everything else, and never one-off HTML in a consumer's
+fragment. Every element takes the page's resolved `ui`, builds with Steam's React, takes focus
+through Steam's Focusable and lights up on the `gpfocus` class Steam sets. The rules are flat
+`steam-ui-kit-*` classes; the root that uses the kit renders `steamUiKitStyle(react)` once, so the
+stylesheet lands in that root's document.
+
+| Element                                   | Draws                                                                                         |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `renderSteamUiHeader`                     | a section heading with a glyph, a detail line and, when it folds, Steam's Focusable and the kit's caret; `open` while unfolded, `plain` when fixed |
+| `renderSteamUiGroup`                      | a block: the heading over a body that stays mounted while folded; `hidden` leaves layout, no title makes a plain box |
+| `renderSteamUiActions`                    | Steam's buttons in a two-column grid; a label over eighteen characters, or `wide`, takes a row |
+| `renderSteamUiLabelled`                   | a small label above a control                                                                 |
+| `renderSteamUiNote`                       | a quiet line with an optional glyph                                                           |
+| `renderSteamUiSwatch`                     | a colour square                                                                               |
+| `renderSteamUiCard`, `renderSteamUiGrid`  | a focusable card (16:10 image, stats strip, badge, title, meta) and the grid it sits in       |
+| `renderSteamUiEmpty`                      | what an empty list says, or why it failed                                                     |
+| `renderSteamUiBanner`                     | a notice or error with a Dismiss button                                                       |
+| `renderSteamUiToolbar`, `renderSteamUiTool` | a focusable row of labelled controls; a `grow` tool takes what is left                      |
+| `renderSteamUiChips`                      | small buttons in a wrapping row                                                               |
+| `renderSteamUiBox`                        | a titled box, for a detail view's action column                                               |
+| `renderSteamUiGallery`                    | one large image, thumbnails that pick it, and a counter                                       |
+| `showSteamUiConfirm`, `showSteamUiPrompt` | a confirmation, and a request for one line of text, in Steam's modal                          |
+
+The Extensions tab draws its collapsible header, its action row and its nested rows with the kit
+and gives its `PanelSection`s the block look through `steam-ui-kit-blocks`; the Performance and
+Quick Settings row host draws its sections as kit groups, wraps Valve's Quick Settings sections in
+`steam-ui-kit-valve` and Valve's battery line in `steam-ui-kit-battery`; the settings renderer's
+colour row draws its swatch with it. `eng/check-ui-kit.mjs` covers every element's shape and
+callbacks against the emitted asset.
+
 ### Settings pages
 
 `settings.ts` draws a host's own settings the way Steam draws its Settings page, with nothing styled
@@ -1291,17 +1328,30 @@ still rejects it as a command target. Empty options hide the controls. The C# te
 cancellation forwarding and payload refusals; emitted tests cover both source selectors, clearing,
 disabled state and malformed publications.
 
-The shared row host uses Valve's titled `PanelSection` containers to group Performance controls by
-profile scope, power profiles, display/frame rate, power limits, controller and reset. Quick
-Settings places its Display section before Valve's common controls, with Charging and RGB lighting
-sections after them. RGB brightness stays visible; an Edit color toggle reveals the zone and HSV
-controls. If Valve's toggle component is unavailable, the color editor is omitted while charging and
-brightness remain usable. A group with no registered row is omitted. A group whose host rows all
-render nothing, such as Power limits and Controller without a device, stays mounted inside a
-`display: none` wrapper so its rows keep their subscriptions; a shown group's wrapper is
-`display: contents`. Rows report drawing through `drew` and not drawing through `note`, and a change
-queues one re-render of the panel roots. Valve's own rows report nothing and count as drawn. Each
-control retains the existing bridge and patch ownership.
+The shared row host draws Performance controls in the kit's groups (`renderSteamUiGroup`): profile
+scope, power profiles, display/frame rate, power limits, controller and reset, each a block with a
+subtle fill and border under a heading that carries the section's glyph. Quick Settings places its
+Display group before Valve's common controls, with Charging and RGB lighting groups after them;
+Valve's own sections between are wrapped in `steam-ui-kit-valve`, which gives their `PanelSection`s
+the same block look and the kit's heading. What remains of Valve's Performance tree once the FPS
+rows are hidden is the battery line, wrapped in `steam-ui-kit-battery`, which draws it at one line's
+height: the row is found as the only element with exactly three children, so no hashed class is
+named. RGB brightness stays visible; an Edit color toggle reveals the zone and HSV controls. If
+Valve's toggle component is unavailable, the color editor is omitted while charging and brightness
+remain usable. A group with no registered row is omitted. A group whose host rows all render
+nothing, such as Power limits and Controller without a device, stays mounted with the kit's `hidden`
+class so its rows keep their subscriptions. Rows report drawing through `drew` and not drawing
+through `note`, and a change queues one re-render of the panel roots. Valve's own rows report nothing
+and count as drawn. Each control retains the existing bridge and patch ownership.
+
+Every group but Profile scope folds, and Reset is a plain block around Valve's button. A folded
+group's heading reports what its rows hold: each row leaves a line through `summarize` as it renders
+(the chosen profile, `60 fps cap`, `17 W sustained · 25 W boost`, `Limit 80%`), and the heading joins
+the lines `SectionSummaries` lists for it. Rows stay mounted while folded, so the line stays current.
+A fold is shown at once and sent as `setFolded {id, folded}` on patch `steam-ui.panel-folds`, the
+section's title being its id; `SteamPanelFoldsSurface` publishes `SteamPanelFoldsState` (the folded
+titles) for the panel roots to read, kind `panelFolds`, so a fold outlives Steam rebuilding the tab.
+A host without the module still gets folding sections; they last the session.
 
 Rows and section headers carry a glyph. `icons.ts` holds the drawings — the toolkit's own, on a
 24x24 grid, filled with `currentColor` and cut with `fill-rule="evenodd"`, because the client's
@@ -1310,10 +1360,9 @@ React and caches one element per name and size, and the control runtime exposes 
 `controlRuntime.icon(name, size = 20)`. A row passes the result as Field's `icon` prop, which
 `SliderField`, `ToggleField` and `DropDownField` all forward; sliders also pass
 `iconLocation: "front"`, because `SliderField` otherwise places the glyph beside the track rather
-than the label. A section header is composed by `sectionTitle`, which pairs the 18px glyph named in
-`SectionIcons` with the header text — `PanelSection` renders whatever `title` is, so an element is
-as valid there as a string. An unknown name renders no glyph rather than failing the row, so a
-mistyped name costs an icon and nothing else.
+than the label. A section heading takes the 18px glyph named in `SectionIcons` through the kit
+group's `icon`. An unknown name renders no glyph rather than failing the row, so a mistyped name
+costs an icon and nothing else.
 
 Every glyph is used exactly once. A panel like this is scanned by shape before it is read, so a
 glyph on a header that reappears on a row inside it, or on two rows that do different things, says

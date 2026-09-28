@@ -77,6 +77,7 @@ const api = instantiate(
       return Promise.resolve();
     }),
     drew: () => {},
+    summarize: () => {},
   },
   slice(asset, "const normalizePowerProfileState =", "const createControllerControl ="),
   "{ normalizePowerProfileState, createPowerProfileControl, createHybridCoreControl, normalizeCpuBoostState, createCpuBoostControl, normalizePowerPresetState, createPowerPresetControl }",
@@ -212,17 +213,25 @@ assert.equal(presetControl(), null);
 assert.match(asset, /\["powerPreset", "steam-ui-power-preset", powerPresetControl, "perf"\]/);
 console.log("Power-profile and assignment emitted dropdown checks passed.");
 
-// The real section header composer, so the device sections are checked against the titles the panel
-// actually receives rather than a stand-in. It reads its glyph off the runtime, so it needs nothing
-// from the icon table itself.
-const sectionTitle = instantiate(
-  {},
+// The real section composer, so the device sections are checked against the titles, glyphs and
+// summaries the panel actually hands the kit rather than a stand-in. The kit's group is a fixture
+// that keeps what it was given: the check is about the panel's decisions, not the kit's markup,
+// which check-ui-kit.mjs covers.
+const groupFixture = (_ui, props, ...children) => ({ type: "group", props, children });
+const summaries = {};
+const folded = new Set();
+const foldRequests = [];
+const sectionFixtures = {
+  summaries,
+  renderSteamUiGroup: groupFixture,
+  isFolded: (_folds, id) => folded.has(id),
+  setFolded: (id, fold) => foldRequests.push([id, fold]),
+};
+const hostSection = instantiate(
+  sectionFixtures,
   slice(asset, "const SectionIcons =", "const appendControls ="),
-  "sectionTitle",
+  "hostSection",
 );
-// A header is an icon and its text in a row; a section with no glyph keeps the bare string.
-const titleText = (title) => (typeof title === "string" ? title : title.children.at(-1));
-const titleGlyph = (title) => (typeof title === "string" ? null : title.children[0]?.glyph);
 
 // Every placement gets its own glyph, and every glyph gets a placement. A shape that appears twice
 // tells a user scanning the panel that two different controls are the same one, which is worse than
@@ -277,7 +286,8 @@ const createDeviceControl = instantiate(
     ...overrideHelpers,
     useSemanticState: () => deviceState,
     normalizeDeviceControlsState: (value) => value,
-    definitions: { deviceControls: {} },
+    normalizePanelFoldsState: (value) => value,
+    definitions: { deviceControls: {}, panelFolds: {} },
     sendCommand: createSender(() => {
       throw new Error("Rendering must not dispatch hardware writes");
     }),
@@ -287,8 +297,11 @@ const createDeviceControl = instantiate(
     renderOutcomes: {},
     isBusy: () => false,
     localizeOr: (_runtime, _token, fallback) => fallback,
-    sectionTitle,
+    hostSection,
     drew: () => {},
+    summarize: (kind, text) => {
+      summaries[kind] = text;
+    },
   },
   slice(asset, "const rgbToHsv =", "// Steam's own FPS counter rows"),
   "createDeviceControlsControl",
@@ -304,10 +317,15 @@ for (const toggle of [undefined, "toggle"]) {
         },
       } });
     const tree = render();
-    assert.deepEqual(tree.children.map(section => titleText(section.props.title)),
+    assert.deepEqual(tree.children.map(section => section.props.title),
       ["Charging", "RGB lighting"]);
-    assert.deepEqual(tree.children.map(section => titleGlyph(section.props.title)),
+    assert.deepEqual(tree.children.map(section => section.props.icon.glyph),
       ["batteryCharging", "colors"]);
+    // Each section folds, under its own title, and its heading reports what its rows hold.
+    assert.deepEqual(tree.children.map(section => section.props.detail), ["Limit 80%", "100% · Buttons"]);
+    assert.ok(tree.children.every(section => typeof section.props.onToggle === "function"));
+    tree.children[0].props.onToggle();
+    assert.deepEqual(foldRequests.pop(), ["Charging", true]);
     const fields = tree.children.flatMap(section => section.children.map(row => row.children[0]));
     assert.ok(fields.some(field => field.props.label === "Battery charge limit"
       && field.props.icon.glyph === "percent"));
@@ -316,7 +334,7 @@ for (const toggle of [undefined, "toggle"]) {
     // A glyph on a header must not reappear on a row inside it, and no two rows may share one:
     // shape is how this panel is navigated before the label is read.
     const glyphs = tree.children.flatMap(section => [
-      titleGlyph(section.props.title),
+      section.props.icon.glyph,
       ...section.children.map(row => row.children[0].props.icon?.glyph),
     ]).filter(Boolean);
     assert.equal(new Set(glyphs).size, glyphs.length, `device glyphs repeat: ${glyphs.join(", ")}`);
@@ -338,10 +356,12 @@ console.log("Device controls retain charging and brightness without the optional
   const drawnKinds = new Set();
   const { appendControls, useRows } = instantiate(
     {
+      ...sectionFixtures,
       registrations,
       drawnKinds,
       appendDiagnostics: {},
       withNativeRowsHidden: (_runtime, tree) => tree,
+      steamUiKitStyle: () => ({ type: "style" }),
       deviceControlsControl: undefined,
     },
     slice(asset, "const SectionIcons =", "const resolveControls ="),
@@ -364,16 +384,24 @@ console.log("Device controls retain charging and brightness without the optional
   const runtime = { section: "section", row: "row", icon: () => null, react: {
     Fragment: "fragment", isValidElement: () => false,
     createElement: (type, props, ...children) => ({ type, props, children }) } };
-  const layout = (placement) => {
+  // The panel is the kit's stylesheet, then Valve's tree under the battery class, then the
+  // groups; Quick Settings leads with its Display group and wraps Valve's sections as blocks.
+  const groupsOf = (placement) => {
     const tree = appendControls(runtime, "native", placement);
-    const sections = placement === "perf" ? tree.children[1].children : [tree.children[0]];
-    return Object.fromEntries(sections.map(wrapper => {
-      assert.equal(wrapper.type, "div");
-      assert.equal(wrapper.children[0].type, "section");
-      assert.ok(wrapper.children[0].children.length > 0, "a hidden section keeps its rows mounted");
-      return [wrapper.children[0].props.title, wrapper.props.style.display];
-    }));
+    assert.equal(tree.children[0].type, "style");
+    if (placement === "perf") {
+      assert.equal(tree.children[1].props.className, "steam-ui-kit-battery");
+      return tree.children[2].children;
+    }
+    assert.equal(tree.children[2].props.className, "steam-ui-kit-valve");
+    return [tree.children[1]];
   };
+  const layout = (placement) =>
+    Object.fromEntries(groupsOf(placement).map(group => {
+      assert.equal(group.type, "group");
+      assert.ok(group.children.length > 0, "a hidden section keeps its rows mounted");
+      return [group.props.title ?? group.props.key, group.props.hidden ? "none" : "contents"];
+    }));
   for (const kind of ["valveProfileHeader", "powerProfile", "hybridCores", "powerLimit",
     "controllerTarget", "valveReset", "resolution"]) registrations.set(kind, kind);
   drawnKinds.add("powerProfile");
@@ -386,6 +414,21 @@ console.log("Device controls retain charging and brightness without the optional
   assert.deepEqual(layout("quickSettings"), { Display: "none" });
   registrations.set("valveRefreshRate", "valveRefreshRate");
   assert.deepEqual(layout("quickSettings"), { Display: "contents" });
+  // Profile scope stays open, Reset has no heading, and every other group folds under its title
+  // with its glyph and its rows' summary on the heading.
+  summaries.powerProfile = "Balanced";
+  summaries.hybridCores = "Automatic";
+  folded.add("Power profiles");
+  const perf = Object.fromEntries(groupsOf("perf").map(group => [group.props.title ?? group.props.key, group.props]));
+  assert.equal(perf["Profile scope"].onToggle, undefined);
+  assert.equal(perf.Reset.title, undefined);
+  assert.equal(perf["Power profiles"].collapsed, true);
+  assert.equal(perf["Power profiles"].detail, "Balanced · Automatic");
+  assert.equal(perf["Power profiles"].icon, null, "the fixture runtime draws no glyph");
+  perf["Power profiles"].onToggle();
+  assert.deepEqual(foldRequests.pop(), ["Power profiles", false]);
+  assert.equal(perf.Controller.collapsed, false);
+  folded.clear();
 }
 console.log("Host sections leave layout while every row under them draws nothing.");
 
@@ -434,6 +477,7 @@ console.log("Host sections leave layout while every row under them draws nothing
       isBusy: (progress) => ["queued", "applying", "replacing"].includes(progress),
       note: () => null,
       drew: () => {},
+      summarize: () => {},
     },
     slice(asset, "const useEchoedValue =", "const useTrailingCommit =") +
       slice(asset, "const normalizePowerLimitRange =", "const createDeviceControlsControl ="),

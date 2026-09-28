@@ -36,6 +36,7 @@ namespace SteamUiToolkit;
 [JsonSerializable(typeof(SteamExtensionsTabState))]
 [JsonSerializable(typeof(SteamExtensionsTabAction))]
 [JsonSerializable(typeof(SteamExtensionsTabSetting))]
+[JsonSerializable(typeof(SteamPanelFoldsState))]
 [JsonSerializable(typeof(SteamGameContextMenuState))]
 [JsonSerializable(typeof(SteamStorageState))]
 [JsonSerializable(typeof(SteamScreensaverState))]

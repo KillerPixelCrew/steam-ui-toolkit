@@ -29,8 +29,9 @@ enabled; this repository supplies mechanisms and truthful state.
 - `src/SteamUiToolkit/Client`: one-shot reads and writes against `SteamClient.*` and Steam's stores,
   and the running-app observer behind the app lifetime events.
 - `SteamUiAssets/Source`: TypeScript bridge, ownership helpers, RPC support, shared gate helpers,
-  gates, the component host, and `settings.ts`, which draws a host's settings pages with Steam's
-  own routed sidebar, sections and fields.
+  gates, the component host, `settings.ts`, which draws a host's settings pages with Steam's own
+  routed sidebar, sections and fields, and `ui-kit.ts`, the elements a host draws around Steam's
+  fields.
 - `eng/build-prelude.mjs`: deterministic source composition and TypeScript validation.
 - `eng/run-checks.mjs`: builds the prelude and runs every emitted-asset check, stopping at the first
   failure; `eng/check-harness.mjs` is what the checks share (asset loading, marker slices, gate
@@ -71,6 +72,23 @@ A complete surface owns its whole vertical slice:
 Register the bridge and dependent surface patches in the same manager, but do not rely on
 registration call order: the manager synchronizes by patch id and retries unmet conditions. Quick
 Access rows share the documented performance-root resource so their mutations serialize.
+
+## The UI kit
+
+A host draws inside Steam with Steam's own fields wherever one fits: Focusable, ToggleField,
+DropDownField, SliderField, TextField, DialogButton, the tabs and the modals, resolved from Steam's
+modules by `gate-helpers.ts` and `settings.ts`. Everything else a page or a Quick Access section is
+made of comes from the UI kit, `SteamUiAssets/Source/ui-kit.ts`: a section header that folds, an
+action grid, a labelled control, a note, a swatch, a banner, a toolbar, chips, a box, a gallery, a
+card in a grid, a confirm and a prompt. That is the standing rule (maintainer, 2026-09-28): a
+reusable element lives here, drawn once from plain elements and one stylesheet in the vocabulary of
+Steam's own panels, and never as one-off HTML inside a consumer's fragment. Add to the kit when a
+host needs something the kit lacks; extend an element rather than restyling it in place. Every kit
+element takes the page's resolved `ui`, builds with Steam's React, uses Steam's Focusable for focus
+and relies on the `gpfocus` class Steam sets, and its rules are flat `steam-ui-kit-*` classes so a
+host can add to them. The root that uses the kit renders `steamUiKitStyle(react)` once, so the
+stylesheet lands in that root's document. Cover a new element in `eng/check-extension-surfaces.mjs`
+or a check of its own.
 
 ## Discovery and transport invariants
 

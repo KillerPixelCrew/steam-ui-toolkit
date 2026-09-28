@@ -31,6 +31,7 @@ public sealed record SteamExtensionsTabAction(string Id, string Label);
 ///     under its parent and only while the parent is on, the way CSSLoader shows a theme's patches
 ///     only for an enabled theme.
 /// </param>
+/// <param name="Highlight">Whether the description is drawn in the accent colour, for "update available".</param>
 public sealed record SteamExtensionsTabSetting(
     string Key,
     string Label,
@@ -42,7 +43,8 @@ public sealed record SteamExtensionsTabSetting(
     double? Maximum = null,
     IReadOnlyList<string>? Choices = null,
     string? Description = null,
-    string? Parent = null);
+    string? Parent = null,
+    bool Highlight = false);
 
 /// <summary>One extension shown in the Quick Access Extensions tab.</summary>
 /// <param name="Id">Opaque extension instance identity returned when a setting changes.</param>

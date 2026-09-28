@@ -112,6 +112,13 @@ install on a client missing one of them; the probe recognizes its own installed 
 can be collapsible, a setting can carry a description and belong to a switch on the same item, and
 a colour or a labelled slider are drawn the way the settings renderer draws them.
 
+**The UI kit** (`SteamUiAssets/Source/ui-kit.ts`) is what a host draws around Steam's own fields:
+groups with headings that fold, action grids, labelled controls, notes, cards, banners, toolbars,
+chips, galleries, a confirm and a prompt, styled once in the vocabulary of Steam's panels. A host
+page uses Steam's field where one fits and the kit for the rest, and adds to the kit rather than
+drawing its own. The Quick Access row host draws its sections as those groups; which are folded is
+published by `SteamPanelFoldsSurface`, so a fold outlives Steam rebuilding the tab.
+
 **`SteamThemeStyleSurface.Module`** installs CSSLoader-compatible stylesheet blocks into every
 Steam window, choosing each block's windows by CSSLoader's own target vocabulary and reaching the
 documents through Steam's popup manager rather than a debugger session per window. The host loads,

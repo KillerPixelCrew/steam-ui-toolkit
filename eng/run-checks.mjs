@@ -21,6 +21,7 @@ const checks = [
   "check-screensaver.mjs",
   "check-extension-surfaces.mjs",
   "check-theme-styles.mjs",
+  "check-ui-kit.mjs",
 ];
 
 const run = (script, args) =>

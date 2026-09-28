@@ -63,6 +63,14 @@ function createNativeComponentHost() {
   // it and the device had nothing to show".
   const renderOutcomes: Record<string, string> = {};
 
+  // What a folded section says on its heading's detail line. A row with a value worth a glance
+  // leaves it here as it renders, and the section joins its rows'. Rows stay mounted while their
+  // section is folded, so the line stays current.
+  const summaries: Record<string, string> = {};
+  const summarize = (kind, text) => {
+    summaries[kind] = typeof text === "string" ? text : "";
+  };
+
   // Which of the host's own rows drew something on their last render. A section header exists for
   // the rows under it, so a section whose rows all returned null is only a title: with no device
   // coordinator, Power limits and Controller were exactly that. Valve's rows report nothing here
@@ -88,6 +96,7 @@ function createNativeComponentHost() {
   };
   const note = (kind, reason) => {
     setDrawn(kind, false);
+    delete summaries[kind];
     // "no state" is what every render sees while a delivery is being rejected, and the wrapper
     // re-renders on each host notification, so the generic reason must not overwrite the precise
     // one the subscription recorded.
@@ -158,6 +167,13 @@ function createNativeComponentHost() {
       brightnessCommand: "setLightingBrightness",
       colorCommand: "setLightingColor",
     }),
+    // Which of the panel's own sections are folded, kept by the host so Steam rebuilding a tab
+    // does not open them again. Not a row: the state is read by the panel roots. A host without
+    // the module still gets folding sections; they last the session.
+    panelFolds: Object.freeze({
+      patchId: "steam-ui.panel-folds",
+      command: "setFolded",
+    }),
 
     // Valve's own components. They carry no command because they never call the host directly: they
     // read SystemPerfStore and write through SteamClient.System.Perf.UpdateSettings, which is the
@@ -212,6 +228,27 @@ function createNativeComponentHost() {
   };
   // The one function export carrying every token. Through the shared matcher, so an export Steam
   // aliases under two names counts once and a getter that throws counts as no match.
+  // The host's list of folded section ids, or null until it publishes one.
+  const normalizePanelFoldsState = (value) => {
+    if (!value || typeof value !== "object" || !Array.isArray(value.folded)) return null;
+    return new Set(
+      value.folded
+        .filter((id) => typeof id === "string" && id.length > 0 && id.length <= 96)
+        .slice(0, 256),
+    );
+  };
+  // A fold the user asked for, shown at once and kept for the session: the host's answer takes a
+  // moment, and a host without the folds module never answers at all.
+  const foldOverrides = new Map<string, boolean>();
+  const isFolded = (folds, id) =>
+    foldOverrides.has(id) ? foldOverrides.get(id) : !!(folds && folds.has(id));
+  const setFolded = (id, folded) => {
+    foldOverrides.set(id, folded);
+    notify();
+    void sendCommand(definitions.panelFolds, definitions.panelFolds.command, { id, folded }).catch(
+      () => {},
+    );
+  };
   const uniqueFunction = (exports, requiredTokens) =>
     uniqueSteamExport(
       exports,
@@ -265,7 +302,16 @@ function createNativeComponentHost() {
     // The icon renderer is built once per control runtime and closes over Steam's React, so a row
     // asks for a glyph by name and never touches element construction itself.
     const icon = createIconRenderer(react);
-    return { react, slider, dropdown, toggle, labelField, section, row, localize, icon };
+    // Steam's Focusable, for the kit's folding section headings. Not in the guard either: without
+    // it a heading is a plain div and the sections simply do not fold, so a client where it is
+    // not a unique match keeps every row.
+    let focusable = null;
+    try {
+      focusable = resolveNativeFocusable(runtime);
+    } catch {
+      focusable = null;
+    }
+    return { react, slider, dropdown, toggle, labelField, section, row, localize, icon, focusable };
   };
   const normalizeText = (value) => (typeof value === "string" ? value.slice(0, 240) : "");
   // The host's setting id while the running game's own profile supplies a row's value. The row only
@@ -772,6 +818,7 @@ function createNativeComponentHost() {
       if (!state.available) return note("vrr", "unavailable: " + (state.statusText || "no reason"));
       if (!controlRuntime.toggle) return note("vrr", "Steam ToggleField was not resolved");
       drew("vrr");
+      summarize("vrr", state.enabled ? "VRR on" : "VRR off");
       const definition = definitions.vrr;
       const toggle = controlRuntime.react.createElement(controlRuntime.toggle, {
         // Valve's own token for the row, so the label matches the client's language even though
@@ -802,6 +849,14 @@ function createNativeComponentHost() {
       // be located loses only this row. That silence is exactly what needed a name.
       if (!controlRuntime.toggle) return note("autoTdp", "Steam ToggleField was not resolved");
       drew("autoTdp");
+      summarize(
+        "autoTdp",
+        !state.enabled
+          ? ""
+          : state.controlling && state.watts !== null
+            ? `Auto TDP holding ${state.watts} W`
+            : "Auto TDP on",
+      );
       const definition = definitions.autoTdp;
       // While controlling, the watts AutoTDP settled on go in the description: a user watching the
       // slider move needs to see that something is driving it, and what it decided.
@@ -869,6 +924,7 @@ function createNativeComponentHost() {
         const options = state.options.map((option) => ({ data: option.id, label: option.label }));
         const definition = definitions[kind];
         drew(kind);
+        summarize(kind, options.find((option) => option.data === state.current)?.label ?? "");
         return controlRuntime.react.createElement(controlRuntime.dropdown, {
           label,
           icon: icon(),
@@ -929,6 +985,10 @@ function createNativeComponentHost() {
       const options = state.options.map((option) => ({ data: option.id, label: option.label }));
       const definition = definitions.cpuBoost;
       drew("cpuBoost");
+      summarize(
+        "cpuBoost",
+        options.find((option) => option.data === state.current)?.label ?? "",
+      );
       return controlRuntime.react.createElement(controlRuntime.dropdown, {
         label: "CPU boost mode",
         icon: controlRuntime.icon("turbo"),
@@ -1021,6 +1081,15 @@ function createNativeComponentHost() {
           },
         });
       drew("powerPreset");
+      // The two assignments, named; an unset one says nothing.
+      const assigned = (label, id) =>
+        id ? `${label} ${options.find((option) => option.data === id)?.label ?? id}` : "";
+      summarize(
+        "powerPreset",
+        [assigned("Plugged in", state.ac), assigned("Battery", state.battery)]
+          .filter(Boolean)
+          .join(" · ") || state.current,
+      );
       // What is in effect, and why. The scope and the status belong to that one fact, so they are
       // its description rather than two more unlabelled lines: every other row in this host puts
       // its status there, and three stacked bare divs were the one place the panel stopped
@@ -1081,6 +1150,10 @@ function createNativeComponentHost() {
           `selected '${selected}' is not among ${options.length} available target(s)`,
         );
       drew("controllerTarget");
+      summarize(
+        "controllerTarget",
+        options.find((option) => option.data === selected)?.label ?? "",
+      );
       const definition = definitions.controllerTarget;
       const setTarget = (option) => {
         if (!option || !options.some((candidate) => candidate.data === option.data)) return;
@@ -1112,6 +1185,7 @@ function createNativeComponentHost() {
       if (state.options.length < 2)
         return note("resolution", `only ${state.options.length} option(s)`);
       drew("resolution");
+      summarize("resolution", state.options.includes(state.current) ? state.current : "");
       const definition = definitions.resolution;
       const options = state.options.map((option) => ({ data: option, label: option }));
       const setResolution = (option) => {
@@ -1189,6 +1263,15 @@ function createNativeComponentHost() {
       );
       if (!format && !spatial) return note("audioFormat", "fewer than two choices");
       drew("audioFormat");
+      summarize(
+        "audioFormat",
+        [
+          state.formatOptions.find((choice) => choice.id === state.currentFormat)?.label,
+          state.spatialOptions.find((choice) => choice.id === state.currentSpatial)?.label,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      );
       return controlRuntime.react.createElement(
         controlRuntime.react.Fragment,
         null,
@@ -1263,6 +1346,14 @@ function createNativeComponentHost() {
       // to the rate.
       const refreshMode = !capped && state.refreshRates.length > 0;
       const sliderValue = refreshMode ? (refreshEchoed.value ?? 0) : cappedValue;
+      summarize(
+        "frameLimit",
+        capped
+          ? `${cappedValue} fps cap`
+          : refreshMode
+            ? `${state.refreshRates[refreshEchoed.value ?? 0] ?? "?"} Hz`
+            : "No frame limit",
+      );
       // Guarded like the AutoTDP row: a client whose ToggleField cannot be located loses the
       // switch and keeps the slider, rather than losing the whole row silently.
       const disableSwitch = controlRuntime.toggle
@@ -1531,6 +1622,12 @@ function createNativeComponentHost() {
       }
       if (!rows.length) return note("powerLimit", "no usable power limit");
       drew("powerLimit", `rendered ${rows.length} row(s)`);
+      summarize(
+        "powerLimit",
+        state.unified
+          ? `${state.sustained?.observed ?? "?"} W`
+          : `${state.sustained?.observed ?? "?"} W sustained · ${state.boost?.observed ?? "?"} W boost`,
+      );
       return controlRuntime.react.createElement(controlRuntime.react.Fragment, null, ...rows);
     };
 
@@ -1549,6 +1646,7 @@ function createNativeComponentHost() {
       );
       const [selectedZone, setSelectedZone] = controlRuntime.react.useState("");
       const [editingColor, setEditingColor] = controlRuntime.react.useState(false);
+      const folds = useSemanticState(controlRuntime, "panelFolds", normalizePanelFoldsState);
       const chargeValue = state?.chargeLimit
         ? (state.chargeLimit.observed ?? state.chargeLimit.desired)
         : null;
@@ -1771,22 +1869,22 @@ function createNativeComponentHost() {
       if (!rows.length && !chargingRows.length)
         return note("deviceControls", "no compatible charge or lighting rows");
       drew("deviceControls", `rendered ${rows.length + chargingRows.length} row(s)`);
+      // Two sections, two detail lines: the charge limit, and the lighting's brightness and zone.
+      summarize("deviceCharging", chargeValue === null ? "" : `Limit ${chargeValue}%`);
+      summarize(
+        "deviceLighting",
+        [brightnessValue === null ? "" : `${brightnessValue}%`, zone ? zone.label : ""]
+          .filter(Boolean)
+          .join(" · "),
+      );
       return controlRuntime.react.createElement(
         controlRuntime.react.Fragment,
         null,
         chargingRows.length
-          ? controlRuntime.react.createElement(
-              controlRuntime.section,
-              { title: sectionTitle(controlRuntime, "Charging"), key: "charging" },
-              ...chargingRows,
-            )
+          ? hostSection(controlRuntime, "charging", "Charging", true, chargingRows, folds)
           : null,
         rows.length
-          ? controlRuntime.react.createElement(
-              controlRuntime.section,
-              { title: sectionTitle(controlRuntime, "RGB lighting"), key: "lighting" },
-              ...rows,
-            )
+          ? hostSection(controlRuntime, "lighting", "RGB lighting", true, rows, folds)
           : null,
       );
     };
@@ -1908,10 +2006,7 @@ function createNativeComponentHost() {
 
   // The glyph beside each section header, keyed by the header text so every placement — the
   // Performance groups, the Quick Settings Display group and the device sections — reads from one
-  // table instead of carrying its icon at its own call site. PanelSection renders whatever `title`
-  // is inside its own text element, so an element is as valid there as a string; the row of icon
-  // and text is laid out here rather than left to Valve's header CSS, which only sizes an svg that
-  // is its DIRECT child and would leave a nested one at its intrinsic size.
+  // table instead of carrying its icon at its own call site.
   // No header shares a glyph with a row beneath it, and no two rows share one either: the panel
   // is scanned by shape before it is read, so a repeated glyph says two controls are the same
   // control.
@@ -1926,28 +2021,30 @@ function createNativeComponentHost() {
     Charging: "batteryCharging",
     "RGB lighting": "colors",
   });
-  // 18px is the size Valve's own header rule gives a section icon, against a 16px header. A
-  // section with no glyph of its own keeps the plain string, so the header is never wrapped in
-  // markup that buys it nothing.
-  // Hoisted, because a header is rebuilt on every render of the panel root and a fresh style
-  // object each time would hand React new props for a div that never changes.
-  const SectionTitleStyle = Object.freeze({
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-  });
-  const sectionTitle = (controlRuntime, title) => {
-    const icon = controlRuntime.icon(SectionIcons[title], 18);
-    return icon
-      ? controlRuntime.react.createElement("div", { style: SectionTitleStyle }, icon, title)
-      : title;
-  };
+  // 18px is the size Valve's own header rule gives a section icon, against a 16px header.
+  const sectionIcon = (controlRuntime, title) => controlRuntime.icon(SectionIcons[title], 18);
 
-  // A section whose rows all draw nothing stays mounted, so those rows keep their subscriptions and
-  // can bring it back when state arrives; it is only taken out of layout. `contents` leaves a shown
-  // section a direct flex item of Valve's panel, as it was before it had a wrapper.
-  const SectionShown = Object.freeze({ display: "contents" });
-  const SectionHidden = Object.freeze({ display: "none" });
+  // The rows whose summaries a section's heading reports while it is folded, in the order they
+  // read. The device rows report under two names of their own, one per section they draw.
+  const SectionSummaries = Object.freeze({
+    "Power profiles": ["powerPreset", "powerProfile", "hybridCores", "cpuBoost"],
+    "Display and frame rate": ["frameLimit", "vrr"],
+    "Power limits": ["powerLimit", "autoTdp"],
+    Controller: ["controllerTarget"],
+    Display: ["resolution", "audioFormat"],
+    Charging: ["deviceCharging"],
+    "RGB lighting": ["deviceLighting"],
+  });
+  const sectionSummary = (title) =>
+    (SectionSummaries[title] ?? [])
+      .map((kind) => summaries[kind])
+      .filter(Boolean)
+      .join(" · ");
+  // Profile scope is Valve's header and per-game toggle and stays open; Reset is one button and
+  // has no heading. Every other section folds, and its fold is kept by the host under its title.
+  const FixedSections = new Set(["Profile scope"]);
+  const HeadlessSections = new Set(["Reset"]);
+
   // The section each kind is drawn under; anything unlisted is a Display row.
   const RowGroups = Object.freeze({
     valveProfileHeader: "Profile scope",
@@ -1963,16 +2060,30 @@ function createNativeComponentHost() {
     controllerTarget: "Controller",
     valveReset: "Reset",
   });
-  const hostSection = (controlRuntime, key, title, shown, rows) =>
-    controlRuntime.react.createElement(
-      "div",
-      { key, style: shown ? SectionShown : SectionHidden },
-      controlRuntime.react.createElement(
-        controlRuntime.section,
-        { title: sectionTitle(controlRuntime, title) },
-        ...rows,
-      ),
-    );
+  // A section is a kit group: a heading with the section's glyph, its title and, folded, what its
+  // rows report, over the rows. A section whose rows all draw nothing stays mounted, so those rows
+  // keep their subscriptions and can bring it back when state arrives; it is only taken out of
+  // layout. `folds` is the host's published fold list, or null.
+  const hostSection = (controlRuntime, key, title, shown, rows, folds) =>
+    HeadlessSections.has(title)
+      ? renderSteamUiGroup(controlRuntime, { key, hidden: !shown }, ...rows)
+      : renderSteamUiGroup(
+          controlRuntime,
+          {
+            key,
+            title,
+            icon: sectionIcon(controlRuntime, title),
+            detail: sectionSummary(title) || undefined,
+            hidden: !shown,
+            ...(FixedSections.has(title)
+              ? {}
+              : {
+                  collapsed: isFolded(folds, title),
+                  onToggle: () => setFolded(title, !isFolded(folds, title)),
+                }),
+          },
+          ...rows,
+        );
 
   // Built once the controls resolve, rather than on every render of the panel.
   let controlRows: any[][] = [];
@@ -1990,7 +2101,7 @@ function createNativeComponentHost() {
       : { [name]: kids.map((k) => describe(controlRuntime, k, depth + 1)) };
   };
 
-  const appendControls = (controlRuntime, tree, placement = "perf") => {
+  const appendControls = (controlRuntime, tree, placement = "perf", folds = null) => {
     // Rendered React elements from Steam's own untyped runtime.
     const controls: unknown[] = [];
     const groups = new Map<string, unknown[]>();
@@ -2037,6 +2148,7 @@ function createNativeComponentHost() {
             "Display",
             drawnGroups.has("Display"),
             groups.get("Display")!,
+            folds,
           )
         : null;
       appendDiagnostics[placement] = {
@@ -2046,12 +2158,18 @@ function createNativeComponentHost() {
       };
       // Display controls lead the tab rather than trailing it: brightness and the shortcut
       // toggles read below them naturally, and a dropdown at the bottom of a scrolling tab is
-      // the control a user finds last.
+      // the control a user finds last. Valve's own sections between are drawn as kit blocks too,
+      // so the tab reads as one column of groups.
       return controlRuntime.react.createElement(
         controlRuntime.react.Fragment,
         null,
+        steamUiKitStyle(controlRuntime.react),
         section,
-        tree,
+        controlRuntime.react.createElement(
+          "div",
+          { key: "steam-ui-valve-sections", className: "steam-ui-kit-valve" },
+          tree,
+        ),
         registrations.has("deviceControls") && deviceControlsControl
           ? controlRuntime.react.createElement(deviceControlsControl, {
               key: "steam-ui-device-controls",
@@ -2087,13 +2205,25 @@ function createNativeComponentHost() {
       ]
         .filter((title) => groups.has(title))
         .map((title) =>
-          hostSection(controlRuntime, title, title, drawnGroups.has(title), groups.get(title)!),
+          hostSection(
+            controlRuntime,
+            title,
+            title,
+            drawnGroups.has(title),
+            groups.get(title)!,
+            folds,
+          ),
         ),
     );
 
     // Steam's FPS rows are suppressed only on this path, which runs when the host has rows of its own
     // to put in their place. Hiding them and then rendering nothing would leave the user neither.
-    const native = withNativeRowsHidden(controlRuntime, tree);
+    // What remains of Valve's tree is the battery line, which the kit draws small under its class.
+    const native = controlRuntime.react.createElement(
+      "div",
+      { key: "steam-ui-native-performance", className: "steam-ui-kit-battery" },
+      withNativeRowsHidden(controlRuntime, tree),
+    );
     // Described when status asks rather than on every render of the panel.
     let description: string | undefined;
     appendDiagnostics.perf = {
@@ -2103,9 +2233,15 @@ function createNativeComponentHost() {
       get tree() {
         return (description ??= JSON.stringify(describe(controlRuntime, tree, 0)).slice(0, 600));
       },
-      nativeFiltered: native !== tree,
+      nativeFiltered: native.props.children !== tree,
     };
-    return controlRuntime.react.createElement(controlRuntime.react.Fragment, null, native, own);
+    return controlRuntime.react.createElement(
+      controlRuntime.react.Fragment,
+      null,
+      steamUiKitStyle(controlRuntime.react),
+      native,
+      own,
+    );
   };
   // Resolve every dependency before changing React or registering a component.
   const resolveControls = () => {
@@ -2212,7 +2348,8 @@ function createNativeComponentHost() {
         () => subscribeHost(() => setRevision((value) => value + 1)),
         [],
       );
-      return appendControls(controlRuntime, performanceRoot(props));
+      const folds = useSemanticState(controlRuntime, "panelFolds", normalizePanelFoldsState);
+      return appendControls(controlRuntime, performanceRoot(props), "perf", folds);
     }
 
     // One wrapper per wrapped tab, matched by root identity in the same memoized tab array.
@@ -2252,7 +2389,12 @@ function createNativeComponentHost() {
                 [],
               );
               quickSettingsRoot = original;
-              return appendControls(controlRuntime, original(props), "quickSettings");
+              const folds = useSemanticState(
+                controlRuntime,
+                "panelFolds",
+                normalizePanelFoldsState,
+              );
+              return appendControls(controlRuntime, original(props), "quickSettings", folds);
             };
             quickSettingsWrapCache.set(original, wrapped);
           }

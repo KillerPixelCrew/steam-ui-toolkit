@@ -274,16 +274,7 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
                 value: h(
                     ui.focusable,
                     {"flow-children": "row", style: {display: "flex", alignItems: "center", gap: "8px"}},
-                    h("div", {
-                        className: "steam-ui-color-swatch",
-                        style: {
-                            width: "20px",
-                            height: "20px",
-                            borderRadius: "3px",
-                            background: current,
-                            border: "1px solid rgba(255,255,255,0.3)",
-                        },
-                    }),
+                    renderSteamUiSwatch(ui.react, current),
                     h("span", null, current),
                     h(
                         ui.smallButton,

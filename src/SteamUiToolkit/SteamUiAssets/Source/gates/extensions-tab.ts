@@ -86,6 +86,7 @@ function createExtensionsTab() {
     action.label.length <= 160;
   const optionalText = (value, maximum) =>
     value === undefined || value === null || (typeof value === "string" && value.length <= maximum);
+  const optionalFlag = (value) => value === undefined || value === null || typeof value === "boolean";
   const validSetting = (setting) =>
     setting &&
     typeof setting.key === "string" &&
@@ -97,12 +98,12 @@ function createExtensionsTab() {
     ["boolean", "number", "text", "secret", "order", "color"].includes(setting.kind) &&
     optionalText(setting.description, 512) &&
     optionalText(setting.parent, 128) &&
+    optionalFlag(setting.highlight) &&
     (setting.choices === undefined ||
       setting.choices === null ||
       (Array.isArray(setting.choices) &&
         setting.choices.length <= 64 &&
         setting.choices.every((choice) => typeof choice === "string" && choice.length <= 4096)));
-  const optionalFlag = (value) => value === undefined || value === null || typeof value === "boolean";
   const validItem = (item) =>
     item &&
     typeof item.id === "string" &&
@@ -159,7 +160,11 @@ function createExtensionsTab() {
   // and looks the same, as one on a host's settings page. Null for a setting no row can show.
   const settingRow = (item, setting) => {
     const key = `${item.id}:${setting.key}`;
-    const description = setting.description ?? undefined;
+    // A highlighted description is drawn in the kit's accent: "Update available", for one.
+    const description =
+      setting.description && setting.highlight
+        ? react.createElement("span", { className: "steam-ui-kit-highlight" }, setting.description)
+        : (setting.description ?? undefined);
     const choices = Array.isArray(setting.choices)
       ? setting.choices.map((choice) => ({ value: choice, label: choice }))
       : null;
@@ -319,20 +324,7 @@ function createExtensionsTab() {
       return h(
         panel.row,
         { key: `setting-${setting.key}` },
-        setting.parent
-          ? h(
-              "div",
-              {
-                className: "steam-ui-extensions-nested",
-                style: {
-                  paddingLeft: "12px",
-                  borderLeft: "2px solid rgba(255,255,255,0.12)",
-                  boxSizing: "border-box",
-                },
-              },
-              control,
-            )
-          : control,
+        setting.parent ? h("div", { className: "steam-ui-kit-nested" }, control) : control,
       );
     };
     const detailOf = (item) =>
@@ -359,58 +351,27 @@ function createExtensionsTab() {
       h(
         panel.row,
         { key: "header" },
-        h(
-          ui.focusable,
-          {
-            className: "steam-ui-extensions-header",
-            onActivate: () => toggleFold(item),
-            onOKActionDescription: isCollapsed(item) ? "Expand" : "Collapse",
-            style: {
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: "12px",
-              padding: "8px 10px",
-              margin: "0 -10px",
-              borderRadius: "2px",
-            },
-          },
-          h(
-            "div",
-            { style: { minWidth: 0 } },
-            h("div", { style: { fontSize: "16px", fontWeight: 600, color: "#fff" } }, item.name),
-            detailOf(item)
-              ? h("div", { style: { fontSize: "12px", opacity: 0.7 } }, detailOf(item))
-              : null,
-          ),
-          isCollapsed(item) ? icon("sectionClosed", 18) : icon("sectionOpen", 18),
-        ),
+        renderSteamUiHeader(ui, {
+          title: item.name,
+          detail: detailOf(item),
+          collapsed: isCollapsed(item),
+          onToggle: () => toggleFold(item),
+        }),
       );
-    // Actions share one row and wrap: two short labels sit side by side, a long one takes the
-    // width, rather than every action being a full-width bar of its own.
+    // Actions in the kit's grid: two short labels side by side, a long one across the row, rather
+    // than every action being a full-width bar of its own.
     const actionsRow = (item) =>
       (item.actions ?? []).length
         ? h(
             panel.row,
             { key: "actions" },
-            h(
-              ui.focusable,
-              {
-                "flow-children": "row",
-                className: "steam-ui-extensions-actions",
-                style: { display: "flex", flexWrap: "wrap", gap: "8px" },
-              },
-              ...item.actions.map((action) =>
-                h(
-                  ui.dialogButton,
-                  {
-                    key: action.id,
-                    onClick: () => activate(action.id),
-                    style: { flex: "1 1 40%", minWidth: "0", width: "auto" },
-                  },
-                  action.label,
-                ),
-              ),
+            renderSteamUiActions(
+              ui,
+              item.actions.map((action) => ({
+                id: action.id,
+                label: action.label,
+                onClick: () => activate(action.id),
+              })),
             ),
           )
         : null;
@@ -426,8 +387,9 @@ function createExtensionsTab() {
       ...(item.settings ?? []).map((setting) => settingLine(item, setting)),
     ];
     // One PanelSection per extension, titled with its name, and one PanelSectionRow per line in it,
-    // the way Valve's own tabs and decky's plugin list lay theirs out. Steam titles the tab itself,
-    // so the panel adds no heading of its own.
+    // the way Valve's own tabs and decky's plugin list lay theirs out, each drawn as a kit block so
+    // the sections read as the groups on the Performance and Quick Settings tabs do. Steam titles
+    // the tab itself, so the panel adds no heading of its own.
     const sections = items.map((item) =>
       item.collapsible
         ? h(
@@ -440,12 +402,8 @@ function createExtensionsTab() {
     );
     return h(
       "div",
-      { className: "steam-ui-extensions-tab" },
-      h(
-        "style",
-        null,
-        ".steam-ui-extensions-header.gpfocus,.steam-ui-extensions-header:hover{background:rgba(255,255,255,.08)}",
-      ),
+      { className: "steam-ui-extensions-tab steam-ui-kit-blocks" },
+      steamUiKitStyle(react),
       sections.length
         ? sections
         : h(
