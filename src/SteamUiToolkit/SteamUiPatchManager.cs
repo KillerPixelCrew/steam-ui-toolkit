@@ -228,6 +228,9 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _resourceGates =
         new(StringComparer.Ordinal);
 
+    /// <summary>How many times a refused patch is probed again within one generation: 1, 2, 4, 8 and 16 s after.</summary>
+    private const int SettleRetryLimit = 5;
+
     private readonly SemaphoreSlim _schedulerGate = new(1, 1);
     private readonly ISteamUiTransport _transport;
     private int _disposed;
@@ -640,6 +643,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
                         SteamUiPatchState.Incompatible,
                         null,
                         diagnostic);
+                    ScheduleSettleRetry(entry, generationEpoch);
                 }
 
                 return;
@@ -918,6 +922,43 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    ///     Probes a refused patch again a few times, backing off, within the same generation. A Steam
+    ///     window that has just loaded is probed before it has mounted everything: the custom pages'
+    ///     router was absent three seconds into a reload on 2026-09-28, the patch was refused, and
+    ///     nothing asked again until the next reload, so every custom page stayed blank. A patch that
+    ///     is truly incompatible is refused the same way each time and costs five probes.
+    /// </summary>
+    private void ScheduleSettleRetry(PatchEntry entry, long generationEpoch)
+    {
+        int attempt;
+        lock (entry.Sync)
+        {
+            if (entry.SettleEpoch != generationEpoch)
+            {
+                entry.SettleEpoch = generationEpoch;
+                entry.SettleAttempts = 0;
+            }
+
+            if (entry.SettleAttempts >= SettleRetryLimit)
+            {
+                return;
+            }
+
+            attempt = ++entry.SettleAttempts;
+        }
+
+        var delay = TimeSpan.FromSeconds(1 << (attempt - 1));
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(delay).ConfigureAwait(false);
+            if (Volatile.Read(ref _disposed) == 0)
+            {
+                QueueSynchronization();
+            }
+        });
+    }
+
     private void OnGenerationChanged(object? sender, SteamUiTransportSnapshot snapshot)
     {
         foreach (var entry in _patches.Values)
@@ -1068,6 +1109,11 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
         internal SteamUiTransportSnapshot? TransportSnapshot { get; set; }
 
         internal long GenerationEpoch { get; set; }
+
+        // The generation the refusal retries below belong to, and how many were scheduled for it.
+        internal long SettleEpoch { get; set; } = -1;
+
+        internal int SettleAttempts { get; set; }
 
         internal CancellationTokenSource? ActiveOperationCancellation { get; set; }
 

@@ -109,6 +109,28 @@ public sealed class SteamUiPatchManagerTests
     }
 
     [Fact]
+    public async Task APatchRefusedBeforeSteamFinishedLoadingIsProbedAgainWithoutAnotherReload()
+    {
+        await using var transport = new FakeSteamUiTransport();
+        await using var manager = new SteamUiPatchManager(transport);
+        var patch = new FakePatch { Bounds = FixtureBounds, Compatible = false };
+        manager.Register(patch);
+
+        await manager.SynchronizeAsync();
+        Assert.Equal(SteamUiPatchState.Incompatible, Assert.Single(manager.GetSnapshots()).State);
+        patch.Compatible = true;
+
+        // The first retry is a second after the refusal, past the shared helper's one-second wait.
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (Assert.Single(manager.GetSnapshots()).State != SteamUiPatchState.Verified)
+        {
+            await Task.Delay(20, timeout.Token);
+        }
+
+        Assert.Equal(1, patch.ApplyCalls);
+    }
+
+    [Fact]
     public async Task RepeatedSynchronizationVerifiesHealthyPatchWithoutReapplyingIt()
     {
         await using var transport = new FakeSteamUiTransport();
