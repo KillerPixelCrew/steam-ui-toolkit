@@ -41,14 +41,14 @@ const kit = instantiate(
   sharedFragments(asset) + slice(asset, "const SteamUiIconShapes =", "function createAudioNamespace"),
   "({steamUiKitStyle, renderSteamUiHeader, renderSteamUiGroup, renderSteamUiActions," +
     " renderSteamUiSwatch, renderSteamUiCard, renderSteamUiGrid, renderSteamUiEmpty, renderSteamUiBanner," +
-    " renderSteamUiToolbar, renderSteamUiTool, renderSteamUiChips, renderSteamUiBox, renderSteamUiGallery," +
+    " renderSteamUiToolbar, renderSteamUiTool, renderSteamUiChips, renderSteamUiBox, renderSteamUiGallery, renderSteamUiVideo," +
     " showSteamUiConfirm, showSteamUiPrompt, SteamUiKitStyles})",
 );
 
 // The stylesheet is one element a root renders, and every class an element uses has a rule.
 const style = kit.steamUiKitStyle(react);
 assert.equal(style.type, "style");
-for (const cls of ["page", "pane", "header", "header-icon", "group", "group-body", "blocks", "valve", "battery", "actions", "nested", "swatch", "card", "grid", "banner", "toolbar", "chips", "box", "gallery", "modal-body"]) {
+for (const cls of ["page", "pane", "header", "header-icon", "group", "group-body", "blocks", "valve", "battery", "actions", "nested", "swatch", "card", "grid", "banner", "toolbar", "chips", "box", "gallery", "video", "modal-body"]) {
   assert.ok(kit.SteamUiKitStyles.includes(`.steam-ui-kit-${cls}`), `a rule for steam-ui-kit-${cls}`);
 }
 
@@ -132,6 +132,15 @@ card.props.onActivate();
 assert.equal(opened, 1);
 assert.equal(kit.renderSteamUiGrid(ui, [card]).props.className, "steam-ui-kit-grid");
 assert.equal(kit.renderSteamUiEmpty(react, "Nothing", true).props.className, "steam-ui-kit-empty error");
+
+// A video preview plays the movie muted on a loop, shows the still without one, and says so without either.
+const video = kit.renderSteamUiVideo(react, { src: "https://x/1.webm", poster: "https://x/1.jpg" });
+assert.equal(video.props.className, "steam-ui-kit-video");
+assert.equal(video.props.children[0].type, "video");
+assert.equal(video.props.children[0].props.muted, true);
+assert.equal(video.props.children[0].props.loop, true);
+assert.equal(kit.renderSteamUiVideo(react, { poster: "https://x/1.jpg" }).props.children[0].type, "img");
+assert.equal(kit.renderSteamUiVideo(react, { empty: "Nothing" }).props.children[0].props.className, "steam-ui-kit-video-empty");
 
 // A banner dismisses with the small button; a toolbar and chips are focusable rows of Steam's buttons.
 let dismissed = 0;

@@ -107,6 +107,9 @@ const SteamUiKitStyles = `
 .steam-ui-kit-hero img{width:100%;height:100%;object-fit:cover;display:block}
 .steam-ui-kit-hero-empty{display:flex;align-items:center;justify-content:center;height:100%;color:#8b929a}
 .steam-ui-kit-hero-count{position:absolute;right:10px;bottom:10px;padding:3px 8px;border-radius:2px;background:rgba(0,0,0,.7);font-size:12px;color:#fff}
+.steam-ui-kit-video{position:relative;width:556px;max-width:100%;aspect-ratio:16 / 9;border-radius:4px;overflow:hidden;background:#10151c}
+.steam-ui-kit-video video{width:100%;height:100%;object-fit:contain;display:block}
+.steam-ui-kit-video-empty{display:flex;align-items:center;justify-content:center;height:100%;color:#8b929a}
 .steam-ui-kit-modal-body{display:flex;flex-direction:column;gap:12px}
 .steam-ui-kit-modal-body p{margin:0}
 .steam-ui-kit-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
@@ -399,6 +402,26 @@ const renderSteamUiGallery = (
     ),
   );
 };
+
+// A movie preview: the movie playing quietly on a loop over its still, or what stands in for it.
+// Muted, because a preview that speaks is a preview that is closed.
+const renderSteamUiVideo = (react, props: { src?: string | null; poster?: string | null; empty?: string }) =>
+  react.createElement(
+    "div",
+    { className: "steam-ui-kit-video" },
+    props.src
+      ? react.createElement("video", {
+          src: props.src,
+          poster: props.poster ?? undefined,
+          autoPlay: true,
+          loop: true,
+          muted: true,
+          playsInline: true,
+        })
+      : props.poster
+        ? react.createElement("img", { src: props.poster, alt: "", style: { width: "100%", height: "100%", objectFit: "contain" } })
+        : react.createElement("div", { className: "steam-ui-kit-video-empty" }, props.empty ?? "No preview"),
+  );
 
 // Asks before something is done: a sentence and two buttons in Steam's modal. Cancel and B send
 // nothing.
