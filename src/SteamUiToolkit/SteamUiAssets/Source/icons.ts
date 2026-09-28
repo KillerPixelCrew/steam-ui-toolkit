@@ -377,6 +377,14 @@ const SteamUiIconShapes: Readonly<Record<string, readonly SteamUiIconShape[]>> =
             },
         ],
     ],
+
+    // -- Extensions tab section headers ---------------------------------------------------------
+
+    // The pair a collapsible section's header shows: pointing down while the section is open,
+    // right while it is folded. Two states of one control, so they are the one place a shape
+    // repeats, and they are drawn nowhere else.
+    sectionOpen: [["path", {d: "M12 16.4 4.6 9l1.8-1.8L12 12.8l5.6-5.6L19.4 9 12 16.4Z"}]],
+    sectionClosed: [["path", {d: "M9 4.6 16.4 12 9 19.4 7.2 17.6l5.6-5.6-5.6-5.6L9 4.6Z"}]],
 });
 
 // Builds icons with Steam's own React, and caches the result: a React element is immutable, so one

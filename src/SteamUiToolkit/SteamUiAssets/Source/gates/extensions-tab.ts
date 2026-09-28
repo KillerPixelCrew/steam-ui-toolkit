@@ -84,6 +84,8 @@ function createExtensionsTab() {
     typeof action.label === "string" &&
     action.label.length > 0 &&
     action.label.length <= 160;
+  const optionalText = (value, maximum) =>
+    value === undefined || value === null || (typeof value === "string" && value.length <= maximum);
   const validSetting = (setting) =>
     setting &&
     typeof setting.key === "string" &&
@@ -92,12 +94,15 @@ function createExtensionsTab() {
     typeof setting.label === "string" &&
     setting.label.length > 0 &&
     setting.label.length <= 128 &&
-    ["boolean", "number", "text", "secret", "order"].includes(setting.kind) &&
+    ["boolean", "number", "text", "secret", "order", "color"].includes(setting.kind) &&
+    optionalText(setting.description, 512) &&
+    optionalText(setting.parent, 128) &&
     (setting.choices === undefined ||
       setting.choices === null ||
       (Array.isArray(setting.choices) &&
         setting.choices.length <= 64 &&
         setting.choices.every((choice) => typeof choice === "string" && choice.length <= 4096)));
+  const optionalFlag = (value) => value === undefined || value === null || typeof value === "boolean";
   const validItem = (item) =>
     item &&
     typeof item.id === "string" &&
@@ -117,7 +122,9 @@ function createExtensionsTab() {
         item.settings.every(validSetting))) &&
     Number.isSafeInteger(item.configurationRevision ?? 0) &&
     (item.configurationRevision ?? 0) >= 0 &&
-    (item.detail === undefined || item.detail === null || typeof item.detail === "string");
+    (item.detail === undefined || item.detail === null || typeof item.detail === "string") &&
+    optionalFlag(item.collapsible) &&
+    optionalFlag(item.collapsed);
 
   // An element whose own props carry the tab list, with our tab in it; null for any other element.
   // Steam's tab view is private, so the list is matched by content rather than by a path into the
@@ -152,12 +159,13 @@ function createExtensionsTab() {
   // and looks the same, as one on a host's settings page. Null for a setting no row can show.
   const settingRow = (item, setting) => {
     const key = `${item.id}:${setting.key}`;
+    const description = setting.description ?? undefined;
     const choices = Array.isArray(setting.choices)
       ? setting.choices.map((choice) => ({ value: choice, label: choice }))
       : null;
     switch (setting.kind) {
       case "boolean":
-        return { key, label: setting.label, kind: "boolean", checked: !!setting.booleanValue };
+        return { key, label: setting.label, description, kind: "boolean", checked: !!setting.booleanValue };
       case "order": {
         if (!choices) return null;
         const saved = String(setting.textValue ?? "")
@@ -166,29 +174,47 @@ function createExtensionsTab() {
         return {
           key,
           label: setting.label,
+          description,
           kind: "order",
           choices,
           order: [...new Set([...saved, ...setting.choices])],
         };
       }
       case "number":
+        // A number with choices is one of them by index: a slider stepping through the choices,
+        // each named on its notch, the way CSSLoader draws a theme's slider patch.
+        if (choices && choices.length > 1) {
+          return {
+            key,
+            label: setting.label,
+            description,
+            kind: "range",
+            number: setting.numberValue ?? 0,
+            minimum: 0,
+            maximum: choices.length - 1,
+            labels: setting.choices,
+          };
+        }
         return Number.isFinite(setting.minimum) && Number.isFinite(setting.maximum)
           ? {
               key,
               label: setting.label,
+              description,
               kind: "range",
               number: setting.numberValue ?? setting.minimum,
               minimum: setting.minimum,
               maximum: setting.maximum,
             }
-          : { key, label: setting.label, kind: "text", text: String(setting.numberValue ?? "") };
+          : { key, label: setting.label, description, kind: "text", text: String(setting.numberValue ?? "") };
       case "secret":
         // A secret's current value is never published, so its box starts empty.
-        return { key, label: setting.label, kind: "secret" };
+        return { key, label: setting.label, description, kind: "secret" };
+      case "color":
+        return { key, label: setting.label, description, kind: "color", text: setting.textValue ?? "" };
       default:
         return choices
-          ? { key, label: setting.label, kind: "choice", choices, text: setting.textValue ?? "" }
-          : { key, label: setting.label, kind: "text", text: setting.textValue ?? "" };
+          ? { key, label: setting.label, description, kind: "choice", choices, text: setting.textValue ?? "" }
+          : { key, label: setting.label, description, kind: "text", text: setting.textValue ?? "" };
     }
   };
 
@@ -206,6 +232,10 @@ function createExtensionsTab() {
   function ExtensionsTabPanel() {
     const [, setRevision] = react.useState(0);
     const [drafts, setDrafts] = react.useState({});
+    // A fold the user asked for, shown at once and kept until the host publishes the section
+    // again: the round trip takes a moment, and a header that did nothing until it came back
+    // would read as a dead button.
+    const [folds, setFolds] = react.useState({});
     react.useEffect(() => subscribe(patchId, () => setRevision((value) => value + 1)), []);
     const h = react.createElement;
     const items = desired.items;
@@ -251,45 +281,122 @@ function createExtensionsTab() {
         revision,
       }).catch(() => dropDraft(row.key));
     };
+    const draftOf = (item, setting) => {
+      const draft = drafts[`${item.id}:${setting.key}`];
+      return draft && draft.revision === (item.configurationRevision ?? 0) ? draft.value : undefined;
+    };
     const settingControl = (item, setting) => {
       const row = settingRow(item, setting);
       if (!row) return null;
-      const draft = drafts[row.key];
-      return renderSteamSettingRow(
-        ui,
-        row,
-        draft && draft.revision === (item.configurationRevision ?? 0) ? draft.value : undefined,
-        change(item, setting),
-        () => {},
+      return renderSteamSettingRow(ui, row, draftOf(item, setting), change(item, setting), () => {});
+    };
+    // Whether a setting is shown: one with a parent follows that parent's switch, as the user last
+    // set it or as the host published it, and one whose parent is not a switch on this item is
+    // never shown, since nothing could ever open it.
+    const parentOn = (item, setting) => {
+      if (!setting.parent) return true;
+      const parent = (item.settings ?? []).find(
+        (candidate) => candidate.key === setting.parent && candidate.kind === "boolean",
+      );
+      if (!parent) return false;
+      const draft = draftOf(item, parent);
+      return draft !== undefined ? !!draft : !!parent.booleanValue;
+    };
+    const settingLine = (item, setting) => {
+      if (!parentOn(item, setting)) return null;
+      const control = settingControl(item, setting);
+      if (!control) return null;
+      return h(
+        panel.row,
+        { key: `setting-${setting.key}` },
+        setting.parent
+          ? h(
+              "div",
+              {
+                className: "steam-ui-extensions-nested",
+                style: { marginLeft: "12px", borderLeft: "2px solid rgba(255,255,255,0.12)" },
+              },
+              control,
+            )
+          : control,
       );
     };
     const detailOf = (item) =>
       [item.version, item.status, item.detail].filter((part) => !!part).join(" · ");
+    const isCollapsed = (item) => {
+      const fold = folds[item.id];
+      return fold && fold.revision === desired.revision ? fold.collapsed : !!item.collapsed;
+    };
+    const toggleFold = (item) => {
+      const collapsed = !isCollapsed(item);
+      setFolds((previous) => ({ ...previous, [item.id]: { collapsed, revision: desired.revision } }));
+      void request(patchId, "collapse", { id: item.id, collapsed }).catch(() =>
+        setFolds((previous) => {
+          const next = { ...previous };
+          delete next[item.id];
+          return next;
+        }),
+      );
+    };
+    // A collapsible section is headed by a button rather than the section's own title: the title
+    // Steam draws is not focusable, and a controller has to be able to land on the fold.
+    const header = (item) =>
+      h(
+        panel.row,
+        { key: "header" },
+        h(
+          ui.dialogButton,
+          {
+            className: "steam-ui-extensions-header",
+            onClick: () => toggleFold(item),
+            style: {
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              width: "100%",
+              textAlign: "left",
+            },
+          },
+          h(
+            "div",
+            { style: { minWidth: 0 } },
+            h("div", { style: { fontWeight: 600 } }, item.name),
+            detailOf(item)
+              ? h("div", { style: { fontSize: "12px", opacity: 0.75 } }, detailOf(item))
+              : null,
+          ),
+          isCollapsed(item) ? icon("sectionClosed", 18) : icon("sectionOpen", 18),
+        ),
+      );
+    const body = (item) => [
+      !item.collapsible && detailOf(item)
+        ? h(
+            panel.row,
+            { key: "detail" },
+            h("div", { style: { fontSize: "12px", opacity: 0.75 } }, detailOf(item)),
+          )
+        : null,
+      ...(item.actions ?? []).map((action) =>
+        h(
+          panel.row,
+          { key: `action-${action.id}` },
+          h(ui.dialogButton, { onClick: () => activate(action.id) }, action.label),
+        ),
+      ),
+      ...(item.settings ?? []).map((setting) => settingLine(item, setting)),
+    ];
     // One PanelSection per extension, titled with its name, and one PanelSectionRow per line in it,
     // the way Valve's own tabs and decky's plugin list lay theirs out. Steam titles the tab itself,
     // so the panel adds no heading of its own.
     const sections = items.map((item) =>
-      h(
-        panel.section,
-        { key: item.id, title: item.name },
-        detailOf(item)
-          ? h(
-              panel.row,
-              { key: "detail" },
-              h("div", { style: { fontSize: "12px", opacity: 0.75 } }, detailOf(item)),
-            )
-          : null,
-        ...(item.actions ?? []).map((action) =>
-          h(
-            panel.row,
-            { key: `action-${action.id}` },
-            h(ui.dialogButton, { onClick: () => activate(action.id) }, action.label),
-          ),
-        ),
-        ...(item.settings ?? []).map((setting) =>
-          h(panel.row, { key: `setting-${setting.key}` }, settingControl(item, setting)),
-        ),
-      ),
+      item.collapsible
+        ? h(
+            panel.section,
+            { key: item.id },
+            header(item),
+            ...(isCollapsed(item) ? [] : body(item)),
+          )
+        : h(panel.section, { key: item.id, title: item.name }, ...body(item)),
     );
     return h(
       "div",

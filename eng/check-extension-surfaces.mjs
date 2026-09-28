@@ -315,6 +315,91 @@ assert.equal(firstMove.type, SmallButton, "an order moves with Steam's small but
 firstMove.props.onClick();
 assert.deepEqual(requests.at(-1)[2], { id: "one", key: "tabs", value: "x,y", revision: 6 });
 
+// A collapsible section is headed by a button carrying its name, its detail and a caret, and its
+// rows are drawn only while it is open. Folding asks the host and shows at once.
+const themes = (collapsed, revision, extra = {}) => ({
+  items: [
+    {
+      id: "wsgm.themes",
+      name: "Themes",
+      version: "",
+      status: "Ready",
+      detail: "3 enabled",
+      collapsible: true,
+      collapsed,
+      configurationRevision: revision,
+      actions: [{ id: "browse", label: "Browse themes…" }],
+      settings: [
+        { key: "theme:dark", label: "Dark Deck", kind: "boolean", booleanValue: true, description: "v2.1 · Squishy" },
+        { key: "patch:dark:accent", label: "Accent", kind: "text", choices: ["Red", "Blue"], textValue: "Red", parent: "theme:dark" },
+        { key: "patch:dark:blur", label: "Blur", kind: "number", choices: ["Off", "Low", "High"], numberValue: 1, parent: "theme:dark" },
+        { key: "theme:light", label: "Light Deck", kind: "boolean", booleanValue: false },
+        { key: "patch:light:x", label: "Hidden while off", kind: "text", textValue: "", parent: "theme:light" },
+        { key: "patch:orphan", label: "No such parent", kind: "text", textValue: "", parent: "theme:none" },
+        { key: "colour", label: "Highlight", kind: "color", textValue: "#ff0000" },
+      ],
+      ...extra,
+    },
+  ],
+  revision,
+});
+subscriptions.get("steam-ui.extensions-tab")(themes(true, 9));
+let themesPanel = renderPanel();
+let themesSection = themesPanel.props.children[0][0];
+assert.equal(themesSection.props.title, undefined, "a collapsible section is not titled by Steam's section");
+const headerRow = themesSection.props.children[0];
+assert.equal(headerRow.type, PanelRow);
+const headerButton = headerRow.props.children[0];
+assert.equal(headerButton.type, Button, "the header is Steam's DialogButton, so a controller can land on it");
+assert.equal(headerButton.props.children[0].props.children[0].props.children[0], "Themes");
+assert.equal(headerButton.props.children[0].props.children[1].props.children[0], "Ready · 3 enabled");
+assert.equal(themesSection.props.children.length, 1, "a folded section draws its header and nothing else");
+headerButton.props.onClick();
+assert.deepEqual(requests.at(-1).slice(0, 3), [
+  "steam-ui.extensions-tab",
+  "collapse",
+  { id: "wsgm.themes", collapsed: false },
+]);
+themesPanel = renderPanel();
+themesSection = themesPanel.props.children[0][0];
+const bodyRows = themesSection.props.children.slice(1).flat().filter(Boolean);
+assert.equal(bodyRows[0].props.children[0].type, Button, "unfolded at once: the action is drawn");
+const themeToggle = bodyRows[1].props.children[0];
+assert.equal(themeToggle.type, Toggle);
+assert.equal(themeToggle.props.description, "v2.1 · Squishy", "a setting's description reaches Steam's field");
+const nested = bodyRows[2].props.children[0];
+assert.equal(nested.props.className, "steam-ui-extensions-nested", "a child setting is drawn indented");
+assert.equal(nested.props.children[0].type, Dropdown);
+const blur = bodyRows[3].props.children[0].props.children[0];
+assert.equal(blur.type, Slider, "a number with choices is a slider");
+assert.equal(blur.props.max, 2);
+assert.equal(blur.props.showValue, false);
+assert.deepEqual(
+  blur.props.notchLabels.map((notch) => notch.label),
+  ["Off", "Low", "High"],
+  "the choices name the notches",
+);
+blur.props.onChangeComplete(2);
+assert.deepEqual(requests.at(-1)[2], { id: "wsgm.themes", key: "patch:dark:blur", value: 2, revision: 9 });
+const lightToggle = bodyRows[4].props.children[0];
+assert.equal(lightToggle.type, Toggle);
+assert.equal(bodyRows.length, 6, "a child of a switch that is off, and one with no parent switch, are not drawn");
+assert.equal(bodyRows[5].props.children[0].type, TextField, "without a modal a colour is its text");
+assert.equal(bodyRows[5].props.children[0].props.value, "#ff0000");
+lightToggle.props.onChange(true);
+themesPanel = renderPanel();
+themesSection = themesPanel.props.children[0][0];
+assert.equal(
+  themesSection.props.children.slice(1).flat().filter(Boolean).length,
+  7,
+  "switching a parent on shows its children before the host answers",
+);
+// The host's next word on the fold wins over the local one.
+subscriptions.get("steam-ui.extensions-tab")(themes(true, 10));
+themesPanel = renderPanel();
+assert.equal(themesPanel.props.children[0][0].props.children.length, 1, "a new publication folds it again");
+subscriptions.get("steam-ui.extensions-tab")({ items: [], revision: 11 });
+
 const replacement = createExtensions();
 assert.equal(replacement.install().ok, true, "a fresh gate resolves its durable owned original");
 

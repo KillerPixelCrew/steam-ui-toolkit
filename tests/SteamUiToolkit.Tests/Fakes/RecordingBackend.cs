@@ -151,6 +151,11 @@ internal sealed class RecordingBackend :
         return Record($"configure {id} {key} {value} {expectedRevision}", cancellationToken);
     }
 
+    public Task<SteamUiCommandResult> CollapseAsync(string id, bool collapsed, CancellationToken cancellationToken)
+    {
+        return Record($"collapse {id} {collapsed}", cancellationToken);
+    }
+
     public Task<SteamUiCommandResult> StartScanAsync(CancellationToken cancellationToken)
     {
         return Record("scan on", cancellationToken);

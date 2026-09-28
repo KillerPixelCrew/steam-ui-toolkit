@@ -14,13 +14,23 @@ public sealed record SteamExtensionsTabAction(string Id, string Label);
 /// <summary>One host-rendered extension setting.</summary>
 /// <param name="Key">Stable setting identity within the plugin.</param>
 /// <param name="Label">Plain visible setting label.</param>
-/// <param name="Kind">Boolean, number, text, or secret.</param>
+/// <param name="Kind">
+///     <c>boolean</c>, <c>number</c>, <c>text</c>, <c>secret</c>, <c>order</c> or <c>color</c>. A
+///     number with <paramref name="Choices" /> is drawn as a slider whose notches carry the choices as
+///     labels and whose value is the chosen index; a colour is a CSS colour string edited in a modal.
+/// </param>
 /// <param name="BooleanValue">Current boolean value.</param>
 /// <param name="NumberValue">Current numeric value.</param>
 /// <param name="TextValue">Current text value; secret values are never published back.</param>
 /// <param name="Minimum">Inclusive numeric minimum.</param>
 /// <param name="Maximum">Inclusive numeric maximum.</param>
 /// <param name="Choices">Optional finite text choices.</param>
+/// <param name="Description">Optional second line under the label.</param>
+/// <param name="Parent">
+///     The key of a boolean setting on the same item this one belongs to. The row is drawn indented
+///     under its parent and only while the parent is on, the way CSSLoader shows a theme's patches
+///     only for an enabled theme.
+/// </param>
 public sealed record SteamExtensionsTabSetting(
     string Key,
     string Label,
@@ -30,7 +40,9 @@ public sealed record SteamExtensionsTabSetting(
     string? TextValue = null,
     double? Minimum = null,
     double? Maximum = null,
-    IReadOnlyList<string>? Choices = null);
+    IReadOnlyList<string>? Choices = null,
+    string? Description = null,
+    string? Parent = null);
 
 /// <summary>One extension shown in the Quick Access Extensions tab.</summary>
 /// <param name="Id">Opaque extension instance identity returned when a setting changes.</param>
@@ -41,6 +53,12 @@ public sealed record SteamExtensionsTabSetting(
 /// <param name="Actions">Host-rendered actions declared by the plugin for this tab.</param>
 /// <param name="Settings">Host-rendered plugin settings.</param>
 /// <param name="ConfigurationRevision">Expected revision for the next setting change.</param>
+/// <param name="Collapsible">
+///     Whether the section folds. A collapsible section is headed by a button carrying the name, the
+///     detail line and a caret, and its rows are drawn only while it is open; the header sends
+///     <c>collapse</c> and the host publishes the new state.
+/// </param>
+/// <param name="Collapsed">Whether a collapsible section is currently folded.</param>
 public sealed record SteamExtensionsTabItem(
     string Id,
     string Name,
@@ -49,7 +67,9 @@ public sealed record SteamExtensionsTabItem(
     string? Detail = null,
     IReadOnlyList<SteamExtensionsTabAction>? Actions = null,
     IReadOnlyList<SteamExtensionsTabSetting>? Settings = null,
-    long ConfigurationRevision = 0);
+    long ConfigurationRevision = 0,
+    bool Collapsible = false,
+    bool Collapsed = false);
 
 /// <summary>The current contents of the Quick Access Extensions tab.</summary>
 /// <param name="Items">Installed extensions, including refused packages so their failure is visible.</param>
@@ -78,6 +98,13 @@ public interface ISteamExtensionsTabBackend
         JsonElement value,
         long expectedRevision,
         CancellationToken cancellationToken);
+
+    /// <summary>Folds or unfolds one collapsible section.</summary>
+    /// <param name="id">One published extension instance identity.</param>
+    /// <param name="collapsed">Whether the section should be folded.</param>
+    /// <param name="cancellationToken">Cancels waiting without implying the change was undone.</param>
+    /// <returns>A truthful result; the host publishes the section's new state.</returns>
+    Task<SteamUiCommandResult> CollapseAsync(string id, bool collapsed, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -95,7 +122,7 @@ public static class SteamExtensionsTabSurface
     public const string PatchId = "steam-ui.extensions-tab";
 
     /// <summary>The commands emitted by the tab.</summary>
-    public static IReadOnlyList<string> Commands { get; } = ["activate", "configure"];
+    public static IReadOnlyList<string> Commands { get; } = ["activate", "configure", "collapse"];
 
     /// <summary>The Quick Access tab patch.</summary>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
@@ -184,8 +211,28 @@ public static class SteamExtensionsTabSurface
                     TryReadConfiguration,
                     (value, token) => backend.ConfigureAsync(
                         value.Id, value.Key, value.Value, value.Revision, token),
-                    "The extension setting payload is invalid.")
+                    "The extension setting payload is invalid."),
+                SteamSurfaceModule.Command<(string Id, bool Collapsed)>(
+                    PatchId,
+                    "collapse",
+                    TryReadCollapse,
+                    (value, token) => backend.CollapseAsync(value.Id, value.Collapsed, token),
+                    "The extension collapse payload is invalid.")
             ]);
+    }
+
+    private static bool TryReadCollapse(JsonElement payload, out (string Id, bool Collapsed) value)
+    {
+        value = default;
+        if (!SteamUiPayload.TryReadBoundedString(payload, "id", 96, out var id)
+            || !SteamUiPayload.TryReadBoolean(payload, "collapsed", out var collapsed)
+            || !SteamUiPayload.HasExactly(payload, 2))
+        {
+            return false;
+        }
+
+        value = (id, collapsed);
+        return true;
     }
 
     private static bool TryReadConfiguration(

@@ -108,7 +108,14 @@ the surface has rejected every other payload shape. The shared JSX interceptor r
 private menu class before its first render, so the first opening includes the commands without a
 visible-DOM scan. The Extensions tab draws each plugin as Steam's own PanelSection, its actions as
 DialogButtons and its settings with the same Steam fields a settings page uses, and refuses to
-install on a client missing one of them; the probe recognizes its own installed wrapper.
+install on a client missing one of them; the probe recognizes its own installed wrapper. An item
+can be collapsible, a setting can carry a description and belong to a switch on the same item, and
+a colour or a labelled slider are drawn the way the settings renderer draws them.
+
+**`SteamThemeStyleSurface.Module`** installs CSSLoader-compatible stylesheet blocks into every
+Steam window, choosing each block's windows by CSSLoader's own target vocabulary and reaching the
+documents through Steam's popup manager rather than a debugger session per window. The host loads,
+translates and orders the themes; the toolkit appends, keeps in step and removes.
 
 **`registerSteamPage`** declares a host's own page inside Steam: its gate, its state subscription
 and the frame that says why it cannot draw yet, with **`SteamPagePatch.Create`** as its patch.

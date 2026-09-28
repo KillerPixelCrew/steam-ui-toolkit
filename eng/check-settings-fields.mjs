@@ -54,6 +54,7 @@ const SmallButton = named("SmallButton", '"DialogButton _DialogLayout Small"');
 const Focusable = named("Focusable", "focusableIfEmpty onActivate onCancel focusClassName");
 const RoutedPages = named("RoutedPages", "function(e){const{pages:t,disableRouteReporting:c}=e}");
 const Confirm = named("Confirm", "strMiddleButtonText bProgressDialog bAlertDialog");
+const Dialog = named("Dialog", "Either closeModal or onCancel should be passed to GenericDialog. Classes: ");
 const shown = [];
 const ShowModal = named("ShowModal", "props.bDisableBackgroundDismiss");
 
@@ -65,6 +66,10 @@ const modules = {
   },
   focusable: { tokens: ["focusableIfEmpty", "onActivate", '"Panel"'], exports: { Focusable } },
   modal: { tokens: ["props.bDisableBackgroundDismiss"], exports: { ShowModal } },
+  dialog: {
+    tokens: ["Either closeModal or onCancel should be passed to GenericDialog. Classes: "],
+    exports: { Dialog },
+  },
   pages: { tokens: ["disableRouteReporting"], exports: { RoutedPages } },
   confirm: { tokens: ["strMiddleButtonText", "bProgressDialog", "bAlertDialog"], exports: { Confirm } },
 };
@@ -127,6 +132,8 @@ const pages = [
           { key: "run", kind: "action", label: "Run", buttonLabel: "Go" },
           { key: "state", kind: "note", label: "State", text: "Active" },
           { key: "future", kind: "hologram", label: "Future" },
+          { key: "size", kind: "range", label: "Size", number: 1, labels: ["Small", "Medium", "Large"] },
+          { key: "tone", kind: "color", label: "Tone", text: "#ff0000" },
         ],
       },
     ],
@@ -240,6 +247,69 @@ assert.deepEqual(changes, [["order", ["b", "a"]]]);
 // An action asks the host.
 row(tree, "run").props.value.props.onClick();
 assert.deepEqual(actions, ["run"]);
+
+// A range with labels is one of them by index: Steam's slider names each notch and sends the index.
+const size = row(tree, "size");
+assert.equal(size.type, Slider);
+assert.equal(size.props.min, 0);
+assert.equal(size.props.max, 2);
+assert.equal(size.props.showValue, false, "a labelled notch needs no number beside the track");
+assert.deepEqual(
+  size.props.notchLabels,
+  [
+    { notchIndex: 0, label: "Small" },
+    { notchIndex: 1, label: "Medium" },
+    { notchIndex: 2, label: "Large" },
+  ],
+);
+changes.length = 0;
+size.props.onChangeComplete(2);
+assert.deepEqual(changes, [["size", 2]]);
+
+// A colour is its swatch and text with an Edit button, which opens Steam's modal of sliders; Save
+// sends the colour once as hsla(), and Cancel sends nothing.
+const tone = row(tree, "tone");
+assert.equal(tone.type, ValueField, "a colour row is the value field");
+const [swatch, text, edit] = tone.props.value.props.children;
+assert.equal(swatch.props.style.background, "#ff0000", "the swatch shows the colour");
+assert.deepEqual(text.props.children, ["#ff0000"]);
+assert.equal(edit.type, SmallButton);
+changes.length = 0;
+shown.length = 0;
+edit.props.onClick();
+assert.equal(shown.length, 1, "Edit opens one modal");
+const renderModal = () => {
+  hooks.index = 100; // its own hook slots, apart from the page's
+  const frame = shown[0].type(shown[0].props);
+  assert.equal(frame.type, Dialog, "the editor sits in Steam's dialog");
+  const editor = frame.props.children[0];
+  return editor.type(editor.props);
+};
+let editorTree = renderModal();
+const sliders = editorTree.props.children.filter((child) => child?.type === Slider);
+assert.deepEqual(
+  sliders.map((slider) => slider.props.label),
+  ["Hue", "Saturation", "Lightness", "Opacity"],
+);
+assert.deepEqual(
+  sliders.map((slider) => slider.props.value),
+  [0, 100, 50, 1],
+  "the sliders start from the colour the row holds",
+);
+sliders[0].props.onChange(120);
+editorTree = renderModal();
+const [cancel, save] = editorTree.props.children.at(-1).props.children;
+assert.deepEqual(cancel.props.children, ["Cancel"]);
+assert.deepEqual(save.props.children, ["Save"]);
+cancel.props.onClick();
+assert.deepEqual(changes, [], "Cancel sends nothing");
+edit.props.onClick();
+editorTree = renderModal();
+editorTree.props.children.filter((child) => child?.type === Slider)[0].props.onChange(120);
+editorTree = renderModal();
+editorTree.props.children.at(-1).props.children[1].props.onClick();
+assert.deepEqual(changes, [["tone", "hsla(120, 100%, 50%, 1)"]], "Save sends the colour once as hsla()");
+changes.length = 0;
 
 // A new publication replaces every draft with the host's own values.
 revision = 2;

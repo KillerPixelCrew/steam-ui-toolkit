@@ -20,6 +20,7 @@ const checks = [
   "check-home-carousel.mjs",
   "check-screensaver.mjs",
   "check-extension-surfaces.mjs",
+  "check-theme-styles.mjs",
 ];
 
 const run = (script, args) =>

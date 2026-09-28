@@ -747,6 +747,7 @@ evaluated and its place among the discovered fragments does not matter.
 | `SteamScreensaverTests`, `eng/check-screensaver.mjs`           | the probe's separate facts and that it names no module id or export, the published wire shape, the exact report and choice payloads and their refusals; the emitted gate wrapping only the customization page and only its Screensaver section, appending the rows after Steam's own, reporting on first read, on change and on page open, sending a choice once and disabling the row while pending, refusing a malformed state whole, the bounded first-report retry, keeping the shared `useMemo` claim for another surface on removal and handing it back with the last |
 | `eng/check-startup.mjs` (resolver)                             | missing factories staying uncached, unique resolution, and `exported` counting aliases once, refusing two distinct fits, no fit, a missing module and an invalid predicate                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `SteamLibraryBadgeTests`, `eng/check-library.mjs` (details)    | the stat patch's compatibility, its Valve-named row lookup and shared runtime resource, the module declaring both patches under one publication; the emitted stat only on the stats row, Valve's classes and the localized label, the badge's naming rules and dimming, no duplicate, an `elements` gate transform coexisting on the one claim, a throwing transform skipped, and `jsx` and `jsxs` handed back only with the last transform                                                                                                                                 |
+| `SteamThemeStyleTests`, `eng/check-theme-styles.mjs`           | the theme-styles probe reading only Steam's popup manager, the wire shape, the revision-stamped publication; the emitted gate's targeting by title, URL and root class, the published order, an unchanged block kept, a changed block rebuilt, a late window styled on the next pass, a broken pattern matching nothing, removal leaving no node                                                                                                                                                                                                                             |
 | `SteamLibraryBadgeTests`, `eng/check-library.mjs` (badge)      | the badge probe's separate structural facts, selection of the tile and the badge by what they are rather than by name, the published wire shape, the exact layout payload; the emitted gate placing the badge left of Valve's in one row, naming the library or the internal label, green for installed and grey otherwise, no badge for a game installed nowhere, an anchorless tile left untouched, Big Art reported once per change, exact restoration, reinstall                                                                                                        |
 
 ## 15. Surfaces
@@ -792,6 +793,7 @@ for fixtures and diagnostics.
 | `SteamHomeCarouselSurface`    | Big Picture Home's carousel                               | claims Home's memo `type`, replaces the carousel's `games` array and bounds its overscan           | `SteamHomeCarouselState`     | hears what the carousel holds after each rebuild                                           |
 | `SteamScreensaverSurface`     | host rows in the Screensaver settings section             | a transform on the shared `useMemo` claim wraps the customization page and its Screensaver section | `SteamScreensaverState`      | hears Steam's screensaver timeouts; applies a row's choice                                 |
 | `SteamFilePickerSurface`      | the folder and file picker a host page opens              | none: `showSteamFilePicker` draws a Steam modal on the page that asks                              | none                         | lists the drives and user folders; lists one folder's subfolders and matching files        |
+| `SteamThemeStyleSurface`      | CSSLoader-compatible stylesheets in every Steam window    | appends one `<style>` per block to each popup document its targets name, through `g_PopupManager` | `SteamThemeState`            | none: the blocks are declared, not commanded                                               |
 
 ### Game overrides
 
@@ -1224,6 +1226,12 @@ The toggle, dropdown, slider, text field, dialog button and `showModal` are the 
 - `order` is the value field per value with Steam's small buttons to move one up or down, and sends
   the whole list.
 - `action` is a dialog button that sends the row to `onAction`, and `note` is a read-only value.
+- A `range` with `labels` is one of them by index: Steam's slider names each notch with a label,
+  the bounds are the labels' count, no number is shown beside the track, and the index is sent.
+- `color` is the value field showing the colour's swatch and text with a small Edit button, which
+  opens Steam's modal of four sliders (hue, saturation, lightness, opacity) over the hex or hsl(a)
+  the row holds. Save sends the colour once, as `hsla()`, the form CSSLoader's own picker writes;
+  Cancel and B send nothing. On a client without a modal the row is a text field.
 - A kind the renderer does not know is shown as its label with nothing that sends.
 - A row with `confirm` asks first, in Steam's confirm modal, when the new value equals `when`.
   Cancelling sends nothing, so the row keeps what the host last published.
@@ -1359,13 +1367,28 @@ numbers and bounded text are the only values accepted.
 Each item is drawn as Steam's own `PanelSection`, titled with the item's name, with its detail,
 actions and settings in `PanelSectionRow` rows. An action is Steam's `DialogButton`, and a setting is
 drawn by `renderSteamSettingRow`, the same code and the same Steam fields a host's settings page
-uses: a boolean is the `ToggleField`, text with choices the dropdown, a bounded number the slider,
-text, an unbounded number and a secret the `TextField` (a secret's box starts empty), and an order
-the value field with Steam's small move buttons, sent as the comma-joined list. A value typed into a
-box belongs to the revision it was typed against and is sent when the box is left: a newer published
-revision and a refused save both drop it, so the box never shows or resends a value the host has
-replaced or rejected. The panel adds no heading of its own; Steam titles the tab, which draws its own
-`extensions` glyph.
+uses: a boolean is the `ToggleField`, text with choices the dropdown, a bounded number the slider, a
+number with choices the slider with the choices naming its notches and the index as its value, text,
+an unbounded number and a secret the `TextField` (a secret's box starts empty), a colour the swatch
+and Edit button of the settings renderer's `color` kind, and an order the value field with Steam's
+small move buttons, sent as the comma-joined list. A setting's `description` is the line under its
+label. A value typed into a box belongs to the revision it was typed against and is sent when the box
+is left: a newer published revision and a refused save both drop it, so the box never shows or
+resends a value the host has replaced or rejected. The panel adds no heading of its own; Steam
+titles the tab, which draws its own `extensions` glyph.
+
+A setting with a `parent` names a boolean setting on the same item and is drawn indented under it,
+only while that switch is on, as the user last set it or as the host published it; the way
+CSSLoader shows a theme's patches only for an enabled theme. A parent that is not a switch on the
+item hides the setting, since nothing could open it.
+
+An item that is `collapsible` is headed by a `DialogButton` carrying its name, its detail line and
+a caret (`sectionOpen`, `sectionClosed`) instead of the section's own title, because the title
+Steam draws cannot take focus and a controller has to be able to land on the fold. Its rows are
+drawn only while it is open. The header sends `collapse {id,collapsed}` to
+`ISteamExtensionsTabBackend.CollapseAsync`, shows the fold at once, and keeps it until the host
+publishes the item again; the host's `collapsed` then wins, so a fold the host did not keep is
+undone by its next word.
 
 Every one of those pieces is required, as on every surface here: a client missing one refuses the
 tab and names what is missing, rather than drawing an imitation. The probe counts the Quick Access
@@ -1397,8 +1420,44 @@ custom-page host does the same for its router claim and both patched fibers.
 `SteamExtensionsTabTests` and `SteamGameContextMenuTests` cover the typed contracts.
 `eng/check-extension-surfaces.mjs` covers the emitted asset's repeated probe/reclaim, native
 activation, the route follow and its panel-close ordering, first-menu insertion, draft
-reconciliation, a failed release that stays retriable, and removal. Offline checks do not establish
-live visual parity with Decky or prove compatibility with a different Steam build.
+reconciliation, a collapsible section's header and fold, nested settings following their switch,
+the labelled slider, a failed release that stays retriable, and removal. Offline checks do not
+establish live visual parity with Decky or prove compatibility with a different Steam build.
+
+### Theme stylesheets
+
+`SteamThemeStyleSurface` publishes `SteamThemeState` under `steam-ui.theme-styles`: up to 256
+`SteamThemeStyle` blocks in cascade order, each an `Id`, its `Css` (at most 4 MiB), a `Hash` of
+that text and the `Targets` it is for. The vocabulary of a target is CSSLoader's own (`b1bc683`,
+`css_browserhook.py`): a whole-title regular expression, `~text~` for a substring of the window's
+URL, or `!name` for a class on the document's root elements. There is no command; a block exists
+because the host published it.
+
+CSSLoader attaches a debugger session to each of Steam's page targets and appends one `<style>`
+per block to that document's head. Every one of those windows is a popup Steam opens from
+SharedJSContext and keeps in `g_PopupManager`, so the gate reaches the same documents from the one
+context the toolkit already holds, with no connection per window. The probe reads the popup manager
+by the name Valve publishes it under and counts its popups; it captures no webpack runtime and names
+no module. Verification is `installed` and `resolved`.
+
+On every publication whose blocks, hashes, targets or order changed, and every two seconds after
+that for a window Steam opened or navigated since, the gate brings each popup's head in step: the
+blocks whose targets name that document, in the published order, as
+`<style id="steam-ui-theme-<id>" class="steam-ui-theme-style" data-steam-ui-hash>` nodes. A head
+already holding that list, block for block and hash for hash, is left alone; anything else is
+rebuilt, so order stays part of what a theme means. Only nodes carrying the gate's class are ever
+removed, and CSSLoader's own `css-loader-style` nodes are never touched, so the two can run side by
+side. A target whose pattern does not compile matches nothing. Removal takes every owned node out of
+every window and stops looking, which leaves Steam's own styling exactly as it was.
+
+The toolkit installs what it is given and reads none of it. Loading a theme's files, translating
+its class names for the running client build, resolving its patches and ordering its blocks are a
+host's. `SteamThemeStyleTests` covers the probe, the wire shape and the module's revision-stamped
+publication; `eng/check-theme-styles.mjs` covers the emitted gate's targeting by title, URL and
+class, the published order, an unchanged block kept, a changed block rebuilt, a window opened later
+styled on the next pass, a broken pattern matching nothing, and removal leaving no node behind.
+Whether Steam still publishes `g_PopupManager` under that name, and whether a theme written for a
+given client build still styles it, are live questions.
 
 ## 16. The client layer
 

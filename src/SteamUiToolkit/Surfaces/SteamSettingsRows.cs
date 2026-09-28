@@ -32,6 +32,13 @@ public static class SteamSettingsRowKind
 
     /// <summary>A read-only value field showing <see cref="SteamSettingsRow.Text" />.</summary>
     public const string Note = "note";
+
+    /// <summary>
+    ///     A colour, reading <see cref="SteamSettingsRow.Text" /> as a CSS colour and shown as its swatch
+    ///     and text, edited in a modal of Steam's sliders and sent back as <c>hsla()</c>. On a client
+    ///     without a modal it is a text field.
+    /// </summary>
+    public const string Color = "color";
 }
 
 /// <summary>One choice of a <see cref="SteamSettingsRowKind.Choice" /> or <see cref="SteamSettingsRowKind.Order" /> row.</summary>
@@ -66,6 +73,11 @@ public sealed record SteamSettingsConfirmation(
 /// <param name="Maximum">A range row's highest value.</param>
 /// <param name="Step">A range row's step.</param>
 /// <param name="Suffix">What follows a range row's value, such as a unit.</param>
+/// <param name="Labels">
+///     A range row's notch labels, one per step from <paramref name="Minimum" />. With them the row
+///     is one of the labels by index: the slider names each notch, the value is the index, and the
+///     bounds are the labels' count.
+/// </param>
 /// <param name="MaximumLength">The longest text or secret the field accepts.</param>
 /// <param name="Disabled">Whether the field is shown but cannot be changed.</param>
 /// <param name="Confirm">A confirmation to ask first, or null.</param>
@@ -87,7 +99,8 @@ public sealed record SteamSettingsRow(
     int? MaximumLength = null,
     bool Disabled = false,
     SteamSettingsConfirmation? Confirm = null,
-    string? ButtonLabel = null);
+    string? ButtonLabel = null,
+    IReadOnlyList<string>? Labels = null);
 
 /// <summary>A titled group of rows: one of Steam's settings sections.</summary>
 /// <param name="Title">The section heading, or null for an untitled section.</param>

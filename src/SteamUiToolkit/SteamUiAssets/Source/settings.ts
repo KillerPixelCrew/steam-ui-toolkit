@@ -94,6 +94,102 @@ const confirmSteamSetting = (ui, confirmation, proceed: () => void) => {
     );
 };
 
+// A colour as hue, saturation, lightness and alpha, read from the hex and hsl(a) forms a theme's
+// colour takes, and written back as hsla() the way CSSLoader's colour picker writes it.
+const parseSteamColor = (text: string) => {
+    const value = String(text ?? "").trim();
+    const hsl = /^hsla?\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*(?:,\s*([\d.]+)\s*)?\)$/iu.exec(value);
+    if (hsl) {
+        return {
+            h: Math.min(360, Math.max(0, Number(hsl[1]))),
+            s: Math.min(100, Math.max(0, Number(hsl[2]))),
+            l: Math.min(100, Math.max(0, Number(hsl[3]))),
+            a: hsl[4] === undefined ? 1 : Math.min(1, Math.max(0, Number(hsl[4]))),
+        };
+    }
+    const hex = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/iu.exec(value);
+    if (!hex) return {h: 0, s: 0, l: 100, a: 1};
+    let digits = hex[1];
+    if (digits.length <= 4) digits = [...digits].map((digit) => digit + digit).join("");
+    const r = parseInt(digits.slice(0, 2), 16) / 255;
+    const g = parseInt(digits.slice(2, 4), 16) / 255;
+    const b = parseInt(digits.slice(4, 6), 16) / 255;
+    const a = digits.length === 8 ? parseInt(digits.slice(6, 8), 16) / 255 : 1;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+    let h = 0;
+    let s = 0;
+    if (max !== min) {
+        const d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+        else if (max === g) h = (b - r) / d + 2;
+        else h = (r - g) / d + 4;
+        h *= 60;
+    }
+    return {h: Math.round(h), s: Math.round(s * 100), l: Math.round(l * 100), a: Math.round(a * 100) / 100};
+};
+const formatSteamColor = (color) => `hsla(${color.h}, ${color.s}%, ${color.l}%, ${color.a})`;
+
+// Edits a colour in Steam's modal with Steam's sliders. Save sends it once; Cancel and B send nothing.
+const showSteamColorEditor = (ui, title: string, current: string, send: (value: string) => void) => {
+    const react = ui.react;
+    const h = react.createElement;
+    function SteamColorEditor(props: any) {
+        const [color, setColor] = react.useState(parseSteamColor(current));
+        const slider = (label, key, max, step = 1) =>
+            h(ui.sliderField, {
+                key,
+                label,
+                value: color[key],
+                min: 0,
+                max,
+                step,
+                showValue: true,
+                onChange: (value) => setColor({...color, [key]: value}),
+            });
+        return h(
+            "div",
+            {className: "steam-ui-color-editor"},
+            h("div", {
+                className: "steam-ui-color-preview",
+                style: {
+                    height: "48px",
+                    borderRadius: "4px",
+                    marginBottom: "12px",
+                    background: formatSteamColor(color),
+                    border: "1px solid rgba(255,255,255,0.3)",
+                },
+            }),
+            slider("Hue", "h", 360),
+            slider("Saturation", "s", 100),
+            slider("Lightness", "l", 100),
+            slider("Opacity", "a", 1, 0.01),
+            h(
+                ui.focusable,
+                {"flow-children": "row", style: {display: "flex", justifyContent: "flex-end", gap: "8px"}},
+                h(ui.dialogButton, {onClick: () => props.close()}, "Cancel"),
+                h(
+                    ui.dialogButtonPrimary ?? ui.dialogButton,
+                    {
+                        onClick: () => {
+                            send(formatSteamColor(color));
+                            props.close();
+                        },
+                    },
+                    "Save",
+                ),
+            ),
+        );
+    }
+    return showSteamModal(ui, {
+        title,
+        className: "steam-ui-color-modal",
+        render: (close) => h(SteamColorEditor, {close}),
+    });
+};
+
 // One row, by kind. `draft` is what the user has changed and the host has not yet republished,
 // so a toggle does not flick back while its write is in flight; `change` records a draft and sends
 // the value; `action` asks the host to run a row's action.
@@ -127,21 +223,73 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
                 selectedOption: draft !== undefined ? draft : row.text,
                 onChange: (option) => send(option?.data),
             });
-        case "range":
+        case "range": {
+            // A range with labels is one of them by index: Steam's slider names each notch and the
+            // value is the notch, not a number worth printing beside the track.
+            const labels = Array.isArray(row.labels) && row.labels.length > 1 ? row.labels : null;
             return h(ui.sliderField, {
                 key,
                 ...common,
                 value: draft !== undefined ? draft : (row.number ?? 0),
-                min: row.minimum ?? 0,
-                max: row.maximum ?? 100,
-                step: row.step ?? 1,
-                showValue: true,
+                min: labels ? 0 : (row.minimum ?? 0),
+                max: labels ? labels.length - 1 : (row.maximum ?? 100),
+                step: labels ? 1 : (row.step ?? 1),
+                showValue: !labels,
                 valueSuffix: row.suffix ?? undefined,
+                notchCount: labels ? labels.length : undefined,
+                notchLabels: labels
+                    ? labels.map((label, notchIndex) => ({notchIndex, label: String(label)}))
+                    : undefined,
+                notchTicksVisible: labels ? true : undefined,
                 // Every step while the slider moves only redraws it; the value is sent once, when it
                 // settles, so a sweep across the range is one write rather than dozens.
                 onChange: (value) => change(row, value, false),
                 onChangeComplete: (value) => send(value),
             });
+        }
+        case "color": {
+            // A colour is shown as its swatch and its text, and edited in a modal of Steam's sliders,
+            // the way CSSLoader's colour picker edits a theme's colour. Where this client has no
+            // modal, the text itself is editable, so the value is never out of reach.
+            const current = String(draft !== undefined ? draft : (row.text ?? ""));
+            if (!ui.showModal || !ui.modalRoot) {
+                return h(ui.textField, {
+                    key,
+                    ...common,
+                    value: current,
+                    onChange: (event) => change(row, event?.target?.value ?? "", false),
+                    onBlur: () => {
+                        if (draft !== undefined && draft !== row.text) send(draft);
+                    },
+                });
+            }
+            return h(ui.valueField, {
+                key,
+                name: row.label,
+                description: row.description,
+                focusable: false,
+                value: h(
+                    ui.focusable,
+                    {"flow-children": "row", style: {display: "flex", alignItems: "center", gap: "8px"}},
+                    h("div", {
+                        className: "steam-ui-color-swatch",
+                        style: {
+                            width: "20px",
+                            height: "20px",
+                            borderRadius: "3px",
+                            background: current,
+                            border: "1px solid rgba(255,255,255,0.3)",
+                        },
+                    }),
+                    h("span", null, current),
+                    h(
+                        ui.smallButton,
+                        {disabled: !!row.disabled, onClick: () => showSteamColorEditor(ui, row.label, current, send)},
+                        "Edit",
+                    ),
+                ),
+            });
+        }
         case "text":
         case "secret": {
             const secret = row.kind === "secret";
