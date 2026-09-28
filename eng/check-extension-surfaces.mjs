@@ -70,7 +70,9 @@ const PanelSection = named("PanelSection", "PanelSectionTitle spinner");
 const PanelRow = { $$typeof: Symbol.for("react.forward_ref"), render: () => null };
 // Valve's own tab array, kept across renders the way the client keeps it: the gate pushes into it
 // in place, so the array is what proves the tab is added once and taken out on removal.
-const qamTabs = [];
+// One of Valve's tabs, with the title element Valve's tabs carry, so the check can see ours drawn
+// with that element rather than a bare div.
+const qamTabs = [{ key: 5, strTitle: "Leistung", title: element("div", { className: "valve-title", children: ["Leistung"] }) }];
 const originalRoot = withSource(
   () => element("tabs", { tabs: qamTabs }),
   "QuickAccessMenuBrowserView",
@@ -192,6 +194,8 @@ const tab = ours[0];
 // Steam keys its tabs by number and selects by that number, and its tabs carry a string title.
 assert.equal(typeof tab.key, "number", "the tab must be keyed the way Steam keys its own");
 assert.equal(typeof tab.strTitle, "string", "the tab must carry the string title Valve's tabs do");
+assert.equal(tab.title.props.className, "valve-title", "the heading is drawn with Valve's own title element");
+assert.deepEqual(tab.title.props.children, ["Extensions"]);
 // The panel carries its one style rule and then its list of sections: one Steam PanelSection per
 // extension, titled with its name, holding a PanelSectionRow for the detail and one for the actions.
 const panel = tab.panel.type();
@@ -245,7 +249,7 @@ assert.equal(extensions.status().items, 1, "a negative configuration revision is
 // A typed draft survives re-renders of the publication it was typed against, and no longer.
 const renderPanel = () => {
   hookIndex = 0;
-  return memo.type({}).props.tabs[0].panel.type();
+  return memo.type({}).props.tabs.find((tab) => tab.steamUiExtensionsTab).panel.type();
 };
 const textItem = (revision, textValue) => ({
   items: [

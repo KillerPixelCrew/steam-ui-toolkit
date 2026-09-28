@@ -140,10 +140,18 @@ function createExtensionsTab() {
       return element;
     }
     if (existing.length === 0) {
+      // Valve's tabs carry both: the element the header draws and the string it is named by. The
+      // element is Valve's own title element with our text in it, so the tab's heading is drawn
+      // the size and colour Valve's are, under a class this code never names; a client whose
+      // title is not a plain element gets a plain div.
+      const sample = tabs.find(
+        (tab) => tab && react.isValidElement(tab.title) && typeof tab.title.type === "string",
+      );
       tabs.push({
         key: ExtensionsTabId,
-        // Valve's tabs carry both: the element the header draws and the string it is named by.
-        title: react.createElement("div", null, ExtensionsTabTitle),
+        title: sample
+          ? react.cloneElement(sample.title, { key: undefined }, ExtensionsTabTitle)
+          : react.createElement("div", null, ExtensionsTabTitle),
         strTitle: ExtensionsTabTitle,
         tab: icon("extensions", 22),
         steamUiExtensionsTab: true,
