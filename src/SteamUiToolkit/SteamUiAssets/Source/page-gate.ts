@@ -157,7 +157,19 @@ function registerSteamPage(definition: SteamPageDefinition): SteamPageContext {
                 lastError || "Loading…",
             );
         }
-        return react.createElement(definition.Page, {context, page: props.page});
+        // Steam's own pages take the controller's focus when they open, from the page component
+        // they are drawn in. A host page has none, so focus stayed on whatever opened it, which is
+        // gone: B then found nothing on the page to answer it and Steam's back stack left the page.
+        // The page's root takes focus instead, so B reaches the page's own levels first, and the
+        // paged settings sidebar learns its list has had focus and sends B from the content back
+        // to it, as in Steam's Settings.
+        return ui.focusable
+            ? react.createElement(
+                  ui.focusable,
+                  {className: "steam-ui-page-root", autoFocus: true, style: {height: "100%"}},
+                  react.createElement(definition.Page, {context, page: props.page}),
+              )
+            : react.createElement(definition.Page, {context, page: props.page});
     }
 
     // React comes from the page host before the gate has supplied it; Steam has one.

@@ -39,7 +39,7 @@ const ui = {
 const kit = instantiate(
   { window: {} },
   sharedFragments(asset) + slice(asset, "const SteamUiIconShapes =", "function createAudioNamespace"),
-  "({steamUiKitStyle, renderSteamUiHeader, renderSteamUiGroup, renderSteamUiActions, renderSteamUiMore," +
+  "({steamUiKitStyle, renderSteamUiHeader, renderSteamUiGroup, renderSteamUiActions, renderSteamUiMore, renderSteamUiPane, renderSteamUiLevel," +
     " renderSteamUiSwatch, renderSteamUiCard, renderSteamUiGrid, renderSteamUiEmpty, renderSteamUiBanner," +
     " renderSteamUiToolbar, renderSteamUiTool, renderSteamUiChips, renderSteamUiBox, renderSteamUiGallery, renderSteamUiVideo," +
     " renderSteamUiTabbedPage, renderSteamUiDetail, SteamUiTabbedPageRequired," +
@@ -99,6 +99,19 @@ assert.equal(gone.props.childFocusDisabled, true, "a hidden block cannot take fo
 const plain = kit.renderSteamUiGroup(ui, {}, "button");
 assert.equal(plain.props.className, "steam-ui-kit-group plain");
 assert.equal(plain.props.children[0], null, "no heading without a title");
+
+// A pane, a level and a detail take the controller's focus when they appear, so B reaches the page's
+// own handling instead of leaving the page from focus left on an element that is gone.
+const pane = kit.renderSteamUiPane(ui, { className: "extra" }, "grid");
+assert.equal(pane.type, Focusable);
+assert.equal(pane.props.autoFocus, true);
+assert.equal(pane.props.className, "steam-ui-kit-pane extra");
+let levelBack = 0;
+const level = kit.renderSteamUiLevel(ui, { className: "lvl", onBack: () => levelBack++ }, "body");
+assert.equal(level.type, Focusable);
+assert.equal(level.props.autoFocus, true);
+level.props.onCancelButton();
+assert.equal(levelBack, 1);
 
 // A paged list's foot is one button asking for the next page.
 let more = 0;

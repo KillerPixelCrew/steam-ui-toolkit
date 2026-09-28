@@ -289,6 +289,32 @@ const renderSteamUiMore = (ui, props: { label?: string; onClick: () => void; dis
   );
 };
 
+// A page's pane: the column its toolbar, grid and notes stand in. It takes the controller's focus
+// when it appears, which is when the page opens and when a detail or level over it closes: the
+// element that had focus is gone then, and focus left on nothing sends B out of the page.
+const renderSteamUiPane = (ui, props: { key?: string; className?: string }, ...children) => {
+  const h = ui.react.createElement;
+  const className = ["steam-ui-kit-pane", props.className].filter(Boolean).join(" ");
+  return ui.focusable
+    ? h(ui.focusable, { key: props.key, className, autoFocus: true, "flow-children": "column" }, ...children)
+    : h("div", { key: props.key, className }, ...children);
+};
+
+// A level of a page drawn over its main view, such as one title's artwork: it takes the
+// controller's focus when it opens, and B, handled here, goes back one level rather than leaving
+// the page.
+const renderSteamUiLevel = (ui, props: { className?: string; onBack: () => void }, ...children) =>
+  ui.react.createElement(
+    ui.focusable,
+    {
+      className: props.className,
+      autoFocus: true,
+      onCancelButton: props.onBack,
+      onCancelActionDescription: "Back",
+    },
+    ...children,
+  );
+
 // A colour as a small square.
 const renderSteamUiSwatch = (react, color: string) =>
   react.createElement("div", { className: "steam-ui-kit-swatch", style: { background: color } });
@@ -528,7 +554,8 @@ const renderSteamUiTabbedPage = (
 };
 
 // One item's detail: its media, heading and text beside a column of boxes and actions, left with
-// B. `title` draws as the heading, `badge` beside it.
+// B. It takes the controller's focus when it opens: the card that opened it is gone, and focus left
+// on nothing sends B to Steam's back stack, which leaves the page instead of the detail. `title` draws as the heading, `badge` beside it.
 const renderSteamUiDetail = (
   ui,
   props: { title: string; badge?: string; media?: any; main: any[]; aside: any[]; onBack: () => void },
@@ -536,7 +563,12 @@ const renderSteamUiDetail = (
   const h = ui.react.createElement;
   return h(
     ui.focusable,
-    { className: "steam-ui-kit-detail", onCancelButton: props.onBack, onCancelActionDescription: "Back" },
+    {
+      className: "steam-ui-kit-detail",
+      autoFocus: true,
+      onCancelButton: props.onBack,
+      onCancelActionDescription: "Back",
+    },
     h(
       "div",
       { className: "steam-ui-kit-detail-main" },
