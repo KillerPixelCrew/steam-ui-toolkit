@@ -39,7 +39,7 @@ const ui = {
 const kit = instantiate(
   { window: {} },
   sharedFragments(asset) + slice(asset, "const SteamUiIconShapes =", "function createAudioNamespace"),
-  "({steamUiKitStyle, renderSteamUiHeader, renderSteamUiGroup, renderSteamUiActions, renderSteamUiLabelled, renderSteamUiNote," +
+  "({steamUiKitStyle, renderSteamUiHeader, renderSteamUiGroup, renderSteamUiActions," +
     " renderSteamUiSwatch, renderSteamUiCard, renderSteamUiGrid, renderSteamUiEmpty, renderSteamUiBanner," +
     " renderSteamUiToolbar, renderSteamUiTool, renderSteamUiChips, renderSteamUiBox, renderSteamUiGallery," +
     " showSteamUiConfirm, showSteamUiPrompt, SteamUiKitStyles})",
@@ -48,25 +48,23 @@ const kit = instantiate(
 // The stylesheet is one element a root renders, and every class an element uses has a rule.
 const style = kit.steamUiKitStyle(react);
 assert.equal(style.type, "style");
-for (const cls of ["header", "header-icon", "group", "group-body", "blocks", "valve", "battery", "actions", "labelled", "nested", "note", "swatch", "card", "grid", "banner", "toolbar", "chips", "box", "gallery", "modal-body"]) {
+for (const cls of ["page", "pane", "header", "header-icon", "group", "group-body", "blocks", "valve", "battery", "actions", "nested", "swatch", "card", "grid", "banner", "toolbar", "chips", "box", "gallery", "modal-body"]) {
   assert.ok(kit.SteamUiKitStyles.includes(`.steam-ui-kit-${cls}`), `a rule for steam-ui-kit-${cls}`);
 }
 
 // A header is Steam's Focusable, says which way it folds, and toggles on activation.
 let toggled = 0;
-const header = kit.renderSteamUiHeader(ui, { title: "Themes", detail: "2 of 2 enabled", collapsed: true, onToggle: () => toggled++, caret: "caret" });
+const header = kit.renderSteamUiHeader(ui, { title: "Themes", detail: "2 of 2 enabled", collapsed: true, onToggle: () => toggled++ });
 assert.equal(header.type, Focusable);
 assert.equal(header.props.className, "steam-ui-kit-header");
 assert.equal(header.props.onOKActionDescription, "Expand");
 header.props.onActivate();
 assert.equal(toggled, 1);
 assert.equal(kit.renderSteamUiHeader(ui, { title: "T", collapsed: false, onToggle: () => {} }).props.className, "steam-ui-kit-header open");
-// The caret is the kit's own unless the caller brought one, and a heading that does not fold is a
-// plain div with no caret at all.
-assert.equal(header.props.children.at(-1).props.children[0], "caret");
-const own = kit.renderSteamUiHeader(ui, { title: "T", collapsed: true, onToggle: () => {} });
-assert.equal(own.props.children.at(-1).props.className, "steam-ui-kit-header-caret");
-assert.equal(own.props.children.at(-1).props.children[0].type, "svg");
+// The caret is the kit's own, and a heading that does not fold is a plain div with no caret at all.
+assert.equal(header.props.children.at(-1).props.className, "steam-ui-kit-header-caret");
+assert.equal(header.props.children.at(-1).props.children[0].type, "svg");
+assert.equal(kit.renderSteamUiHeader(ui, { title: "S", sub: true, onToggle: () => {} }).props.className, "steam-ui-kit-header open sub");
 const fixed = kit.renderSteamUiHeader(ui, { title: "Profile scope", icon: "glyph" });
 assert.equal(fixed.type, "div");
 assert.equal(fixed.props.className, "steam-ui-kit-header open plain");
@@ -107,11 +105,10 @@ assert.equal(actions.props.children[1].props.className, "steam-ui-kit-wide");
 actions.props.children[0].props.onClick();
 assert.deepEqual(ran, ["a"]);
 
-// A labelled control keeps the control, a note keeps its text, a swatch its colour.
-const labelled = kit.renderSteamUiLabelled(ui, "Accent", "control");
-assert.equal(labelled.props.children[1], "control");
-assert.deepEqual(kit.renderSteamUiNote(ui, "1 theme is hidden.").props.children[1].props.children, ["1 theme is hidden."]);
+// A swatch keeps its colour.
 assert.equal(kit.renderSteamUiSwatch(react, "#ff0000").props.style.background, "#ff0000");
+// The stylesheet element is one per React, so a re-rendering root hands React the same one.
+assert.equal(kit.steamUiKitStyle(react), style);
 
 // A card is one Focusable with its image, stats, badge, title and meta, and activates as one.
 let opened = 0;

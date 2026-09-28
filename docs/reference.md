@@ -738,7 +738,7 @@ evaluated and its place among the discovered fragments does not matter.
 | `SteamClientTests`                                             | the client layer: unreachable against refused, app-id normalization, the details and library parsers, install-folder script selection and reply statuses, download activity, the running-app observer's event log and lease, and the lifetime tracker's ordering, resynchronization and outage rules                                                                                                                                                                                                                                                                        |
 | `SteamSurfaceModuleTests`                                      | each surface's `Commands` against its module's vocabulary, each refusal reason against its payload, a null reading publishing nothing                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `SteamGatePatchContractTests`                                  | each claiming gate's verify and remove predicates, and already-claimed compatibility                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `SteamPanelFoldsTests`, `eng/check-power-profile.mjs` (sections) | the fold list's wire shape and its one command; the emitted panel drawing every section as a kit group with its glyph and summary, Profile scope fixed, Reset headless, folds sent under the section's title |
+| `SteamPanelFoldsTests`, `eng/check-power-profile.mjs` (sections) | the open list's wire shape, that the surface mounts nothing, and its one command with a nested id; the emitted panel drawing every section as a kit group with its glyph and summary, Profile scope fixed, Reset headless, folds sent under the section's title |
 | `SteamChoiceRowTests`, `SteamWindowSurfaceTests`               | power-profile, preset and core-preference serialization and dispatch; side-menu observation, native button replay, game-window and overlay activation                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `SteamNavigationPanelTests`                                    | the panel probe's separate structural facts, selection by what an export draws rather than by its minified name, already-claimed compatibility, the published wire shape                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `eng/check-navigation-panel.mjs`                               | the emitted gate against an inert React fixture: descent to the panel root, anchoring by route and by descriptor key, orphan reporting, hiding before insertion, activation, exact restoration, reinstall                                                                                                                                                                                                                                                                                                                                                                   |
@@ -1210,11 +1210,9 @@ stylesheet lands in that root's document.
 
 | Element                                   | Draws                                                                                         |
 | ----------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `renderSteamUiHeader`                     | a section heading with a glyph, a detail line and, when it folds, Steam's Focusable and the kit's caret; `open` while unfolded, `plain` when fixed |
+| `renderSteamUiHeader`                     | a section heading with a glyph, a detail line and, when it folds, Steam's Focusable and the kit's caret; `open` while unfolded, `plain` when fixed, `sub` for a switch's own settings |
 | `renderSteamUiGroup`                      | a block: the heading over a body that stays mounted while folded; `hidden` leaves layout, no title makes a plain box |
 | `renderSteamUiActions`                    | Steam's buttons in a two-column grid; a label over eighteen characters, or `wide`, takes a row |
-| `renderSteamUiLabelled`                   | a small label above a control                                                                 |
-| `renderSteamUiNote`                       | a quiet line with an optional glyph                                                           |
 | `renderSteamUiSwatch`                     | a colour square                                                                               |
 | `renderSteamUiCard`, `renderSteamUiGrid`  | a focusable card (16:10 image, stats strip, badge, title, meta) and the grid it sits in       |
 | `renderSteamUiEmpty`                      | what an empty list says, or why it failed                                                     |
@@ -1225,12 +1223,14 @@ stylesheet lands in that root's document.
 | `renderSteamUiGallery`                    | one large image, thumbnails that pick it, and a counter                                       |
 | `showSteamUiConfirm`, `showSteamUiPrompt` | a confirmation, and a request for one line of text, in Steam's modal                          |
 
-The Extensions tab draws its collapsible header, its action row and its nested rows with the kit
+The Extensions tab draws its folding header, its action row and its nested rows with the kit
 and gives its `PanelSection`s the block look through `steam-ui-kit-blocks`; the Performance and
 Quick Settings row host draws its sections as kit groups, wraps Valve's Quick Settings sections in
-`steam-ui-kit-valve` and Valve's battery line in `steam-ui-kit-battery`; the settings renderer's
-colour row draws its swatch with it. `eng/check-ui-kit.mjs` covers every element's shape and
-callbacks against the emitted asset.
+`steam-ui-kit-valve` and Valve's battery line in `steam-ui-kit-battery`; a host's page frames itself
+with `steam-ui-kit-page` and lays a tab's content out in a `steam-ui-kit-pane`; the settings
+renderer's colour row draws its swatch with it. The stylesheet element and the icon renderer are
+one per React, so a root re-rendering on every publication hands React the same elements.
+`eng/check-ui-kit.mjs` covers every element's shape and callbacks against the emitted asset.
 
 ### Settings pages
 
@@ -1348,10 +1348,14 @@ Every group but Profile scope folds, and Reset is a plain block around Valve's b
 group's heading reports what its rows hold: each row leaves a line through `summarize` as it renders
 (the chosen profile, `60 fps cap`, `17 W sustained · 25 W boost`, `Limit 80%`), and the heading joins
 the lines `SectionSummaries` lists for it. Rows stay mounted while folded, so the line stays current.
-A fold is shown at once and sent as `setFolded {id, folded}` on patch `steam-ui.panel-folds`, the
-section's title being its id; `SteamPanelFoldsSurface` publishes `SteamPanelFoldsState` (the folded
-titles) for the panel roots to read, kind `panelFolds`, so a fold outlives Steam rebuilding the tab.
-A host without the module still gets folding sections; they last the session.
+Every section starts folded. Folds are one mechanism for every Quick Access tab, `createSteamFolds`
+in `gate-helpers.ts`: the host publishes the open sections' ids as `SteamPanelFoldsState` under
+`steam-ui.panel-folds`, a heading sends `setFolded {id, folded}`, and the fold is shown at once and
+held until the host's next publication agrees with it, so a host that keeps folds has the last word
+and one without the module leaves them to last the session. `SteamPanelFoldsSurface` declares no
+patch: the tabs' own gates draw the folds. A Performance or Quick Settings section is named by its
+title, an Extensions tab item as `extensions:<item>`, a switch's settings as
+`extensions:<item>:<key>`; the host keeps the ids as given.
 
 Rows and section headers carry a glyph. `icons.ts` holds the drawings — the toolkit's own, on a
 24x24 grid, filled with `currentColor` and cut with `fill-rule="evenodd"`, because the client's
@@ -1430,18 +1434,16 @@ A setting with a `parent` names a boolean setting on the same item and is drawn 
 only while that switch is on, as the user last set it or as the host published it; the way
 CSSLoader shows a theme's patches only for an enabled theme. A parent that is not a switch on the
 item hides the setting, since nothing could open it. A switch's settings fold under a small heading
-of their own ("3 settings"), folded unless the switch's `collapsed` is false; the heading sends
-`collapse` with `<item id>:<switch key>` as its id, so the host keeps that fold like an item's.
+of their own ("3 settings"), through the same fold surface as the sections, under
+`extensions:<item>:<switch key>`.
 
-An item that is `collapsible` is headed by a focusable row carrying its name, its detail line and
-a caret (`sectionOpen`, `sectionClosed`) instead of the section's own title, because the title
-Steam draws cannot take focus and a controller has to be able to land on the fold; it is drawn as
-a title, not a button, so a folded section reads as a heading. Its rows are drawn only while it is
-open, and every fold starts folded: the host publishes `collapsed` true until the user opens it. An item's actions share one wrapping row, so two short ones sit side by side, and a dropdown
-setting goes under its label (`layout: "below"`), as CSSLoader draws a patch in the panel. The header sends `collapse {id,collapsed}` to
-`ISteamExtensionsTabBackend.CollapseAsync`, shows the fold at once, and keeps it until the host
-publishes the item again; the host's `collapsed` then wins, so a fold the host did not keep is
-undone by its next word.
+Every item is headed by a focusable row carrying its name, its detail line and a caret
+(`sectionOpen`, `sectionClosed`) instead of the section's own title, because the title Steam draws
+cannot take focus and a controller has to be able to land on the fold; it is drawn as a title, not
+a button, so a folded section reads as a heading. Its rows are drawn only while it is open, and it
+starts folded: the fold is the shared fold surface's, under `extensions:<item>`. An item's actions
+share one wrapping row, so two short ones sit side by side, and a dropdown setting goes under its
+label (`layout: "below"`), as CSSLoader draws a patch in the panel.
 
 Every one of those pieces is required, as on every surface here: a client missing one refuses the
 tab and names what is missing, rather than drawing an imitation. The probe counts the Quick Access
@@ -1473,7 +1475,7 @@ custom-page host does the same for its router claim and both patched fibers.
 `SteamExtensionsTabTests` and `SteamGameContextMenuTests` cover the typed contracts.
 `eng/check-extension-surfaces.mjs` covers the emitted asset's repeated probe/reclaim, native
 activation, the route follow and its panel-close ordering, first-menu insertion, draft
-reconciliation, a collapsible section's header and fold, nested settings following their switch,
+reconciliation, a section's header and its fold through the shared fold surface, a switch's settings folding under it, nested settings following their switch,
 the labelled slider, a failed release that stays retriable, and removal. Offline checks do not
 establish live visual parity with Decky or prove compatibility with a different Steam build.
 

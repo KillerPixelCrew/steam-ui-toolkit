@@ -68,7 +68,12 @@ function createExtensionsTab() {
   let memo: any = null;
   let installed = false;
   let unsubscribe: (() => void) | null = null;
+  let unsubscribeFolds: (() => void) | null = null;
   let desired: { items: any[]; revision: number } = { items: [], revision: 0 };
+  // The folds, shared with the Performance and Quick Settings groups: the host publishes the
+  // sections the user opened, and every section and every switch's settings start folded.
+  const folds = createSteamFolds();
+  let openSections: Set<string> | null = null;
   let lastOutcome = "never rendered";
   let lastError = "";
   const descenderCache = new Map();
@@ -99,7 +104,6 @@ function createExtensionsTab() {
     optionalText(setting.description, 512) &&
     optionalText(setting.parent, 128) &&
     optionalFlag(setting.highlight) &&
-    optionalFlag(setting.collapsed) &&
     (setting.choices === undefined ||
       setting.choices === null ||
       (Array.isArray(setting.choices) &&
@@ -124,9 +128,7 @@ function createExtensionsTab() {
         item.settings.every(validSetting))) &&
     Number.isSafeInteger(item.configurationRevision ?? 0) &&
     (item.configurationRevision ?? 0) >= 0 &&
-    (item.detail === undefined || item.detail === null || typeof item.detail === "string") &&
-    optionalFlag(item.collapsible) &&
-    optionalFlag(item.collapsed);
+    (item.detail === undefined || item.detail === null || typeof item.detail === "string");
 
   // An element whose own props carry the tab list, with our tab in it; null for any other element.
   // Steam's tab view is private, so the list is matched by content rather than by a path into the
@@ -256,11 +258,8 @@ function createExtensionsTab() {
   function ExtensionsTabPanel() {
     const [, setRevision] = react.useState(0);
     const [drafts, setDrafts] = react.useState({});
-    // A fold the user asked for, shown at once and kept until the host publishes the section
-    // again: the round trip takes a moment, and a header that did nothing until it came back
-    // would read as a dead button.
-    const [folds, setFolds] = react.useState({});
-    react.useEffect(() => subscribe(patchId, () => setRevision((value) => value + 1)), []);
+    const redraw = () => setRevision((value) => value + 1);
+    react.useEffect(() => subscribe(patchId, redraw), []);
     const h = react.createElement;
     const items = desired.items;
     const activate = (id) => {
@@ -314,20 +313,12 @@ function createExtensionsTab() {
       if (!row) return null;
       return renderSteamSettingRow(ui, row, draftOf(item, setting), change(item, setting), () => {});
     };
-    // Whether a setting is shown: one with a parent follows that parent's switch, as the user last
-    // set it or as the host published it, and one whose parent is not a switch on this item is
-    // never shown, since nothing could ever open it.
-    const parentOn = (item, setting) => {
-      if (!setting.parent) return true;
-      const parent = (item.settings ?? []).find(
-        (candidate) => candidate.key === setting.parent && candidate.kind === "boolean",
-      );
-      if (!parent) return false;
-      const draft = draftOf(item, parent);
-      return draft !== undefined ? !!draft : !!parent.booleanValue;
+    // Whether a switch is on, as the user last set it or as the host published it.
+    const switchOn = (item, setting) => {
+      const draft = draftOf(item, setting);
+      return draft !== undefined ? !!draft : !!setting.booleanValue;
     };
     const settingLine = (item, setting) => {
-      if (!parentOn(item, setting)) return null;
       const control = settingControl(item, setting);
       if (!control) return null;
       return h(
@@ -338,40 +329,21 @@ function createExtensionsTab() {
     };
     const detailOf = (item) =>
       [item.version, item.status, item.detail].filter((part) => !!part).join(" · ");
-    // A fold is the item's, or a switch's settings' under the item id and the switch's key. The
-    // local word holds until the host publishes again; then the host's wins.
-    const foldState = (id, published) => {
-      const fold = folds[id];
-      return fold && fold.revision === desired.revision ? fold.collapsed : published;
-    };
-    const isCollapsed = (item) => foldState(item.id, !!item.collapsed);
-    // Every fold starts folded: a switch's settings are folded unless the host says otherwise.
-    const settingFoldId = (item, setting) => `${item.id}:${setting.key}`;
-    const isSettingCollapsed = (item, setting) =>
-      foldState(settingFoldId(item, setting), setting.collapsed !== false);
-    const toggleFold = (id, collapsed) => {
-      setFolds((previous) => ({ ...previous, [id]: { collapsed, revision: desired.revision } }));
-      void request(patchId, "collapse", { id, collapsed }).catch(() =>
-        setFolds((previous) => {
-          const next = { ...previous };
-          delete next[id];
-          return next;
-        }),
-      );
-    };
-    // A collapsible section is headed by a focusable row rather than the section's own title: the
-    // title Steam draws cannot take focus, and a controller has to be able to land on the fold. It
-    // is drawn as a title with a caret, not as a button, so a folded section reads as a heading.
+    const isFolded = (id) => folds.isFolded(openSections, id);
+    const foldHeading = (id, props) =>
+      renderSteamUiHeader(ui, {
+        ...props,
+        collapsed: isFolded(id),
+        onToggle: () => folds.setFolded(id, !isFolded(id), redraw),
+      });
+    // A section is headed by a focusable row rather than the section's own title: the title Steam
+    // draws cannot take focus, and a controller has to be able to land on the fold. It is drawn as
+    // a title with a caret, not as a button, so a folded section reads as a heading.
     const header = (item) =>
       h(
         panel.row,
         { key: "header" },
-        renderSteamUiHeader(ui, {
-          title: item.name,
-          detail: detailOf(item),
-          collapsed: isCollapsed(item),
-          onToggle: () => toggleFold(item.id, !isCollapsed(item)),
-        }),
+        foldHeading(`extensions:${item.id}`, { title: item.name, detail: detailOf(item) }),
       );
     // Actions in the kit's grid: two short labels side by side, a long one across the row, rather
     // than every action being a full-width bar of its own.
@@ -390,60 +362,47 @@ function createExtensionsTab() {
             ),
           )
         : null;
-    // A switch's settings fold under a small heading of their own, drawn indented like them and
-    // only while the switch is on; the heading names how many there are. Everything else is one
-    // line per setting, in the order published.
-    const childrenOf = (item, setting) =>
-      setting.kind === "boolean"
-        ? (item.settings ?? []).filter((candidate) => candidate.parent === setting.key)
-        : [];
-    const settingLines = (item) =>
-      (item.settings ?? []).flatMap((setting) => {
+    // One line per setting, in the order published. A setting with a parent is drawn under that
+    // switch, only while it is on, and a switch's settings fold under a small heading of their own
+    // that names how many there are; a parent that is not a switch on the item hides the setting,
+    // since nothing could open it.
+    const settingLines = (item) => {
+      const settings = item.settings ?? [];
+      const children = new Map<string, any[]>();
+      for (const setting of settings) {
+        if (!setting.parent) continue;
+        if (!children.has(setting.parent)) children.set(setting.parent, []);
+        children.get(setting.parent)!.push(setting);
+      }
+      return settings.flatMap((setting) => {
         if (setting.parent) return [];
-        const children = childrenOf(item, setting);
         const line = settingLine(item, setting);
-        if (!children.length || !parentOn(item, { parent: setting.key })) return [line];
-        const collapsed = isSettingCollapsed(item, setting);
+        const under = setting.kind === "boolean" ? (children.get(setting.key) ?? []) : [];
+        if (!under.length || !switchOn(item, setting)) return [line];
+        const id = `extensions:${item.id}:${setting.key}`;
         const heading = h(
           panel.row,
           { key: `fold-${setting.key}` },
           h(
             "div",
             { className: "steam-ui-kit-nested" },
-            renderSteamUiHeader(ui, {
-              title: children.length === 1 ? "1 setting" : `${children.length} settings`,
-              collapsed,
-              sub: true,
-              onToggle: () => toggleFold(settingFoldId(item, setting), !collapsed),
-            }),
+            foldHeading(id, { title: under.length === 1 ? "1 setting" : `${under.length} settings`, sub: true }),
           ),
         );
-        return [line, heading, ...(collapsed ? [] : children.map((child) => settingLine(item, child)))];
+        return [line, heading, ...(isFolded(id) ? [] : under.map((child) => settingLine(item, child)))];
       });
-    const body = (item) => [
-      !item.collapsible && detailOf(item)
-        ? h(
-            panel.row,
-            { key: "detail" },
-            h("div", { style: { fontSize: "12px", opacity: 0.75 } }, detailOf(item)),
-          )
-        : null,
-      actionsRow(item),
-      ...settingLines(item),
-    ];
-    // One PanelSection per extension, titled with its name, and one PanelSectionRow per line in it,
-    // the way Valve's own tabs and decky's plugin list lay theirs out, each drawn as a kit block so
-    // the sections read as the groups on the Performance and Quick Settings tabs do. Steam titles
-    // the tab itself, so the panel adds no heading of its own.
+    };
+    // One PanelSection per extension, one PanelSectionRow per line in it, the way Valve's own tabs
+    // and decky's plugin list lay theirs out, each drawn as a kit block so the sections read as
+    // the groups on the Performance and Quick Settings tabs do. Steam titles the tab itself, so the
+    // panel adds no heading of its own.
     const sections = items.map((item) =>
-      item.collapsible
-        ? h(
-            panel.section,
-            { key: item.id },
-            header(item),
-            ...(isCollapsed(item) ? [] : body(item)),
-          )
-        : h(panel.section, { key: item.id, title: item.name }, ...body(item)),
+      h(
+        panel.section,
+        { key: item.id },
+        header(item),
+        ...(isFolded(`extensions:${item.id}`) ? [] : [actionsRow(item), ...settingLines(item)]),
+      ),
     );
     return h(
       "div",
@@ -551,6 +510,11 @@ function createExtensionsTab() {
       desired = next;
       mounted.rerender();
     });
+    // The folds arrive on their own publication and redraw the tab the same way.
+    unsubscribeFolds = subscribe(SteamFoldsPatchId, (state) => {
+      openSections = folds.normalize(state);
+      mounted.rerender();
+    });
     return { ok: true, installed: true, reclaimed: claim.reclaimed };
   };
 
@@ -572,6 +536,7 @@ function createExtensionsTab() {
     }
     installed = false;
     unsubscribe = endSubscription(unsubscribe);
+    unsubscribeFolds = endSubscription(unsubscribeFolds);
     desired = { items: [], revision: 0 };
     descenderCache.clear();
     lastOutcome = "removed";

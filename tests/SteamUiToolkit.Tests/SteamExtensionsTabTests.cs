@@ -114,7 +114,7 @@ public sealed class SteamExtensionsTabTests
     }
 
     [Fact]
-    public void ACollapsibleItemAndANestedSettingReachTheWire()
+    public void ANestedSettingAndItsHighlightReachTheWire()
     {
         var wire = SteamExtensionsTabSurface.Serialize(new SteamExtensionsTabState(
         [
@@ -126,45 +126,20 @@ public sealed class SteamExtensionsTabTests
                 Settings:
                 [
                     new SteamExtensionsTabSetting(
-                        "theme:dark", "Dark Deck", "boolean", true, Description: "v2.1", Collapsed: false),
+                        "theme:dark", "Dark Deck", "boolean", true, Description: "v2.1", Highlight: true),
                     new SteamExtensionsTabSetting(
                         "patch:dark:blur", "Blur", "number", NumberValue: 1, Choices: ["Off", "High"],
                         Parent: "theme:dark"),
                     new SteamExtensionsTabSetting("colour", "Highlight", "color", TextValue: "#ff0000")
-                ],
-                Collapsible: true,
-                Collapsed: true)
+                ])
         ]));
 
         var item = wire.GetProperty("items")[0];
-        Assert.True(item.GetProperty("collapsible").GetBoolean());
-        Assert.True(item.GetProperty("collapsed").GetBoolean());
         var settings = item.GetProperty("settings");
         Assert.Equal("v2.1", settings[0].GetProperty("description").GetString());
-        Assert.False(settings[0].GetProperty("collapsed").GetBoolean());
-        Assert.False(settings[1].TryGetProperty("collapsed", out var noFold) && noFold.ValueKind != JsonValueKind.Null);
+        Assert.True(settings[0].GetProperty("highlight").GetBoolean());
         Assert.Equal("theme:dark", settings[1].GetProperty("parent").GetString());
         Assert.Equal("color", settings[2].GetProperty("kind").GetString());
-    }
-
-    [Fact]
-    public async Task ACollapseCarriesTheItemAndTheFoldAndRejectsAnythingElse()
-    {
-        RecordingBackend backend = new();
-        var set = Modules(backend);
-
-        var folded = await DispatchAsync(
-            set, SteamExtensionsTabSurface.PatchId, "collapse", """{"id":"wsgm.themes","collapsed":true}""");
-        var refused = await DispatchAsync(
-            set, SteamExtensionsTabSurface.PatchId, "collapse", """{"id":"wsgm.themes","collapsed":"yes"}""");
-        var surplus = await DispatchAsync(
-            set, SteamExtensionsTabSurface.PatchId, "collapse",
-            """{"id":"wsgm.themes","collapsed":true,"extra":1}""");
-
-        Assert.True(folded.Succeeded);
-        Assert.Equal("The extension collapse payload is invalid.", refused.Error);
-        Assert.Equal("The extension collapse payload is invalid.", surplus.Error);
-        Assert.Equal(["collapse wsgm.themes True"], backend.Calls);
     }
 
     private static SteamUiModuleSet Modules(RecordingBackend backend)

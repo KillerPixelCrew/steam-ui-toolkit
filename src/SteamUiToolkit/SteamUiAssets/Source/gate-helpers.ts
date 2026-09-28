@@ -244,6 +244,41 @@ const resolveSteamPanelComponents = (runtime) => {
     return section && row ? {section, row} : null;
 };
 
+// The folds of the Quick Access tabs' sections, one mechanism for all of them. The host publishes
+// the sections the user opened under `SteamFoldsPatchId`, so every section starts folded, and a
+// heading asks for a change with `setFolded`. A fold is shown at once: the override holds until
+// the host's next publication agrees with it, so a host that keeps folds has the last word, and a
+// host without the module leaves them to last the session. Ids are the host's to keep and the
+// gate's to name: a Performance or Quick Settings section by its title, an Extensions tab item as
+// `extensions:<item>`, a switch's settings under it as `extensions:<item>:<key>`.
+const SteamFoldsPatchId = "steam-ui.panel-folds";
+const createSteamFolds = () => {
+    const overrides = new Map<string, boolean>();
+    return {
+        // The host's list, as a set of the open ids, or null for a state that is not one.
+        normalize(value) {
+            if (!value || typeof value !== "object" || !Array.isArray(value.open)) return null;
+            const open = new Set<string>(
+                value.open
+                    .filter((id) => typeof id === "string" && id.length > 0 && id.length <= 160)
+                    .slice(0, 256),
+            );
+            for (const [id, folded] of overrides) {
+                if (open.has(id) === !folded) overrides.delete(id);
+            }
+            return open;
+        },
+        isFolded: (open, id) =>
+            overrides.has(id) ? overrides.get(id) : !(open && open.has(id)),
+        // `changed` redraws the root that asked, at once and again if the host refuses.
+        setFolded(id, folded, changed) {
+            overrides.set(id, folded);
+            changed();
+            void request(SteamFoldsPatchId, "setFolded", {id, folded}).catch(() => {});
+        },
+    };
+};
+
 // Steam's checkbox where the client has it, its toggle otherwise: both take label, description,
 // checked, onChange and disabled, so a page draws either without knowing which it got.
 const steamCheckbox = (ui) => ui?.checkbox ?? ui?.toggleField ?? null;

@@ -171,7 +171,7 @@ function createNativeComponentHost() {
     // does not open them again. Not a row: the state is read by the panel roots. A host without
     // the module still gets folding sections; they last the session.
     panelFolds: Object.freeze({
-      patchId: "steam-ui.panel-folds",
+      patchId: SteamFoldsPatchId,
       command: "setFolded",
     }),
 
@@ -228,28 +228,11 @@ function createNativeComponentHost() {
   };
   // The one function export carrying every token. Through the shared matcher, so an export Steam
   // aliases under two names counts once and a getter that throws counts as no match.
-  // The host's list of open section ids, or null until it publishes one. Every section starts
-  // folded, so the list names what the user opened.
-  const normalizePanelFoldsState = (value) => {
-    if (!value || typeof value !== "object" || !Array.isArray(value.open)) return null;
-    return new Set(
-      value.open
-        .filter((id) => typeof id === "string" && id.length > 0 && id.length <= 96)
-        .slice(0, 256),
-    );
-  };
-  // A fold the user asked for, shown at once and kept for the session: the host's answer takes a
-  // moment, and a host without the folds module never answers at all.
-  const foldOverrides = new Map<string, boolean>();
-  const isFolded = (folds, id) =>
-    foldOverrides.has(id) ? foldOverrides.get(id) : !(folds && folds.has(id));
-  const setFolded = (id, folded) => {
-    foldOverrides.set(id, folded);
-    notify();
-    void sendCommand(definitions.panelFolds, definitions.panelFolds.command, { id, folded }).catch(
-      () => {},
-    );
-  };
+  // The sections' folds, the mechanism every Quick Access tab shares (gate-helpers.ts).
+  const panelFolds = createSteamFolds();
+  const normalizePanelFoldsState = (value) => panelFolds.normalize(value);
+  const isFolded = (open, id) => panelFolds.isFolded(open, id);
+  const setFolded = (id, folded) => panelFolds.setFolded(id, folded, notify);
   const uniqueFunction = (exports, requiredTokens) =>
     uniqueSteamExport(
       exports,
@@ -1870,10 +1853,11 @@ function createNativeComponentHost() {
       if (!rows.length && !chargingRows.length)
         return note("deviceControls", "no compatible charge or lighting rows");
       drew("deviceControls", `rendered ${rows.length + chargingRows.length} row(s)`);
-      // Two sections, two detail lines: the charge limit, and the lighting's brightness and zone.
-      summarize("deviceCharging", chargeValue === null ? "" : `Limit ${chargeValue}%`);
+      // Two sections, two detail lines, each under its section's title: the charge limit, and the
+      // lighting's brightness and zone.
+      summarize("Charging", chargeValue === null ? "" : `Limit ${chargeValue}%`);
       summarize(
-        "deviceLighting",
+        "RGB lighting",
         [brightnessValue === null ? "" : `${brightnessValue}%`, zone ? zone.label : ""]
           .filter(Boolean)
           .join(" · "),
@@ -2025,26 +2009,19 @@ function createNativeComponentHost() {
   // 18px is the size Valve's own header rule gives a section icon, against a 16px header.
   const sectionIcon = (controlRuntime, title) => controlRuntime.icon(SectionIcons[title], 18);
 
-  // The rows whose summaries a section's heading reports while it is folded, in the order they
-  // read. The device rows report under two names of their own, one per section they draw.
-  const SectionSummaries = Object.freeze({
-    "Power profiles": ["powerPreset", "powerProfile", "hybridCores", "cpuBoost"],
-    "Display and frame rate": ["frameLimit", "vrr"],
-    "Power limits": ["powerLimit", "autoTdp"],
-    Controller: ["controllerTarget"],
-    Display: ["resolution", "audioFormat"],
-    Charging: ["deviceCharging"],
-    "RGB lighting": ["deviceLighting"],
-  });
+  // What a folded section's heading reports: the summaries of the rows drawn under it, in the row
+  // table's order, and one left under the section's own title by a row that draws more than one
+  // section, which is how the device rows report Charging and RGB lighting.
   const sectionSummary = (title) =>
-    (SectionSummaries[title] ?? [])
+    [
+      ...new Set([
+        ...controlRows.map((row) => row[0]).filter((kind) => (RowGroups[kind] || "Display") === title),
+        title,
+      ]),
+    ]
       .map((kind) => summaries[kind])
       .filter(Boolean)
       .join(" · ");
-  // Profile scope is Valve's header and per-game toggle and stays open; Reset is one button and
-  // has no heading. Every other section folds, and its fold is kept by the host under its title.
-  const FixedSections = new Set(["Profile scope"]);
-  const HeadlessSections = new Set(["Reset"]);
 
   // The section each kind is drawn under; anything unlisted is a Display row.
   const RowGroups = Object.freeze({
@@ -2062,11 +2039,13 @@ function createNativeComponentHost() {
     valveReset: "Reset",
   });
   // A section is a kit group: a heading with the section's glyph, its title and, folded, what its
-  // rows report, over the rows. A section whose rows all draw nothing stays mounted, so those rows
-  // keep their subscriptions and can bring it back when state arrives; it is only taken out of
-  // layout. `folds` is the host's published fold list, or null.
+  // rows report, over the rows. Profile scope is Valve's header and per-game toggle and stays
+  // open; Reset is one button and has no heading; every other section folds under its title. A
+  // section whose rows all draw nothing stays mounted, so those rows keep their subscriptions and
+  // can bring it back when state arrives; it is only taken out of layout. `folds` is the host's
+  // published open list, or null.
   const hostSection = (controlRuntime, key, title, shown, rows, folds) =>
-    HeadlessSections.has(title)
+    title === "Reset"
       ? renderSteamUiGroup(controlRuntime, { key, hidden: !shown }, ...rows)
       : renderSteamUiGroup(
           controlRuntime,
@@ -2076,7 +2055,7 @@ function createNativeComponentHost() {
             icon: sectionIcon(controlRuntime, title),
             detail: sectionSummary(title) || undefined,
             hidden: !shown,
-            ...(FixedSections.has(title)
+            ...(title === "Profile scope"
               ? {}
               : {
                   collapsed: isFolded(folds, title),

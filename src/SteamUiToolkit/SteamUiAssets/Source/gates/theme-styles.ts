@@ -174,10 +174,21 @@ function createThemeStyles() {
   // One document brought in step with the publication: the blocks whose targets name it, in the
   // order published, each exactly once. A head already holding that list, block for block and hash
   // for hash, is left alone; anything else is rebuilt, because order is part of what a theme means.
-  const reconcileDocument = (facts) => {
+  // What a document wants is a function of the publication and the document's facts, both of
+  // which rarely change between the 2 s passes, so the match is kept per document until either does.
+  const wantedByDocument = new WeakMap();
+  const wantedFor = (facts) => {
+    const key = `${desired.signature}\u0000${facts.name}\u0000${facts.title}\u0000${facts.url}\u0000${facts.classes.join(" ")}`;
+    const cached = wantedByDocument.get(facts.doc);
+    if (cached && cached.key === key) return cached.wanted;
     const wanted = desired.styles.filter((style) =>
       style.targets.some((target) => matchesTarget(target, facts)),
     );
+    wantedByDocument.set(facts.doc, { key, wanted });
+    return wanted;
+  };
+  const reconcileDocument = (facts) => {
+    const wanted = wantedFor(facts);
     const owned = ownedNodes(facts.doc);
     const same =
       owned.length === wanted.length &&
@@ -201,6 +212,12 @@ function createThemeStyles() {
 
   const reconcile = () => {
     if (!installed) return;
+    // With nothing published and nothing installed there is no window to bring in step, and the
+    // walk over every mounted fiber that finds the windows is not worth a 2 s tick.
+    if (desired.styles.length === 0 && nodesInstalled === 0) {
+      lastOutcome = "idle: no styles";
+      return;
+    }
     try {
       let styled = 0;
       let nodes = 0;

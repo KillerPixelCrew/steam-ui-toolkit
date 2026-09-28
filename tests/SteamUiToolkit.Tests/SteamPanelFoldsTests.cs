@@ -17,10 +17,12 @@ public sealed class SteamPanelFoldsTests
     }
 
     [Fact]
-    public void ThePatchMountsNoRowAndKeepsThePanelHostFingerprint()
+    public void TheSurfaceMountsNothingAndAnswersOneCommand()
     {
-        Assert.Equal("panelFolds", SteamPanelFoldsSurface.Patch.ComponentKind);
-        Assert.Equal(SteamPanelFoldsSurface.PatchId, SteamPanelFoldsSurface.Patch.Id);
+        var module = SteamPanelFoldsSurface.Module(
+            Always, () => new ValueTask<SteamPanelFoldsState?>(null as SteamPanelFoldsState), new RecordingBackend());
+
+        Assert.Empty(module.Patches);
         Assert.Equal(["setFolded"], SteamPanelFoldsSurface.Commands);
     }
 
@@ -45,13 +47,19 @@ public sealed class SteamPanelFoldsTests
             """{"id":"Power profiles","folded":true,"extra":1}""");
         var unnamed = await DispatchAsync(
             set, SteamPanelFoldsSurface.PatchId, "setFolded", """{"id":"","folded":true}""");
+        var nested = await DispatchAsync(
+            set, SteamPanelFoldsSurface.PatchId, "setFolded",
+            """{"id":"extensions:wsgm.themes:theme:Dark Deck","folded":false}""");
 
         Assert.True(folded.Succeeded);
         Assert.True(opened.Succeeded);
         Assert.Equal("The panel fold payload is invalid.", refused.Error);
         Assert.Equal("The panel fold payload is invalid.", surplus.Error);
         Assert.Equal("The panel fold payload is invalid.", unnamed.Error);
-        Assert.Equal(["Power profiles True", "Power profiles False"], backend.Calls);
+        Assert.True(nested.Succeeded);
+        Assert.Equal(
+            ["Power profiles True", "Power profiles False", "extensions:wsgm.themes:theme:Dark Deck False"],
+            backend.Calls);
     }
 
     private sealed class RecordingBackend : ISteamPanelFoldsBackend

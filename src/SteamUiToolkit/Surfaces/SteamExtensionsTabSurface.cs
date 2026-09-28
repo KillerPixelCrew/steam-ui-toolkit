@@ -32,11 +32,6 @@ public sealed record SteamExtensionsTabAction(string Id, string Label);
 ///     only for an enabled theme.
 /// </param>
 /// <param name="Highlight">Whether the description is drawn in the accent colour, for "update available".</param>
-/// <param name="Collapsed">
-///     For a switch with settings under it: whether those settings are folded away under a heading
-///     of their own. Null leaves them folded, which is how every fold starts; the heading sends
-///     <c>collapse</c> with the item id, a colon and this setting's key as its id.
-/// </param>
 public sealed record SteamExtensionsTabSetting(
     string Key,
     string Label,
@@ -49,8 +44,7 @@ public sealed record SteamExtensionsTabSetting(
     IReadOnlyList<string>? Choices = null,
     string? Description = null,
     string? Parent = null,
-    bool Highlight = false,
-    bool? Collapsed = null);
+    bool Highlight = false);
 
 /// <summary>One extension shown in the Quick Access Extensions tab.</summary>
 /// <param name="Id">Opaque extension instance identity returned when a setting changes.</param>
@@ -61,12 +55,6 @@ public sealed record SteamExtensionsTabSetting(
 /// <param name="Actions">Host-rendered actions declared by the plugin for this tab.</param>
 /// <param name="Settings">Host-rendered plugin settings.</param>
 /// <param name="ConfigurationRevision">Expected revision for the next setting change.</param>
-/// <param name="Collapsible">
-///     Whether the section folds. A collapsible section is headed by a button carrying the name, the
-///     detail line and a caret, and its rows are drawn only while it is open; the header sends
-///     <c>collapse</c> and the host publishes the new state.
-/// </param>
-/// <param name="Collapsed">Whether a collapsible section is currently folded.</param>
 public sealed record SteamExtensionsTabItem(
     string Id,
     string Name,
@@ -75,9 +63,7 @@ public sealed record SteamExtensionsTabItem(
     string? Detail = null,
     IReadOnlyList<SteamExtensionsTabAction>? Actions = null,
     IReadOnlyList<SteamExtensionsTabSetting>? Settings = null,
-    long ConfigurationRevision = 0,
-    bool Collapsible = false,
-    bool Collapsed = false);
+    long ConfigurationRevision = 0);
 
 /// <summary>The current contents of the Quick Access Extensions tab.</summary>
 /// <param name="Items">Installed extensions, including refused packages so their failure is visible.</param>
@@ -107,12 +93,6 @@ public interface ISteamExtensionsTabBackend
         long expectedRevision,
         CancellationToken cancellationToken);
 
-    /// <summary>Folds or unfolds one collapsible section.</summary>
-    /// <param name="id">One published extension instance identity.</param>
-    /// <param name="collapsed">Whether the section should be folded.</param>
-    /// <param name="cancellationToken">Cancels waiting without implying the change was undone.</param>
-    /// <returns>A truthful result; the host publishes the section's new state.</returns>
-    Task<SteamUiCommandResult> CollapseAsync(string id, bool collapsed, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -130,7 +110,7 @@ public static class SteamExtensionsTabSurface
     public const string PatchId = "steam-ui.extensions-tab";
 
     /// <summary>The commands emitted by the tab.</summary>
-    public static IReadOnlyList<string> Commands { get; } = ["activate", "configure", "collapse"];
+    public static IReadOnlyList<string> Commands { get; } = ["activate", "configure"];
 
     /// <summary>The Quick Access tab patch.</summary>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
@@ -219,29 +199,8 @@ public static class SteamExtensionsTabSurface
                     TryReadConfiguration,
                     (value, token) => backend.ConfigureAsync(
                         value.Id, value.Key, value.Value, value.Revision, token),
-                    "The extension setting payload is invalid."),
-                SteamSurfaceModule.Command<(string Id, bool Collapsed)>(
-                    PatchId,
-                    "collapse",
-                    TryReadCollapse,
-                    (value, token) => backend.CollapseAsync(value.Id, value.Collapsed, token),
-                    "The extension collapse payload is invalid.")
+                    "The extension setting payload is invalid.")
             ]);
-    }
-
-    private static bool TryReadCollapse(JsonElement payload, out (string Id, bool Collapsed) value)
-    {
-        value = default;
-        // 160, not the 96 an item id gets: a setting's fold is named by the item id and the key.
-        if (!SteamUiPayload.TryReadBoundedString(payload, "id", 160, out var id)
-            || !SteamUiPayload.TryReadBoolean(payload, "collapsed", out var collapsed)
-            || !SteamUiPayload.HasExactly(payload, 2))
-        {
-            return false;
-        }
-
-        value = (id, collapsed);
-        return true;
     }
 
     private static bool TryReadConfiguration(

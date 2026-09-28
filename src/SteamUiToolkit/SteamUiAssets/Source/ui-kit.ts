@@ -2,9 +2,9 @@
 //
 // Steam ships a toggle, a dropdown, a slider, a text field, a button and a modal, and a page uses
 // those wherever one fits, resolved from Steam's own modules. It ships nothing for the rest of what
-// a page is made of: a section heading that folds, a row of actions, a labelled control, a note, a
-// swatch, a card in a grid. Those are drawn here, once, from plain elements and one stylesheet, in
-// the vocabulary of Steam's own panels — its greys, its 2px radius, its focus outline — so a host's
+// a page is made of: a section heading that folds, a block of rows, a row of actions, a swatch, a
+// card in a grid. Those are drawn here, once, from plain elements and one stylesheet, in the
+// vocabulary of Steam's own panels — its greys, its 2px radius, its focus outline — so a host's
 // page and its Quick Access tab look like one thing and like the panels beside them.
 //
 // Every element takes `ui`, the components resolved for the page, and answers React elements built
@@ -15,37 +15,38 @@
 // document the root is drawn into: the Quick Access popup, a page's window, a modal. Class names
 // are prefixed `steam-ui-kit-` and the rules are flat, so a host can add to them without fighting
 // specificity.
+//
+// Three rules reach into Steam's own markup, by structure rather than by any of its hashed class
+// names. A block zeroes the field bleed Steam's panel rows give their fields
+// (`--field-negative-horizontal-margin`, 16px, so a field can run to the panel's edge): a block
+// has a border, and a field runs to that. The Quick Access menu also gives a field's control
+// container a 270px minimum width and its buttons a 160px one, from an id-scoped rule, so both are
+// lifted with `!important`; a block's content is narrower than Valve's panel column, and a fixed
+// minimum is what pushed dropdowns past the border. And `steam-ui-kit-battery` draws Valve's
+// battery line at one line's height, finding the row as the only element with exactly three
+// children.
 
 const SteamUiKitStyles = `
+.steam-ui-kit-page{margin-top:var(--basicui-header-height,40px);height:calc(100% - var(--basicui-header-height,40px));display:flex;flex-direction:column;background:var(--gpSystemDarkestGrey,#0e141b);color:#dcdedf}
+.steam-ui-kit-pane{display:flex;flex-direction:column;gap:14px;padding:12px 4px 72px}
 .steam-ui-kit-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;margin:0 -10px;border-radius:2px;outline:2px solid transparent}
 .steam-ui-kit-header.gpfocus,.steam-ui-kit-header:hover{background:rgba(255,255,255,.08)}
 .steam-ui-kit-header.plain:hover{background:transparent}
+.steam-ui-kit-header.sub{padding:6px 10px}
 .steam-ui-kit-header-icon{display:flex;flex:0 0 auto;color:rgba(255,255,255,.8)}
 .steam-ui-kit-header-icon svg{width:18px;height:18px}
 .steam-ui-kit-header-text{min-width:0;flex:1 1 auto}
-.steam-ui-kit-header.sub{padding:6px 10px}
-.steam-ui-kit-header.sub .steam-ui-kit-header-title{font-size:13px;font-weight:600;letter-spacing:0;text-transform:none;color:rgba(255,255,255,.75)}
-.steam-ui-kit-header.sub.open .steam-ui-kit-header-title{color:#fff}
 .steam-ui-kit-header-title{font-size:12px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .steam-ui-kit-header.open .steam-ui-kit-header-title{color:#fff}
+.steam-ui-kit-header.sub .steam-ui-kit-header-title{font-size:13px;font-weight:600;letter-spacing:0;text-transform:none;color:rgba(255,255,255,.75)}
+.steam-ui-kit-header.sub.open .steam-ui-kit-header-title{color:#fff}
 .steam-ui-kit-header-detail{font-size:12px;color:rgba(255,255,255,.55);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .steam-ui-kit-header-caret{flex:0 0 auto;color:rgba(255,255,255,.7);display:flex}
-.steam-ui-kit-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.steam-ui-kit-actions button.DialogButton{width:auto!important;min-width:0!important;height:36px!important;padding:0 10px!important;box-sizing:border-box!important;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;justify-content:center;gap:8px}
-.steam-ui-kit-actions .DialogButton.steam-ui-kit-wide{grid-column:1 / -1}
-.steam-ui-kit-actions .DialogButton svg{width:16px;height:16px;flex:0 0 auto}
-.steam-ui-kit-labelled{display:flex;flex-direction:column;gap:6px;padding:4px 0}
-.steam-ui-kit-label{font-size:13px;color:rgba(255,255,255,.7)}
-.steam-ui-kit-labelled .DialogDropDown{width:100%}
-.steam-ui-kit-nested{margin-left:2px;padding-left:12px;border-left:2px solid rgba(255,255,255,.12);box-sizing:border-box}
-.steam-ui-kit-nested .DialogToggle_Label{font-size:14px}
-.steam-ui-kit-nested .DialogToggle_Description{font-size:12px}
-.steam-ui-kit-group{border-radius:4px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);padding:4px 12px 8px;margin:0 12px 10px;box-sizing:border-box}
-.steam-ui-kit-group.plain{padding:8px 12px}
+.steam-ui-kit-group,.steam-ui-kit-blocks > div:not(:empty),.steam-ui-kit-valve > div:not(:empty){border-radius:4px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);padding:4px 12px 8px!important;margin:0 12px 10px!important;box-sizing:border-box}
+.steam-ui-kit-group.plain{padding:8px 12px!important}
 .steam-ui-kit-group.hidden{display:none}
 .steam-ui-kit-group.closed .steam-ui-kit-group-body{display:none}
-.steam-ui-kit-blocks > div:not(:empty){border-radius:4px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);padding:4px 12px 8px!important;margin:0 12px 10px!important;box-sizing:border-box}
-.steam-ui-kit-valve > div:not(:empty){border-radius:4px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);padding:8px 12px 8px!important;margin:0 12px 10px!important;box-sizing:border-box}
+.steam-ui-kit-valve > div:not(:empty){padding-top:8px!important}
 .steam-ui-kit-valve > div:not(:empty) > div:first-child{font-size:12px!important;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.6)!important;padding:4px 0 8px!important}
 .steam-ui-kit-group-body > div > :first-child,.steam-ui-kit-blocks > div > div > :first-child,.steam-ui-kit-valve > div > div > :first-child{--field-negative-horizontal-margin:0px}
 .steam-ui-kit-group-body div,.steam-ui-kit-blocks div,.steam-ui-kit-valve div,.steam-ui-kit-battery div{min-width:0!important}
@@ -59,10 +60,13 @@ const SteamUiKitStyles = `
 .steam-ui-kit-battery div:has(> :nth-child(3):last-child) > :nth-child(3){margin-left:auto!important;height:auto!important;flex-direction:row!important;align-items:baseline;gap:6px}
 .steam-ui-kit-battery div:has(> :nth-child(3):last-child) > :nth-child(3) > :first-child{font-size:13px!important;font-weight:600;height:auto!important}
 .steam-ui-kit-battery div:has(> :nth-child(3):last-child) > :nth-child(3) > :last-child{font-size:10px!important;height:auto!important}
-.steam-ui-kit-note{display:flex;align-items:center;gap:8px;font-size:12px;color:rgba(255,255,255,.5);padding:6px 0}
-.steam-ui-kit-note svg{width:14px;height:14px;flex:0 0 auto}
+.steam-ui-kit-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.steam-ui-kit-actions button.DialogButton{width:auto!important;min-width:0!important;height:36px!important;padding:0 10px!important;box-sizing:border-box!important;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;justify-content:center;gap:8px}
+.steam-ui-kit-actions .DialogButton.steam-ui-kit-wide{grid-column:1 / -1}
+.steam-ui-kit-nested{margin-left:2px;padding-left:12px;border-left:2px solid rgba(255,255,255,.12);box-sizing:border-box}
+.steam-ui-kit-nested .DialogToggle_Label{font-size:14px}
+.steam-ui-kit-nested .DialogToggle_Description{font-size:12px}
 .steam-ui-kit-highlight{color:#fca904}
-.steam-ui-kit-marker{position:absolute;top:0;right:0;width:20px;height:20px;background:linear-gradient(45deg,transparent 49%,#fca904 50%);pointer-events:none}
 .steam-ui-kit-swatch{width:20px;height:20px;border-radius:3px;border:1px solid rgba(255,255,255,.3);flex:0 0 auto}
 .steam-ui-kit-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px}
 .steam-ui-kit-card{display:flex;flex-direction:column;border-radius:4px;overflow:hidden;background:#ACB2C924;outline:2px solid transparent;transition:outline-color 150ms,background 150ms}
@@ -108,13 +112,33 @@ const SteamUiKitStyles = `
 .steam-ui-kit-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
 `;
 
-// The kit's stylesheet, rendered once by a root so it lands in that root's document.
-const steamUiKitStyle = (react) => react.createElement("style", { key: "steam-ui-kit" }, SteamUiKitStyles);
+// One stylesheet element and one icon renderer per React, so a root re-rendering on every host
+// publication hands React the same style element and the same caret elements each time rather
+// than fresh ones to diff.
+const steamUiKitStyles = new WeakMap();
+const steamUiKitIcons = new WeakMap();
+const steamUiKitStyle = (react) => {
+  let element = steamUiKitStyles.get(react);
+  if (!element) {
+    element = react.createElement("style", { key: "steam-ui-kit" }, SteamUiKitStyles);
+    steamUiKitStyles.set(react, element);
+  }
+  return element;
+};
+const steamUiKitIcon = (react) => {
+  let icon = steamUiKitIcons.get(react);
+  if (!icon) {
+    icon = createIconRenderer(react);
+    steamUiKitIcons.set(react, icon);
+  }
+  return icon;
+};
 
-// A section heading: a glyph, the title and its detail line, and, when it folds, a caret that says
-// which way. A folding header is Steam's Focusable, because Steam's own section title cannot take
-// focus and a controller has to be able to land on the fold; one that does not fold is a plain
-// heading, drawn the same so a fixed section and a folding one read as siblings.
+// A section heading: a glyph, the title and its detail line, and, when it folds, the kit's caret
+// saying which way. A folding heading is Steam's Focusable, because Steam's own section title
+// cannot take focus and a controller has to be able to land on the fold; one that does not fold is
+// a plain heading, drawn the same so a fixed section and a folding one read as siblings. `sub` is
+// the smaller heading a switch's own settings fold under inside a section.
 const renderSteamUiHeader = (
   ui,
   props: {
@@ -123,18 +147,13 @@ const renderSteamUiHeader = (
     detail?: string;
     collapsed?: boolean;
     onToggle?: () => void;
-    caret?: any;
-    // A smaller heading inside a section: a switch's own settings folding under it.
     sub?: boolean;
   },
 ) => {
   const h = ui.react.createElement;
   const folds = typeof props.onToggle === "function";
   const collapsed = folds && !!props.collapsed;
-  // The kit's own caret unless the caller brought one; a heading that does not fold has none.
-  const icon = createIconRenderer(ui.react);
-  const caret =
-    props.caret ?? (folds ? (collapsed ? icon("sectionClosed", 18) : icon("sectionOpen", 18)) : null);
+  const icon = steamUiKitIcon(ui.react);
   const children = [
     props.icon ? h("div", { className: "steam-ui-kit-header-icon" }, props.icon) : null,
     h(
@@ -143,7 +162,13 @@ const renderSteamUiHeader = (
       h("div", { className: "steam-ui-kit-header-title" }, props.title),
       props.detail ? h("div", { className: "steam-ui-kit-header-detail" }, props.detail) : null,
     ),
-    caret ? h("div", { className: "steam-ui-kit-header-caret" }, caret) : null,
+    folds
+      ? h(
+          "div",
+          { className: "steam-ui-kit-header-caret" },
+          collapsed ? icon("sectionClosed", 18) : icon("sectionOpen", 18),
+        )
+      : null,
   ].filter((child) => child !== null);
   const className = `steam-ui-kit-header${collapsed ? "" : " open"}${folds ? "" : " plain"}${props.sub ? " sub" : ""}`;
   return folds
@@ -165,12 +190,7 @@ const renderSteamUiHeader = (
 // reports stays current. `hidden` takes the whole block out of layout, still mounted. Without a
 // title the block is a plain box around its rows. A root whose blocks are Steam's own PanelSections
 // gives them the same look with the `steam-ui-kit-blocks` class, and `steam-ui-kit-valve` also
-// restyles Valve's section titles to the kit's heading. Inside every block the field bleed Steam's
-// panel rows give their fields (`--field-negative-horizontal-margin`, 16px, so a field can run to
-// the panel's edge) is set to zero: a block has a border, and a field runs to that. The Quick
-// Access menu also gives a field's control container a 270px minimum width and its buttons a
-// 160px one, from an id-scoped rule, so both are lifted with `!important`: a block's content is
-// narrower than Valve's panel column, and a fixed minimum is what pushed dropdowns past the border.
+// restyles Valve's section titles to the kit's heading.
 const renderSteamUiGroup = (
   ui,
   props: {
@@ -213,10 +233,7 @@ const renderSteamUiGroup = (
 
 // Actions in a two-column grid: two short labels sit side by side, a long one takes the row. Each
 // is Steam's DialogButton, so it navigates and lights up as Steam's do.
-const renderSteamUiActions = (
-  ui,
-  actions: { id: string; label: string; onClick: () => void; icon?: any; wide?: boolean }[],
-) => {
+const renderSteamUiActions = (ui, actions: { id: string; label: string; onClick: () => void }[]) => {
   const h = ui.react.createElement;
   return h(
     ui.focusable,
@@ -226,31 +243,13 @@ const renderSteamUiActions = (
         ui.dialogButton,
         {
           key: action.id,
-          className: action.wide ?? action.label.length > 18 ? "steam-ui-kit-wide" : undefined,
+          className: action.label.length > 18 ? "steam-ui-kit-wide" : undefined,
           onClick: action.onClick,
         },
-        action.icon ?? null,
         action.label,
       ),
     ),
   );
-};
-
-// A small label above a control, the way CSSLoader lays out a patch's dropdown in the panel.
-const renderSteamUiLabelled = (ui, label: string, control) => {
-  const h = ui.react.createElement;
-  return h(
-    "div",
-    { className: "steam-ui-kit-labelled" },
-    h("div", { className: "steam-ui-kit-label" }, label),
-    control,
-  );
-};
-
-// A quiet line under a list, with an optional glyph: "1 theme is hidden."
-const renderSteamUiNote = (ui, text: string, glyph?: any) => {
-  const h = ui.react.createElement;
-  return h("div", { className: "steam-ui-kit-note" }, glyph ?? null, h("span", null, text));
 };
 
 // A colour as a small square.
@@ -269,7 +268,6 @@ const renderSteamUiCard = (
     title: string;
     meta?: string[];
     onActivate: () => void;
-    activateDescription?: string;
   },
 ) => {
   const h = ui.react.createElement;
@@ -279,7 +277,7 @@ const renderSteamUiCard = (
       key: props.key,
       className: "steam-ui-kit-card",
       onActivate: props.onActivate,
-      onOKActionDescription: props.activateDescription ?? "Open",
+      onOKActionDescription: "Open",
     },
     h(
       "div",

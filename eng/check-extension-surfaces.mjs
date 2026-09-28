@@ -197,11 +197,14 @@ assert.equal(typeof tab.strTitle, "string", "the tab must carry the string title
 assert.equal(tab.title.props.className, "valve-title", "the heading is drawn with Valve's own title element");
 assert.deepEqual(tab.title.props.children, ["Extensions"]);
 // The panel carries its one style rule and then its list of sections: one Steam PanelSection per
-// extension, titled with its name, holding a PanelSectionRow for the detail and one for the actions.
+// extension, headed by its folding header row, holding a PanelSectionRow for the actions once the
+// host says the section is open.
+subscriptions.get("steam-ui.panel-folds")({ open: ["extensions:one"] });
 const panel = tab.panel.type();
 const section = panel.props.children[1][0];
 assert.equal(section.type, PanelSection, "an extension is drawn as Steam's PanelSection");
-assert.equal(section.props.title, "One", "Steam's section titles it with the extension's name");
+assert.equal(section.props.title, undefined, "the section is headed by the kit's header, not Steam's title");
+assert.equal(section.props.children[0].props.children[0].props.children[0].props.children[0].props.children[0], "One");
 const actionRow = section.props.children[1];
 assert.equal(actionRow.type, PanelRow, "each line sits in Steam's PanelSectionRow");
 assert.equal(actionRow.props.children[0].type, NativePanel, "the actions share one focusable row");
@@ -321,9 +324,10 @@ assert.equal(firstMove.type, SmallButton, "an order moves with Steam's small but
 firstMove.props.onClick();
 assert.deepEqual(requests.at(-1)[2], { id: "one", key: "tabs", value: "x,y", revision: 6 });
 
-// A collapsible section is headed by a button carrying its name, its detail and a caret, and its
-// rows are drawn only while it is open. Folding asks the host and shows at once.
-const themes = (collapsed, revision, extra = {}) => ({
+// Every section folds under the shared fold surface, and starts folded: its header carries its
+// name, its detail and a caret, and its rows are drawn only while it is open. A switch's settings
+// fold under a small heading of their own. Folding asks the host and shows at once.
+const themes = (revision) => ({
   items: [
     {
       id: "wsgm.themes",
@@ -331,8 +335,6 @@ const themes = (collapsed, revision, extra = {}) => ({
       version: "",
       status: "Ready",
       detail: "3 enabled",
-      collapsible: true,
-      collapsed,
       configurationRevision: revision,
       actions: [{ id: "browse", label: "Browse themes…" }],
       settings: [
@@ -344,15 +346,14 @@ const themes = (collapsed, revision, extra = {}) => ({
         { key: "patch:orphan", label: "No such parent", kind: "text", textValue: "", parent: "theme:none" },
         { key: "colour", label: "Highlight", kind: "color", textValue: "#ff0000" },
       ],
-      ...extra,
     },
   ],
   revision,
 });
-subscriptions.get("steam-ui.extensions-tab")(themes(true, 9));
+subscriptions.get("steam-ui.extensions-tab")(themes(9));
 let themesPanel = renderPanel();
 let themesSection = themesPanel.props.children[1][0];
-assert.equal(themesSection.props.title, undefined, "a collapsible section is not titled by Steam's section");
+assert.equal(themesSection.props.title, undefined, "a section is not titled by Steam's section");
 const headerRow = themesSection.props.children[0];
 assert.equal(headerRow.type, PanelRow);
 const headerButton = headerRow.props.children[0];
@@ -360,12 +361,12 @@ assert.equal(headerButton.type, NativePanel, "the header is Steam's Focusable, s
 assert.equal(headerButton.props.onOKActionDescription, "Expand");
 assert.equal(headerButton.props.children[0].props.children[0].props.children[0], "Themes");
 assert.equal(headerButton.props.children[0].props.children[1].props.children[0], "Ready · 3 enabled");
-assert.equal(themesSection.props.children.length, 1, "a folded section draws its header and nothing else");
+assert.equal(themesSection.props.children.length, 1, "a section starts folded and draws its header and nothing else");
 headerButton.props.onActivate();
 assert.deepEqual(requests.at(-1).slice(0, 3), [
-  "steam-ui.extensions-tab",
-  "collapse",
-  { id: "wsgm.themes", collapsed: false },
+  "steam-ui.panel-folds",
+  "setFolded",
+  { id: "extensions:wsgm.themes", folded: false },
 ]);
 themesPanel = renderPanel();
 themesSection = themesPanel.props.children[1][0];
@@ -389,9 +390,9 @@ assert.equal(bodyRows[4].props.children[0].type, TextField, "without a modal a c
 assert.equal(bodyRows[4].props.children[0].props.value, "#ff0000");
 settingsFold.props.onActivate();
 assert.deepEqual(requests.at(-1).slice(0, 3), [
-  "steam-ui.extensions-tab",
-  "collapse",
-  { id: "wsgm.themes:theme:dark", collapsed: false },
+  "steam-ui.panel-folds",
+  "setFolded",
+  { id: "extensions:wsgm.themes:theme:dark", folded: false },
 ]);
 themesPanel = renderPanel();
 themesSection = themesPanel.props.children[1][0];
@@ -420,10 +421,13 @@ assert.equal(
   8,
   "switching a parent on shows its settings heading before the host answers",
 );
-// The host's next word on the fold wins over the local one.
-subscriptions.get("steam-ui.extensions-tab")(themes(true, 10));
+// The host's word on a fold wins once it agrees, and a publication that no longer lists the
+// section folds it again: the local fold is only ever a preview of the host's.
+subscriptions.get("steam-ui.panel-folds")({ open: ["extensions:wsgm.themes", "extensions:wsgm.themes:theme:dark"] });
+assert.equal(renderPanel().props.children[1][0].props.children.slice(1).flat().filter(Boolean).length, 8);
+subscriptions.get("steam-ui.panel-folds")({ open: [] });
 themesPanel = renderPanel();
-assert.equal(themesPanel.props.children[1][0].props.children.length, 1, "a new publication folds it again");
+assert.equal(themesPanel.props.children[1][0].props.children.length, 1, "the host's publication folds it again");
 subscriptions.get("steam-ui.extensions-tab")({ items: [], revision: 11 });
 
 const replacement = createExtensions();

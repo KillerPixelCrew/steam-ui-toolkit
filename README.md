@@ -109,11 +109,11 @@ private menu class before its first render, so the first opening includes the co
 visible-DOM scan. The Extensions tab draws each plugin as Steam's own PanelSection, its actions as
 DialogButtons and its settings with the same Steam fields a settings page uses, and refuses to
 install on a client missing one of them; the probe recognizes its own installed wrapper. An item
-can be collapsible, a setting can carry a description and belong to a switch on the same item, and
+folds, a setting can carry a description and belong to a switch on the same item, and
 a colour or a labelled slider are drawn the way the settings renderer draws them.
 
 **The UI kit** (`SteamUiAssets/Source/ui-kit.ts`) is what a host draws around Steam's own fields:
-groups with headings that fold, action grids, labelled controls, notes, cards, banners, toolbars,
+groups with headings that fold, action grids, swatches, cards, banners, toolbars,
 chips, galleries, a confirm and a prompt, styled once in the vocabulary of Steam's panels. A host
 page uses Steam's field where one fits and the kit for the rest, and adds to the kit rather than
 drawing its own. The Quick Access row host draws its sections as those groups; which are folded is
