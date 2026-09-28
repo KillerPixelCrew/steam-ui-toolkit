@@ -48,6 +48,27 @@ public readonly record struct SteamUiCommandResult(
     public static SteamUiCommandResult Refused { get; } = new(
         false,
         "The requested semantic service is not active.");
+
+    /// <summary>
+    ///     The command applied and the injected side should open a page: the answer the Extensions
+    ///     tab, the game context menu and the navigation panel read as <c>{ route }</c>.
+    /// </summary>
+    /// <param name="route">The route to follow, such as <c>/wsgm/themes</c>.</param>
+    /// <returns>An applied result carrying the route.</returns>
+    public static SteamUiCommandResult Route(string route)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(route);
+        var buffer = new System.Buffers.ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("route", route);
+            writer.WriteEndObject();
+        }
+
+        using var document = JsonDocument.Parse(buffer.WrittenMemory);
+        return new SteamUiCommandResult(true, null, document.RootElement.Clone());
+    }
 }
 
 /// <summary>Answers one semantic command from the injected side.</summary>

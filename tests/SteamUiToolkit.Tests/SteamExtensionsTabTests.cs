@@ -138,6 +138,14 @@ public sealed class SteamExtensionsTabTests
         var settings = item.GetProperty("settings");
         Assert.Equal("v2.1", settings[0].GetProperty("description").GetString());
         Assert.True(settings[0].GetProperty("highlight").GetBoolean());
+        var labelled = SteamExtensionsTabSurface.Serialize(new SteamExtensionsTabState(
+        [
+            new SteamExtensionsTabItem("x", "X", "", "Ready",
+                Settings: [new SteamExtensionsTabSetting("pick", "Pick", "text", TextValue: "",
+                    Choices: ["", "id1"], ChoiceLabels: ["Steam's own", "Neon"])])
+        ]));
+        Assert.Equal("Neon",
+            labelled.GetProperty("items")[0].GetProperty("settings")[0].GetProperty("choiceLabels")[1].GetString());
         Assert.Equal("theme:dark", settings[1].GetProperty("parent").GetString());
         Assert.Equal("color", settings[2].GetProperty("kind").GetString());
     }

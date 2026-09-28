@@ -29,6 +29,16 @@
 const SteamUiKitStyles = `
 .steam-ui-kit-page{margin-top:var(--basicui-header-height,40px);height:calc(100% - var(--basicui-header-height,40px));display:flex;flex-direction:column;background:var(--gpSystemDarkestGrey,#0e141b);color:#dcdedf}
 .steam-ui-kit-pane{display:flex;flex-direction:column;gap:14px;padding:12px 4px 72px}
+.steam-ui-kit-page div[class*="gamepadtabbedpage_TabHeaderRowWrapper"]{background:#1b2838}
+.steam-ui-kit-page-banner{margin:8px 48px 0}
+.steam-ui-kit-page h3{margin:6px 0 0;font-size:15px;font-weight:700;color:#fff}
+.steam-ui-kit-page p{margin:0;font-size:14px;line-height:1.5;color:#c6d4df;max-width:700px;white-space:pre-wrap}
+.steam-ui-kit-detail{display:flex;gap:32px;padding:12px 4px 72px}
+.steam-ui-kit-detail-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:10px}
+.steam-ui-kit-detail-aside{width:300px;flex:0 0 auto;display:flex;flex-direction:column;gap:14px}
+.steam-ui-kit-detail-heading{display:flex;align-items:baseline;gap:12px}
+.steam-ui-kit-detail-heading h2{margin:0;font-size:30px;font-weight:700;color:#fff}
+.steam-ui-kit-detail-heading span{font-size:16px;font-weight:700;color:#fff}
 .steam-ui-kit-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;margin:0 -10px;border-radius:2px;outline:2px solid transparent}
 .steam-ui-kit-header.gpfocus,.steam-ui-kit-header:hover{background:rgba(255,255,255,.08)}
 .steam-ui-kit-header.plain:hover{background:transparent}
@@ -108,9 +118,9 @@ const SteamUiKitStyles = `
 .steam-ui-kit-hero img{width:100%;height:100%;object-fit:cover;display:block}
 .steam-ui-kit-hero-empty{display:flex;align-items:center;justify-content:center;height:100%;color:#8b929a}
 .steam-ui-kit-hero-count{position:absolute;right:10px;bottom:10px;padding:3px 8px;border-radius:2px;background:rgba(0,0,0,.7);font-size:12px;color:#fff}
-.steam-ui-kit-video{position:relative;width:556px;max-width:100%;aspect-ratio:16 / 9;border-radius:4px;overflow:hidden;background:#10151c}
-.steam-ui-kit-video video{width:100%;height:100%;object-fit:contain;display:block}
-.steam-ui-kit-video-empty{display:flex;align-items:center;justify-content:center;height:100%;color:#8b929a}
+.steam-ui-kit-hero.video{aspect-ratio:16 / 9}
+.steam-ui-kit-hero video{width:100%;height:100%;object-fit:contain;display:block}
+.steam-ui-kit-hero.video img{object-fit:contain}
 .steam-ui-kit-modal-body{display:flex;flex-direction:column;gap:12px}
 .steam-ui-kit-modal-body p{margin:0}
 .steam-ui-kit-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
@@ -404,12 +414,13 @@ const renderSteamUiGallery = (
   );
 };
 
-// A movie preview: the movie playing quietly on a loop over its still, or what stands in for it.
-// Muted, because a preview that speaks is a preview that is closed.
+// A movie preview on the gallery's frame, 16:9: the movie playing quietly on a loop over its
+// still, the still alone, or what stands in for it. Muted, because a preview that speaks is a
+// preview that is closed.
 const renderSteamUiVideo = (react, props: { src?: string | null; poster?: string | null; empty?: string }) =>
   react.createElement(
     "div",
-    { className: "steam-ui-kit-video" },
+    { className: "steam-ui-kit-hero video" },
     props.src
       ? react.createElement("video", {
           src: props.src,
@@ -420,9 +431,109 @@ const renderSteamUiVideo = (react, props: { src?: string | null; poster?: string
           playsInline: true,
         })
       : props.poster
-        ? react.createElement("img", { src: props.poster, alt: "", style: { width: "100%", height: "100%", objectFit: "contain" } })
-        : react.createElement("div", { className: "steam-ui-kit-video-empty" }, props.empty ?? "No preview"),
+        ? react.createElement("img", { src: props.poster, alt: "" })
+        : react.createElement("div", { className: "steam-ui-kit-hero-empty" }, props.empty ?? "No preview"),
   );
+
+// The glyphs a store page's cards and boxes carry, drawn once here rather than per page.
+const SteamUiGlyphs = Object.freeze({
+  download: "M11 3h2v9.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4L11 12.2zM4 19h16v2H4z",
+  star: "M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z",
+  heart:
+    "M12 21s-7-4.6-9.3-9.1C1 8.5 3.2 5 6.7 5c2 0 3.4 1 4.3 2.3C12 6 13.4 5 15.3 5c3.5 0 5.7 3.5 4 6.9C19 16.4 12 21 12 21z",
+  target:
+    "M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18zm0 2a7 7 0 1 0 0 14 7 7 0 0 0 0-14zm0 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z",
+});
+const renderSteamUiGlyph = (react, name: keyof typeof SteamUiGlyphs) => renderSteamGlyph(react, SteamUiGlyphs[name]);
+
+// What a tabbed host page needs resolved before it can draw: Steam's fields, buttons, sections,
+// tabs and modal. A page that needs no more passes this as its `required`.
+const SteamUiTabbedPageRequired = Object.freeze([
+  "react",
+  "focusable",
+  "toggleField",
+  "dropdown",
+  "sliderField",
+  "textField",
+  "dialogButton",
+  "dialogButtonPrimary",
+  "smallButton",
+  "valueField",
+  "settingsSection",
+  "tabs",
+  "modalRoot",
+  "showModal",
+]);
+
+// A host page in Steam's tabbed layout: the kit's stylesheet and the page's own, a banner with the
+// notice or the error, and Steam's tabs, only the active one drawn. `content` answers the element
+// for a tab id.
+const renderSteamUiTabbedPage = (
+  ui,
+  props: {
+    id: string;
+    label: string;
+    style?: string;
+    tabs: { id: string; title: string }[];
+    active: string;
+    onTab: (tab: string) => void;
+    content: (tab: string) => any;
+    banner?: { text: string; error?: boolean; onDismiss: () => void } | null;
+  },
+) => {
+  const h = ui.react.createElement;
+  const active = props.tabs.some((tab) => tab.id === props.active) ? props.active : props.tabs[0].id;
+  return h(
+    "div",
+    { id: props.id, className: "steam-ui-kit-page", "aria-label": props.label },
+    steamUiKitStyle(ui.react),
+    props.style ? h("style", null, props.style) : null,
+    props.banner?.text
+      ? h("div", { className: "steam-ui-kit-page-banner" }, renderSteamUiBanner(ui, props.banner))
+      : null,
+    h(ui.tabs, {
+      autoFocusContents: true,
+      activeTab: active,
+      onShowTab: props.onTab,
+      tabs: props.tabs.map((tab) => ({
+        id: tab.id,
+        title: tab.title,
+        content: tab.id === active ? props.content(tab.id) : null,
+      })),
+    }),
+  );
+};
+
+// One item's detail: its media, heading and text beside a column of boxes and actions, left with
+// B. `title` draws as the heading, `badge` beside it.
+const renderSteamUiDetail = (
+  ui,
+  props: { title: string; badge?: string; media?: any; main: any[]; aside: any[]; onBack: () => void },
+) => {
+  const h = ui.react.createElement;
+  return h(
+    ui.focusable,
+    { className: "steam-ui-kit-detail", onCancelButton: props.onBack, onCancelActionDescription: "Back" },
+    h(
+      "div",
+      { className: "steam-ui-kit-detail-main" },
+      props.media ?? null,
+      h(
+        "div",
+        { className: "steam-ui-kit-detail-heading" },
+        h("h2", null, props.title),
+        props.badge ? h("span", null, props.badge) : null,
+      ),
+      ...props.main,
+    ),
+    h(
+      "div",
+      { className: "steam-ui-kit-detail-aside" },
+      ...props.aside,
+      h(ui.dialogButton, { onClick: props.onBack }, "Back"),
+    ),
+  );
+};
 
 // Asks before something is done: a sentence and two buttons in Steam's modal. Cancel and B send
 // nothing.

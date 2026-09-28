@@ -108,7 +108,13 @@ function createExtensionsTab() {
       setting.choices === null ||
       (Array.isArray(setting.choices) &&
         setting.choices.length <= 64 &&
-        setting.choices.every((choice) => typeof choice === "string" && choice.length <= 4096)));
+        setting.choices.every((choice) => typeof choice === "string" && choice.length <= 4096))) &&
+    (setting.choiceLabels === undefined ||
+      setting.choiceLabels === null ||
+      (Array.isArray(setting.choiceLabels) &&
+        Array.isArray(setting.choices) &&
+        setting.choiceLabels.length === setting.choices.length &&
+        setting.choiceLabels.every((label) => typeof label === "string" && label.length <= 4096)));
   const validItem = (item) =>
     item &&
     typeof item.id === "string" &&
@@ -176,8 +182,10 @@ function createExtensionsTab() {
       setting.description && setting.highlight
         ? react.createElement("span", { className: "steam-ui-kit-highlight" }, setting.description)
         : (setting.description ?? undefined);
+    // A choice is sent back by its value and shown by its label, when the host gave one.
+    const labels = Array.isArray(setting.choiceLabels) ? setting.choiceLabels : setting.choices;
     const choices = Array.isArray(setting.choices)
-      ? setting.choices.map((choice) => ({ value: choice, label: choice }))
+      ? setting.choices.map((choice, index) => ({ value: choice, label: labels?.[index] ?? choice }))
       : null;
     switch (setting.kind) {
       case "boolean":
@@ -208,7 +216,7 @@ function createExtensionsTab() {
             number: setting.numberValue ?? 0,
             minimum: 0,
             maximum: choices.length - 1,
-            labels: setting.choices,
+            labels,
           };
         }
         return Number.isFinite(setting.minimum) && Number.isFinite(setting.maximum)

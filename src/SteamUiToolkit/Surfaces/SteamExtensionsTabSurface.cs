@@ -24,7 +24,7 @@ public sealed record SteamExtensionsTabAction(string Id, string Label);
 /// <param name="TextValue">Current text value; secret values are never published back.</param>
 /// <param name="Minimum">Inclusive numeric minimum.</param>
 /// <param name="Maximum">Inclusive numeric maximum.</param>
-/// <param name="Choices">Optional finite text choices.</param>
+/// <param name="Choices">Optional finite text choices: the values sent back.</param>
 /// <param name="Description">Optional second line under the label.</param>
 /// <param name="Parent">
 ///     The key of a boolean setting on the same item this one belongs to. The row is drawn indented
@@ -32,6 +32,11 @@ public sealed record SteamExtensionsTabAction(string Id, string Label);
 ///     only for an enabled theme.
 /// </param>
 /// <param name="Highlight">Whether the description is drawn in the accent colour, for "update available".</param>
+/// <param name="ChoiceLabels">
+///     What each of <paramref name="Choices" /> is shown as, in the same order, when the value is an
+///     id the user should not read; null shows the values themselves. The value is what comes back,
+///     so a host never has to find a choice again by its label.
+/// </param>
 public sealed record SteamExtensionsTabSetting(
     string Key,
     string Label,
@@ -44,7 +49,8 @@ public sealed record SteamExtensionsTabSetting(
     IReadOnlyList<string>? Choices = null,
     string? Description = null,
     string? Parent = null,
-    bool Highlight = false);
+    bool Highlight = false,
+    IReadOnlyList<string>? ChoiceLabels = null);
 
 /// <summary>One extension shown in the Quick Access Extensions tab.</summary>
 /// <param name="Id">Opaque extension instance identity returned when a setting changes.</param>

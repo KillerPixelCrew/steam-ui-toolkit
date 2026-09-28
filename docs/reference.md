@@ -1221,6 +1221,11 @@ stylesheet lands in that root's document.
 | `renderSteamUiChips`                      | small buttons in a wrapping row                                                               |
 | `renderSteamUiBox`                        | a titled box, for a detail view's action column                                               |
 | `renderSteamUiGallery`                    | one large image, thumbnails that pick it, and a counter                                       |
+| `renderSteamUiVideo`                      | a movie preview on the gallery's frame, muted on a loop over its still                        |
+| `renderSteamUiTabbedPage`                 | a host page's frame: the stylesheets, a banner, and Steam's tabs with only the active one drawn |
+| `renderSteamUiDetail`                     | one item's media, heading and text beside its boxes, with Back, left with B                   |
+| `renderSteamUiGlyph`, `SteamUiGlyphs`     | the store glyphs a card or box carries: download, star, heart, target                         |
+| `SteamUiTabbedPageRequired`               | the components a tabbed page needs resolved, for its `required`                               |
 | `showSteamUiConfirm`, `showSteamUiPrompt` | a confirmation, and a request for one line of text, in Steam's modal                          |
 
 The Extensions tab draws its folding header, its action row and its nested rows with the kit
@@ -1392,6 +1397,11 @@ read availability out of that state. Its state, delta and overlay-level types fo
 protobuf field names; the two-layer hiding rule, the external-display twins, the 769 "no game" id
 and the limits-and-settings pairing are documented on the types.
 
+A command that opens a page answers `SteamUiCommandResult.Route(route)`, the `{ route }` the
+Extensions tab, the game context menu and the navigation panel follow. A payload of one field is
+read with `SteamUiPayload.TryReadOnlyString`, `TryReadOnlyOptionalString`, `TryReadOnlyChoice` or
+`TryReadOnlyBoolean`.
+
 Every gate's payload is read with `SteamUiPayload` (exact object shape, bounded strings, ranges),
 and a malformed one is refused with a fixed reason before the backend runs. Its readers cover a
 non-blank string, a string that may be empty (`TryReadString`), one that may be null for "clear"
@@ -1430,6 +1440,9 @@ label. A value typed into a box belongs to the revision it was typed against and
 is left: a newer published revision and a refused save both drop it, so the box never shows or
 resends a value the host has replaced or rejected. The panel adds no heading of its own; Steam
 titles the tab, which draws its own `extensions` glyph.
+
+A setting's `choices` are the values sent back; `choiceLabels`, in the same order, is what they
+are shown as, so a host whose values are ids never finds a choice again by its label.
 
 A setting with a `parent` names a boolean setting on the same item and is drawn indented under it,
 only while that switch is on, as the user last set it or as the host published it; the way

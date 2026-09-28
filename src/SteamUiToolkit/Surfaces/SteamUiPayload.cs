@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 
 namespace SteamUiToolkit;
@@ -226,6 +227,54 @@ public static class SteamUiPayload
 
         values = read;
         return true;
+    }
+
+    /// <summary>Reads a payload that is one non-blank string property and nothing else.</summary>
+    /// <param name="payload">The request payload.</param>
+    /// <param name="propertyName">The one property.</param>
+    /// <param name="maximumLength">Longest accepted string.</param>
+    /// <param name="value">The string, when this returns true.</param>
+    /// <returns>Whether the payload is exactly that shape.</returns>
+    public static bool TryReadOnlyString(JsonElement payload, string propertyName, int maximumLength, out string value)
+    {
+        value = string.Empty;
+        return HasExactly(payload, 1) && TryReadBoundedString(payload, propertyName, maximumLength, out value);
+    }
+
+    /// <summary>Reads a payload that is one string property, which may be empty, and nothing else.</summary>
+    /// <param name="payload">The request payload.</param>
+    /// <param name="propertyName">The one property.</param>
+    /// <param name="maximumLength">Longest accepted string.</param>
+    /// <param name="value">The string, when this returns true.</param>
+    /// <returns>Whether the payload is exactly that shape.</returns>
+    public static bool TryReadOnlyOptionalString(
+        JsonElement payload, string propertyName, int maximumLength, out string value)
+    {
+        value = string.Empty;
+        return HasExactly(payload, 1) && TryReadString(payload, propertyName, maximumLength, out value);
+    }
+
+    /// <summary>Reads a payload that is one string property naming one of a fixed set, and nothing else.</summary>
+    /// <param name="payload">The request payload.</param>
+    /// <param name="propertyName">The one property.</param>
+    /// <param name="allowed">The values accepted.</param>
+    /// <param name="value">The value, when this returns true.</param>
+    /// <returns>Whether the payload is exactly that shape and names an allowed value.</returns>
+    public static bool TryReadOnlyChoice(
+        JsonElement payload, string propertyName, IReadOnlyCollection<string> allowed, out string value)
+    {
+        return TryReadOnlyString(payload, propertyName, 64, out value) && allowed.Contains(value);
+    }
+
+    /// <summary>Reads a payload that is one boolean property and nothing else.</summary>
+    /// <param name="payload">The request payload.</param>
+    /// <param name="propertyName">The one property.</param>
+    /// <param name="value">The value, when this returns true.</param>
+    /// <returns>Whether the payload is exactly that shape.</returns>
+    public static bool TryReadOnlyBoolean(JsonElement payload, string propertyName, out bool value)
+    {
+        value = false;
+        return HasExactly(payload, 1) && TryReadBoolean(payload, propertyName, out value);
     }
 
     /// <summary>Whether the payload object carries exactly this many properties.</summary>

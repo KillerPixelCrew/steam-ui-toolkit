@@ -339,7 +339,7 @@ const themes = (revision) => ({
       actions: [{ id: "browse", label: "Browse themes…" }],
       settings: [
         { key: "theme:dark", label: "Dark Deck", kind: "boolean", booleanValue: true, description: "v2.1 · Squishy" },
-        { key: "patch:dark:accent", label: "Accent", kind: "text", choices: ["Red", "Blue"], textValue: "Red", parent: "theme:dark" },
+        { key: "patch:dark:accent", label: "Accent", kind: "text", choices: ["red", "blue"], choiceLabels: ["Red", "Blue"], textValue: "red", parent: "theme:dark" },
         { key: "patch:dark:blur", label: "Blur", kind: "number", choices: ["Off", "Low", "High"], numberValue: 1, parent: "theme:dark" },
         { key: "theme:light", label: "Light Deck", kind: "boolean", booleanValue: false },
         { key: "patch:light:x", label: "Hidden while off", kind: "text", textValue: "", parent: "theme:light" },
@@ -402,6 +402,11 @@ assert.equal(bodyRows[2].props.children[0].props.children[0].props.className, "s
 const nested = bodyRows[3].props.children[0];
 assert.equal(nested.props.className, "steam-ui-kit-nested", "a child setting is drawn indented with the kit");
 assert.equal(nested.props.children[0].type, Dropdown);
+assert.deepEqual(
+  nested.props.children[0].props.rgOptions.map((option) => [option.data, option.label]),
+  [["red", "Red"], ["blue", "Blue"]],
+  "a choice is sent back by its value and shown by its label",
+);
 const blur = bodyRows[4].props.children[0].props.children[0];
 assert.equal(blur.type, Slider, "a number with choices is a slider");
 assert.equal(blur.props.max, 2);

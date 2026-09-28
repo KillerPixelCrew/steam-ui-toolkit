@@ -42,13 +42,14 @@ const kit = instantiate(
   "({steamUiKitStyle, renderSteamUiHeader, renderSteamUiGroup, renderSteamUiActions," +
     " renderSteamUiSwatch, renderSteamUiCard, renderSteamUiGrid, renderSteamUiEmpty, renderSteamUiBanner," +
     " renderSteamUiToolbar, renderSteamUiTool, renderSteamUiChips, renderSteamUiBox, renderSteamUiGallery, renderSteamUiVideo," +
+    " renderSteamUiTabbedPage, renderSteamUiDetail, SteamUiTabbedPageRequired," +
     " showSteamUiConfirm, showSteamUiPrompt, SteamUiKitStyles})",
 );
 
 // The stylesheet is one element a root renders, and every class an element uses has a rule.
 const style = kit.steamUiKitStyle(react);
 assert.equal(style.type, "style");
-for (const cls of ["page", "pane", "header", "header-icon", "group", "group-body", "blocks", "valve", "battery", "actions", "nested", "swatch", "card", "grid", "banner", "toolbar", "chips", "box", "gallery", "video", "modal-body"]) {
+for (const cls of ["page", "pane", "header", "header-icon", "group", "group-body", "blocks", "valve", "battery", "actions", "nested", "swatch", "card", "grid", "banner", "toolbar", "chips", "box", "gallery", "detail", "detail-main", "detail-aside", "page-banner", "modal-body"]) {
   assert.ok(kit.SteamUiKitStyles.includes(`.steam-ui-kit-${cls}`), `a rule for steam-ui-kit-${cls}`);
 }
 
@@ -135,12 +136,35 @@ assert.equal(kit.renderSteamUiEmpty(react, "Nothing", true).props.className, "st
 
 // A video preview plays the movie muted on a loop, shows the still without one, and says so without either.
 const video = kit.renderSteamUiVideo(react, { src: "https://x/1.webm", poster: "https://x/1.jpg" });
-assert.equal(video.props.className, "steam-ui-kit-video");
+assert.equal(video.props.className, "steam-ui-kit-hero video");
 assert.equal(video.props.children[0].type, "video");
 assert.equal(video.props.children[0].props.muted, true);
 assert.equal(video.props.children[0].props.loop, true);
 assert.equal(kit.renderSteamUiVideo(react, { poster: "https://x/1.jpg" }).props.children[0].type, "img");
-assert.equal(kit.renderSteamUiVideo(react, { empty: "Nothing" }).props.children[0].props.className, "steam-ui-kit-video-empty");
+assert.equal(kit.renderSteamUiVideo(react, { empty: "Nothing" }).props.children[0].props.className, "steam-ui-kit-hero-empty");
+
+// A tabbed page draws only the active tab, falls back to the first for an unknown one, and shows a
+// banner only with text; a detail is Steam's Focusable, left with B, with Back last in its aside.
+const Tabs = "Tabs";
+const pageUi = { ...ui, tabs: Tabs };
+const shownTabs = [];
+const page = kit.renderSteamUiTabbedPage(pageUi, {
+  id: "p", label: "P", tabs: [{ id: "a", title: "A" }, { id: "b", title: "B" }], active: "zzz",
+  onTab: () => {}, content: (tab) => { shownTabs.push(tab); return tab; }, banner: { text: "", onDismiss: () => {} },
+});
+assert.equal(page.props.className, "steam-ui-kit-page");
+const tabsElement = page.props.children.find((child) => child?.type === Tabs);
+assert.equal(tabsElement.props.activeTab, "a");
+assert.deepEqual(tabsElement.props.tabs.map((tab) => tab.content), ["a", null]);
+assert.deepEqual(shownTabs, ["a"]);
+assert.ok(!page.props.children.some((child) => child?.props?.className === "steam-ui-kit-page-banner"));
+let backed = 0;
+const detail = kit.renderSteamUiDetail(ui, { title: "T", badge: "v1", main: ["m"], aside: ["box"], onBack: () => backed++ });
+assert.equal(detail.type, Focusable);
+detail.props.onCancelButton();
+assert.equal(backed, 1);
+assert.equal(detail.props.children[1].props.children.at(-1).type, Button);
+assert.ok(kit.SteamUiTabbedPageRequired.includes("tabs"));
 
 // A banner dismisses with the small button; a toolbar and chips are focusable rows of Steam's buttons.
 let dismissed = 0;
