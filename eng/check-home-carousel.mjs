@@ -4,7 +4,7 @@
 // bytes do once they hold Home: that Home is found through the router's route list by content, that
 // a Home already on screen is adopted into the claim and asked to render, that the carousel's
 // `games` array is replaced for both the background and the box carousel, that the box carousel's
-// overscan goes back to the component's default instead of the whole list, that the order follows
+// overscan is Steam's own list length rather than the whole list, that the order follows
 // the documented rules, that games on a disconnected library leave, that uninstalled games are
 // greyed, that the list is not rebuilt when nothing changed, and that removal hands Home back, on
 // the memo and on the adopted fiber alike.
@@ -267,7 +267,11 @@ assert.deepEqual(
   "running prefix, then played and purchased by time, then never played by install time",
 );
 assert.equal(view.background.props.games, view.box.props.games, "the background must follow the same list");
-assert.equal(view.box.props.overscan, undefined, "overscan must go back to the component's default");
+assert.equal(
+  view.box.props.overscan,
+  steamGames.length,
+  "overscan must be the length of Steam's own list, which keeps its first tiles loading at once",
+);
 assert.match(view.css, /\[data-id="20"\] img/, "a purchase not yet installed must be greyed");
 assert.doesNotMatch(view.css, /data-id="21"/, "an installed purchase must not be greyed");
 assert.ok(observed.includes("SteamUiHomeCarousel"), "the inputs must be read inside Steam's observer");
@@ -338,7 +342,7 @@ assert.equal(view.box.props.overscan, steamGames.length);
 
 assert.ok(gate.install().ok, "the gate must be reinstallable");
 view = renderCarousel();
-assert.equal(view.box.props.overscan, undefined);
+assert.equal(view.box.props.overscan, steamGames.length);
 assert.equal(homeFiber.type, HomeMemo.type, "a reinstall must adopt the mounted Home again");
 assert.equal(switchInstance.renders, 2);
 assert.ok(gate.remove().ok);
