@@ -11,7 +11,6 @@ function createExtensionsTab() {
     original: "__steamUiExtensionsTabOriginal",
   } as const;
   const QamToken = "QuickAccessMenuBrowserView";
-  const MaximumItems = 64;
   // The tab's identity in Steam's strip, a number like Valve's own (Notifications 0, Friends 3,
   // Settings 4, Perf 5, Help 6, Music 7): the strip's activeTab is compared to it. Clear of Valve's
   // and of decky-loader's 999 so the two can coexist.
@@ -81,60 +80,46 @@ function createExtensionsTab() {
   // Valve's tab array the tab was last pushed into, so removal can take it out again.
   let insertedInto: any[] | null = null;
 
-  const validAction = (action) =>
-    action &&
-    typeof action.id === "string" &&
-    action.id.length > 0 &&
-    action.id.length <= 96 &&
-    typeof action.label === "string" &&
-    action.label.length > 0 &&
-    action.label.length <= 160;
-  const optionalText = (value, maximum) =>
-    value === undefined || value === null || (typeof value === "string" && value.length <= maximum);
+  // Only what the renderer needs to draw a row: the right types, and text where a label goes. No
+  // counts and no lengths: the publication is delivered in parts however large it is, and a cap here
+  // only ever threw real content away. A theme set with 160 settings made the whole Themes section
+  // vanish. Anything malformed drops alone, never the item it sits in.
+  const text = (value) => typeof value === "string" && value.length > 0;
+  const optionalText = (value) => value === undefined || value === null || typeof value === "string";
   const optionalFlag = (value) => value === undefined || value === null || typeof value === "boolean";
+  const textList = (value) =>
+    Array.isArray(value) && value.every((entry) => typeof entry === "string");
+  const validAction = (action) => action && text(action.id) && text(action.label);
   const validSetting = (setting) =>
     setting &&
-    typeof setting.key === "string" &&
-    setting.key.length > 0 &&
-    setting.key.length <= 128 &&
-    typeof setting.label === "string" &&
-    setting.label.length > 0 &&
-    setting.label.length <= 128 &&
+    text(setting.key) &&
+    text(setting.label) &&
     ["boolean", "number", "text", "secret", "order", "color"].includes(setting.kind) &&
-    optionalText(setting.description, 512) &&
-    optionalText(setting.parent, 128) &&
+    optionalText(setting.description) &&
+    optionalText(setting.parent) &&
     optionalFlag(setting.highlight) &&
-    (setting.choices === undefined ||
-      setting.choices === null ||
-      (Array.isArray(setting.choices) &&
-        setting.choices.length <= 64 &&
-        setting.choices.every((choice) => typeof choice === "string" && choice.length <= 4096))) &&
+    (setting.choices === undefined || setting.choices === null || textList(setting.choices)) &&
     (setting.choiceLabels === undefined ||
       setting.choiceLabels === null ||
-      (Array.isArray(setting.choiceLabels) &&
+      (textList(setting.choiceLabels) &&
         Array.isArray(setting.choices) &&
-        setting.choiceLabels.length === setting.choices.length &&
-        setting.choiceLabels.every((label) => typeof label === "string" && label.length <= 4096)));
-  const validItem = (item) =>
+        setting.choiceLabels.length === setting.choices.length));
+  // An item keeps whatever of it can be drawn. Only one without an identity and a name is dropped,
+  // or one with a revision the configure command refuses, since every row in it would be dead.
+  const usableItem = (item) =>
     item &&
-    typeof item.id === "string" &&
-    item.id.length > 0 &&
+    text(item.id) &&
     typeof item.name === "string" &&
     typeof item.version === "string" &&
     typeof item.status === "string" &&
-    (item.actions === undefined ||
-      item.actions === null ||
-      (Array.isArray(item.actions) &&
-        item.actions.length <= 64 &&
-        item.actions.every(validAction))) &&
-    (item.settings === undefined ||
-      item.settings === null ||
-      (Array.isArray(item.settings) &&
-        item.settings.length <= 128 &&
-        item.settings.every(validSetting))) &&
     Number.isSafeInteger(item.configurationRevision ?? 0) &&
-    (item.configurationRevision ?? 0) >= 0 &&
-    (item.detail === undefined || item.detail === null || typeof item.detail === "string");
+    (item.configurationRevision ?? 0) >= 0;
+  const drawable = (item) => ({
+    ...item,
+    actions: Array.isArray(item.actions) ? item.actions.filter(validAction) : [],
+    settings: Array.isArray(item.settings) ? item.settings.filter(validSetting) : [],
+    detail: typeof item.detail === "string" ? item.detail : undefined,
+  });
 
   // An element whose own props carry the tab list, with our tab in it; null for any other element.
   // Steam's tab view is private, so the list is matched by content rather than by a path into the
@@ -508,9 +493,7 @@ function createExtensionsTab() {
     // The claim reaches the next mount only, and the Quick Access view is mounted at boot and kept.
     mounted.adopt(memo, memo.type);
     unsubscribe = subscribe(patchId, (state) => {
-      const items = Array.isArray(state?.items)
-        ? state.items.filter(validItem).slice(0, MaximumItems)
-        : [];
+      const items = Array.isArray(state?.items) ? state.items.filter(usableItem).map(drawable) : [];
       const next = { items, revision: Number.isSafeInteger(state?.revision) ? state.revision : 0 };
       // The wrapper reads `desired` from its closure, so a publication changes nothing React can
       // see on its own, and an unchanged one needs no render at all.

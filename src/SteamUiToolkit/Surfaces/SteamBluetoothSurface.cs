@@ -245,7 +245,7 @@ public static class SteamBluetoothSurface
             PatchId,
             command,
             static (payload, out deviceId) =>
-                SteamUiPayload.TryReadBoundedString(payload, "device", 256, out deviceId)
+                SteamUiPayload.TryReadNonBlankString(payload, "device", out deviceId)
                 && SteamUiPayload.HasExactly(payload, 1),
             operation,
             InvalidDevice);
@@ -262,7 +262,7 @@ public static class SteamBluetoothSurface
             (JsonElement payload, out (string Device, bool Flag) value) =>
             {
                 var flag = false;
-                var read = SteamUiPayload.TryReadBoundedString(payload, "device", 256, out var device)
+                var read = SteamUiPayload.TryReadNonBlankString(payload, "device", out var device)
                            && SteamUiPayload.TryReadBoolean(payload, flagName, out flag)
                            && SteamUiPayload.HasExactly(payload, 2);
                 value = (device, flag);

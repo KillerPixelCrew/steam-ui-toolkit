@@ -23,15 +23,12 @@ namespace SteamUiToolkit.Surfaces;
 /// </remarks>
 public static class SteamRouteNavigation
 {
-    /// <summary>The longest route either way in accepts.</summary>
-    public const int MaximumRouteLength = 256;
-
     /// <summary>Whether a route is one this may ask Steam to open.</summary>
     /// <param name="route">The route.</param>
-    /// <returns>True for an absolute route other than the root, within the length bound.</returns>
+    /// <returns>True for an absolute route other than the root.</returns>
     public static bool IsNavigable(string? route)
     {
-        return route is { Length: > 1 and <= MaximumRouteLength }
+        return route is { Length: > 1 }
                && route[0] == '/'
                && !route.Any(char.IsControl);
     }
@@ -72,7 +69,7 @@ public static class SteamRouteNavigation
                    try {
                      if(Date.now()>{{expiresAt.ToString(CultureInfo.InvariantCulture)}})return false;
                      const route={{SteamCef.JsString(route)}};
-                     if(typeof route!=='string'||!route.startsWith('/')||route==='/'||route.length>{{MaximumRouteLength.ToString(CultureInfo.InvariantCulture)}})return false;
+                     if(typeof route!=='string'||!route.startsWith('/')||route==='/')return false;
                      const history=window.tempNavStore?.m_history;
                      if(!history||typeof history.push!=='function')return false;
                      history.push(route);

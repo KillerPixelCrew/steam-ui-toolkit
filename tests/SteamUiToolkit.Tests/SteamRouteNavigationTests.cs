@@ -22,9 +22,9 @@ public sealed class SteamRouteNavigationTests
     }
 
     [Fact]
-    public void ARouteLongerThanTheGatesAcceptIsNotNavigable()
+    public void ALongRouteIsStillNavigable()
     {
-        Assert.False(SteamRouteNavigation.IsNavigable("/" + new string('a', SteamRouteNavigation.MaximumRouteLength)));
+        Assert.True(SteamRouteNavigation.IsNavigable("/" + new string('a', 4096)));
     }
 
     [Fact]

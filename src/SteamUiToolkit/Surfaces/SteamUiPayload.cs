@@ -101,16 +101,15 @@ public static class SteamUiPayload
         return true;
     }
 
-    /// <summary>Reads one required non-blank string property within a length bound.</summary>
+    /// <summary>Reads one required non-blank string property.</summary>
     /// <param name="payload">The request payload.</param>
     /// <param name="propertyName">The property to read.</param>
-    /// <param name="maximumLength">Longest accepted string.</param>
     /// <param name="value">The string, when this returns true.</param>
-    /// <returns>Whether the property is present, a string, non-blank and within the bound.</returns>
-    public static bool TryReadBoundedString(
+    /// <returns>Whether the property is present, a string and non-blank.</returns>
+    /// <remarks>No length limit: the value is whatever the page sent, and the caller decides what it means.</remarks>
+    public static bool TryReadNonBlankString(
         JsonElement payload,
         string propertyName,
-        int maximumLength,
         out string value)
     {
         value = string.Empty;
@@ -122,7 +121,7 @@ public static class SteamUiPayload
         }
 
         var candidate = property.GetString();
-        if (string.IsNullOrWhiteSpace(candidate) || candidate.Length > maximumLength)
+        if (string.IsNullOrWhiteSpace(candidate))
         {
             return false;
         }
@@ -131,20 +130,18 @@ public static class SteamUiPayload
         return true;
     }
 
-    /// <summary>Reads one required string property that may be empty, within a length bound.</summary>
+    /// <summary>Reads one required string property that may be empty.</summary>
     /// <param name="payload">The request payload.</param>
     /// <param name="propertyName">The property to read.</param>
-    /// <param name="maximumLength">Longest accepted string.</param>
     /// <param name="value">The string, empty included, when this returns true.</param>
-    /// <returns>Whether the property is present, a string and within the bound.</returns>
+    /// <returns>Whether the property is present and a string.</returns>
     /// <remarks>
     ///     For a value whose empty spelling means something, such as "no filter" or "back to the
-    ///     default", which <see cref="TryReadBoundedString" /> would refuse.
+    ///     default", which <see cref="TryReadNonBlankString" /> would refuse.
     /// </remarks>
     public static bool TryReadString(
         JsonElement payload,
         string propertyName,
-        int maximumLength,
         out string value)
     {
         value = string.Empty;
@@ -155,27 +152,19 @@ public static class SteamUiPayload
             return false;
         }
 
-        var candidate = property.GetString() ?? string.Empty;
-        if (candidate.Length > maximumLength)
-        {
-            return false;
-        }
-
-        value = candidate;
+        value = property.GetString() ?? string.Empty;
         return true;
     }
 
-    /// <summary>Reads one required string property that may be null, within a length bound.</summary>
+    /// <summary>Reads one required string property that may be null.</summary>
     /// <param name="payload">The request payload.</param>
     /// <param name="propertyName">The property to read.</param>
-    /// <param name="maximumLength">Longest accepted string.</param>
     /// <param name="value">The string, or null for a JSON null, when this returns true.</param>
-    /// <returns>Whether the property is present and either null or a non-blank string within the bound.</returns>
+    /// <returns>Whether the property is present and either null or a non-blank string.</returns>
     /// <remarks>For a selection that can also be cleared, where null is the clearing spelling.</remarks>
     public static bool TryReadNullableString(
         JsonElement payload,
         string propertyName,
-        int maximumLength,
         out string? value)
     {
         value = null;
@@ -185,28 +174,23 @@ public static class SteamUiPayload
         }
 
         return property.ValueKind == JsonValueKind.Null
-               || TryReadBoundedString(payload, propertyName, maximumLength, out value!);
+               || TryReadNonBlankString(payload, propertyName, out value!);
     }
 
-    /// <summary>Reads one required array of non-blank strings, within a count and a length bound.</summary>
+    /// <summary>Reads one required array of non-blank strings.</summary>
     /// <param name="payload">The request payload.</param>
     /// <param name="propertyName">The property to read.</param>
-    /// <param name="maximumCount">The most strings accepted.</param>
-    /// <param name="maximumLength">Longest accepted string.</param>
     /// <param name="values">The strings, in order, when this returns true.</param>
     /// <returns>Whether the property is an array of that shape; an empty array is accepted.</returns>
     public static bool TryReadStrings(
         JsonElement payload,
         string propertyName,
-        int maximumCount,
-        int maximumLength,
         out IReadOnlyList<string> values)
     {
         values = [];
         if (payload.ValueKind != JsonValueKind.Object
             || !payload.TryGetProperty(propertyName, out var property)
-            || property.ValueKind != JsonValueKind.Array
-            || property.GetArrayLength() > maximumCount)
+            || property.ValueKind != JsonValueKind.Array)
         {
             return false;
         }
@@ -216,8 +200,7 @@ public static class SteamUiPayload
         {
             if (item.ValueKind != JsonValueKind.String
                 || item.GetString() is not { } text
-                || string.IsNullOrWhiteSpace(text)
-                || text.Length > maximumLength)
+                || string.IsNullOrWhiteSpace(text))
             {
                 return false;
             }
@@ -232,26 +215,23 @@ public static class SteamUiPayload
     /// <summary>Reads a payload that is one non-blank string property and nothing else.</summary>
     /// <param name="payload">The request payload.</param>
     /// <param name="propertyName">The one property.</param>
-    /// <param name="maximumLength">Longest accepted string.</param>
     /// <param name="value">The string, when this returns true.</param>
     /// <returns>Whether the payload is exactly that shape.</returns>
-    public static bool TryReadOnlyString(JsonElement payload, string propertyName, int maximumLength, out string value)
+    public static bool TryReadOnlyString(JsonElement payload, string propertyName, out string value)
     {
         value = string.Empty;
-        return HasExactly(payload, 1) && TryReadBoundedString(payload, propertyName, maximumLength, out value);
+        return HasExactly(payload, 1) && TryReadNonBlankString(payload, propertyName, out value);
     }
 
     /// <summary>Reads a payload that is one string property, which may be empty, and nothing else.</summary>
     /// <param name="payload">The request payload.</param>
     /// <param name="propertyName">The one property.</param>
-    /// <param name="maximumLength">Longest accepted string.</param>
     /// <param name="value">The string, when this returns true.</param>
     /// <returns>Whether the payload is exactly that shape.</returns>
-    public static bool TryReadOnlyOptionalString(
-        JsonElement payload, string propertyName, int maximumLength, out string value)
+    public static bool TryReadOnlyOptionalString(JsonElement payload, string propertyName, out string value)
     {
         value = string.Empty;
-        return HasExactly(payload, 1) && TryReadString(payload, propertyName, maximumLength, out value);
+        return HasExactly(payload, 1) && TryReadString(payload, propertyName, out value);
     }
 
     /// <summary>Reads a payload that is one string property naming one of a fixed set, and nothing else.</summary>
@@ -263,7 +243,7 @@ public static class SteamUiPayload
     public static bool TryReadOnlyChoice(
         JsonElement payload, string propertyName, IReadOnlyCollection<string> allowed, out string value)
     {
-        return TryReadOnlyString(payload, propertyName, 64, out value) && allowed.Contains(value);
+        return TryReadOnlyString(payload, propertyName, out value) && allowed.Contains(value);
     }
 
     /// <summary>Reads a payload that is one boolean property and nothing else.</summary>

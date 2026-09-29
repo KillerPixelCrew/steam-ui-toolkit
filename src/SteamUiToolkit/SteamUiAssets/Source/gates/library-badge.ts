@@ -33,34 +33,26 @@
 // consumer may: the gate reports the mode to the host through `homeLayout` when it first resolves
 // and whenever a tile render sees it change, and carries it in `status` for verification.
 // The host's published libraries, read once for every gate that names them: indexed by app id, with
-// the label for a game no listed library holds. Bounded; a malformed entry is skipped rather than
-// failing the whole reading.
+// the label for a game no listed library holds. A malformed entry is skipped rather than failing the
+// whole reading.
 const readLibraryBadgeState = (state) => {
-    const MaximumLibraries = 64;
-    const MaximumAppIds = 4096;
-    const MaximumNameLength = 64;
     const libraries = new Map<number, { name: string; connected: boolean }>();
     const published = Array.isArray(state?.libraries) ? state.libraries : [];
-    let ids = 0;
     let count = 0;
-    for (const entry of published.slice(0, MaximumLibraries)) {
+    for (const entry of published) {
         if (!entry || typeof entry.name !== "string" || !Array.isArray(entry.appIds)) continue;
         count++;
         const library = {
-            name: entry.name.slice(0, MaximumNameLength),
+            name: entry.name,
             connected: entry.connected === true,
         };
         for (const appid of entry.appIds) {
             if (typeof appid !== "number" || !Number.isInteger(appid) || appid <= 0) continue;
-            if (ids >= MaximumAppIds) break;
             libraries.set(appid, library);
-            ids++;
         }
     }
     const internalLabel =
-        typeof state?.internalLabel === "string" && state.internalLabel
-            ? state.internalLabel.slice(0, MaximumNameLength)
-            : "Internal";
+        typeof state?.internalLabel === "string" && state.internalLabel ? state.internalLabel : "Internal";
     return {libraries, internalLabel, count};
 };
 

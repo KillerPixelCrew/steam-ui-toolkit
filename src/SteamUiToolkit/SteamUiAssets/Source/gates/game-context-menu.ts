@@ -10,7 +10,7 @@ function createGameContextMenu() {
     original: "__steamUiGameContextMenuRenderOriginal",
   } as const;
   const MenuTokens = ["GetTargetApps", "BuildManageSubmenu", "GetPrimaryActionMenuItem"];
-  const MaximumItems = 32;
+  // How deep into Steam's own menu tree the item list is looked for; it bounds the walk, not the items.
   const MaximumDepth = 10;
 
   let runtime;
@@ -27,10 +27,8 @@ function createGameContextMenu() {
     item &&
     typeof item.id === "string" &&
     item.id.length > 0 &&
-    item.id.length <= 96 &&
     typeof item.label === "string" &&
-    item.label.length > 0 &&
-    item.label.length <= 160;
+    item.label.length > 0;
 
   const appIdFor = (instance) => {
     try {
@@ -193,7 +191,7 @@ function createGameContextMenu() {
     lastError = "";
     unsubscribe = subscribe(patchId, (state) => {
       const items = Array.isArray(state?.items)
-        ? state.items.filter(validItem).slice(0, MaximumItems)
+        ? state.items.filter(validItem)
         : [];
       desired = { items, revision: Number.isSafeInteger(state?.revision) ? state.revision : 0 };
     });

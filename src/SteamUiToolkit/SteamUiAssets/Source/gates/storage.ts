@@ -59,9 +59,6 @@ function createStorageService() {
     const AvailabilityQueryKey = [StorageQueryScope, "IsServiceAvailable"];
     const StateQueryKey = [StorageQueryScope, "State"];
 
-    // A machine with more drives than this is not a handheld, and the state is rendered as rows.
-    const MaximumDrives = 32;
-
     let runtime;
     let transport = null;
     let queryClient: { invalidateQueries: (options: { queryKey: unknown[] }) => void } | null = null;
@@ -156,7 +153,8 @@ function createStorageService() {
                 const payload = {
                     driveId: asId(fields.drive_id),
                     blockDeviceId: asId(fields.block_device_id),
-                    label: typeof fields.label === "string" ? fields.label.slice(0, 64) : "",
+                    // The host checks the label against the format it writes.
+                    label: typeof fields.label === "string" ? fields.label : "",
                     validate: fields.validate === true,
                 };
                 lastPayload = JSON.stringify(payload);
@@ -264,7 +262,7 @@ function createStorageService() {
             // NaN B", and one with no adopt_stage renders a spinner forever, because undefined compares
             // unequal to the idle stage. Both were observed on the live page before this.
             state = {
-                drives: drives.slice(0, MaximumDrives).map((drive) => ({
+                drives: drives.map((drive) => ({
                     id: Number(drive?.id ?? 0),
                     model: String(drive?.model ?? ""),
                     vendor: String(drive?.vendor ?? ""),
@@ -281,7 +279,7 @@ function createStorageService() {
                     is_formattable: drive?.formattable === true,
                     is_media_available: drive?.mediaAvailable !== false,
                 })),
-                block_devices: devices.slice(0, MaximumDrives).map((device) => ({
+                block_devices: devices.map((device) => ({
                     id: Number(device?.id ?? 0),
                     drive_id: Number(device?.driveId ?? 0),
                     path: String(device?.friendlyPath ?? ""),

@@ -96,7 +96,7 @@ public sealed class SteamScreensaverTests
     [InlineData("""{"acSeconds":300,"batterySeconds":600,"battery":true}""", true, 300, 600, true)]
     [InlineData("""{"acSeconds":0,"batterySeconds":null,"battery":false}""", true, 0, null, false)]
     [InlineData("""{"acSeconds":604800,"batterySeconds":0,"battery":false}""", true, 604800, 0, false)]
-    [InlineData("""{"acSeconds":604801,"batterySeconds":0,"battery":false}""", false, 0, null, false)]
+    [InlineData("""{"acSeconds":604801,"batterySeconds":0,"battery":false}""", true, 604801, 0, false)]
     [InlineData("""{"acSeconds":-1,"batterySeconds":0,"battery":false}""", false, 0, null, false)]
     [InlineData("""{"acSeconds":300,"batterySeconds":"600","battery":false}""", false, 0, null, false)]
     [InlineData("""{"acSeconds":300,"battery":false}""", false, 0, null, false)]

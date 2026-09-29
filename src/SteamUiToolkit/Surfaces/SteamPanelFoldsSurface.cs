@@ -73,7 +73,7 @@ public static class SteamPanelFoldsSurface
     private static bool TryReadFold(JsonElement payload, out (string Id, bool Folded) value)
     {
         value = default;
-        if (!SteamUiPayload.TryReadBoundedString(payload, "id", 160, out var id)
+        if (!SteamUiPayload.TryReadNonBlankString(payload, "id", out var id)
             || !SteamUiPayload.TryReadBoolean(payload, "folded", out var folded)
             || !SteamUiPayload.HasExactly(payload, 2))
         {

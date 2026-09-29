@@ -31,10 +31,6 @@ function createThemeStyles() {
   const OwnedClass = "steam-ui-theme-style";
   const IdPrefix = "steam-ui-theme-";
   const HashKey = "steamUiHash";
-  const MaximumStyles = 256;
-  const MaximumCssLength = 4 * 1024 * 1024;
-  const MaximumTargets = 32;
-  const MaximumTargetLength = 256;
   // How often the windows are read again for one Steam opened or navigated since the last pass.
   // CSSLoader checks every three seconds; a pass here is a bounded walk and a few reads per window.
   const ReconcileMilliseconds = 2000;
@@ -57,21 +53,18 @@ function createThemeStyles() {
   // Compiled title patterns, once each: a pattern that does not compile matches nothing.
   const patterns = new Map<string, RegExp | null>();
 
+  // Types only, and an id a node can carry. However many themes are on and however large their CSS,
+  // every one is installed.
   const validStyle = (style) =>
     !!style &&
     typeof style.id === "string" &&
-    /^[A-Za-z0-9_.:-]{1,96}$/u.test(style.id) &&
+    /^[A-Za-z0-9_.:-]+$/u.test(style.id) &&
     typeof style.css === "string" &&
-    style.css.length <= MaximumCssLength &&
     typeof style.hash === "string" &&
     style.hash.length > 0 &&
-    style.hash.length <= 64 &&
     Array.isArray(style.targets) &&
     style.targets.length > 0 &&
-    style.targets.length <= MaximumTargets &&
-    style.targets.every(
-      (target) => typeof target === "string" && target.length > 0 && target.length <= MaximumTargetLength,
-    );
+    style.targets.every((target) => typeof target === "string" && target.length > 0);
 
   // Steam's popup manager, by the name Valve publishes it under; null when it is not where Valve
   // keeps it today.
@@ -267,7 +260,7 @@ function createThemeStyles() {
     lastError = "";
     unsubscribe = subscribe(patchId, (state) => {
       const styles = Array.isArray(state?.styles)
-        ? state.styles.filter(validStyle).slice(0, MaximumStyles)
+        ? state.styles.filter(validStyle)
         : [];
       const revision = Number.isSafeInteger(state?.revision) ? state.revision : 0;
       const signature = signatureOf(styles);
@@ -302,7 +295,7 @@ function createThemeStyles() {
     steamDocuments().map((facts) => ({
       name: facts.name,
       title: facts.title,
-      url: facts.url.slice(0, 200),
+      url: facts.url,
       nodes: ownedNodes(facts.doc).length,
     }));
 

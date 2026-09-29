@@ -6,7 +6,6 @@ type BridgeConfiguration = Readonly<{
     contextGeneration: number;
     documentGeneration: number;
     maximumPending: number;
-    maximumPayloadCharacters: number;
     timeoutMilliseconds: number;
     allowed: Readonly<Record<string, readonly string[]>>;
 }>;

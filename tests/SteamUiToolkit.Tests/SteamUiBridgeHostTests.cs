@@ -50,7 +50,6 @@ public sealed class SteamUiBridgeHostTests
         transport.EmitBindingPayload("{");
         transport.EmitRawParameters("{\"name\":\"somebody-elses-binding\",\"payload\":\"{}\"}");
         transport.EmitRawParameters("{\"name\":\"__steamUiBridge_v1_7b24d11c\"}");
-        transport.EmitBindingPayload(new string('x', SteamUiBridgeHost.MaximumPayloadCharacters + 1));
 
         Assert.Equal(0, received);
     }
@@ -242,14 +241,14 @@ public sealed class SteamUiBridgeHostTests
     }
 
     [Fact]
-    public async Task DeliveriesMayExceedTheInboundPayloadCap()
+    public async Task LargeDeliveriesAndAnswersAreSent()
     {
         await using var transport = new FakeSteamUiTransport();
         await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
         Assert.True(await host.BootstrapAsync());
         var afterBootstrap = transport.Expressions.Count;
         var large = TestJson.Parse(
-            "{\"value\":\"" + new string('x', SteamUiBridgeHost.MaximumPayloadCharacters)
+            "{\"value\":\"" + new string('x', 64 * 1024)
                             + "\"}");
 
         Assert.True(await host.PublishStateAsync("example.performance", large));

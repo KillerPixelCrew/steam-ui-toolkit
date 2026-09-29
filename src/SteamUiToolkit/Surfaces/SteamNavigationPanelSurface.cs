@@ -185,7 +185,7 @@ public static class SteamNavigationPanelSurface
                     PatchId,
                     "activate",
                     static (JsonElement payload, out string entryId) =>
-                        SteamUiPayload.TryReadBoundedString(payload, "id", 64, out entryId),
+                        SteamUiPayload.TryReadNonBlankString(payload, "id", out entryId),
                     backend.ActivateAsync,
                     "The navigation activation payload is invalid.")
             ]);

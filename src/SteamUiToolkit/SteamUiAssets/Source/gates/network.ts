@@ -57,7 +57,7 @@ function createNetworkGate() {
     // connection protocol: its argument order has not been read from the client.
     const onState = (state) => {
         const instance = store();
-        const networks = Array.isArray(state?.networks) ? state.networks.slice(0, 24) : [];
+        const networks = Array.isArray(state?.networks) ? state.networks : [];
         if (!instance || !instance.m_WirelessDevice) {
             lastError = "network store has no wireless device";
             return;

@@ -238,13 +238,18 @@ for (const malformed of [
   { rows: [row({ seconds: -1 })] },
   { rows: [row({ options: [{ seconds: 300, label: "" }] })] },
   { rows: [row(), row()] },
-  { rows: Array.from({ length: 5 }, (_, index) => row({ id: `r${index}` })) },
   { rows: "none" },
 ]) {
   globals.publish(malformed);
   assert.equal(screensaver.status().lastOutcome, "state received but rejected by validation");
   assert.equal(screensaver.status().rows, 1);
 }
+
+// Any number of rows is a valid publication; the one row the rest of this check uses comes back.
+globals.publish({ rows: Array.from({ length: 5 }, (_, index) => row({ id: `r${index}` })) });
+assert.equal(screensaver.status().rows, 5);
+globals.publish({ rows: [row()] });
+assert.equal(screensaver.status().rows, 1);
 
 // A change to Steam's timeout is reported once, from the render that observed it.
 settings.clientSettings.system_idle_screensaver_ac_sec = 900;

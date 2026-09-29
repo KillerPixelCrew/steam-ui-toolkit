@@ -24,13 +24,11 @@ public sealed record SteamFileEntry(string Name, string Path, bool Folder);
 /// <param name="Path">The folder.</param>
 /// <param name="Parent">Its parent, or empty at the root of a drive.</param>
 /// <param name="Entries">Its subfolders, then the files that match, each sorted by name.</param>
-/// <param name="Truncated">Whether there was more than one listing carries.</param>
 /// <param name="Error">Why it could not be listed, or null.</param>
 public sealed record SteamFileListing(
     string Path,
     string Parent,
     IReadOnlyList<SteamFileEntry> Entries,
-    bool Truncated,
     string? Error);
 
 /// <summary>The places the picker starts from.</summary>
@@ -56,12 +54,6 @@ public static class SteamFilePickerSurface
 {
     /// <summary>The patch id the picker's commands are addressed to. No patch is installed for it.</summary>
     public const string PatchId = "steam-ui.file-picker";
-
-    /// <summary>The most entries one listing carries.</summary>
-    public const int MaximumEntries = 1000;
-
-    /// <summary>The most file extensions one listing may filter by.</summary>
-    public const int MaximumExtensions = 16;
 
     /// <summary>The exact command vocabulary the picker sends.</summary>
     public static IReadOnlyList<string> Commands { get; } = ["listPlaces", "listFolder"];
@@ -124,13 +116,13 @@ public static class SteamFilePickerSurface
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            return new SteamFileListing(path, string.Empty, [], false, "That is not a folder path.");
+            return new SteamFileListing(path, string.Empty, [], "That is not a folder path.");
         }
 
         var parent = Directory.GetParent(full)?.FullName ?? string.Empty;
         if (!Path.IsPathFullyQualified(full))
         {
-            return new SteamFileListing(full, parent, [], false, "That is not a folder path.");
+            return new SteamFileListing(full, parent, [], "That is not a folder path.");
         }
 
         EnumerationOptions options = new()
@@ -144,13 +136,12 @@ public static class SteamFilePickerSurface
             DirectoryInfo directory = new(full);
             if (!directory.Exists)
             {
-                return new SteamFileListing(full, parent, [], false, "This folder no longer exists.");
+                return new SteamFileListing(full, parent, [], "This folder no longer exists.");
             }
 
             var folders = directory.EnumerateDirectories("*", options)
                 .Select(entry => new SteamFileEntry(entry.Name, entry.FullName, true))
                 .OrderBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase)
-                .Take(MaximumEntries + 1)
                 .ToList();
             var files = extensions.Count == 0
                 ? []
@@ -158,15 +149,12 @@ public static class SteamFilePickerSurface
                     .Where(entry => extensions.Contains(entry.Extension, StringComparer.OrdinalIgnoreCase))
                     .Select(entry => new SteamFileEntry(entry.Name, entry.FullName, false))
                     .OrderBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase)
-                    .Take(MaximumEntries + 1)
                     .ToList();
-            var entries = folders.Concat(files).ToList();
-            return new SteamFileListing(
-                full, parent, [.. entries.Take(MaximumEntries)], entries.Count > MaximumEntries, null);
+            return new SteamFileListing(full, parent, [.. folders, .. files], null);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
-            return new SteamFileListing(full, parent, [], false, ex is UnauthorizedAccessException
+            return new SteamFileListing(full, parent, [], ex is UnauthorizedAccessException
                 ? "This folder cannot be opened."
                 : ex.Message);
         }
@@ -180,10 +168,9 @@ public static class SteamFilePickerSurface
     {
         request = (string.Empty, []);
         if (!SteamUiPayload.HasExactly(payload, 2)
-            || !SteamUiPayload.TryReadBoundedString(payload, "path", 260, out var path)
+            || !SteamUiPayload.TryReadNonBlankString(payload, "path", out var path)
             || !payload.TryGetProperty("extensions", out var list)
-            || list.ValueKind != JsonValueKind.Array
-            || list.GetArrayLength() > MaximumExtensions)
+            || list.ValueKind != JsonValueKind.Array)
         {
             return false;
         }
@@ -192,7 +179,7 @@ public static class SteamFilePickerSurface
         foreach (var item in list.EnumerateArray())
         {
             if (item.ValueKind != JsonValueKind.String
-                || item.GetString() is not { Length: > 1 and <= 16 } extension
+                || item.GetString() is not { Length: > 1 } extension
                 || !extension.StartsWith('.')
                 || extension.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
             {

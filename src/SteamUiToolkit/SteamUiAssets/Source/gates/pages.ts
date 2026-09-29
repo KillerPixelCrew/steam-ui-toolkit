@@ -50,7 +50,6 @@ function createPageHost() {
   // A path every build of the client has and no consumer would register, used to recognise the
   // route list among the router's children.
   const KnownRoute = "/library/home";
-  const MaximumPages = 32;
   const MaximumDescent = 8;
   const PageKeyPrefix = "steam-ui-page-";
 
@@ -142,7 +141,7 @@ function createPageHost() {
       routeVerified = sourceMatches(known.type, BackstackRouteMarkers);
     }
 
-    const wanted = pages.slice(0, MaximumPages);
+    const wanted = pages;
     if (!wanted.length) {
       lastOutcome = `routes=${steam.length} pages=0`;
       return routes;
@@ -313,8 +312,7 @@ function createPageHost() {
             // every route would black out the client.
             page.path.startsWith("/") &&
             page.path !== "/",
-        )
-        .slice(0, MaximumPages);
+        );
       // The wrappers read `pages` from their closure, so a publication changes nothing React can
       // see on its own. Only a changed list earns a render: the class above the router is the one
       // asked, and its render re-runs every route, the configurator's edit session included.

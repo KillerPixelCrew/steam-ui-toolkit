@@ -460,8 +460,8 @@ everything once restarted a machine and signed Steam out.
 
 `SteamUiBridgeIdentity.Namespace = "__steamUi_v1_28d7c54a"`,
 `BindingName = "__steamUiBridge_v1_7b24d11c"`. `SteamUiBridgeHost.SchemaVersion = 1`,
-`MaximumPayloadCharacters = 16 KiB` for what the document sends, `DeliveryPartCharacters = 256 KiB`
-per evaluation for what the host delivers to it, `MaximumDeliveryCharacters = 32 MiB` as a guard on
+`DeliveryPartCharacters = 256 KiB` per evaluation for what the host delivers to the document (what
+the document sends has no size limit), `MaximumDeliveryCharacters = 32 MiB` as a guard on
 one delivery, `OperationTimeout = 5 s`, a 64-slot request channel.
 
 A delivery longer than one part goes as parts under one delivery id, each acknowledged before the

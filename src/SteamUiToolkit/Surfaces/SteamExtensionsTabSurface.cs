@@ -196,7 +196,7 @@ public static class SteamExtensionsTabSurface
                     PatchId,
                     "activate",
                     static (JsonElement payload, out string extensionId) =>
-                        SteamUiPayload.TryReadBoundedString(payload, "id", 96, out extensionId),
+                        SteamUiPayload.TryReadNonBlankString(payload, "id", out extensionId),
                     backend.ActivateAsync,
                     "The extension activation payload is invalid."),
                 SteamSurfaceModule.Command<(string Id, string Key, JsonElement Value, long Revision)>(
@@ -214,8 +214,8 @@ public static class SteamExtensionsTabSurface
         out (string Id, string Key, JsonElement Value, long Revision) value)
     {
         value = default;
-        if (!SteamUiPayload.TryReadBoundedString(payload, "id", 96, out var id)
-            || !SteamUiPayload.TryReadBoundedString(payload, "key", 128, out var key)
+        if (!SteamUiPayload.TryReadNonBlankString(payload, "id", out var id)
+            || !SteamUiPayload.TryReadNonBlankString(payload, "key", out var key)
             || !payload.TryGetProperty("value", out var settingValue)
             || !payload.TryGetProperty("revision", out var revisionProperty)
             || !revisionProperty.TryGetInt64(out var revision)

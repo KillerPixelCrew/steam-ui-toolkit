@@ -178,7 +178,7 @@ public static class SteamDeviceControlsRow
     private static bool TryReadColor(JsonElement payload, out (string Zone, int Color) value)
     {
         var color = 0;
-        var read = SteamUiPayload.TryReadBoundedString(payload, "zone", 64, out var zone)
+        var read = SteamUiPayload.TryReadNonBlankString(payload, "zone", out var zone)
                    && SteamUiPayload.TryReadInt(payload, "color", 0, 0xFFFFFF, out color)
                    && SteamUiPayload.HasExactly(payload, 2);
         value = (zone, color);

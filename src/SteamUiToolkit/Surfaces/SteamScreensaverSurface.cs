@@ -91,16 +91,7 @@ public static class SteamScreensaverSurface
     /// <summary>The patch id this surface publishes under and answers commands for.</summary>
     public const string PatchId = "steam-ui.screensaver";
 
-    /// <summary>The longest timeout a row or a report may carry: one week, in seconds.</summary>
-    public const int MaximumSeconds = 604800;
-
-    /// <summary>The most rows one publication may carry.</summary>
-    public const int MaximumRows = 4;
-
-    /// <summary>The most choices one row may offer.</summary>
-    public const int MaximumOptions = 16;
-
-    private static readonly Regex RowId = new("^[a-z][a-z0-9-]{0,31}$", RegexOptions.CultureInvariant);
+    private static readonly Regex RowId = new("^[a-z][a-z0-9-]*$", RegexOptions.CultureInvariant);
 
     /// <summary>The exact command vocabulary the injected gate sends.</summary>
     public static IReadOnlyList<string> Commands { get; } = ["report", "setTimeout"];
@@ -165,7 +156,7 @@ public static class SteamScreensaverSurface
     {
         report = new SteamScreensaverReport(0, null, false);
         if (!SteamUiPayload.HasExactly(payload, 3)
-            || !SteamUiPayload.TryReadInt(payload, "acSeconds", 0, MaximumSeconds, out var pluggedIn)
+            || !SteamUiPayload.TryReadInt(payload, "acSeconds", 0, int.MaxValue, out var pluggedIn)
             || !payload.TryGetProperty("batterySeconds", out var battery)
             || !SteamUiPayload.TryReadBoolean(payload, "battery", out var hasBattery))
         {
@@ -175,7 +166,7 @@ public static class SteamScreensaverSurface
         int? batterySeconds = null;
         if (battery.ValueKind != JsonValueKind.Null)
         {
-            if (!SteamUiPayload.TryReadInt(payload, "batterySeconds", 0, MaximumSeconds, out var value))
+            if (!SteamUiPayload.TryReadInt(payload, "batterySeconds", 0, int.MaxValue, out var value))
             {
                 return false;
             }
@@ -195,9 +186,9 @@ public static class SteamScreensaverSurface
     public static bool TryReadTimeout(JsonElement payload, out string row, out int seconds)
     {
         seconds = 0;
-        if (!SteamUiPayload.TryReadBoundedString(payload, "row", 32, out row)
+        if (!SteamUiPayload.TryReadNonBlankString(payload, "row", out row)
             || !RowId.IsMatch(row)
-            || !SteamUiPayload.TryReadInt(payload, "seconds", 0, MaximumSeconds, out seconds)
+            || !SteamUiPayload.TryReadInt(payload, "seconds", 0, int.MaxValue, out seconds)
             || !SteamUiPayload.HasExactly(payload, 2))
         {
             row = string.Empty;

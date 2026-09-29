@@ -191,7 +191,7 @@ public static class SteamAudioSurface
     private static bool TryReadDevicePayload(JsonElement payload, out (string Id, bool Input) device)
     {
         var input = false;
-        var read = SteamUiPayload.TryReadBoundedString(payload, "id", 512, out var id)
+        var read = SteamUiPayload.TryReadNonBlankString(payload, "id", out var id)
                    && SteamUiPayload.TryReadBoolean(payload, "input", out input)
                    && SteamUiPayload.HasExactly(payload, 2);
         device = (id, input);

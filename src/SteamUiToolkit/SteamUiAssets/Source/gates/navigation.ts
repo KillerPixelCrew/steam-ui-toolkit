@@ -43,9 +43,6 @@ function createNavigationPanel() {
     const PanelRootTokens = ["#MainMenu_Title", "RunnningAppSeparator"] as const;
     const OuterToken = "MainNavMenuContainer";
 
-    // A panel with more entries than this is not the panel this was written against, and cloning an
-    // unbounded child list on every render is not something a navigation menu should ever ask for.
-    const MaximumEntries = 64;
     const MaximumDescent = 12;
 
     let runtime;
@@ -203,7 +200,7 @@ function createNavigationPanel() {
             kept.push(child);
         }
 
-        const pending = desired.items.slice(0, MaximumEntries);
+        const pending = desired.items;
         // From every child, hidden ones included: hiding Power must not cost the action entry.
         const native = nativeEntries(children);
         const placed = new Set<string>();
@@ -254,7 +251,7 @@ function createNavigationPanel() {
             const tree = original(props);
             if (!react.isValidElement(tree)) return tree;
             const children = react.Children.toArray(tree.props?.children);
-            if (!children.length || children.length > MaximumEntries) {
+            if (!children.length) {
                 lastOutcome = `panel had ${children.length} children; left alone`;
                 return tree;
             }
@@ -367,8 +364,8 @@ function createNavigationPanel() {
             const routable = named.filter((item) => item.route == null || isNavigableRoute(item.route));
             rejectedRoutes = named.length - routable.length;
             const next = {
-                items: routable.slice(0, MaximumEntries),
-                hidden: hidden.filter((value) => typeof value === "string").slice(0, MaximumEntries),
+                items: routable,
+                hidden: hidden.filter((value) => typeof value === "string"),
             };
             // A host Steam has recreated since install is adopted here; it sits under a React root
             // with no class above it, so its entries show when the menu next opens.

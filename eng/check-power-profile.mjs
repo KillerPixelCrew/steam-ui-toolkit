@@ -39,7 +39,8 @@ const overrideHelpers = instantiate(
   assert.equal(overrideHelpers.overrideDescription(runtime, null, "Ready"), "Ready");
   assert.equal(overrideHelpers.overrideDescription(runtime, null, ""), undefined);
 }
-assert.equal(overrideHelpers.normalizeOverrideId("x".repeat(201)), null);
+// No length limit: a long id is still an id.
+assert.equal(overrideHelpers.normalizeOverrideId("x".repeat(201)), "x".repeat(201));
 assert.equal(overrideHelpers.normalizeOverrideId(42), null);
 assert.equal(overrideHelpers.normalizeOverrideId("   "), null);
 assert.equal(overrideHelpers.normalizeOverrideId("FrameLimit"), "FrameLimit");
@@ -85,7 +86,8 @@ const api = instantiate(
 const options = [{ id: "a", label: "Balanced" }, { id: "b", label: "Balanced" }];
 const longLabel = api.normalizePowerProfileState({ available: true,
   options: [{ id: "a", label: "x".repeat(10000) }], current: "a" });
-assert.equal(longLabel.options[0].label.length, 240);
+// Labels arrive whole; nothing is cut.
+assert.equal(longLabel.options[0].label.length, 10000);
 state = { available: true, options, current: "a", statusText: "Ready" };
 // The icon fixture hands back the requested name, so an assertion can say which glyph a row asked
 // for without this file having to know how an svg element is built.
@@ -133,9 +135,14 @@ assert.equal(control().description, "Readback failed");
   state = previous;
 }
 for (const badOptions of [[...options, options[0]], [{ id: 123, label: "Bad" }],
-  [{ id: "a", label: "" }], Array.from({ length: 65 }, (_, i) => ({ id: String(i), label: "x" }))]) {
+  [{ id: "a", label: "" }]]) {
   assert.equal(api.normalizePowerProfileState({ ...state, options: badOptions }), null);
 }
+// Any number of options is a valid list.
+assert.equal(api.normalizePowerProfileState({
+  ...state,
+  options: Array.from({ length: 65 }, (_, i) => ({ id: String(i), label: "x" })),
+}).options.length, 65);
 assert.match(asset, /\["powerProfile", "steam-ui-power-profile", powerProfileControl, "perf"\]/);
 const presetControl = api.createPowerPresetControl({ dropdown: "dropdown", labelField: "labelField",
   icon: name => name, react: {

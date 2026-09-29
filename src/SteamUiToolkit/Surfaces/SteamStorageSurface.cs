@@ -270,7 +270,7 @@ public static class SteamStorageSurface
     /// <returns>The label, bounded to what a volume label can hold.</returns>
     private static string ReadLabel(JsonElement payload)
     {
-        return SteamUiPayload.TryReadBoundedString(payload, "label", 64, out var label) ? label : "";
+        return SteamUiPayload.TryReadNonBlankString(payload, "label", out var label) ? label : "";
     }
 
     /// <summary>Steam's validate flag from that modal; false when absent.</summary>

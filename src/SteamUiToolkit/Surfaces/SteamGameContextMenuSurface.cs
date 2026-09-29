@@ -116,7 +116,7 @@ public static class SteamGameContextMenuSurface
             || appIdProperty.ValueKind != JsonValueKind.Number
             || !appIdProperty.TryGetUInt32(out var appId)
             || appId == 0
-            || !SteamUiPayload.TryReadBoundedString(payload, "id", 96, out var id)
+            || !SteamUiPayload.TryReadNonBlankString(payload, "id", out var id)
             || !SteamUiPayload.HasExactly(payload, 2))
         {
             return false;

@@ -171,13 +171,6 @@ const showSteamFilePicker = (ui, options: any = {}) =>
                         entries.length === 0 && !loading && !error
                             ? react.createElement("div", {style: {opacity: 0.7, padding: "8px"}}, "This folder is empty.")
                             : null,
-                        listing?.truncated
-                            ? react.createElement(
-                                  "div",
-                                  {style: {opacity: 0.7, padding: "8px"}},
-                                  "Only the first items are shown.",
-                              )
-                            : null,
                     ),
                 ),
                 error ? react.createElement("div", {style: {color: "#ff6d6d", fontSize: "14px"}}, error) : null,

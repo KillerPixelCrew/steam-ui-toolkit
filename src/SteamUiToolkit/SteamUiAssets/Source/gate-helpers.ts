@@ -259,9 +259,7 @@ const createSteamFolds = () => {
         normalize(value) {
             if (!value || typeof value !== "object" || !Array.isArray(value.open)) return null;
             const open = new Set<string>(
-                value.open
-                    .filter((id) => typeof id === "string" && id.length > 0 && id.length <= 160)
-                    .slice(0, 256),
+                value.open.filter((id) => typeof id === "string" && id.length > 0),
             );
             for (const [id, folded] of overrides) {
                 if (open.has(id) === !folded) overrides.delete(id);
@@ -359,9 +357,8 @@ const closeSteamSideMenus = () => {
     }
 };
 
-// An absolute route other than the root, short enough to be a route rather than a payload.
-const isNavigableRoute = (route) =>
-    typeof route === "string" && route.startsWith("/") && route !== "/" && route.length <= 256;
+// An absolute route other than the root.
+const isNavigableRoute = (route) => typeof route === "string" && route.startsWith("/") && route !== "/";
 
 // Only a route returned by a successful host command is followed. Publications cannot inject a
 // target, and the bounds keep this a router operation rather than an open-ended navigation API. A

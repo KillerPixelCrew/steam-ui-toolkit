@@ -249,6 +249,28 @@ subscriptions.get("steam-ui.extensions-tab")({
 });
 assert.equal(extensions.status().items, 1, "a negative configuration revision is refused");
 
+// No count caps anything: a theme set with far more settings than any fixed bound, as forty CSS
+// themes and their colour pickers produce, keeps its section.
+subscriptions.get("steam-ui.extensions-tab")({
+  items: [
+    {
+      id: "themes",
+      name: "Themes",
+      version: "",
+      status: "Ready",
+      configurationRevision: 1,
+      settings: Array.from({ length: 200 }, (_, index) => ({
+        key: `setting-${index}`,
+        label: `Setting ${index}`,
+        kind: "boolean",
+        booleanValue: false,
+      })),
+      actions: Array.from({ length: 100 }, (_, index) => ({ id: `action-${index}`, label: `Action ${index}` })),
+    },
+  ],
+});
+assert.equal(extensions.status().items, 1, "an item with 200 settings is drawn");
+
 // A typed draft survives re-renders of the publication it was typed against, and no longer.
 const renderPanel = () => {
   hookIndex = 0;

@@ -3,7 +3,6 @@ using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -114,10 +113,9 @@ public sealed class SteamUiBridgeAuthorizer
             return Reject("sequence or action generation is invalid");
         }
 
-        if (request.Payload.ValueKind == JsonValueKind.Undefined
-            || SteamUiBridgeHost.ExceedsPayloadLimit(request.Payload))
+        if (request.Payload.ValueKind == JsonValueKind.Undefined)
         {
-            return Reject("payload exceeded its limit");
+            return Reject("payload is missing");
         }
 
         lock (_sync)
@@ -208,9 +206,6 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
 {
     /// <summary>Current bridge schema version.</summary>
     public const int SchemaVersion = 1;
-
-    /// <summary>Maximum decoded payload size accepted from injected code.</summary>
-    public const int MaximumPayloadCharacters = 16 * 1024;
 
     /// <summary>The largest envelope handed to the document in one evaluation.</summary>
     /// <remarks>
@@ -732,7 +727,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             }
 
             var payload = payloadElement.GetString();
-            if (payload is null || payload.Length > MaximumPayloadCharacters)
+            if (payload is null)
             {
                 return;
             }
@@ -786,19 +781,34 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
                 continue;
             }
 
+            string? dropped = null;
             lock (_stateSync)
             {
-                if (!_ready
-                    || request.ContextGeneration != _generations.ExecutionContext
-                    || request.DocumentGeneration != _generations.Document)
+                if (!_ready)
                 {
-                    continue;
+                    dropped = "the bridge is not ready";
                 }
+                else if (request.ContextGeneration != _generations.ExecutionContext
+                         || request.DocumentGeneration != _generations.Document)
+                {
+                    dropped = $"it came from an older page (context {request.ContextGeneration}, document "
+                              + $"{request.DocumentGeneration}; now {_generations.ExecutionContext}, "
+                              + $"{_generations.Document})";
+                }
+            }
+
+            // A dropped request times out on the page without a word, so a click that did nothing
+            // has to be explained here: once per user action, never per sample.
+            if (dropped is not null)
+            {
+                SteamUiLog.Warn($"Steam UI bridge dropped {request.PatchId}/{request.Command}: {dropped}.");
+                continue;
             }
 
             var handlers = RequestReceived;
             if (handlers is null)
             {
+                SteamUiLog.Warn($"Steam UI bridge dropped {request.PatchId}/{request.Command}: nothing handles it.");
                 continue;
             }
 
@@ -881,21 +891,6 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         }
     }
 
-    /// <summary>Whether a payload's raw JSON exceeds <see cref="MaximumPayloadCharacters" />.</summary>
-    /// <param name="payload">The payload to measure.</param>
-    /// <returns>True when its raw text is longer than the limit in UTF-16 characters.</returns>
-    /// <remarks>
-    ///     UTF-8 never takes fewer bytes than UTF-16 takes characters, so a raw value within the limit in
-    ///     bytes is within it in characters, and only a longer one is decoded to count. Neither
-    ///     materializes the text the way measuring <see cref="JsonElement.GetRawText" /> did.
-    /// </remarks>
-    internal static bool ExceedsPayloadLimit(JsonElement payload)
-    {
-        var raw = JsonMarshal.GetRawUtf8Value(payload);
-        return raw.Length > MaximumPayloadCharacters
-               && Encoding.UTF8.GetCharCount(raw) > MaximumPayloadCharacters;
-    }
-
     /// <summary>Reads an injected expression's <c>{ok:true}</c> answer for the expected generation.</summary>
     /// <param name="result">The evaluation result.</param>
     /// <param name="expectedGenerations">The generations the expression was sent to.</param>
@@ -963,7 +958,6 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             writer.WriteNumber("contextGeneration", state.Generations.ExecutionContext);
             writer.WriteNumber("documentGeneration", state.Generations.Document);
             writer.WriteNumber("maximumPending", MaximumPendingRequests);
-            writer.WriteNumber("maximumPayloadCharacters", MaximumPayloadCharacters);
             writer.WriteNumber("timeoutMilliseconds", RequestTimeoutMilliseconds);
             writer.WriteStartObject("allowed");
             foreach (var pair in state.Host._allowedCommands)

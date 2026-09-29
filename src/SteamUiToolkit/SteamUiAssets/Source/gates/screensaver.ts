@@ -34,10 +34,6 @@ function createScreensaverSettings() {
     const PluggedInSetting = "system_idle_screensaver_ac_sec";
     const BatterySetting = "system_idle_screensaver_battery_sec";
 
-    const MaximumRows = 4;
-    const MaximumOptions = 16;
-    const MaximumSeconds = 604800;
-    const MaximumPages = 128;
     // Steam's settings can arrive after the gate installs. The first report is retried on this
     // bounded schedule rather than waiting for someone to open the page.
     const ReportAttempts = 60;
@@ -89,41 +85,38 @@ function createScreensaverSettings() {
     };
     const readRevision = () => revision;
 
-    const text = (value, limit) => (typeof value === "string" ? value.slice(0, limit) : "");
-    const seconds = (value) =>
-        Number.isInteger(value) && value >= 0 && value <= MaximumSeconds ? value : null;
+    const text = (value) => (typeof value === "string" ? value : "");
+    const seconds = (value) => (Number.isInteger(value) && value >= 0 ? value : null);
 
     // Validated rather than trusted: a malformed option list renders a dropdown whose entries select
     // nothing. A state that fails is dropped whole and the outcome says so.
     const normalize = (value): Row[] | null => {
         if (!value || typeof value !== "object" || !Array.isArray(value.rows)) return null;
-        if (value.rows.length > MaximumRows) return null;
         const ids = new Set<string>();
         const next: Row[] = [];
         for (const row of value.rows) {
             if (!row || typeof row !== "object") return null;
-            const id = text(row.id, 32);
+            const id = text(row.id);
             const current = seconds(row.seconds);
             if (
-                !/^[a-z][a-z0-9-]{0,31}$/u.test(id) ||
+                !/^[a-z][a-z0-9-]*$/u.test(id) ||
                 ids.has(id) ||
                 current === null ||
-                !Array.isArray(row.options) ||
-                row.options.length > MaximumOptions
+                !Array.isArray(row.options)
             )
                 return null;
             const options: { data: number; label: string }[] = [];
             for (const option of row.options) {
                 const optionSeconds = seconds(option?.seconds);
-                const label = text(option?.label, 64);
+                const label = text(option?.label);
                 if (optionSeconds === null || !label) return null;
                 options.push({data: optionSeconds, label});
             }
             ids.add(id);
             next.push({
                 id,
-                label: text(row.label, 240),
-                description: text(row.description, 240),
+                label: text(row.label),
+                description: text(row.description),
                 seconds: current,
                 options,
                 available: row.available === true,
@@ -270,7 +263,7 @@ function createScreensaverSettings() {
     // The page list, with the customization page's content wrapped. The same input list always maps
     // to the same output list, so memo consumers downstream see a stable identity.
     const transformPages = (value) => {
-        if (!installed || !Array.isArray(value) || !value.length || value.length > MaximumPages) return value;
+        if (!installed || !Array.isArray(value) || !value.length) return value;
         const first = value[0];
         if (!first || typeof first !== "object" || !("route" in first) || !("content" in first)) return value;
         const cached = listCache.get(value);

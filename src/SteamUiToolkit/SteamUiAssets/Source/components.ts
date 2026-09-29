@@ -289,11 +289,10 @@ function createNativeComponentHost() {
     }
     return { react, slider, dropdown, toggle, labelField, section, row, localize, icon, focusable };
   };
-  const normalizeText = (value) => (typeof value === "string" ? value.slice(0, 240) : "");
+  const normalizeText = (value) => (typeof value === "string" ? value : "");
   // The host's setting id while the running game's own profile supplies a row's value. The row only
-  // tests it for presence, so anything that is not a non-blank bounded string means no override.
-  const normalizeOverrideId = (value) =>
-    typeof value === "string" && value.trim().length > 0 && value.length <= 200 ? value : null;
+  // tests it for presence, so anything that is not a non-blank string means no override.
+  const normalizeOverrideId = (value) => (typeof value === "string" && value.trim().length > 0 ? value : null);
   // Steam's accent blue, the colour its own UI uses for a highlighted state.
   const OverrideColor = "#1a9fff";
   // A row whose value the running game's profile supplies says so in its own description, in Steam's
@@ -421,12 +420,12 @@ function createNativeComponentHost() {
     const options = Array.isArray(value.options)
       ? value.options.filter(
           (option) =>
-            typeof option === "string" && /^[1-9][0-9]{2,4}x[1-9][0-9]{2,4}$/.test(option),
+            typeof option === "string" && /^[1-9][0-9]*x[1-9][0-9]*$/.test(option),
         )
       : [];
     return {
       available: value.available === true,
-      options: options.slice(0, 64),
+      options,
       current: typeof value.current === "string" ? value.current : "",
       statusText: typeof value.statusText === "string" ? value.statusText : "",
     };
@@ -434,20 +433,20 @@ function createNativeComponentHost() {
 
   const normalizeAudioFormatState = (value) => {
     if (!value || typeof value !== "object") return null;
-    const options = (items, limit) => {
+    const options = (items) => {
       const values: Readonly<{ id: string; label: string }>[] = [];
       if (!Array.isArray(items)) return values;
-      for (const item of items.slice(0, limit)) {
+      for (const item of items) {
         if (!item || typeof item !== "object") continue;
         const id = normalizeText(item.id);
         const label = normalizeText(item.label);
-        if (id && label && id.length <= 240) values.push(Object.freeze({ id, label }));
+        if (id && label) values.push(Object.freeze({ id, label }));
       }
 
       return values;
     };
-    const formatOptions = options(value.formatOptions, 64);
-    const spatialOptions = options(value.spatialOptions, 16);
+    const formatOptions = options(value.formatOptions);
+    const spatialOptions = options(value.spatialOptions);
     const distinct = (items) => new Set(items.map((item) => item.id)).size === items.length;
     if (!distinct(formatOptions) || !distinct(spatialOptions)) return null;
     const currentFormat = normalizeText(value.currentFormat);
@@ -523,14 +522,13 @@ function createNativeComponentHost() {
       overrideId: string | null;
     }>[] = [];
     const ids = new Set();
-    for (const zone of value.lightingZones.slice(0, 16)) {
+    for (const zone of value.lightingZones) {
       if (!zone || typeof zone !== "object") return null;
       const id = normalizeText(zone.id);
       const label = normalizeText(zone.label);
       const desiredColor = zone.desiredColor === null ? null : Number(zone.desiredColor);
       const observedColor = zone.observedColor === null ? null : Number(zone.observedColor);
       if (
-        id.length > 64 ||
         !id.trim() ||
         !label ||
         ids.has(id) ||
@@ -858,8 +856,7 @@ function createNativeComponentHost() {
     if (
       !value ||
       typeof value.available !== "boolean" ||
-      !Array.isArray(value.options) ||
-      value.options.length > 64
+      !Array.isArray(value.options)
     )
       return null;
     const ids = new Set();

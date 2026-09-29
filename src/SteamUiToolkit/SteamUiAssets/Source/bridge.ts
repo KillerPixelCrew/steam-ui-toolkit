@@ -116,11 +116,6 @@
             documentGeneration: config.documentGeneration,
             payload: payload ?? null,
         };
-        // The host drops a request past its bound without an answer, so it is refused here, where
-        // the caller still gets a reason instead of waiting out the timeout.
-        if (JSON.stringify(envelope).length > config.maximumPayloadCharacters) {
-            return Promise.reject(new Error("The request is too large to send."));
-        }
         return new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
                 pending.delete(sequence);
@@ -218,7 +213,7 @@
         if (envelope.type === "refused") {
             if (!Object.hasOwn(config.allowed, envelope.patchId) || typeof envelope.reason !== "string")
                 return false;
-            reportRefusal(envelope.patchId, envelope.reason.slice(0, 240));
+            reportRefusal(envelope.patchId, envelope.reason);
             return true;
         }
         return false;
