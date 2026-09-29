@@ -22,6 +22,9 @@ internal sealed class FakePatch(string id = "fixture.patch", string resourceKey 
 
     internal TimeSpan PhaseDelay { get; init; }
 
+    /// <summary>Told the patch id whenever this patch is applied, so a test can see the order.</summary>
+    internal Action<string>? Applied { get; init; }
+
     internal int ApplyCalls => Volatile.Read(ref _applyCalls);
 
     internal int VerifyCalls => Volatile.Read(ref _verifyCalls);
@@ -72,6 +75,7 @@ internal sealed class FakePatch(string id = "fixture.patch", string resourceKey 
         }
 
         Interlocked.Increment(ref _applyCalls);
+        Applied?.Invoke(id);
         await DelayAsync(cancellationToken);
         return new SteamUiPatchOperationResult(true, null);
     }

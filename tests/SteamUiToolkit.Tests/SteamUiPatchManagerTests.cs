@@ -58,6 +58,25 @@ public sealed class SteamUiPatchManagerTests
     }
 
     [Fact]
+    public async Task TheBridgeIsAppliedBeforeEveryGateThatLivesInIt()
+    {
+        // In id order steam-ui.animations and steam-ui.artwork-browser came before steam-ui.bridge:
+        // after a Big Picture restart they installed into the old bridge, the new one replaced them
+        // with gates nobody installed, and both pages stayed on "Loading".
+        await using var transport = new FakeSteamUiTransport();
+        await using var manager = new SteamUiPatchManager(transport);
+        List<string> order = [];
+        foreach (var id in (string[])["steam-ui.animations", "steam-ui.bridge", "steam-ui.themes"])
+        {
+            manager.Register(new FakePatch(id, id) { Bounds = FixtureBounds, Applied = order.Add });
+        }
+
+        await manager.SynchronizeAsync();
+
+        Assert.Equal(["steam-ui.bridge", "steam-ui.animations", "steam-ui.themes"], order);
+    }
+
+    [Fact]
     public async Task SynchronousKillSwitchPromptlyRetractsAndReleasesSubscription()
     {
         await using var transport = new FakeSteamUiTransport();

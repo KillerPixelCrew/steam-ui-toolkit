@@ -284,7 +284,8 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
 
         try
         {
-            foreach (var entry in _patches.Values)
+            // The bridge last: removing a gate goes through it.
+            foreach (var entry in BridgeFirst().Reverse())
             {
                 try
                 {
@@ -498,7 +499,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-            foreach (var entry in _patches.Values)
+            foreach (var entry in BridgeFirst())
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 await SynchronizePatchAsync(entry, cancellationToken).ConfigureAwait(false);
@@ -508,6 +509,19 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
         {
             _schedulerGate.Release();
         }
+    }
+
+    /// <summary>Every patch in id order, except that the bridge comes first.</summary>
+    /// <remarks>
+    ///     Every gate lives inside the bridge. In plain id order, steam-ui.animations and
+    ///     steam-ui.artwork-browser were applied after a Big Picture restart before steam-ui.bridge:
+    ///     they installed into the old bridge and verified, then the new bridge replaced them with
+    ///     gates nobody installed, and both pages stayed on "Loading" until WSGM restarted
+    ///     (2026-09-29).
+    /// </remarks>
+    private IEnumerable<PatchEntry> BridgeFirst()
+    {
+        return _patches.Values.OrderBy(entry => entry.Patch.Id != SteamUiBridgePatch.PatchId);
     }
 
     /// <summary>Returns immutable health snapshots for diagnostics and UI.</summary>
