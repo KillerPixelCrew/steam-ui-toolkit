@@ -134,6 +134,7 @@ const pages = [
           { key: "future", kind: "hologram", label: "Future" },
           { key: "size", kind: "range", label: "Size", number: 1, labels: ["Small", "Medium", "Large"] },
           { key: "tone", kind: "color", label: "Tone", text: "#ff0000" },
+          { key: "tint", kind: "boolean", label: "Tint", description: "Ready", checked: false, override: true },
         ],
       },
     ],
@@ -168,6 +169,14 @@ assert.equal(tree.props.pages[0].content.props.children[0].props.label, "Integra
 
 // Kinds map to Steam's own fields.
 assert.equal(row(tree, "cef").type, Toggle);
+// A game override marks the description the way the Quick Access rows do, and nothing else.
+assert.equal(row(tree, "cef").props.description, undefined, "a row without an override keeps its plain text");
+{
+  const marked = row(tree, "tint").props.description;
+  assert.equal(marked.type, "span");
+  assert.equal(marked.props.style.color, "#1a9fff");
+  assert.deepEqual(marked.props.children, ["Game override · Ready"]);
+}
 assert.equal(row(tree, "mode").type, Dropdown);
 assert.deepEqual(row(tree, "mode").props.rgOptions, [
   { data: "a", label: "A" },
