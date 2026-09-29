@@ -19,10 +19,13 @@
 // CSSLoader's table names. A title target is therefore tested against the name as well as the
 // title, and the host's alias table names the Big Picture window by its name.
 //
-// The host publishes the blocks and the targets each is for; the gate keeps every window's head in
-// step with that, and with the windows Steam opens or navigates after the publication, which is
-// what CSSLoader's force_reinject and health check exist for. Nothing here reads the CSS: a theme
-// is the host's to load, translate and order, and this gate installs what it is given.
+// The host publishes the blocks and the targets each is for; the gate installs them once per
+// window and touches a window again only when the publication changes or Steam opens a window,
+// which it announces through the popup manager's created callback. CSSLoader looks at every target
+// every three seconds from outside Steam; doing the same from in here meant walking Steam's whole
+// React tree on its own thread every two seconds, and with a large library that slowed every image
+// Big Picture loads (2026-09-29, an Ally with 33 themes on). Nothing here reads the CSS: a theme is
+// the host's to load, translate and order, and this gate installs what it is given.
 function createThemeStyles() {
   const patchId = "steam-ui.theme-styles";
   // Every node this gate appends carries the class, and only nodes with it are ever removed.
@@ -31,15 +34,13 @@ function createThemeStyles() {
   const OwnedClass = "steam-ui-theme-style";
   const IdPrefix = "steam-ui-theme-";
   const HashKey = "steamUiHash";
-  // How often the windows are read again for one Steam opened or navigated since the last pass.
-  // CSSLoader checks every three seconds; a pass here is a bounded walk and a few reads per window.
-  const ReconcileMilliseconds = 2000;
   // React's HostPortal fiber tag, the one whose stateNode carries the container it renders into.
   const HostPortalTag = 4;
 
   let installed = false;
   let unsubscribe: (() => void) | null = null;
-  let timer: any = null;
+  // The popup manager's registration for windows Steam creates, or null when it offers none.
+  let popupsWatched: any = null;
   let desired: { styles: any[]; signature: string; revision: number } = {
     styles: [],
     signature: "",
@@ -206,7 +207,7 @@ function createThemeStyles() {
   const reconcile = () => {
     if (!installed) return;
     // With nothing published and nothing installed there is no window to bring in step, and the
-    // walk over every mounted fiber that finds the windows is not worth a 2 s tick.
+    // walk over every mounted fiber that finds the windows is not worth doing.
     if (desired.styles.length === 0 && nodesInstalled === 0) {
       lastOutcome = "idle: no styles";
       return;
@@ -268,8 +269,23 @@ function createThemeStyles() {
       desired = { styles, signature, revision };
       reconcile();
     });
-    // Windows Steam opens or navigates later have empty heads until this looks again.
-    timer = setInterval(reconcile, ReconcileMilliseconds);
+    // A window Steam creates later is styled when Steam announces it, and again once it has loaded,
+    // since a popup's document can still be the blank one when the callback runs.
+    try {
+      const manager = popupManager();
+      if (manager && typeof manager.AddPopupCreatedCallback === "function") {
+        popupsWatched = manager.AddPopupCreatedCallback((popup) => {
+          reconcile();
+          try {
+            (popup?.m_popup ?? popup?.window)?.addEventListener?.("load", reconcile, { once: true });
+          } catch {
+            // A window that refuses the listener was styled above; the next publication covers it.
+          }
+        });
+      }
+    } catch {
+      popupsWatched = null;
+    }
     reconcile();
     return { ok: true, installed: true };
   };
@@ -278,10 +294,12 @@ function createThemeStyles() {
   // keeps no theme once the host has retracted it, and Steam's own styling is what remains.
   const remove = () => {
     if (!installed) return { ok: true, absent: true };
-    if (timer !== null) {
-      clearInterval(timer);
-      timer = null;
+    try {
+      popupsWatched?.Unregister?.();
+    } catch {
+      // The manager went with its window; nothing is left to call back.
     }
+    popupsWatched = null;
     unsubscribe = endSubscription(unsubscribe);
     const removed = clearAll();
     desired = { styles: [], signature: "", revision: 0 };
@@ -304,6 +322,7 @@ function createThemeStyles() {
     installed,
     resolved: !!popupManager() || reactRootFibers().length > 0,
     windows: windowsSeen,
+    watchingPopups: !!popupsWatched,
     documents: documentsStyled,
     nodes: nodesInstalled,
     styles: desired.styles.length,
