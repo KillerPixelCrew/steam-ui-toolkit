@@ -12,7 +12,7 @@ const prototype = { PlayAudioURLWithRepeats: original };
 const manager = Object.create(prototype);
 let publish;
 let decoded;
-const instantiateGate = () =>
+const instantiateGate = (failContext = false) =>
   instantiate(
     {
       window: { location: { href: "about:blank" } },
@@ -28,6 +28,9 @@ const instantiateGate = () =>
         return null;
       },
       AudioContext: class {
+        constructor() {
+          if (failContext) throw new Error("Audio context unavailable");
+        }
         async decodeAudioData(bytes) {
           if (new Uint8Array(bytes)[0] === 0) throw new Error("corrupt");
         }
@@ -75,6 +78,16 @@ await publishAndDecode({ "navigation.wav": [data] });
 assert.equal(manager.PlayAudioURLWithRepeats("/sounds/navigation.wav")[1], data);
 replacement.remove();
 assert.equal(manager.PlayAudioURLWithRepeats, original);
+const unavailable = instantiateGate(true);
+unavailable.install();
+publish({ sounds: { "navigation.wav": [data] } });
+await Promise.resolve();
+assert.equal(
+  manager.PlayAudioURLWithRepeats("/sounds/navigation.wav")[1],
+  "/sounds/navigation.wav",
+);
+assert.match(unavailable.status().lastError, /Audio context unavailable/u);
+unavailable.remove();
 console.log(
   "Sound overrides: exact resources, corrupt fallback, defaults, inherited restoration and orphan reclaim passed.",
 );
