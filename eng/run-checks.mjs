@@ -22,6 +22,7 @@ const checks = [
   "check-extension-surfaces.mjs",
   "check-power-menu.mjs",
   "check-theme-styles.mjs",
+  "check-sound-overrides.mjs",
   "check-ui-kit.mjs",
 ];
 

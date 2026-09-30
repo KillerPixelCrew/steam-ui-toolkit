@@ -1,5 +1,8 @@
 # SteamUiToolkit reference
 
+The [sound override contract](sound-overrides.md) covers exact resource mapping, decoding gates and
+audio-manager ownership.
+
 The contract of `SteamUiToolkit`: the transport that owns one CDP connection to Steam's Chromium
 front-end, the probe/apply/verify/remove patch lifecycle, the in-page bridge, the module contract,
 the ownership primitives, the extension host, the prelude build and the surfaces. The XML
