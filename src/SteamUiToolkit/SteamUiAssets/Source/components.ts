@@ -1200,15 +1200,17 @@ function createNativeComponentHost() {
           .catch(() => setDrafts(previous => { const next = { ...previous }; delete next[row.key]; return next; }));
       };
       const action = row => change(row, true);
-      return react.createElement(react.Fragment, null, ...state.pages.flatMap(page =>
-        (page.sections ?? []).map((section, index) => {
-          const key = "settings." + page.id + "." + (section.id ?? section.rows?.[0]?.key ?? index);
-          return renderSteamUiGroup(controlRuntime, {
-            key, title: section.title ? page.title + ": " + section.title : page.title,
-            collapsed: isFolded(folds, key), onToggle: () => setFolded(key, !isFolded(folds, key)),
+      return react.createElement(react.Fragment, null, ...state.pages.map(page => {
+        const key = "settings." + page.id;
+        return renderSteamUiGroup(controlRuntime, {
+          key, title: page.title,
+          collapsed: isFolded(folds, key), onToggle: () => setFolded(key, !isFolded(folds, key)),
+        }, ...(page.sections ?? []).map((section, index) =>
+          renderSteamUiGroup(controlRuntime, {
+            key: key + "." + (section.id ?? index), title: section.title || undefined,
           }, ...(section.rows ?? []).map(row => react.createElement(controlRuntime.row, { key: row.key },
-            renderSteamSettingRow(ui, { ...row, layout: "below" }, drafts[row.key], change, action))));
-        })));
+            renderSteamSettingRow(ui, { ...row, layout: "below" }, drafts[row.key], change, action))))));
+      }));
     };
 
   const createAudioFormatControl = (controlRuntime) =>

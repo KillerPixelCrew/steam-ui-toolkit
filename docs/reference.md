@@ -1643,10 +1643,10 @@ own non-Steam detection keeps working while Steam integration is switched off.
 ### Host settings sections in native Quick Access
 
 `SteamSettingsQuickAccessRow` mounts `SteamSettingsQuickAccessState.Pages` in Performance using the
-shared native settings fields and UI kit folding groups. The host owns row keys, revision,
-capability availability and command validation through `ISteamSettingsQuickAccessBackend.SetAsync`.
-Its only command is `set` with `{key,value}`; arrays, objects, blank keys and extra fields are
-refused.
+shared native settings fields and UI kit groups. Each page is one folding group titled by the page;
+its sections are plain inner groups. The host owns row keys, revision, capability availability and
+command validation through `ISteamSettingsQuickAccessBackend.SetAsync`. Its only command is `set`
+with `{key,value}`; arrays, objects, blank keys and extra fields are refused.
 
 `SteamAudioFormatState` publishes independent `ChannelOptions`/`CurrentChannels` and
 `FormatOptions`/`CurrentFormat` alongside Spatial choices. Both playback selectors send the offered
