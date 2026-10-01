@@ -37,9 +37,10 @@ public sealed record SteamThemeState(IReadOnlyList<SteamThemeStyle> Styles, long
 ///         Steam renders from SharedJSContext, so the same documents are reachable from the one context
 ///         this toolkit already holds: the ones its popup manager lists, and the ones its React trees
 ///         render into through portals, which on Windows is where Quick Access, the main menu and the
-///         toasts are. The gate reconciles every window's head with the published blocks, and looks
-///         again every two seconds for a window Steam opened or navigated since, which is what
-///         CSSLoader's forced re-injection and health check exist for.
+///         toasts are. The gate installs the published blocks into every window once, and touches a
+///         window again only when the blocks change or Steam announces a new window through the popup
+///         manager's created callback. It never polls: looking every two seconds meant walking Steam's
+///         whole React tree on its own thread, which slowed every image Big Picture loads.
 ///     </para>
 ///     <para>
 ///         The toolkit installs what it is given and reads none of it. Loading a theme's files,

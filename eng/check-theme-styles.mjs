@@ -6,14 +6,14 @@
 // only as React portal containers, which on Windows is where Quick Access and the main menu are.
 // A title target has to match the window's own name too, because the Big Picture window's title
 // is localized there. The right blocks land in the right documents in the published order, an
-// unchanged publication touches nothing, a changed block is rebuilt, a window opened later is
-// caught on the next pass, and removal leaves no node behind. This runs the emitted JavaScript.
+// unchanged publication touches nothing, a changed block is rebuilt, a window Steam announces later
+// is styled without any polling, and removal leaves no node behind. This runs the emitted JavaScript.
 import assert from "node:assert/strict";
 import { gateSource, instantiate, loadAsset, sharedFragments } from "./check-harness.mjs";
 
 const asset = loadAsset();
 const subscriptions = new Map();
-let pass = null;
+let created = null;
 
 // A document small enough to read beside the gate: a head that keeps its children in order and
 // answers the one query the gate makes, and a window that knows its own name.
@@ -77,7 +77,19 @@ const host = { __reactContainer$abc: { stateNode: { current: tree } } };
 sharedDocument.getElementById = (id) => (id === "root" ? host : null);
 sharedDocument.body.children = [];
 
-const window = { g_PopupManager: { GetPopups: () => popups } };
+// Steam's popup manager announces each window it creates; the gate keeps no timer.
+const popupManager = () => ({
+  GetPopups: () => popups,
+  AddPopupCreatedCallback: (callback) => {
+    created = callback;
+    return {
+      Unregister: () => {
+        created = null;
+      },
+    };
+  },
+});
+const window = { g_PopupManager: popupManager() };
 const globals = {
   window,
   document: sharedDocument,
@@ -85,12 +97,8 @@ const globals = {
     subscriptions.set(id, callback);
     return () => subscriptions.delete(id);
   },
-  setInterval: (callback) => {
-    pass = callback;
-    return 1;
-  },
-  clearInterval: () => {
-    pass = null;
+  setInterval: () => {
+    throw new Error("the gate must not poll");
   },
 };
 const code = sharedFragments(asset) + gateSource(asset, "createThemeStyles", "themeStyles");
@@ -108,12 +116,13 @@ const refused = createThemeStyles();
 assert.equal(refused.install().ok, false, "no way to the windows refuses installation");
 assert.match(refused.status().lastError, /popup manager/u);
 host.__reactContainer$abc = savedRoot;
-window.g_PopupManager = { GetPopups: () => popups };
+window.g_PopupManager = popupManager();
 
 assert.equal(gate.install().ok, true);
 assert.equal(gate.status().resolved, true);
 assert.equal(gate.status().installed, true);
-assert.ok(pass, "a pass is scheduled for windows opened or navigated later");
+assert.ok(created, "the gate listens for the windows Steam creates");
+assert.equal(gate.status().watchingPopups, true);
 
 // Blocks land in the documents their targets name, in the published order, and nowhere else. The
 // Big Picture window is named by CSSLoader's `SP` through the window's name, not its localized
@@ -156,7 +165,7 @@ publish([
   { id: "desk", css: ".desk{}", targets: ["Steam|SteamLibraryWindow"], hash: "h3" },
   { id: "ctx", css: ".ctx{}", targets: [".*Menu"], hash: "h4" },
 ], 2);
-pass();
+created(bigPicture);
 assert.deepEqual(bigPicture.m_popup.document.head.children, before, "an unchanged block is not rebuilt");
 
 // A changed hash rebuilds the document, and a block whose targets no longer name it goes.
@@ -169,8 +178,8 @@ assert.equal(bigPicture.m_popup.document.head.children[0].textContent, "body{col
 assert.deepEqual(nodesOf(quickAccess), [["steam-ui-theme-menu", "h2"]]);
 assert.deepEqual(nodesOf(contextMenu.m_popup.document), []);
 
-// A window Steam opens after the publication is styled on the next pass, whether it appears in the
-// popup manager or as a new portal; one whose root carries the class a target names is matched.
+// A window Steam opens after the publication is styled when Steam announces it; a new portal is
+// found on the next publication; one whose root carries the class a target names is matched.
 tree.child.sibling.sibling = portal({ nodeType: 1, ownerDocument: mainMenu });
 publish([
   { id: "base", css: "body{color:red}", targets: ["SP( BPM_uid\\d+)?"], hash: "h9" },
@@ -179,9 +188,9 @@ publish([
 assert.deepEqual(nodesOf(mainMenu), [["steam-ui-theme-menu", "h2"]], "a root class is a target");
 const late = fakePopup("QuickAccess_uid18", "QuickAccess_uid18", "about:blank");
 popups.push(late);
-assert.deepEqual(nodesOf(late.m_popup.document), [], "a new window has nothing until a pass looks at it");
-pass();
-assert.deepEqual(nodesOf(late.m_popup.document), [["steam-ui-theme-menu", "h2"]], "the next pass styles a new window");
+assert.deepEqual(nodesOf(late.m_popup.document), [], "a new window has nothing until Steam announces it");
+created(late);
+assert.deepEqual(nodesOf(late.m_popup.document), [["steam-ui-theme-menu", "h2"]], "an announced window is styled");
 assert.equal(gate.status().documents, 4);
 assert.equal(gate.status().nodes, 4);
 
@@ -196,7 +205,7 @@ assert.equal(gate.status().nodes, 2);
 const removed = gate.remove();
 assert.equal(removed.ok, true);
 assert.equal(removed.nodes, 2);
-assert.equal(pass, null, "removal clears the pass");
+assert.equal(created, null, "removal stops listening for new windows");
 for (const doc of [bigPicture.m_popup.document, contextMenu.m_popup.document, quickAccess, mainMenu, late.m_popup.document]) {
   assert.deepEqual(nodesOf(doc), [], "no owned node survives removal");
 }

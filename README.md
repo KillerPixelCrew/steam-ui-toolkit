@@ -1,5 +1,9 @@
 # SteamUiToolkit
 
+`SteamSoundOverrideSurface` adds reversible Big Picture audio overrides without changing Steam
+files. Hosts supply discovered sound resources and own pack policy. See
+[sound overrides](docs/sound-overrides.md) for the contract.
+
 Add, hide and revive elements in Steam's Big Picture front end, from .NET. This README is the
 orientation and the how-to. The contract, with every limit, state and log key, is in
 [`docs/reference.md`](docs/reference.md).
