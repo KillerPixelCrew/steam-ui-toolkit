@@ -1279,6 +1279,9 @@ The toggle, dropdown, slider, text field, dialog button and `showModal` are the 
 - `order` is the value field per value with Steam's small buttons to move one up or down, and sends
   the whole list.
 - `action` is a dialog button that sends the row to `onAction`, and `note` is a read-only value.
+- A row with `override` set is one whose value the running game's profile supplies. Its description
+  reads "Game override" in Steam's accent blue, the same marker the Quick Access rows use, and
+  nothing is added beside the control.
 - A `range` with `labels` is one of them by index: Steam's slider names each notch with a label, the
   bounds are the labels' count, no number is shown beside the track, and the index is sent.
 - `color` is the value field showing the colour's swatch and text with a small Edit button, which

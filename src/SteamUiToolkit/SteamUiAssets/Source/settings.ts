@@ -190,13 +190,26 @@ const showSteamColorEditor = (ui, title: string, current: string, send: (value: 
     });
 };
 
+// A row whose value the running game's profile supplies says so the way every WSGM Quick Access row
+// does: its description becomes "Game override" in Steam's accent blue. There is no Use global
+// control; Steam's Reset button is the way back.
+const SteamSettingOverrideColor = "#1a9fff";
+const steamSettingDescription = (ui, row) =>
+    row.override === true
+        ? ui.react.createElement(
+              "span",
+              {style: {color: SteamSettingOverrideColor}},
+              row.description ? "Game override · " + row.description : "Game override",
+          )
+        : row.description;
+
 // One row, by kind. `draft` is what the user has changed and the host has not yet republished,
 // so a toggle does not flick back while its write is in flight; `change` records a draft and sends
 // the value; `action` asks the host to run a row's action.
 const renderSteamSettingRow = (ui, row, draft, change, action) => {
     const h = ui.react.createElement;
     const key = `steam-setting-${row.key}`;
-    const common = {label: row.label, description: row.description, disabled: !!row.disabled};
+    const common = {label: row.label, description: steamSettingDescription(ui, row), disabled: !!row.disabled};
     const send = (value) => {
         const confirmation = row.confirm;
         if (confirmation && value === confirmation.when) {
@@ -269,7 +282,7 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
             return h(ui.valueField, {
                 key,
                 name: row.label,
-                description: row.description,
+                description: steamSettingDescription(ui, row),
                 focusable: false,
                 value: h(
                     ui.focusable,
@@ -318,7 +331,7 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
             return h(
                 ui.react.Fragment,
                 {key},
-                h(ui.valueField, {name: row.label, value: null, description: row.description, focusable: false}),
+                h(ui.valueField, {name: row.label, value: null, description: steamSettingDescription(ui, row), focusable: false}),
                 ...values.map((value, index) =>
                     h(ui.valueField, {
                         key: `${key}-${value}`,
@@ -350,7 +363,7 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
             return h(ui.valueField, {
                 key,
                 name: row.label,
-                description: row.description,
+                description: steamSettingDescription(ui, row),
                 focusable: false,
                 value: h(
                     ui.dialogButton,
@@ -359,11 +372,11 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
                 ),
             });
         case "note":
-            return h(ui.valueField, {key, name: row.label, value: row.text ?? "", description: row.description});
+            return h(ui.valueField, {key, name: row.label, value: row.text ?? "", description: steamSettingDescription(ui, row)});
         default:
             // A kind this build does not know is shown as its label and nothing else, never as a
             // control that would send a value the host did not describe.
-            return h(ui.valueField, {key, name: row.label, value: "", description: row.description});
+            return h(ui.valueField, {key, name: row.label, value: "", description: steamSettingDescription(ui, row)});
     }
 };
 
