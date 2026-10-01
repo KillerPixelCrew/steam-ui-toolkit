@@ -251,7 +251,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
         if (response.TryGetProperty("exceptionDetails", out var exception))
         {
             throw new InvalidDataException(
-                $"Steam UI JavaScript exception: {SteamUiShared.Bound(exception.GetRawText(), 2048)}");
+                $"Steam UI JavaScript exception: {SteamUiShared.Bound(exception.GetRawText(), SteamUiShared.MaximumDiagnosticLength)}");
         }
 
         if (!response.TryGetProperty("result", out var result))
@@ -467,7 +467,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
             if (root.TryGetProperty("error", out var error))
             {
                 completion.TrySetException(new InvalidDataException(
-                    $"Steam UI CDP error: {SteamUiShared.Bound(error.GetRawText(), 2048)}"));
+                    $"Steam UI CDP error: {SteamUiShared.Bound(error.GetRawText(), SteamUiShared.MaximumDiagnosticLength)}"));
                 return;
             }
 

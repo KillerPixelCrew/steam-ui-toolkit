@@ -285,6 +285,7 @@ public sealed class SteamUiModuleTests
     {
         await using var transport = new FakeSteamUiTransport();
         var value = 1;
+        var reads = 0;
         SteamUiModuleSet modules = new(
         [
             new SteamUiModule(
@@ -294,8 +295,12 @@ public sealed class SteamUiModuleTests
                     new SteamUiStatePublication(
                         "fixture.only",
                         () => true,
-                        () => ValueTask.FromResult<JsonElement?>(
-                            TestJson.Parse($"{{\"value\":{value}}}")))
+                        () =>
+                        {
+                            Interlocked.Increment(ref reads);
+                            return ValueTask.FromResult<JsonElement?>(
+                                TestJson.Parse($"{{\"value\":{value}}}"));
+                        })
                 ])
         ]);
         await using var bridge = new SteamUiBridgeHost(
@@ -313,9 +318,10 @@ public sealed class SteamUiModuleTests
         await TestJson.WaitUntilAsync(() => Deliveries(transport).Count == 1);
 
         // The publication signal is raised by fixed polls, so an unchanged round is the common one.
+        // Rounds run in order, so once the unchanged round has read its state, the change queued
+        // after it is the second delivery only if the unchanged one was skipped.
         runtime.QueuePublication();
-        await Task.Delay(100);
-        Assert.Single(Deliveries(transport));
+        await TestJson.WaitUntilAsync(() => Volatile.Read(ref reads) == 2);
 
         value = 2;
         runtime.QueuePublication();

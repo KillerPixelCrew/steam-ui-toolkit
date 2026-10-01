@@ -18,8 +18,6 @@ namespace SteamUiToolkit;
 /// </remarks>
 public static class SteamUiPatchEvaluation
 {
-    private const int MaxDiagnosticLength = 2048;
-
     /// <summary>Evaluates an expression and reads its <c>ok</c>/<c>error</c> outcome.</summary>
     /// <param name="context">The patch context to evaluate through.</param>
     /// <param name="role">Which Steam target to evaluate in.</param>
@@ -262,11 +260,8 @@ public static class SteamUiPatchEvaluation
     /// <returns>The bounded diagnostic, or null when there was nothing to report.</returns>
     public static string? Bounded(string? value)
     {
-        return value switch
-        {
-            null or "" => null,
-            { Length: <= MaxDiagnosticLength } => value,
-            _ => value[..MaxDiagnosticLength] + "..."
-        };
+        return string.IsNullOrEmpty(value)
+            ? null
+            : SteamUiShared.Bound(value, SteamUiShared.MaximumDiagnosticLength);
     }
 }

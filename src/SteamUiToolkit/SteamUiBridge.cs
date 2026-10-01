@@ -1000,7 +1000,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             if (!string.IsNullOrEmpty(state.Error))
             {
                 writer.WriteString(
-                    "error", state.Error.Length <= 1024 ? state.Error : state.Error[..1024]);
+                    "error", SteamUiShared.Bound(state.Error, SteamUiShared.MaximumDiagnosticLength));
             }
         });
     }

@@ -79,21 +79,13 @@ function createNavigationPanel() {
     const descendCache = new Map();
     const panelCache = new Map();
 
-    const textOf = (value) => {
-        if (typeof value === "string") return value;
-        if (value && typeof value === "object" && typeof value.props?.children === "string") {
-            return value.props.children;
-        }
-        return "";
-    };
-
     // A rendered entry's identity. `route` is the descriptor's own destination and the anchor an
     // "insert after Library" is written against; the React key is Valve's descriptor key and is what
     // survives when an entry has no route at all, such as the power button.
     const identify = (element) => {
         const route = typeof element?.props?.route === "string" ? element.props.route : null;
         const key = typeof element?.key === "string" ? element.key.replace(/^\.\$/u, "") : "";
-        return {key, route, label: textOf(element?.props?.label)};
+        return {key, route, label: textOf(element?.props?.label) ?? ""};
     };
 
     const matchesAnchor = (element, anchor) => {

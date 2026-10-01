@@ -396,11 +396,8 @@ function createNativeComponentHost() {
       // the frame-limit slider while a game was starting deleted the row the user had just
       // touched (Claw, 2026-09-04). Not busy — the value is stored, and the row stays live.
       "deferred",
-      "succeeded-verified",
-      "applied-unverified",
+      "applied",
       "rejected",
-      "timed-out",
-      "indeterminate",
       "failed",
       "external-change",
     ]);
@@ -768,13 +765,7 @@ function createNativeComponentHost() {
   // Steam's localizer does not return a string. It returns a React element wrapping one, so
   // `typeof text === "string"` was false for every token and every the host label fell back to its
   // English default while Steam's own rows beside them were in the user's language. The element
-  // is what should be handed to the field — only the "#" test needs the text inside it.
-  const textOf = (value) => {
-    if (typeof value === "string") return value;
-    return value && typeof value === "object" && typeof value.props?.children === "string"
-      ? value.props.children
-      : null;
-  };
+  // is what should be handed to the field; only the "#" test needs the text inside it (textOf).
   const localizeOr = (controlRuntime, token, fallback) => {
     const localized = controlRuntime.localize(token);
     const text = textOf(localized);
@@ -2200,7 +2191,7 @@ function createNativeComponentHost() {
       inserted: true,
       ownSection: true,
       get tree() {
-        return (description ??= JSON.stringify(describe(controlRuntime, tree, 0)).slice(0, 600));
+        return (description ??= JSON.stringify(describe(controlRuntime, tree, 0)));
       },
       nativeFiltered: native.props.children !== tree,
     };

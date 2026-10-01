@@ -22,26 +22,9 @@
     ) {
         return JSON.stringify({ok: true, reused: true, version: prior.version});
     }
-    if (prior) {
-        // Older bridge versions disposed only the component host. Ask every exposed gate to unwind
-        // while its closure still has the original methods/descriptors, then dispose the bridge. This
-        // is the compatibility bridge that lets the new uniform ownership markers replace the old
-        // per-gate ones without stacking on dead wrappers.
-        for (const gateName of [
-            "steamOsManager",
-            "brightness",
-            "bluetooth",
-            "network",
-            "audio",
-            "perf",
-        ]) {
-            try {
-                prior[gateName]?.remove?.();
-            } catch {
-            }
-        }
-        if (typeof prior.dispose === "function") prior.dispose("generation replaced");
-    }
+    // A prior bridge unwinds every gate it registered while their closures still hold what they
+    // displaced; see dispose below.
+    if (typeof prior?.dispose === "function") prior.dispose("generation replaced");
 
     const pending = new Map();
     const subscribers = new Map();

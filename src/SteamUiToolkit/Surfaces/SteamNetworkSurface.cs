@@ -21,7 +21,7 @@ public sealed record SteamNetworkAccessPoint(
     bool Connected);
 
 /// <summary>The networks Steam's Internet page lists and the header indicator reads.</summary>
-/// <param name="Networks">At most 24 entries; the injected side keeps the first 24.</param>
+/// <param name="Networks">The networks to list, in order.</param>
 public sealed record SteamNetworkState(IReadOnlyList<SteamNetworkAccessPoint> Networks);
 
 /// <summary>What answers Steam's Internet page: the scan lifetime.</summary>
@@ -83,9 +83,7 @@ public static class SteamNetworkSurface
               // that the client reports network management natively, and reading it that way made
               // this patch refuse itself after a successful apply and tear the network list down.
               currentlyHidden:store.networkManagementAvailable===false
-                ||(!!d&&!!d.get&&(d.get.__steamUiOwnedGetter===true||d.get.__wsgmOwnedGetter===true)),
-                // The __wsgm* spellings are the markers a build before the rename wrote; read as ours so
-                // that upgrade needs no Steam restart. Never written.
+                ||(!!d&&!!d.get&&d.get.__steamUiOwnedGetter===true),
               hasWirelessDevice:store.hasWirelessDevice===true
             });
           {{SteamUiProbeJs.Close}}

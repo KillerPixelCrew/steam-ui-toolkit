@@ -149,11 +149,7 @@ function createBrightnessGate() {
         // the flag would mean restoring a value that was never ours to change. Available AND MARKED
         // is different: that is this gate's own earlier reveal, surviving a bridge replaced in
         // place, and refusing it is the teardown trap. Both cases are the claim primitive's job now.
-        //
-        // `false` is the absent value: a client that hides the row has the flag false, so a reclaim
-        // whose stored original went missing hands back a hidden row rather than `undefined`, which
-        // Steam's `?? true` hook would have read as available forever.
-        const claim = claimValue(message, field, availability, true, false);
+        const claim = claimValue(message, field, availability, true);
         if (!claim.ok) {
             lastError = claim.error;
             return {ok: false, error: lastError};

@@ -63,27 +63,11 @@ function createScreensaverSettings() {
 
     // The host's rows, replaced whole on each publication.
     let rows: Row[] = [];
-    let revision = 0;
     const pending = new Set<string>();
-    const listeners = new Set<() => void>();
+    const local = createLocalStore();
     const pageCache = new Map();
     const sectionCache = new Map();
     const listCache = new WeakMap<object, unknown[]>();
-
-    const notify = () => {
-        revision += 1;
-        for (const listener of [...listeners]) {
-            try {
-                listener();
-            } catch {
-            }
-        }
-    };
-    const subscribeLocal = (listener) => {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-    };
-    const readRevision = () => revision;
 
     const text = (value) => (typeof value === "string" ? value : "");
     const seconds = (value) => (Number.isInteger(value) && value >= 0 ? value : null);
@@ -161,19 +145,19 @@ function createScreensaverSettings() {
         const chosen = seconds(value);
         if (!installed || chosen === null || chosen === row.seconds || pending.has(row.id)) return;
         pending.add(row.id);
-        notify();
+        local.changed();
         request(patchId, "setTimeout", {row: row.id, seconds: chosen})
             .catch((error) => {
                 lastError = "timeout change failed: " + String(error);
             })
             .finally(() => {
                 pending.delete(row.id);
-                notify();
+                local.changed();
             });
     };
 
     function SteamUiScreensaverTimeouts() {
-        react.useSyncExternalStore(subscribeLocal, readRevision);
+        react.useSyncExternalStore(local.subscribe, local.revision);
         const reading = useObserver
             ? useObserver(readScreensaver, "SteamUiScreensaverTimeouts")
             : readScreensaver();
@@ -353,7 +337,7 @@ function createScreensaverSettings() {
                 return;
             }
             rows = next;
-            notify();
+            local.changed();
         });
         reportWhenReady(0);
         return {ok: true, installed: true};
@@ -371,7 +355,7 @@ function createScreensaverSettings() {
         rows = [];
         pending.clear();
         lastReport = "";
-        notify();
+        local.changed();
         const released = releaseMemo(react, MemoName);
         if (!released.ok) {
             lastError = released.error ?? "React useMemo could not be released";

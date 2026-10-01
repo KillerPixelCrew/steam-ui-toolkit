@@ -38,12 +38,12 @@ const check = (name, condition) => {
 const keys = { marker: "__mark", original: "__orig" };
 {
   const host = { flag: false };
-  const first = api.claimValue(host, "flag", keys, true, false);
+  const first = api.claimValue(host, "flag", keys, true);
   check("value: claims a hidden flag", first.ok && host.flag === true);
   check("value: marker is not enumerable", !Object.keys(host).includes("__mark"));
 
   // The teardown trap: a second bridge sees its predecessor's work and must reclaim, not refuse.
-  const second = api.claimValue(host, "flag", keys, true, false);
+  const second = api.claimValue(host, "flag", keys, true);
   check("value: reclaims its own work rather than refusing", second.ok && second.reclaimed);
 
   api.releaseValue(host, "flag", keys);
@@ -53,21 +53,13 @@ const keys = { marker: "__mark", original: "__orig" };
 {
   // A client that already reports available needs nothing; claiming would invent an original.
   const host = { flag: true };
-  const outcome = api.claimValue(host, "flag", keys, true, false);
+  const outcome = api.claimValue(host, "flag", keys, true);
   check("value: stands aside when the client already set it", !outcome.ok);
-}
-{
-  // Reclaim whose stored original went missing must fall back to `absent`, not undefined.
-  const host = { flag: true };
-  Object.defineProperty(host, "__mark", { value: true, configurable: true });
-  api.claimValue(host, "flag", keys, true, false);
-  api.releaseValue(host, "flag", keys);
-  check("value: a lost original restores the absent value, not undefined", host.flag === false);
 }
 {
   const proto = { flag: false };
   const host = Object.create(proto);
-  const outcome = api.claimValue(host, "flag", keys, true, false);
+  const outcome = api.claimValue(host, "flag", keys, true);
   check("value: claims an inherited field", outcome.ok && host.flag === true);
   api.releaseValue(host, "flag", keys);
   check(
@@ -84,7 +76,7 @@ const keys = { marker: "__mark", original: "__orig" };
     writable: true,
   });
   const before = Object.getOwnPropertyDescriptor(host, "flag");
-  api.claimValue(host, "flag", keys, true, false);
+  api.claimValue(host, "flag", keys, true);
   api.releaseValue(host, "flag", keys);
   const after = Object.getOwnPropertyDescriptor(host, "flag");
   check(
@@ -115,7 +107,7 @@ const keys = { marker: "__mark", original: "__orig" };
     enumerable: true,
   });
   const before = Object.getOwnPropertyDescriptor(host, "flag");
-  const claim = api.claimValue(host, "flag", keys, true, false);
+  const claim = api.claimValue(host, "flag", keys, true);
   check(
     "value: claims an accessor-backed field through its setter",
     claim.ok && host.flag === true,
@@ -145,7 +137,7 @@ const keys = { marker: "__mark", original: "__orig" };
   // A read-only accessor cannot be claimed; the refusal must leave it exactly as found.
   const host = {};
   Object.defineProperty(host, "flag", { get: () => false, configurable: true });
-  const outcome = api.claimValue(host, "flag", keys, true, false);
+  const outcome = api.claimValue(host, "flag", keys, true);
   const after = Object.getOwnPropertyDescriptor(host, "flag");
   check(
     "value: refuses a read-only accessor without touching it",
@@ -278,71 +270,6 @@ const keys = { marker: "__mark", original: "__orig" };
   Object.defineProperty(locked, "avail", { get: () => false, configurable: false });
   const outcome = api.claimAccessor(locked, "avail", keys, () => true);
   check("accessor: stands aside on a non-configurable property", !outcome.ok);
-}
-
-// --- the previous build's marker spelling: read as ours, rewritten under the current one --------
-{
-  // A client can still carry markers written before the library's identifiers left its first
-  // consumer's namespace. They are string keys on objects that outlive the bridge, so refusing
-  // them would strand every surface until Steam restarted.
-  const keys = { marker: "__steamUiOwnedThing", original: "__steamUiOriginalThing" };
-  const host = { flag: true };
-  Object.defineProperty(host, "__wsgmOwnedThing", { value: true, configurable: true });
-  Object.defineProperty(host, "__wsgmOriginalThing", {
-    value: {
-      kind: "wsgm-property-snapshot-v1",
-      hadOwn: true,
-      descriptor: { value: false, writable: true, enumerable: true, configurable: true },
-      value: false,
-    },
-    configurable: true,
-  });
-  const claim = api.claimValue(host, "flag", keys, true, false);
-  check("legacy: reclaims a value the previous spelling marked", claim.ok && claim.reclaimed);
-  check(
-    "legacy: the reclaim rewrites the markers under the current spelling only",
-    "__steamUiOwnedThing" in host &&
-      !("__wsgmOwnedThing" in host) &&
-      !("__wsgmOriginalThing" in host),
-  );
-  api.releaseValue(host, "flag", keys);
-  check("legacy: release restores the original the previous build stored", host.flag === false);
-}
-{
-  const keys = { marker: "__steamUiOwnedThing", original: "__steamUiOriginalThing" };
-  const nativeMethod = () => "native";
-  const oldOverlay = () => "old";
-  Object.defineProperty(oldOverlay, "__wsgmOwnedThing", { value: true });
-  Object.defineProperty(oldOverlay, "__wsgmOriginalThing", { value: nativeMethod });
-  const host = { Go: oldOverlay };
-  api.claimMember(host, "Go", keys, (original) => () => "new:" + original());
-  check(
-    "legacy: a member claim unwraps the previous build's overlay rather than stacking",
-    host.Go() === "new:native",
-  );
-  api.releaseMember(host, "Go", keys);
-  check(
-    "legacy: release hands back the native method the previous build displaced",
-    host.Go === nativeMethod,
-  );
-}
-{
-  const system = {};
-  const orphan = { GetDevices: () => "orphan" };
-  Object.defineProperty(orphan, "__wsgmOwnedNamespace", { value: true });
-  Object.defineProperty(system, "Audio", {
-    value: orphan,
-    configurable: true,
-    enumerable: true,
-    writable: false,
-  });
-  const supplied = api.supplyNamespace(system, "Audio", "__steamUiOwnedNamespace", () => ({
-    GetDevices: () => "new",
-  }));
-  check(
-    "legacy: an orphaned namespace under the previous spelling is reclaimed, not refused",
-    supplied.ok && supplied.reclaimed && system.Audio.GetDevices() === "new",
-  );
 }
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);

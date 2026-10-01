@@ -414,28 +414,15 @@ public sealed class SteamClientTests
     // ---- SteamRunningAppsProbe ----
 
     [Fact]
-    public void RunningAppsReadingCarriesTheObserverAndOrderedEvents()
+    public void RunningAppsReadingCarriesTheValidIdsAndTheGeneration()
     {
-        var observation = SteamRunningAppsProbe.ParseObservation(CefEvalResult.Ok(
-            """
-            {"ok":true,"observer":"o1","ids":[1,0,2],"generation":7,"sequence":9,"complete":true,
-             "events":[{"s":8,"id":5,"r":true,"t":1700000000000},{"s":8,"id":6,"r":true},{"s":9,"id":5,"r":false}]}
-            """));
+        var observation = SteamRunningAppsProbe.ParseObservation(
+            CefEvalResult.Ok("""{"ok":true,"ids":[1,0,2],"generation":7}"""));
 
         Assert.True(observation.Reachable);
-        Assert.Equal("o1", observation.ObserverId);
         Assert.Equal([1u, 2u], observation.AppIds);
         Assert.Equal(7, observation.SourceGeneration);
-        Assert.Equal(9, observation.Sequence);
-        Assert.True(observation.EventsComplete);
-        Assert.Collection(
-            observation.Events!,
-            started =>
-            {
-                Assert.Equal((8L, 5u, true), (started.Sequence, started.AppId, started.Running));
-                Assert.Equal(DateTimeOffset.FromUnixTimeMilliseconds(1700000000000), started.Timestamp);
-            },
-            stopped => Assert.Equal((9L, 5u, false), (stopped.Sequence, stopped.AppId, stopped.Running)));
+        Assert.Null(observation.Diagnostic);
     }
 
     [Fact]
@@ -448,7 +435,6 @@ public sealed class SteamClientTests
         Assert.True(disabled.Reachable);
         Assert.Empty(disabled.AppIds);
         Assert.Null(disabled.Diagnostic);
-        Assert.Null(disabled.ObserverId);
         Assert.False(failed.Reachable);
         Assert.Equal("socket closed", failed.Diagnostic);
         Assert.True(SteamUiTransportSession.IsClosedReason(SteamUiTransportSession.DisabledReason));
@@ -467,25 +453,13 @@ public sealed class SteamClientTests
     }
 
     [Fact]
-    public void RunningAppsScriptRequestsEventsOnlyWhenAsked()
-    {
-        var withoutEvents = SteamRunningAppsProbe.BuildObserveExpression(null);
-        var withEvents = SteamRunningAppsProbe.BuildObserveExpression(12);
-
-        Assert.Contains("const ev=[];const complete=true;", withoutEvents);
-        Assert.Contains("const a=12;const ev=R.log.filter(x=>x.s>a);", withEvents);
-        Assert.Contains($"if(R.log.length>{SteamRunningAppsProbe.EventLogCapacity})R.log.shift();", withEvents);
-        Assert.Contains($".slice(0,{SteamRunningAppsProbe.MaxReportedApps})", withEvents);
-    }
-
-    [Fact]
     public async Task RunningAppsLeaseRemovesTheObserverAndReleasesTheTransport()
     {
         var transport = new FakeSteamUiTransport();
         var probe = new SteamRunningAppsProbe(transport);
 
         var lease = await probe.SubscribeAsync();
-        transport.EvaluationValue = """{"ok":true,"observer":"o1","ids":[42],"generation":1}""";
+        transport.EvaluationValue = """{"ok":true,"ids":[42],"generation":1}""";
         var observation = await probe.ObserveAsync();
         await lease.DisposeAsync();
         await lease.DisposeAsync();
@@ -497,200 +471,9 @@ public sealed class SteamClientTests
             observe =>
             {
                 Assert.Contains("RegisterForAppLifetimeNotifications", observe);
-                Assert.Contains("window.__steamUiRunningApps_v2", observe);
-                Assert.Contains("window.__wsgm.runningAppsV1", observe);
-                Assert.Contains("window.__steamUiRunningApps_v1", observe);
+                Assert.Contains("window.__steamUiRunningApps", observe);
             },
-            remove => Assert.Contains("R.dispose();delete window.__steamUiRunningApps_v2", remove));
-    }
-
-    [Fact]
-    public async Task ANegativeEventSequenceIsRefused()
-    {
-        var probe = new SteamRunningAppsProbe(new FakeSteamUiTransport());
-
-        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => probe.ObserveAsync(-1));
-    }
-
-    // ---- SteamAppLifetimeTracker ----
-
-    private static readonly DateTimeOffset Now = new(2026, 9, 17, 12, 0, 0, TimeSpan.Zero);
-
-    private static SteamRunningAppsObservation Reading(
-        string observer,
-        long sequence,
-        uint[] running,
-        SteamAppLifetimeEvent[]? events = null,
-        bool complete = true)
-    {
-        return new SteamRunningAppsObservation(true, running, 1, null, observer, sequence, events ?? [], complete);
-    }
-
-    private static SteamAppLifetimeEvent Event(long sequence, uint appId, bool running)
-    {
-        return new SteamAppLifetimeEvent(sequence, appId, running, Now.AddSeconds(sequence));
-    }
-
-    [Fact]
-    public void TheFirstReadingReportsRunningAppsAsResynchronizedStarts()
-    {
-        var tracker = new SteamAppLifetimeTracker();
-        Assert.Null(tracker.EventsAfter);
-
-        var update = tracker.Apply(Reading("o1", 4, [10, 20]), Now);
-
-        Assert.True(update.AvailabilityChanged);
-        Assert.True(update.Available);
-        Assert.Equal(
-            [new SteamAppLifetimeTracker.Change(10, true, Now, true), new SteamAppLifetimeTracker.Change(20, true, Now, true)],
-            update.Changes);
-        Assert.Equal(4, tracker.EventsAfter);
-    }
-
-    [Fact]
-    public void AQuickStartAndStopBetweenReadingsRaisesBothInOrder()
-    {
-        var tracker = new SteamAppLifetimeTracker();
-        tracker.Apply(Reading("o1", 4, []), Now);
-
-        var update = tracker.Apply(
-            Reading("o1", 7, [30], [Event(5, 20, true), Event(6, 20, false), Event(7, 30, true)]),
-            Now);
-
-        Assert.False(update.AvailabilityChanged);
-        Assert.Equal(
-            [
-                new SteamAppLifetimeTracker.Change(20, true, Now.AddSeconds(5), false),
-                new SteamAppLifetimeTracker.Change(20, false, Now.AddSeconds(6), false),
-                new SteamAppLifetimeTracker.Change(30, true, Now.AddSeconds(7), false)
-            ],
-            update.Changes);
-        Assert.Equal([30u], tracker.Running);
-        Assert.Equal(7, tracker.EventsAfter);
-    }
-
-    [Fact]
-    public void AlreadySeenAndRedundantEventsRaiseNothing()
-    {
-        var tracker = new SteamAppLifetimeTracker();
-        tracker.Apply(Reading("o1", 4, [10]), Now);
-
-        var update = tracker.Apply(
-            Reading("o1", 6, [10], [Event(4, 10, false), Event(5, 10, true), Event(6, 99, false)]),
-            Now);
-
-        Assert.Empty(update.Changes);
-    }
-
-    [Fact]
-    public void AReplacedObserverOrTruncatedLogResynchronizesFromTheRunningSet()
-    {
-        var tracker = new SteamAppLifetimeTracker();
-        tracker.Apply(Reading("o1", 4, [10, 20]), Now);
-
-        var replaced = tracker.Apply(Reading("o2", 1, [20, 30], [Event(1, 99, true)]), Now);
-        Assert.Equal(
-            [new SteamAppLifetimeTracker.Change(30, true, Now, true), new SteamAppLifetimeTracker.Change(10, false, Now, true)],
-            replaced.Changes);
-        Assert.Equal(1, tracker.EventsAfter);
-
-        var truncated = tracker.Apply(Reading("o2", 90, [30], [Event(90, 30, true)], complete: false), Now);
-        Assert.Equal([new SteamAppLifetimeTracker.Change(20, false, Now, true)], truncated.Changes);
-        Assert.Equal(90, tracker.EventsAfter);
-    }
-
-    [Fact]
-    public void AnOutageKeepsTheRunningSetAndRaisesNoStops()
-    {
-        var tracker = new SteamAppLifetimeTracker();
-        tracker.Apply(Reading("o1", 4, [10]), Now);
-
-        var lost = tracker.Apply(new SteamRunningAppsObservation(false, [], 0, "socket closed"), Now);
-        var stillLost = tracker.Apply(new SteamRunningAppsObservation(true, [], 0, null), Now);
-        var back = tracker.Apply(Reading("o1", 4, [10]), Now);
-
-        Assert.Equal((true, false, "socket closed"), (lost.AvailabilityChanged, lost.Available, lost.Diagnostic));
-        Assert.Empty(lost.Changes);
-        Assert.False(stillLost.AvailabilityChanged);
-        Assert.Equal([10u], tracker.Running);
-        Assert.True(back.AvailabilityChanged);
-        Assert.Empty(back.Changes);
-    }
-
-    [Fact]
-    public void AFullReadingNeverProvesAStop()
-    {
-        var tracker = new SteamAppLifetimeTracker();
-        tracker.Apply(Reading("o1", 1, [1000]), Now);
-        var full = Enumerable.Range(1, SteamRunningAppsProbe.MaxReportedApps).Select(i => (uint)i).ToArray();
-
-        var update = tracker.Apply(Reading("o2", 1, full), Now);
-
-        Assert.DoesNotContain(update.Changes, change => !change.Running);
-        Assert.Contains(1000u, tracker.Running);
-    }
-
-    // ---- SteamAppLifetimeMonitor ----
-
-    [Fact]
-    public async Task TheMonitorRaisesEventsFromTheLogAndSurvivesAFailingHandler()
-    {
-        var transport = new FakeSteamUiTransport();
-        var readings = new Queue<string>(
-        [
-            """{"ok":true,"observer":"o1","ids":[],"sequence":0,"events":[]}""",
-            """{"ok":true,"observer":"o1","ids":[],"sequence":2,"events":[{"s":1,"id":440,"r":true},{"s":2,"id":440,"r":false}]}"""
-        ]);
-        var requests = new List<string>();
-        transport.OnEvaluate = evaluation =>
-        {
-            lock (requests)
-            {
-                requests.Add(evaluation.Expression);
-                var value = evaluation.Expression.Contains("R.dispose();delete window.")
-                    ? """{"ok":true}"""
-                    : readings.Count > 0
-                        ? readings.Dequeue()
-                        : """{"ok":true,"observer":"o1","ids":[],"sequence":2,"events":[]}""";
-                return Task.FromResult(transport.Reply(value));
-            }
-        };
-        var seen = new List<string>();
-        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        await using var monitor = new SteamAppLifetimeMonitor(transport, TimeSpan.FromMilliseconds(250));
-        monitor.AppStarted += (_, _) => throw new InvalidOperationException("handler failure");
-        monitor.AppStarted += (_, e) => seen.Add($"start {e.AppId} {e.Resynchronized}");
-        monitor.AppStopped += (_, e) =>
-        {
-            seen.Add($"stop {e.AppId} {e.IsShortcut}");
-            done.TrySetResult();
-        };
-        monitor.AvailabilityChanged += (_, e) => seen.Add($"available {e.Available}");
-
-        monitor.Start();
-        monitor.Start();
-        await done.Task.WaitAsync(TimeSpan.FromSeconds(10));
-
-        Assert.Equal(["available True", "start 440 False", "stop 440 False"], seen);
-        Assert.True(monitor.IsAvailable);
-        Assert.Empty(monitor.RunningApps);
-        lock (requests)
-        {
-            Assert.Contains("const ev=[];", requests[0]);
-            Assert.Contains("const a=0;", requests[1]);
-        }
-    }
-
-    [Fact]
-    public async Task AStartedMonitorCannotBeRestartedAfterDisposal()
-    {
-        var monitor = new SteamAppLifetimeMonitor(new FakeSteamUiTransport());
-        await monitor.DisposeAsync();
-        await monitor.DisposeAsync();
-
-        Assert.Throws<ObjectDisposedException>(monitor.Start);
-        Assert.Throws<ArgumentOutOfRangeException>(
-            () => new SteamAppLifetimeMonitor(new FakeSteamUiTransport(), TimeSpan.FromMilliseconds(10)));
+            remove => Assert.Contains("R.dispose();delete window.__steamUiRunningApps;", remove));
     }
 
     // ---- Collections ----

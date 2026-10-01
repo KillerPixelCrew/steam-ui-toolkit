@@ -144,24 +144,23 @@ public static class SteamUiProbeJs
     ///     A probe that recognises a component by its source has to see through the gate's own claim:
     ///     the live value is the wrapper, which carries none of the original's tokens, so without this
     ///     the match disappears the moment the gate holds it and the manager retracts a patch that had
-    ///     just verified. Mirrors <c>ownership.ts</c>: both marker spellings and both snapshot kinds.
+    ///     just verified. Mirrors <c>ownership.ts</c>.
     /// </remarks>
     internal static string Unwrap(string claim)
     {
         return "const unwrap=(value)=>{"
-               + $"if(!value||(value.__steamUi{claim}Claimed!==true&&value.__wsgm{claim}Claimed!==true))return value;"
-               + $"const stored=value.__steamUi{claim}Original??value.__wsgm{claim}Original;"
-               + "return stored&&(stored.kind==='steam-ui-property-snapshot-v1'||stored.kind==='wsgm-property-snapshot-v1')"
-               + "?stored.value:stored;};";
+               + $"if(!value||value.__steamUi{claim}Claimed!==true)return value;"
+               + $"const stored=value.__steamUi{claim}Original;"
+               + "return stored&&stored.kind==='steam-ui-property-snapshot-v1'?stored.value:stored;};";
     }
 
-    /// <summary>Whether a value is a gate's own claim, under either marker spelling.</summary>
+    /// <summary>Whether a value is a gate's own claim.</summary>
     /// <param name="value">The JavaScript expression holding the value.</param>
     /// <param name="claim">The claim's name, as in <c>__steamUi{claim}Claimed</c>.</param>
     /// <returns>A boolean expression.</returns>
     internal static string Claimed(string value, string claim)
     {
-        return $"!!{value}&&({value}.__steamUi{claim}Claimed===true||{value}.__wsgm{claim}Claimed===true)";
+        return $"!!{value}&&{value}.__steamUi{claim}Claimed===true";
     }
 
     /// <summary>Whether a <c>SteamClient.System</c> namespace is absent, or present and ours.</summary>
@@ -172,14 +171,12 @@ public static class SteamUiProbeJs
     ///     audio patch declare itself incompatible five seconds after a successful install, tear down,
     ///     and orphan the namespace it had just defined, which left Steam's audio page empty until Steam
     ///     itself restarted. An orphaned Perf namespace is worse: it leaves <c>SystemPerfStore</c>
-    ///     holding half-written state, which is what crashed the whole Performance tab. The
-    ///     <c>__wsgm*</c> spelling is the marker a build before the rename wrote; it is read as ours so
-    ///     that upgrade needs no Steam restart, and never written.
+    ///     holding half-written state, which is what crashed the whole Performance tab.
     /// </remarks>
     internal static string OwnedOrAbsentNamespace(string name)
     {
         return "(()=>{const n=window.SteamClient&&window.SteamClient.System&&window.SteamClient.System."
                + name
-               + ";return !n||n.__steamUiOwnedNamespace===true||n.__wsgmOwnedNamespace===true;})()";
+               + ";return !n||n.__steamUiOwnedNamespace===true;})()";
     }
 }

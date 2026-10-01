@@ -73,8 +73,8 @@ function createHomeCarousel() {
     let unsubscribe: (() => void) | null = null;
 
     // The host's instruction, replaced whole on each publication.
-    let policy = {includeUninstalled: false, disconnected: new Set<number>(), revision: 0};
-    const listeners = new Set<() => void>();
+    let policy = {includeUninstalled: false, disconnected: new Set<number>()};
+    const local = createLocalStore();
 
     let lastOutcome = "never rendered";
     let lastReport = "";
@@ -91,20 +91,6 @@ function createHomeCarousel() {
     const carouselChecks = new WeakMap<object, boolean>();
     const carouselCache = new Map();
     const recentGamesCache = new Map();
-
-    const notify = () => {
-        for (const listener of listeners) {
-            try {
-                listener();
-            } catch {
-            }
-        }
-    };
-    const subscribeLocal = (listener) => {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-    };
-    const readRevision = () => policy.revision;
 
     const collectionStore = () => (window as any).collectionStore;
     const appStore = () => (window as any).appStore;
@@ -172,7 +158,7 @@ function createHomeCarousel() {
     //   5. With the host's permission, owned games that are not installed.
     // Ties fall back to app id, so the order is deterministic.
     const listFor = (steamGames: number[], inputs) => {
-        const key = [policy.revision, steamGames, inputs.installed, inputs.purchased, inputs.owned];
+        const key = [local.revision(), steamGames, inputs.installed, inputs.purchased, inputs.owned];
         if (cached && cached.key.length === key.length && cached.key.every((value, index) => value === key[index])) {
             return cached;
         }
@@ -368,7 +354,7 @@ function createHomeCarousel() {
         const inner = type.type;
         const tracked = useObserver;
         const Carousel = function SteamUiHomeCarousel(props) {
-            react.useSyncExternalStore(subscribeLocal, readRevision);
+            react.useSyncExternalStore(local.subscribe, local.revision);
             const inputs = tracked ? tracked(readInputs, "SteamUiHomeCarousel") : readInputs();
             const tree = inner(props);
             return installed ? retarget(tree, inputs) : tree;
@@ -507,9 +493,8 @@ function createHomeCarousel() {
             policy = {
                 includeUninstalled: published?.includeUninstalled === true,
                 disconnected,
-                revision: policy.revision + 1,
             };
-            notify();
+            local.changed();
         });
         return {ok: true, installed: true, reclaimed: claim.reclaimed, adopted: lastAdoption.adopted};
     };
@@ -519,8 +504,8 @@ function createHomeCarousel() {
         installed = false;
         unsubscribe = endSubscription(unsubscribe);
         // A carousel on screen re-renders and hands back Steam's own list and overscan.
-        policy = {includeUninstalled: false, disconnected: new Set<number>(), revision: policy.revision + 1};
-        notify();
+        policy = {includeUninstalled: false, disconnected: new Set<number>()};
+        local.changed();
         cached = null;
         lastReport = "";
         carouselCache.clear();

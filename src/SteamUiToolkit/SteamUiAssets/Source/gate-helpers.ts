@@ -412,6 +412,39 @@ const localizedOr = (localize: ((token: string) => unknown) | null, token: strin
     return fallback;
 };
 
+// The text a label carries, or null. A label is sometimes a plain string and sometimes what Steam's
+// localizer returns, which is a React element wrapping the string rather than the string itself.
+const textOf = (value) => {
+    if (typeof value === "string") return value;
+    return value && typeof value === "object" && typeof value.props?.children === "string"
+        ? value.props.children
+        : null;
+};
+
+// State a gate keeps outside Steam's stores, read by its components through React's
+// useSyncExternalStore. `changed` advances the revision and tells every subscriber; a listener that
+// throws does not stop the others.
+const createLocalStore = () => {
+    let revision = 0;
+    const listeners = new Set<() => void>();
+    return {
+        changed() {
+            revision += 1;
+            for (const listener of [...listeners]) {
+                try {
+                    listener();
+                } catch {
+                }
+            }
+        },
+        subscribe(listener: () => void) {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+        },
+        revision: () => revision,
+    };
+};
+
 // mobx-react-lite's useObserver, found by its shape in the module that carries the startup check,
 // or null. Wanted by the surfaces that use it, never required.
 const findUseObserver = (runtime) => {

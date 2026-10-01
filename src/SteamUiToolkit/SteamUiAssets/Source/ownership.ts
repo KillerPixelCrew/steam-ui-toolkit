@@ -61,35 +61,19 @@ const defineHidden = (host: object, key: string, value: unknown) => {
     });
 };
 
-// The names a previous build wrote the same markers under, before the library's identifiers left
-// its first consumer's namespace. A marker is a string key on a live client object, and the client
-// outlives the bridge that wrote it: refusing the old spelling would strand every surface until
-// Steam restarted, which is the orphan trap this file exists to close. Read as ours, never written.
-const legacyKey = (key: string) => key.replace(/^__steamUi/u, "__wsgm");
-
 const claimed = (host: unknown, keys: ClaimKeys) =>
-    !!host &&
-    ((host as Record<string, unknown>)[keys.marker] === true ||
-        (host as Record<string, unknown>)[legacyKey(keys.marker)] === true);
+    !!host && (host as Record<string, unknown>)[keys.marker] === true;
 
-// What a claim stored as the displaced original, under either spelling of the key.
+// What a claim stored as the displaced original.
 const storedOriginal = (host: unknown, keys: ClaimKeys): unknown => {
     const record = host as Record<string, unknown>;
-    if (Object.hasOwn(record, keys.original)) return record[keys.original];
-    if (Object.hasOwn(record, legacyKey(keys.original))) return record[legacyKey(keys.original)];
-    return undefined;
+    return Object.hasOwn(record, keys.original) ? record[keys.original] : undefined;
 };
 
-const hasStoredOriginal = (host: unknown, keys: ClaimKeys) =>
-    Object.hasOwn(host as object, keys.original) ||
-    Object.hasOwn(host as object, legacyKey(keys.original));
-
-// Removes both spellings of a claim's markers; releasing what an older build claimed must not
-// leave its keys behind for the next probe to read as a claim.
+// Removes a claim's markers, so the next probe does not read a released claim as one.
 const dropClaimKeys = (host: Record<string, unknown>, keys: ClaimKeys) => {
-    for (const key of [keys.marker, keys.original, legacyKey(keys.marker), legacyKey(keys.original)]) {
-        delete host[key];
-    }
+    delete host[keys.marker];
+    delete host[keys.original];
 };
 
 const captureProperty = (host: Record<string, unknown>, property: string): PropertySnapshot => ({
@@ -102,9 +86,7 @@ const captureProperty = (host: Record<string, unknown>, property: string): Prope
 const isPropertySnapshot = (value: unknown): value is PropertySnapshot =>
     !!value &&
     typeof value === "object" &&
-    // Both spellings of the kind, for the same reason claimed() reads both marker spellings.
-    ((value as Partial<PropertySnapshot>).kind === "steam-ui-property-snapshot-v1" ||
-        ((value as { kind?: unknown }).kind === "wsgm-property-snapshot-v1")) &&
+    (value as Partial<PropertySnapshot>).kind === "steam-ui-property-snapshot-v1" &&
     typeof (value as Partial<PropertySnapshot>).hadOwn === "boolean";
 
 // What a claimed member displaced, or the value itself when it is not ours. For code that has to
@@ -148,23 +130,6 @@ const restoreProperty = (
     }
 };
 
-const legacyValueSnapshot = (
-    host: Record<string, unknown>,
-    property: string,
-    value: unknown,
-    absentMeansMissing: boolean,
-): PropertySnapshot => {
-    const current = Object.getOwnPropertyDescriptor(host, property);
-    const hadOwn = !(absentMeansMissing && value === undefined) && !!current;
-    return {
-        kind: "steam-ui-property-snapshot-v1",
-        hadOwn,
-        descriptor:
-            hadOwn && current && "value" in current ? {...current, value} : undefined,
-        value,
-    };
-};
-
 const installDataValue = (
     host: Record<string, unknown>,
     property: string,
@@ -195,17 +160,13 @@ const installDataValue = (
     }
 };
 
-// Claims a plain data field — a flag or value the client set, that a gate replaces.
-//
-// `absent` is what the field reads as when nothing has claimed it. It is required rather than
-// inferred: reclaiming a previous bridge's work has to restore what THAT bridge displaced, and when
-// the stored original is missing the only honest answer is the value the client would have had.
+// Claims a plain data field, a flag or value the client set that a gate replaces. Reclaiming a
+// previous bridge's work keeps what THAT bridge displaced, never the value it installed.
 const claimValue = (
     host: Record<string, unknown> | null,
     field: string,
     keys: ClaimKeys,
     next: unknown,
-    absent: unknown,
 ): ClaimOutcome => {
     if (!host || !(field in host)) {
         return {ok: false, error: "claim target unavailable"};
@@ -220,16 +181,8 @@ const claimValue = (
     const markerBefore = Object.getOwnPropertyDescriptor(host, keys.marker);
     const originalBefore = Object.getOwnPropertyDescriptor(host, keys.original);
     try {
-        const stored = hasStoredOriginal(host, keys) ? storedOriginal(host, keys) : absent;
-        const original = reclaimed
-            ? isPropertySnapshot(stored)
-                ? stored
-                : legacyValueSnapshot(host, field, stored, false)
-            : fieldBefore;
+        const original = reclaimed ? storedOriginal(host, keys) : fieldBefore;
         installDataValue(host, field, next);
-        // Rewritten under the current spelling; an older build's keys are dropped so a probe from a
-        // separate evaluation reads one claim, not two.
-        dropClaimKeys(host, keys);
         defineHidden(host, keys.marker, true);
         defineHidden(host, keys.original, original);
         return {ok: true, reclaimed};
@@ -256,11 +209,7 @@ const releaseValue = (
 ): { ok: boolean; error?: string } => {
     if (!host || !claimed(host, keys)) return {ok: true};
     try {
-        const stored = storedOriginal(host, keys);
-        const original = isPropertySnapshot(stored)
-            ? stored
-            : legacyValueSnapshot(host, field, stored, false);
-        restoreProperty(host, field, original);
+        restoreProperty(host, field, storedOriginal(host, keys) as PropertySnapshot);
         dropClaimKeys(host, keys);
         return {ok: true};
     } catch (error) {
@@ -283,11 +232,8 @@ const claimMember = (
     const current = host[member];
     const reclaimed = claimed(current, keys);
     try {
-        const stored = reclaimed ? storedOriginal(current, keys) : undefined;
         const original = reclaimed
-            ? isPropertySnapshot(stored)
-                ? stored
-                : legacyValueSnapshot(host, member, stored, true)
+            ? (storedOriginal(current, keys) as PropertySnapshot)
             : captureProperty(host, member);
         const next = replacement(original.value) as Record<string, unknown>;
         // Functions as well as objects: every member claim so far replaces a METHOD, and `typeof` a
@@ -317,11 +263,7 @@ const releaseMember = (
     const current = host[member];
     if (!claimed(current, keys)) return {ok: true};
     try {
-        const stored = storedOriginal(current, keys);
-        const original = isPropertySnapshot(stored)
-            ? stored
-            : legacyValueSnapshot(host, member, stored, true);
-        restoreProperty(host, member, original);
+        restoreProperty(host, member, storedOriginal(current, keys) as PropertySnapshot);
         return {ok: true};
     } catch (error) {
         return {ok: false, error: String(error)};

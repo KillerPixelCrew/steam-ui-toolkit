@@ -27,7 +27,7 @@ enabled; this repository supplies mechanisms and truthful state.
 - `SteamUiExtension*.cs`: package discovery, validation, and claim conflict handling.
 - `src/SteamUiToolkit/Surfaces`: typed states, backend contracts, patches, and modules.
 - `src/SteamUiToolkit/Client`: one-shot reads and writes against `SteamClient.*` and Steam's stores,
-  and the running-app observer behind the app lifetime events.
+  and the running-app observer that tracks which apps Steam is running.
 - `SteamUiAssets/Source`: TypeScript bridge, ownership helpers, RPC support, shared gate helpers,
   gates, the component host, `settings.ts`, which draws a host's settings pages with Steam's own
   routed sidebar, sections and fields, and `ui-kit.ts`, the elements a host draws around Steam's

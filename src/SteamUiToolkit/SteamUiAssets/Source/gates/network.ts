@@ -30,14 +30,7 @@ function createNetworkGate() {
     const removeNetworkState = (refresh: boolean) => {
         const instance = store();
         if (instance) {
-            const keys = new Set(syntheticKeys);
-            // Compatibility cleanup for the retired standalone indicator, which used this exact
-            // bounded id range but could not hand its closure-owned key list to the new gate.
-            const deviceId = instance.m_WirelessDevice?.id;
-            if (deviceId !== undefined) {
-                for (let index = 0; index < 24; index += 1) keys.add(`${deviceId}:${990001 + index}`);
-            }
-            for (const key of keys) instance.m_mapNetworkAccessPoints?.delete(key);
+            for (const key of syntheticKeys) instance.m_mapNetworkAccessPoints?.delete(key);
             instance.m_bIsConnectedToANetwork = instance.IsAnyDeviceConnected();
             instance.m_bIsConnectingToANetwork = instance.IsAnyDeviceConnecting();
         }

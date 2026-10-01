@@ -134,10 +134,10 @@ public readonly record struct SteamShortcutListResult(
 ///         <c>localconfig.vdf</c> immediately, so no restart is needed.
 ///     </para>
 ///     <para>
-///         Every change goes through one gate, one at a time, each followed by a settle. Each is a
-///         separate evaluation against a client that is mutating its own library store: two in flight
-///         at once is how that store gets corrupted, and a shortcut added by one caller while another
-///         diffs the library would make the other misread which entry it created.
+///         Every change goes through one gate, one at a time. Each is a separate evaluation against a
+///         client that is mutating its own library store: two in flight at once is how that store gets
+///         corrupted, and a shortcut added by one caller while another diffs the library would make the
+///         other misread which entry it created.
 ///     </para>
 ///     <para>
 ///         A store title and a non-Steam shortcut take different calls. A store title's launch options
@@ -153,12 +153,15 @@ public static class SteamApps
     // Steam answers a live app almost immediately, so a short bound keeps an unknown id from hanging.
     private const int DetailsTimeoutMs = 3_000;
 
-    // Steam applies each setter on its own thread; give the write a moment to land before a caller
-    // reads the value back to confirm it.
-    private const int WriteSettleMs = 400;
+    // How long a new shortcut's fields may take to read back as written. Steam applies each setter on
+    // its own thread, so the first read can still see the old value; the read repeats until the fields
+    // match or this passes, and only a difference left after it is reported.
+    private const int ReadBackMs = 2_000;
 
     // Steam resolves ClearCustomArtworkForApp before the clear finishes, so a set issued immediately
-    // can race it (observed in decky-steamgriddb).
+    // can race it (observed in decky-steamgriddb). Nothing reports the clear's completion: the promise
+    // is what resolves early, no notification names artwork, and the overview's rt_custom_image_mtime
+    // counts whole seconds, so a clear and a set in the same second look alike.
     private const int ArtworkClearSettleMs = 500;
 
     // How long a new shortcut may take to appear in the library before the add is reported unconfirmed.
@@ -215,8 +218,7 @@ public static class SteamApps
         ArgumentNullException.ThrowIfNull(launchOptions);
         var expression = SteamClientScript.Write(
             "await SteamClient.Apps.SetAppLaunchOptions(" + SteamClientScript.AppId(appId) + "," +
-            SteamCef.JsString(launchOptions) + ");" +
-            SteamClientScript.Settle(WriteSettleMs));
+            SteamCef.JsString(launchOptions) + ");");
         return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
     }
 
@@ -238,8 +240,7 @@ public static class SteamApps
         var expression = SteamClientScript.Write(
             "const app=" + SteamClientScript.AppId(appId) + ";" +
             "await SteamClient.Apps.SetShortcutExe(app," + SteamCef.JsString(target) + ");" +
-            "await SteamClient.Apps.SetShortcutLaunchOptions(app," + SteamCef.JsString(launchArguments) + ");" +
-            SteamClientScript.Settle(WriteSettleMs));
+            "await SteamClient.Apps.SetShortcutLaunchOptions(app," + SteamCef.JsString(launchArguments) + ");");
         return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
     }
 
@@ -268,8 +269,7 @@ public static class SteamApps
             "const app=" + SteamClientScript.AppId(appId) + ";" +
             "await SteamClient.Apps.SetShortcutExe(app," + SteamCef.JsString(target) + ");" +
             "await SteamClient.Apps.SetShortcutStartDir(app," + SteamCef.JsString(startDirectory) + ");" +
-            "await SteamClient.Apps.SetShortcutLaunchOptions(app," + SteamCef.JsString(launchArguments) + ");" +
-            SteamClientScript.Settle(WriteSettleMs));
+            "await SteamClient.Apps.SetShortcutLaunchOptions(app," + SteamCef.JsString(launchArguments) + ");");
         return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
     }
 
@@ -329,8 +329,8 @@ public static class SteamApps
     ///         one this library has verified either, while <c>SetShortcutName</c>,
     ///         <c>SetShortcutExe</c>, <c>SetShortcutStartDir</c> and <c>SetShortcutLaunchOptions</c> are
     ///         the calls every shortcut manager relies on. The name is the one that bites: a client
-    ///         can ignore the name it is passed and call the entry after its executable. Each field is
-    ///         read back after the settle, and any that differs is reported.
+    ///         can ignore the name it is passed and call the entry after its executable. The fields are
+    ///         read back until they match or two seconds pass, and any that still differs is reported.
     ///     </para>
     /// </remarks>
     public static async Task<SteamShortcutAddResult> AddShortcutAsync(
@@ -372,15 +372,20 @@ public static class SteamApps
             "if(typeof A.SetShortcutExe==='function')await A.SetShortcutExe(id,exe);" +
             "if(typeof A.SetShortcutStartDir==='function')await A.SetShortcutStartDir(id,dir);" +
             "if(typeof A.SetShortcutLaunchOptions==='function')await A.SetShortcutLaunchOptions(id,args);" +
-            SteamClientScript.Settle(WriteSettleMs) +
-            "const d=await " + SteamClientScript.AppDetailsFunction(DetailsTimeoutMs) + "(id);" +
+            "const details=" + SteamClientScript.AppDetailsFunction(DetailsTimeoutMs) + ";" +
+            "const until=Date.now()+" + ReadBackMs.ToString(CultureInfo.InvariantCulture) + ";" +
+            "let wrong=[];" +
+            "for(;;){" +
+            "const d=await details(id);" +
             "const o=window.appStore?.GetAppOverviewByAppID?.(id);" +
-            "const wrong=[];" +
+            "wrong=[];" +
             "if(!d)wrong.push('details');else{" +
             "if((d.strShortcutExe||'')!==exe)wrong.push('Target');" +
             "if((d.strShortcutStartDir||'')!==dir)wrong.push('start directory');" +
             "if((d.strShortcutLaunchOptions||'')!==args)wrong.push('launch options');}" +
             "if(o&&typeof o.display_name==='string'&&o.display_name!==name)wrong.push('name');" +
+            "if(!wrong.length||Date.now()>=until)break;" +
+            "await new Promise(r=>setTimeout(r,100));}" +
             "return JSON.stringify({ok:true,value:String(id),confirmed:true," +
             "mismatch:wrong.length?'Steam holds a different '+wrong.join(', ')+' than was written.':''});");
 
@@ -431,8 +436,7 @@ public static class SteamApps
         var expression = SteamClientScript.Write(
             "if(typeof SteamClient?.Apps?.RemoveShortcut!=='function')" +
             "throw new Error('This Steam client does not expose RemoveShortcut.');" +
-            "await SteamClient.Apps.RemoveShortcut(" + SteamClientScript.AppId(appId) + ");" +
-            SteamClientScript.Settle(WriteSettleMs));
+            "await SteamClient.Apps.RemoveShortcut(" + SteamClientScript.AppId(appId) + ");");
         return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
     }
 
@@ -496,7 +500,7 @@ public static class SteamApps
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         var expression = SteamClientScript.Write(
             "await SteamClient.Apps.SetShortcutIcon(" + SteamClientScript.AppId(appId) + "," +
-            SteamCef.JsString(path) + ");" + SteamClientScript.Settle(WriteSettleMs));
+            SteamCef.JsString(path) + ");");
         return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
     }
 
@@ -505,8 +509,7 @@ public static class SteamApps
         uint appId, CancellationToken cancellationToken = default)
     {
         var expression = SteamClientScript.Write(
-            "await SteamClient.Apps.SetShortcutIcon(" + SteamClientScript.AppId(appId) + ",'');" +
-            SteamClientScript.Settle(WriteSettleMs));
+            "await SteamClient.Apps.SetShortcutIcon(" + SteamClientScript.AppId(appId) + ",'');");
         return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
     }
 

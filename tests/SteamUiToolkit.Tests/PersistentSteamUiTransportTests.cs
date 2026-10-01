@@ -229,31 +229,16 @@ public sealed class PersistentSteamUiTransportTests
             Assert.False(result.Reachable);
         }
 
-        var connected = await WaitUntilAsync(() =>
-        {
-            lock (factory.Wires)
+        // The rebuild waits out the first reconnect delay, which is longer than the default wait.
+        await TestJson.WaitUntilAsync(
+            () =>
             {
-                return factory.Wires.Count > 1;
-            }
-        });
-
-        Assert.True(connected, "the channel never rebuilt its connection after the unanswered run");
-    }
-
-    private static async Task<bool> WaitUntilAsync(Func<bool> condition)
-    {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-        while (DateTime.UtcNow < deadline)
-        {
-            if (condition())
-            {
-                return true;
-            }
-
-            await Task.Delay(25);
-        }
-
-        return condition();
+                lock (factory.Wires)
+                {
+                    return factory.Wires.Count > 1;
+                }
+            },
+            TimeSpan.FromSeconds(10));
     }
 
     [Fact]

@@ -12,10 +12,10 @@ internal static class TestJson
         return document.RootElement.Clone();
     }
 
-    /// <summary>Polls until <paramref name="predicate" /> holds, failing after one second.</summary>
-    internal static async Task WaitUntilAsync(Func<bool> predicate)
+    /// <summary>Polls until <paramref name="predicate" /> holds, failing after one second unless told otherwise.</summary>
+    internal static async Task WaitUntilAsync(Func<bool> predicate, TimeSpan? limit = null)
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+        using var timeout = new CancellationTokenSource(limit ?? TimeSpan.FromSeconds(1));
         while (!predicate())
         {
             await Task.Delay(10, timeout.Token);

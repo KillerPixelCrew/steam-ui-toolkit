@@ -848,7 +848,7 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
             }
 
             channel.Health = health;
-            channel.LastFailure = SteamUiShared.Bound(failure, 1024);
+            channel.LastFailure = SteamUiShared.Bound(failure, SteamUiShared.MaximumDiagnosticLength);
         }
     }
 

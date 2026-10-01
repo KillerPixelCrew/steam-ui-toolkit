@@ -8,6 +8,9 @@ namespace SteamUiToolkit;
 /// <summary>Small guards the transport, connection, patch manager and module runtime share.</summary>
 internal static class SteamUiShared
 {
+    /// <summary>The longest diagnostic the library keeps or reports; a longer one is cut and marked.</summary>
+    internal const int MaximumDiagnosticLength = 2048;
+
     /// <summary>The longest single Steam UI operation any caller may request.</summary>
     internal static readonly TimeSpan MaximumOperationTimeout = TimeSpan.FromSeconds(30);
 

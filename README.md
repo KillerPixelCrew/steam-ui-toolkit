@@ -164,9 +164,8 @@ page in view (`SteamCurrentPage`) and the apps Steam is running (`SteamRunningAp
 one-shot calls over the same transport, and each separates "Steam was never reached" from "Steam
 refused", because only the second one is an answer.
 
-**`SteamAppLifetimeMonitor`** raises `AppStarted` and `AppStopped` from Steam's own lifetime
-notifications, so an application can react to a game launching or closing without watching
-processes.
+**`SteamRunningAppsProbe`** keeps the running set current from Steam's own lifetime notifications,
+so an application can tell which games Steam is running without watching processes.
 
 ### Game state, end to end
 
@@ -199,18 +198,16 @@ SteamUiTransportSession.Attach(transport);
 var names = (await SteamLibraryData.ListGamesAsync())
     .ToDictionary(app => (uint)app.AppId, app => app.Name);
 
-// 6. Watch games start and stop. Handlers run on the monitor's worker thread and block its
-//    next poll, so keep them short and hand real work to your own queue.
-await using var games = new SteamAppLifetimeMonitor(transport);
-games.AvailabilityChanged += (_, e) =>
-    Console.WriteLine(e.Available ? "Steam is readable." : $"Steam is unreadable: {e.Diagnostic}");
-games.AppStarted += (_, e) => Console.WriteLine(
-    $"started: {Name(e.AppId)}{(e.Resynchronized ? " (already running)" : "")}");
-games.AppStopped += (_, e) => Console.WriteLine($"stopped: {Name(e.AppId)}");
-games.Start();
-
-Console.WriteLine("Watching Steam. Press enter to stop.");
-Console.ReadLine();
+// 6. Read which games Steam is running. The lease keeps the page observer installed; disposing it
+//    removes the observer again.
+var running = new SteamRunningAppsProbe(transport);
+await using (await running.SubscribeAsync())
+{
+    var reading = await running.ObserveAsync();
+    Console.WriteLine(reading.Reachable
+        ? $"running: {string.Join(", ", reading.AppIds.Select(Name))}"
+        : $"Steam is unreadable: {reading.Diagnostic}");
+}
 
 string Name(uint appId)
 {
@@ -219,16 +216,13 @@ string Name(uint appId)
 ```
 
 Steam must be running for readings to arrive, and its debug port exists only after a restart
-following the first flag write. Until then the monitor reports itself unavailable with a reason
-rather than failing.
+following the first flag write. Until then a reading is unreachable with a reason rather than
+failing.
 
-The in-page observer keeps a numbered log of the last 64 notifications, so a game that starts and
-stops between two polls still raises both events in order. `Resynchronized` marks a change derived
-from comparing running sets instead: the first reading, where everything already running is reported
-as started, a replaced Steam context, or more changes than the log holds. An unreachable client
-raises `AvailabilityChanged` rather than stop events, because Steam being gone is not a game being
-closed. `IsShortcut` on an event separates a non-Steam shortcut, whose generated id has no store
-page, from a store title. See §16 of the reference.
+Every change to the running set advances the reading's `SourceGeneration`, so a reader that compares
+two readings sees a game that stopped and started again in between. `SteamApps.IsShortcutAppId`
+separates a non-Steam shortcut, whose generated id has no store page, from a store title. See §16 of
+the reference.
 
 ## Windows, keyboards and menu state
 
