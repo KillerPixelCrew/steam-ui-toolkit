@@ -400,8 +400,9 @@ console.log("Device controls retain charging and brightness without the optional
       assert.equal(tree.children[1].props.className, "steam-ui-kit-battery");
       return tree.children[2].children;
     }
-    assert.equal(tree.children[2].props.className, "steam-ui-kit-valve");
-    return [tree.children[1]];
+    const valve = tree.children.findIndex(child => child?.props?.className === "steam-ui-kit-valve");
+    assert.ok(valve > 0);
+    return tree.children.slice(1, valve);
   };
   const layout = (placement) =>
     Object.fromEntries(groupsOf(placement).map(group => {
@@ -421,6 +422,10 @@ console.log("Device controls retain charging and brightness without the optional
   assert.deepEqual(layout("quickSettings"), { Display: "none" });
   registrations.set("valveRefreshRate", "valveRefreshRate");
   assert.deepEqual(layout("quickSettings"), { Display: "contents" });
+  registrations.set("audioFormat", "audioFormat");
+  assert.deepEqual(layout("quickSettings"), { Display: "contents", Audio: "none" });
+  drawnKinds.add("audioFormat");
+  assert.deepEqual(layout("quickSettings"), { Display: "contents", Audio: "contents" });
   // Profile scope stays open, Reset has no heading, and every other group folds under its title
   // with its glyph and its rows' summary on the heading.
   summaries.powerProfile = "Balanced";

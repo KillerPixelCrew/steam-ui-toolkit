@@ -13,13 +13,17 @@ public sealed record SteamAudioFormatOption(string Id, string Label);
 
 /// <summary>Live channel/default-format and spatial-audio choices for the active playback endpoint.</summary>
 /// <param name="Available">Whether the active output exposes advanced audio configuration.</param>
-/// <param name="FormatOptions">Supported playback formats, at most 64.</param>
+/// <param name="ChannelOptions">Supported channel layouts, each carrying a valid complete format id.</param>
+/// <param name="CurrentChannels">The active channel choice id.</param>
+/// <param name="FormatOptions">Supported encodings for the selected channel layout.</param>
 /// <param name="CurrentFormat">The active format id, or empty when it cannot be determined.</param>
-/// <param name="SpatialOptions">Supported spatial formats, at most 16.</param>
+/// <param name="SpatialOptions">Supported spatial formats.</param>
 /// <param name="CurrentSpatial">The active spatial format id, or empty when it cannot be determined.</param>
 /// <param name="StatusText">Why the controls are unavailable, when known.</param>
 public sealed record SteamAudioFormatState(
     bool Available,
+    IReadOnlyList<SteamAudioFormatOption> ChannelOptions,
+    string CurrentChannels,
     IReadOnlyList<SteamAudioFormatOption> FormatOptions,
     string CurrentFormat,
     IReadOnlyList<SteamAudioFormatOption> SpatialOptions,
@@ -55,7 +59,7 @@ public static class SteamAudioFormatRow
     public static SteamQuickAccessRowPatch Patch { get; } = new(
         PatchId,
         "audioFormat",
-        "native-qam-audio-format-v1:performance-actions+performance-root+valve-dropdown",
+        "native-qam-audio-format-v2:performance-actions+performance-root+valve-dropdown",
         "steam_ui_audio_format_probe_");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>

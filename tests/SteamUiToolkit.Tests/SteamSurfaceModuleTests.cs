@@ -17,6 +17,8 @@ public sealed class SteamSurfaceModuleTests
         SteamUiModuleSet set = new(
         [
             SteamAudioSurface.Module(Always, () => new ValueTask<SteamAudioState?>(null as SteamAudioState), backend),
+            SteamSettingsQuickAccessRow.Module(Always,
+                () => new ValueTask<SteamSettingsQuickAccessState?>(null as SteamSettingsQuickAccessState), backend),
             SteamAudioFormatRow.Module(Always,
                 () => new ValueTask<SteamAudioFormatState?>(null as SteamAudioFormatState), backend),
             SteamNetworkSurface.Module(Always, () => new ValueTask<SteamNetworkState?>(null as SteamNetworkState),
@@ -57,6 +59,7 @@ public sealed class SteamSurfaceModuleTests
         ]);
 
         Assert.Equal(SteamAudioSurface.Commands, set.AllowedCommands[SteamAudioSurface.PatchId]);
+        Assert.Equal(SteamSettingsQuickAccessRow.Commands, set.AllowedCommands[SteamSettingsQuickAccessRow.PatchId]);
         Assert.Equal(SteamAudioFormatRow.Commands, set.AllowedCommands[SteamAudioFormatRow.PatchId]);
         Assert.Equal(SteamNetworkSurface.Commands, set.AllowedCommands[SteamNetworkSurface.PatchId]);
         Assert.Equal(SteamBluetoothSurface.Commands, set.AllowedCommands[SteamBluetoothSurface.PatchId]);
@@ -89,7 +92,7 @@ public sealed class SteamSurfaceModuleTests
 
         // The full set registers together without an identity collision, which is what a consumer
         // declaring every surface at once relies on.
-        Assert.Equal(20, set.Modules.Count);
+        Assert.Equal(21, set.Modules.Count);
     }
 
     [Fact]
@@ -135,6 +138,7 @@ public sealed class SteamSurfaceModuleTests
     public void AudioFormatStateKeepsOptionIdentitySeparateFromTheLabelTheUserReads()
     {
         var wire = SteamAudioFormatRow.Serialize(new SteamAudioFormatState(true,
+            [new SteamAudioFormatOption("8ch-24-48000", "7.1")], "8ch-24-48000",
             [new SteamAudioFormatOption("2ch-16-48000", "Stereo"), new SteamAudioFormatOption("8ch-24-48000", "7.1")],
             "8ch-24-48000",
             [new SteamAudioFormatOption("off", "Off"), new SteamAudioFormatOption("dolby", "Dolby Atmos")],
@@ -142,6 +146,8 @@ public sealed class SteamSurfaceModuleTests
             "Exclusive mode is in use."));
 
         Assert.True(wire.GetProperty("available").GetBoolean());
+        Assert.Equal("8ch-24-48000", wire.GetProperty("currentChannels").GetString());
+        Assert.Equal("7.1", wire.GetProperty("channelOptions")[0].GetProperty("label").GetString());
         Assert.Equal("8ch-24-48000", wire.GetProperty("currentFormat").GetString());
         Assert.Equal("2ch-16-48000", wire.GetProperty("formatOptions")[0].GetProperty("id").GetString());
         Assert.Equal("7.1", wire.GetProperty("formatOptions")[1].GetProperty("label").GetString());

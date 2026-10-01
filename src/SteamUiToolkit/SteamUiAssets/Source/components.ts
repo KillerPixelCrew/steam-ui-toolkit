@@ -12,6 +12,7 @@ function createNativeComponentHost() {
   let powerPresetControl;
   let resolutionControl;
   let audioFormatControl;
+  let settingsSectionsControl;
   let vrrControl;
   let deviceControlsControl;
 
@@ -156,6 +157,7 @@ function createNativeComponentHost() {
       patchId: "steam-ui.resolution",
       command: "setResolution",
     }),
+    settingsSections: Object.freeze({ patchId: "steam-ui.settings-sections", command: "set" }),
     audioFormat: Object.freeze({
       patchId: "steam-ui.audio-format",
       formatCommand: "setFormat",
@@ -442,19 +444,24 @@ function createNativeComponentHost() {
 
       return values;
     };
+    const channelOptions = options(value.channelOptions);
+    const currentChannels = normalizeText(value.currentChannels);
     const formatOptions = options(value.formatOptions);
     const spatialOptions = options(value.spatialOptions);
     const distinct = (items) => new Set(items.map((item) => item.id)).size === items.length;
-    if (!distinct(formatOptions) || !distinct(spatialOptions)) return null;
+    if (!distinct(channelOptions) || !distinct(formatOptions) || !distinct(spatialOptions)) return null;
     const currentFormat = normalizeText(value.currentFormat);
     const currentSpatial = normalizeText(value.currentSpatial);
     if (
+      (currentChannels && !channelOptions.some((item) => item.id === currentChannels)) ||
       (currentFormat && !formatOptions.some((item) => item.id === currentFormat)) ||
       (currentSpatial && !spatialOptions.some((item) => item.id === currentSpatial))
     )
       return null;
     return Object.freeze({
       available: value.available === true,
+      channelOptions: Object.freeze(channelOptions),
+      currentChannels,
       formatOptions: Object.freeze(formatOptions),
       currentFormat,
       spatialOptions: Object.freeze(spatialOptions),
@@ -1177,6 +1184,33 @@ function createNativeComponentHost() {
         layout: "below",
       });
     };
+  // Typed host settings reuse the same native fields as a routed settings page.
+  const createSettingsSectionsControl = (controlRuntime, ui) =>
+    function SteamUiSettingsSectionsControl() {
+      const state = useSemanticState(controlRuntime, "settingsSections", value =>
+        value && Array.isArray(value.pages) && Number.isSafeInteger(value.revision) ? value : null);
+      const folds = useSemanticState(controlRuntime, "panelFolds", normalizePanelFoldsState);
+      const react = controlRuntime.react;
+      const [drafts, setDrafts] = react.useState({});
+      react.useEffect(() => setDrafts({}), [state?.revision]);
+      if (!state || !ui?.valueField || !ui?.smallButton) return null;
+      const change = (row, value, commit = true) => {
+        setDrafts(previous => ({ ...previous, [row.key]: value }));
+        if (commit) void sendCommand(definitions.settingsSections, "set", { key: row.key, value })
+          .catch(() => setDrafts(previous => { const next = { ...previous }; delete next[row.key]; return next; }));
+      };
+      const action = row => change(row, true);
+      return react.createElement(react.Fragment, null, ...state.pages.flatMap(page =>
+        (page.sections ?? []).map((section, index) => {
+          const key = "settings." + page.id + "." + (section.id ?? section.rows?.[0]?.key ?? index);
+          return renderSteamUiGroup(controlRuntime, {
+            key, title: section.title ? page.title + ": " + section.title : page.title,
+            collapsed: isFolded(folds, key), onToggle: () => setFolded(key, !isFolded(folds, key)),
+          }, ...(section.rows ?? []).map(row => react.createElement(controlRuntime.row, { key: row.key },
+            renderSteamSettingRow(ui, { ...row, layout: "below" }, drafts[row.key], change, action))));
+        })));
+    };
+
   const createAudioFormatControl = (controlRuntime) =>
     function SteamUiAudioFormatControl() {
       const state = useSemanticState(controlRuntime, "audioFormat", normalizeAudioFormatState);
@@ -1186,14 +1220,14 @@ function createNativeComponentHost() {
         return note("audioFormat", "unavailable: " + (state.statusText || "no reason"));
       const definition = definitions.audioFormat;
       const dropdown = (label, choices, current, command, icon) => {
-        if (choices.length < 2) return null;
+        if (choices.length === 0) return null;
         const options = choices.map((choice) => ({ data: choice.id, label: choice.label }));
         return controlRuntime.react.createElement(controlRuntime.dropdown, {
           label,
           icon: controlRuntime.icon(icon),
           rgOptions: options,
           selectedOption: current || undefined,
-          disabled: pending,
+          disabled: pending || choices.length < 2,
           description: state.statusText || undefined,
           layout: "below",
           onChange: (option) => {
@@ -1211,25 +1245,29 @@ function createNativeComponentHost() {
           },
         });
       };
+      const channels = dropdown(
+        "Channels", state.channelOptions, state.currentChannels, definition.formatCommand, "audioChannels",
+      );
       const format = dropdown(
-        "Channel layout and default format",
+        "Format",
         state.formatOptions,
         state.currentFormat,
         definition.formatCommand,
-        "speaker",
+        "audioEncoding",
       );
       const spatial = dropdown(
         "Spatial sound",
         state.spatialOptions,
         state.currentSpatial,
         definition.spatialCommand,
-        "surround",
+        "audioSpatial",
       );
-      if (!format && !spatial) return note("audioFormat", "fewer than two choices");
+      if (!channels && !format && !spatial) return note("audioFormat", "fewer than two choices");
       drew("audioFormat");
       summarize(
         "audioFormat",
         [
+          state.channelOptions.find((choice) => choice.id === state.currentChannels)?.label,
           state.formatOptions.find((choice) => choice.id === state.currentFormat)?.label,
           state.spatialOptions.find((choice) => choice.id === state.currentSpatial)?.label,
         ]
@@ -1239,6 +1277,7 @@ function createNativeComponentHost() {
       return controlRuntime.react.createElement(
         controlRuntime.react.Fragment,
         null,
+        channels,
         format,
         spatial,
       );
@@ -1983,6 +2022,7 @@ function createNativeComponentHost() {
     Controller: "controller",
     Reset: "reset",
     Display: "display",
+    Audio: "audio",
     Charging: "batteryCharging",
     "RGB lighting": "colors",
   });
@@ -2017,6 +2057,7 @@ function createNativeComponentHost() {
     autoTdp: "Power limits",
     controllerTarget: "Controller",
     valveReset: "Reset",
+    audioFormat: "Audio",
   });
   // A section is a kit group: a heading with the section's glyph, its title and, folded, what its
   // rows report, over the rows. Profile scope is Valve's header and per-game toggle and stays
@@ -2092,6 +2133,8 @@ function createNativeComponentHost() {
         }),
       );
     }
+    if (placement === "perf" && registrations.has("settingsSections") && settingsSectionsControl)
+      controls.push(controlRuntime.react.createElement(settingsSectionsControl, { key: "steam-ui-settings-sections" }));
     if (!controls.length) {
       appendDiagnostics[placement] = { controls: 0, inserted: false, ownSection: false };
       return tree;
@@ -2101,16 +2144,9 @@ function createNativeComponentHost() {
     // below is about Steam's FPS counter rows on the PERFORMANCE panel; running it against a
     // different tab's tree would be hiding rows this code has never even looked at.
     if (placement === "quickSettings") {
-      const section = groups.has("Display")
-        ? hostSection(
-            controlRuntime,
-            "steam-ui-quick-settings-section",
-            "Display",
-            drawnGroups.has("Display"),
-            groups.get("Display")!,
-            folds,
-          )
-        : null;
+      const sections = ["Display", "Audio"].filter(title => groups.has(title)).map(title =>
+        hostSection(controlRuntime, "steam-ui-quick-settings-" + title.toLowerCase(), title,
+          drawnGroups.has(title), groups.get(title)!, folds));
       appendDiagnostics[placement] = {
         controls: controls.length,
         inserted: true,
@@ -2124,7 +2160,7 @@ function createNativeComponentHost() {
         controlRuntime.react.Fragment,
         null,
         steamUiKitStyle(controlRuntime.react),
-        section,
+        ...sections,
         controlRuntime.react.createElement(
           "div",
           { key: "steam-ui-valve-sections", className: "steam-ui-kit-valve" },
@@ -2201,6 +2237,8 @@ function createNativeComponentHost() {
       steamUiKitStyle(controlRuntime.react),
       native,
       own,
+      registrations.has("settingsSections") && settingsSectionsControl
+        ? controlRuntime.react.createElement(settingsSectionsControl, { key: "steam-ui-settings-sections" }) : null,
     );
   };
   // Resolve every dependency before changing React or registering a component.
@@ -2234,6 +2272,7 @@ function createNativeComponentHost() {
     powerPresetControl = createPowerPresetControl(controlRuntime);
     resolutionControl = createResolutionControl(controlRuntime);
     audioFormatControl = createAudioFormatControl(controlRuntime);
+    settingsSectionsControl = createSettingsSectionsControl(controlRuntime, resolveSteamSettingsComponents(runtime));
     vrrControl = createVrrControl(controlRuntime);
     deviceControlsControl = createDeviceControlsControl(controlRuntime);
     powerLimitControl = createPowerLimitControl(controlRuntime);

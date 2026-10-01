@@ -100,7 +100,8 @@ in `DisconnectedAppIds` leave the list. The gate replaces the one app-id array H
 carousel and background, so Steam's own components draw it, and puts the virtualized carousel's
 overscan back to the component's default, since Home otherwise mounts every tile. A Home already on
 screen when the gate installs is adopted and re-rendered at once rather than waiting for the next
-navigation. Implement `ISteamHomeCarouselBackend` to hear what the carousel holds after each rebuild.
+navigation. Implement `ISteamHomeCarouselBackend` to hear what the carousel holds after each
+rebuild.
 
 **`SteamExtensionsTabSurface.Module`** adds one shared Quick Access tab whose plugin sections,
 actions and primitive settings are supplied by `SteamExtensionsTabState`; implement
@@ -112,29 +113,28 @@ the surface has rejected every other payload shape. The shared JSX interceptor r
 private menu class before its first render, so the first opening includes the commands without a
 visible-DOM scan. **`SteamPowerMenuSurface.Module`** revives Steam's own Switch to Desktop entry in
 the Big Picture power menu while the host publishes it visible, and hands its selection to
-`ISteamPowerMenuBackend`.
-The Extensions tab draws each plugin as Steam's own PanelSection, its actions as
-DialogButtons and its settings with the same Steam fields a settings page uses, and refuses to
-install on a client missing one of them; the probe recognizes its own installed wrapper. An item
-folds, a setting can carry a description and belong to a switch on the same item, and
-a colour or a labelled slider are drawn the way the settings renderer draws them.
+`ISteamPowerMenuBackend`. The Extensions tab draws each plugin as Steam's own PanelSection, its
+actions as DialogButtons and its settings with the same Steam fields a settings page uses, and
+refuses to install on a client missing one of them; the probe recognizes its own installed wrapper.
+An item folds, a setting can carry a description and belong to a switch on the same item, and a
+colour or a labelled slider are drawn the way the settings renderer draws them.
 
 **The UI kit** (`SteamUiAssets/Source/ui-kit.ts`) is what a host draws around Steam's own fields:
-groups with headings that fold, action grids, swatches, cards, banners, toolbars,
-chips, galleries, a confirm and a prompt, styled once in the vocabulary of Steam's panels. A host
-page uses Steam's field where one fits and the kit for the rest, and adds to the kit rather than
-drawing its own. The Quick Access row host draws its sections as those groups; which are folded is
-published by `SteamPanelFoldsSurface`, so a fold outlives Steam rebuilding the tab.
+groups with headings that fold, action grids, swatches, cards, banners, toolbars, chips, galleries,
+a confirm and a prompt, styled once in the vocabulary of Steam's panels. A host page uses Steam's
+field where one fits and the kit for the rest, and adds to the kit rather than drawing its own. The
+Quick Access row host draws its sections as those groups; which are folded is published by
+`SteamPanelFoldsSurface`, so a fold outlives Steam rebuilding the tab.
 
-**`SteamThemeStyleSurface.Module`** installs CSSLoader-compatible stylesheet blocks into every
-Steam window, choosing each block's windows by CSSLoader's own target vocabulary and reaching the
+**`SteamThemeStyleSurface.Module`** installs CSSLoader-compatible stylesheet blocks into every Steam
+window, choosing each block's windows by CSSLoader's own target vocabulary and reaching the
 documents through Steam's popup manager rather than a debugger session per window. The host loads,
 translates and orders the themes; the toolkit appends, keeps in step and removes.
 
 **`registerSteamPage`** declares a host's own page inside Steam: its gate, its state subscription
-and the frame that says why it cannot draw yet, with **`SteamPagePatch.Create`** as its patch.
-Large state reaches a page in parts and is reassembled before the page sees it; a state too large
-to deliver at all reaches the page as a refusal it can show.
+and the frame that says why it cannot draw yet, with **`SteamPagePatch.Create`** as its patch. Large
+state reaches a page in parts and is reassembled before the page sees it; a state too large to
+deliver at all reaches the page as a refusal it can show.
 
 **`SteamStorageSurface.Module`** revives Steam's own SteamOS storage management on Windows. The
 whole UI hangs off one unanswered service question, so the gate claims `SendMsg` on the service
@@ -311,11 +311,11 @@ not implement their own registry scan; the bridge and the built-in probes use th
 
 Consumer-owned native pages can use the public `SteamUiProbeJs` token constants for preflight and
 the composed asset's shared `resolveSteamUiComponents` helper for Steam's focusable, tabs, dialog
-buttons, fields, checkbox and modal manager. Missing or ambiguous controls are capabilities to refuse,
-not a reason to draw lookalike controls. Two elements Steam has no component for are built from its
-own classes and components instead: `createSteamCapsule` draws a library capsule for a title Steam
-does not have yet, and `showSteamFilePicker` opens a folder or file picker as a Steam modal, answered
-by `SteamFilePickerSurface`.
+buttons, fields, checkbox and modal manager. Missing or ambiguous controls are capabilities to
+refuse, not a reason to draw lookalike controls. Two elements Steam has no component for are built
+from its own classes and components instead: `createSteamCapsule` draws a library capsule for a
+title Steam does not have yet, and `showSteamFilePicker` opens a folder or file picker as a Steam
+modal, answered by `SteamFilePickerSurface`.
 
 The library is the machinery and the surfaces, and the data behind them is yours. You supply:
 
@@ -373,3 +373,7 @@ has been done and what has not.
 ## Licence
 
 MIT, see `LICENSE`.
+
+`SteamSettingsQuickAccessRow` draws host-owned settings categories as folding groups in Performance
+with the shared native fields. Advanced audio in Quick Settings uses separate channel and format
+selectors under Audio. See [the surface contract](docs/reference.md).

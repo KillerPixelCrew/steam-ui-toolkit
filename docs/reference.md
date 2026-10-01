@@ -467,8 +467,8 @@ everything once restarted a machine and signed Steam out.
 `SteamUiBridgeIdentity.Namespace = "__steamUi_v1_28d7c54a"`,
 `BindingName = "__steamUiBridge_v1_7b24d11c"`. `SteamUiBridgeHost.SchemaVersion = 1`,
 `DeliveryPartCharacters = 256 KiB` per evaluation for what the host delivers to the document (what
-the document sends has no size limit), `MaximumDeliveryCharacters = 32 MiB` as a guard on
-one delivery, `OperationTimeout = 5 s`, a 64-slot request channel.
+the document sends has no size limit), `MaximumDeliveryCharacters = 32 MiB` as a guard on one
+delivery, `OperationTimeout = 5 s`, a 64-slot request channel.
 
 A delivery longer than one part goes as parts under one delivery id, each acknowledged before the
 next, and the injected side's `deliverPart` reassembles them before any subscriber sees the state.
@@ -554,9 +554,9 @@ the payload.
 `version`, `type: "response"`, `patchId`, `command`, `sequence`, both generations, `ok`, `payload`,
 `error` (bounded like every diagnostic, to 2048 characters); state envelopes carry `type: "state"`,
 `patchId`, both generations and `payload`. A `SharedJsContext` generation change drops readiness and
-resets the authorizer. `RemoveAsync` removes the binding, evaluates `b.dispose('Steam UI removed');
-delete window[k]`, and logs any incomplete step. Disposal waits 2 s for an in-progress bootstrap and
-1 s for the request pump.
+resets the authorizer. `RemoveAsync` removes the binding, evaluates
+`b.dispose('Steam UI removed'); delete window[k]`, and logs any incomplete step. Disposal waits 2 s
+for an in-progress bootstrap and 1 s for the request pump.
 
 ## 9. Ownership (`ownership.ts`)
 
@@ -586,10 +586,10 @@ The accessor rule in `claimValue` comes from a MobX crash in the Quick Access Me
 
 `eng/check-ownership-claims.mjs` slices the ownership primitives out of the emitted prelude,
 evaluates them with `new Function`, and runs more than thirty claim, reclaim, release and
-stand-aside scenarios. It runs in CI; reintroducing the function-type defect fails four
-checks. The other emitted-asset checks share `eng/check-harness.mjs`, which instantiates each gate
-over these same emitted primitives and the shared gate helpers rather than stand-ins, and
-`eng/run-checks.mjs` runs them all.
+stand-aside scenarios. It runs in CI; reintroducing the function-type defect fails four checks. The
+other emitted-asset checks share `eng/check-harness.mjs`, which instantiates each gate over these
+same emitted primitives and the shared gate helpers rather than stand-ins, and `eng/run-checks.mjs`
+runs them all.
 
 React has one `useMemo`, and more than one surface needs what it returns: the Quick Access tab list
 and the Settings page list. `interceptMemo(react, name, transform)` takes one member claim on it for
@@ -1234,7 +1234,7 @@ in that root's document.
 | `renderSteamUiTabbedPage`                   | a host page's frame: the stylesheets, a banner, and Steam's tabs with only the active one drawn                                                                                       |
 | `renderSteamUiDetail`                       | one item's media, heading and text beside its boxes, with Back, left with B                                                                                                           |
 | `renderSteamUiMore`                         | a paged list's foot: one centred Load More button, since a list of thousands of cards stalls Steam's renderer                                                                         |
-| `renderSteamUiPane`, `renderSteamUiLevel` | a page's pane and a level over it, each taking the controller's focus when it appears, so B goes back a level instead of leaving the page from focus left on nothing |
+| `renderSteamUiPane`, `renderSteamUiLevel`   | a page's pane and a level over it, each taking the controller's focus when it appears, so B goes back a level instead of leaving the page from focus left on nothing                  |
 | `renderSteamUiGlyph`, `SteamUiGlyphs`       | the store glyphs a card or box carries: download, star, heart, target                                                                                                                 |
 | `SteamUiTabbedPageRequired`                 | the components a tabbed page needs resolved, for its `required`                                                                                                                       |
 | `showSteamUiConfirm`, `showSteamUiPrompt`   | a confirmation, and a request for one line of text, in Steam's modal                                                                                                                  |
@@ -1639,3 +1639,16 @@ one, seeded from the app store again.
 
 A disabled transport is reported as reachable with no apps rather than as a failure, so a consumer's
 own non-Steam detection keeps working while Steam integration is switched off.
+
+### Host settings sections in native Quick Access
+
+`SteamSettingsQuickAccessRow` mounts `SteamSettingsQuickAccessState.Pages` in Performance using the
+shared native settings fields and UI kit folding groups. The host owns row keys, revision,
+capability availability and command validation through `ISteamSettingsQuickAccessBackend.SetAsync`.
+Its only command is `set` with `{key,value}`; arrays, objects, blank keys and extra fields are
+refused.
+
+`SteamAudioFormatState` publishes independent `ChannelOptions`/`CurrentChannels` and
+`FormatOptions`/`CurrentFormat` alongside Spatial choices. Both playback selectors send the offered
+complete format id to `setFormat`; the host supplies supported combinations and preserves encoding
+where possible. Quick Settings groups those fields under Audio, separately from Display.

@@ -110,7 +110,8 @@ public sealed record SteamSettingsRow(
 /// <summary>A titled group of rows: one of Steam's settings sections.</summary>
 /// <param name="Title">The section heading, or null for an untitled section.</param>
 /// <param name="Rows">Its rows, in order.</param>
-public sealed record SteamSettingsSection(string? Title, IReadOnlyList<SteamSettingsRow> Rows);
+/// <param name="Id">Optional stable group identity for Quick Access expansion state.</param>
+public sealed record SteamSettingsSection(string? Title, IReadOnlyList<SteamSettingsRow> Rows, string? Id = null);
 
 /// <summary>One page of the settings sidebar.</summary>
 /// <param name="Id">The page's path segment below the settings route; stable and URL-safe.</param>

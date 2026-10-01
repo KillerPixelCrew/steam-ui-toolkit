@@ -226,6 +226,24 @@ const SteamUiIconShapes: Readonly<Record<string, readonly SteamUiIconShape[]>> =
         ],
     ],
 
+    // -- Audio ----------------------------------------------------------------------------------
+    audio: [
+        ["path", {d: "M3 12a9 9 0 0 1 18 0v7h-4v-8h2a7 7 0 0 0-14 0h2v8H3Z"}],
+    ],
+    audioChannels: [
+        ["path", {d: "M2 4h7v16H2ZM15 4h7v16h-7ZM3.5 14a2 2 0 1 0 4 0 2 2 0 1 0-4 0ZM16.5 14a2 2 0 1 0 4 0 2 2 0 1 0-4 0Z", fillRule: "evenodd"}],
+    ],
+    audioEncoding: [
+        ["rect", {x: 2, y: 7, width: 3, height: 10}],
+        ["rect", {x: 7, y: 3, width: 3, height: 18}],
+        ["rect", {x: 12, y: 9, width: 3, height: 6}],
+        ["rect", {x: 17, y: 5, width: 3, height: 14}],
+    ],
+    audioSpatial: [
+        ["circle", {cx: 12, cy: 12, r: 3}],
+        ["path", {d: "M2 2h6v2H4v4H2ZM16 2h6v6h-2V4h-4ZM2 16h2v4h4v2H2ZM20 16h2v6h-6v-2h4Z"}],
+    ],
+
     // -- Power limits ---------------------------------------------------------------------------
 
     // A dial with a needle for the header: the section is where the ceiling is set, and the rows
