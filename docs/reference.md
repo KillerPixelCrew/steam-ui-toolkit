@@ -1652,3 +1652,11 @@ with `{key,value}`; arrays, objects, blank keys and extra fields are refused.
 `FormatOptions`/`CurrentFormat` alongside Spatial choices. Both playback selectors send the offered
 complete format id to `setFormat`; the host supplies supported combinations and preserves encoding
 where possible. Quick Settings groups those fields under Audio, separately from Display.
+
+### Truthful library reads
+
+`SteamLibraryData.ReadGamesAsync` returns `SteamLibraryReadResult`: confirmed games and
+`Error = null` on success, including a valid empty array; a transport, JavaScript or schema failure
+has an error. It preserves shortcut identities and validates entries before parsing/sorting.
+Existing list helpers retain their empty-list convention; new pickers should use the typed read so
+they can offer Retry.

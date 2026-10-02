@@ -7,6 +7,15 @@ using System.Threading.Tasks;
 
 namespace SteamUiToolkit;
 
+/// <summary>A library read that distinguishes a valid empty library from unavailable or incompatible Steam.</summary>
+/// <param name="Games">The confirmed library games.</param>
+/// <param name="Error">The reason a library could not be read, or null on success.</param>
+public sealed record SteamLibraryReadResult(IReadOnlyList<SteamLibraryApp> Games, string? Error)
+{
+    /// <summary>Whether Steam returned a valid library, including a valid empty one.</summary>
+    public bool Succeeded => Error is null;
+}
+
 /// <summary>One user collection, which Steam renders as a library category.</summary>
 /// <param name="Id">Steam's collection id (e.g. <c>uc-…</c>).</param>
 /// <param name="Name">The display name.</param>
@@ -109,6 +118,54 @@ public static class SteamLibraryData
     {
         var value = await ReadAsync(GamesExpression, cancellationToken).ConfigureAwait(false);
         return ParseGames(value);
+    }
+
+    /// <summary>Reads the library without turning transport or schema failures into an empty library.</summary>
+    /// <param name="cancellationToken">Cancels the exchange.</param>
+    /// <returns>The games or a specific failure.</returns>
+    public static async Task<SteamLibraryReadResult> ReadGamesAsync(CancellationToken cancellationToken = default)
+    {
+        var result = await SteamUiTransportSession.EvaluateAsync(GamesExpression, Budget, cancellationToken)
+            .ConfigureAwait(false);
+        return ParseReadGames(result);
+    }
+
+    internal static SteamLibraryReadResult ParseReadGames(CefEvalResult result)
+    {
+        if (!result.Reachable || result.Value is null)
+        {
+            return new SteamLibraryReadResult([], result.Error ?? "Steam's library is unavailable.");
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(result.Value);
+            var root = document.RootElement;
+            if (!SteamClientScript.IsOk(root) || !root.TryGetProperty("apps", out var apps) ||
+                apps.ValueKind != JsonValueKind.Array)
+            {
+                var error = root.TryGetProperty("err", out var reason) && reason.ValueKind == JsonValueKind.String
+                    ? reason.GetString()
+                    : null;
+                return new SteamLibraryReadResult([], error ?? "Steam did not return a valid library.");
+            }
+
+            foreach (var app in apps.EnumerateArray())
+            {
+                if (!app.TryGetProperty("id", out var id) || !id.TryGetInt64(out _)
+                                                          || !app.TryGetProperty("name", out var name) ||
+                                                          name.ValueKind != JsonValueKind.String)
+                {
+                    return new SteamLibraryReadResult([], "Steam returned an invalid game entry.");
+                }
+            }
+
+            return new SteamLibraryReadResult(ParseGames(result.Value), null);
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            return new SteamLibraryReadResult([], "Steam's library response could not be read: " + ex.Message);
+        }
     }
 
     /// <summary>
