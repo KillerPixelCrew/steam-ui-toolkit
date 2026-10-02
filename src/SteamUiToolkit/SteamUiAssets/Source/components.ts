@@ -2199,7 +2199,6 @@ function createNativeComponentHost() {
         "Display and frame rate",
         "Power limits",
         "Controller",
-        "Reset",
       ]
         .filter((title) => groups.has(title))
         .map((title) =>
@@ -2241,6 +2240,10 @@ function createNativeComponentHost() {
       own,
       registrations.has("settingsSections") && settingsSectionsControl
         ? controlRuntime.react.createElement(settingsSectionsControl, { key: "steam-ui-settings-sections" }) : null,
+      // Reset must follow every section, including dynamically published GPU/plugin sections.
+      groups.has("Reset")
+        ? hostSection(controlRuntime, "Reset", "Reset", drawnGroups.has("Reset"), groups.get("Reset")!, folds)
+        : null,
     );
   };
   // Resolve every dependency before changing React or registering a component.

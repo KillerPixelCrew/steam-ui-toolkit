@@ -84,7 +84,9 @@ function createNavigationPanel() {
     // survives when an entry has no route at all, such as the power button.
     const identify = (element) => {
         const route = typeof element?.props?.route === "string" ? element.props.route : null;
-        const key = typeof element?.key === "string" ? element.key.replace(/^\.\$/u, "") : "";
+        // Children.toArray prefixes keys with their nested array path, e.g. .0:$power.
+        const rawKey = typeof element?.key === "string" ? element.key : "";
+        const key = rawKey.slice(rawKey.lastIndexOf("$") + 1);
         return {key, route, label: textOf(element?.props?.label) ?? ""};
     };
 

@@ -38,7 +38,8 @@ function PanelRoot() {
       entry("home", "/library/home", "Home"),
       entry("library", "/library", "Library"),
       entry("store", "/steamweb", "Store"),
-      entry("power", undefined, "Power"),
+      // React flattens Valve's nested descriptor array with this key prefix.
+      entry(".0:$power", undefined, "Power"),
     ],
   });
 }
