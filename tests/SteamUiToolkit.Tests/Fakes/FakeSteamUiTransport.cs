@@ -135,10 +135,22 @@ internal sealed class FakeSteamUiTransport : ISteamUiTransport
         return ValueTask.CompletedTask;
     }
 
-    /// <summary>A reachable answer under the current generations.</summary>
+    /// <summary>An answer under the current generations.</summary>
     internal SteamUiEvaluationResult Reply(string? value)
     {
-        return new SteamUiEvaluationResult(true, value, null, Generations);
+        return new SteamUiEvaluationResult(SteamUiDispatch.Answered, value, null, Generations);
+    }
+
+    /// <summary>An answer of the page under no particular generation, for parser tests.</summary>
+    internal static SteamUiEvaluationResult Answer(string? value, string? error = null)
+    {
+        return new SteamUiEvaluationResult(SteamUiDispatch.Answered, value, error, default);
+    }
+
+    /// <summary>A failure that left no answer, for parser tests.</summary>
+    internal static SteamUiEvaluationResult Unanswered(SteamUiDispatch dispatch, string error)
+    {
+        return new SteamUiEvaluationResult(dispatch, null, error, default);
     }
 
     internal void AdvanceDocumentGeneration()

@@ -123,35 +123,15 @@ public sealed class SteamUiExtensionHostTests
     }
 
     [Fact]
-    public void AnOversizedScriptIsRefusedBeforeItIsRead()
+    public void AnIdUnderAReservedPrefixIsRefusedAndKeepsItsManifest()
     {
-        // The whole asset is evaluated in one CDP call, so an unbounded script breaks every
-        // surface, not only the extension's own.
         using TemporaryDirectory root = new();
-        Install(
-            root,
-            "com.example.huge",
-            script: new string('x', SteamUiExtensionHost.MaximumScriptCharacters + 1));
+        Install(root, "steam-ui", patches: ["steam-ui.power-limit"]);
 
         var extension = Assert.Single(SteamUiExtensionHost.Discover(root.Root));
 
-        Assert.Equal(SteamUiExtensionRejection.UnreadableScript, extension.Rejection);
-        Assert.Null(extension.Script);
-    }
-
-    [Fact]
-    public void ScriptLimitIsMeasuredInUtf8Bytes()
-    {
-        using TemporaryDirectory root = new();
-        Install(
-            root,
-            "com.example.utf8",
-            script: new string('\u00e9', SteamUiExtensionHost.MaximumScriptCharacters / 2 + 1));
-
-        var extension = Assert.Single(SteamUiExtensionHost.Discover(root.Root));
-
-        Assert.Equal(SteamUiExtensionRejection.UnreadableScript, extension.Rejection);
-        Assert.Contains("UTF-8 bytes", extension.Detail);
+        Assert.Equal(SteamUiExtensionRejection.ReservedPrefix, extension.Rejection);
+        Assert.Equal(["steam-ui.power-limit"], extension.Manifest!.Patches);
     }
 
     [Fact]

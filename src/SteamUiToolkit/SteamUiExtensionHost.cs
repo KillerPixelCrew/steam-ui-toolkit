@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 
@@ -8,15 +9,16 @@ namespace SteamUiToolkit;
 
 /// <summary>Reads installed extensions from a directory and decides which may contribute.</summary>
 /// <remarks>
-///     An extension is a module discovered from a package instead of compiled in: same patch lifecycle,
-///     same ownership rules, same clean removal. The difference is that its identity cannot be trusted,
-///     so everything an installed extension declares is checked here before any of its code is injected.
+///     <see cref="Discover" /> examines every package directory and returns each extension it found,
+///     loaded or rejected with a <see cref="SteamUiExtensionRejection" /> reason. It checks identity,
+///     scoping, the API version and the script's location, and it resolves conflicts between packages.
 ///     <para>
-///         This reads and validates only. It loads no assemblies and executes nothing — the script it
-///         returns is text until the asset that carries it is injected, and that injection goes through the
-///         same probe/apply/verify/remove path every built-in surface uses. An extension that fails any
-///         check is still reported rather than skipped silently, because "my extension does nothing" with
-///         no reason anywhere is the failure this whole subsystem exists to avoid.
+///         This reads and validates only. It loads no assemblies and executes nothing: the script it
+///         returns is text. Composing an extension into modules and patches, and removing the patches a
+///         rejected extension declared, is the host's job; a rejected extension whose manifest parsed
+///         still carries it for that. An extension that fails any check is still reported rather than
+///         skipped silently, because "my extension does nothing" with no reason anywhere is the failure
+///         this whole subsystem exists to avoid.
 ///     </para>
 ///     <para>
 ///         <b>This is not a sandbox.</b> Injected script runs with the same reach as the host's own gates —
@@ -33,12 +35,8 @@ public static class SteamUiExtensionHost
     /// <summary>The manifest file every extension package must contain.</summary>
     public const string ManifestFileName = "extension.steam-ui.json";
 
-    /// <summary>Largest UTF-8 script accepted from one extension.</summary>
-    /// <remarks>
-    ///     The whole injected asset is evaluated in one CDP call, so an unbounded script is a
-    ///     way to make that call fail for every surface, not just the extension's own.
-    /// </remarks>
-    public const int MaximumScriptCharacters = 256 * 1024;
+    /// <summary>The prefix the toolkit's own patches use, which no extension may claim.</summary>
+    public const string ReservedPrefix = "steam-ui";
 
     private static readonly JsonSerializerOptions ManifestOptions = new()
     {
@@ -48,11 +46,19 @@ public static class SteamUiExtensionHost
 
     /// <summary>Examines every package directory and reports what each one is.</summary>
     /// <param name="root">Directory holding one subdirectory per installed extension.</param>
+    /// <param name="reservedPrefixes">
+    ///     The host's own id prefixes (for example <c>wsgm</c>), refused like <see cref="ReservedPrefix" />
+    ///     so an extension cannot claim an id or a patch the host uses.
+    /// </param>
     /// <returns>
-    ///     Every extension found, loaded or rejected, ordered by id. An absent or unreadable
-    ///     root is an empty list rather than an error: no extensions installed is the normal case.
+    ///     Every extension found, loaded or rejected, ordered by id with ordinal comparison. Packages are
+    ///     examined in directory-name order, so the same install always gives the same winner of a
+    ///     conflict. An absent or unreadable root is an empty list rather than an error: no extensions
+    ///     installed is the normal case.
     /// </returns>
-    public static IReadOnlyList<SteamUiExtension> Discover(string root)
+    public static IReadOnlyList<SteamUiExtension> Discover(
+        string root,
+        IReadOnlyCollection<string>? reservedPrefixes = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(root);
         string[] directories;
@@ -74,9 +80,10 @@ public static class SteamUiExtensionHost
         HashSet<string> claimedIds = new(StringComparer.OrdinalIgnoreCase);
         HashSet<string> claimedPatches = new(StringComparer.Ordinal);
 
+        List<string> reserved = [ReservedPrefix, .. reservedPrefixes ?? []];
         foreach (var directory in directories)
         {
-            var extension = Examine(directory);
+            var extension = Examine(directory, reserved);
             if (extension.Loaded)
             {
                 extension = ResolveConflicts(extension, claimedIds, claimedPatches);
@@ -84,6 +91,9 @@ public static class SteamUiExtensionHost
 
             examined.Add(extension);
         }
+
+        // Stable, so two extensions with one id keep the directory order that decided the conflict.
+        examined = [.. examined.OrderBy(static extension => extension.Id, StringComparer.Ordinal)];
 
         foreach (var extension in examined)
         {
@@ -112,7 +122,8 @@ public static class SteamUiExtensionHost
             return Reject(
                 extension.Id,
                 SteamUiExtensionRejection.Conflict,
-                "another installed extension already uses this id");
+                "another installed extension already uses this id",
+                extension.Manifest);
         }
 
         foreach (var patch in extension.Manifest!.Patches)
@@ -122,7 +133,8 @@ public static class SteamUiExtensionHost
                 return Reject(
                     extension.Id,
                     SteamUiExtensionRejection.Conflict,
-                    $"patch '{patch}' is already claimed by another extension");
+                    $"patch '{patch}' is already claimed by another extension",
+                    extension.Manifest);
             }
         }
 
@@ -135,7 +147,7 @@ public static class SteamUiExtensionHost
         return extension;
     }
 
-    private static SteamUiExtension Examine(string directory)
+    private static SteamUiExtension Examine(string directory, IReadOnlyList<string> reservedPrefixes)
     {
         var fallbackId = Path.GetFileName(directory.TrimEnd(
             Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
@@ -174,7 +186,21 @@ public static class SteamUiExtensionHost
                 return Reject(
                     manifest.Id,
                     SteamUiExtensionRejection.InvalidManifest,
-                    "patch ids must be non-empty safe identifiers and may appear only once");
+                    "patch ids must be non-empty safe identifiers and may appear only once",
+                    manifest);
+            }
+        }
+
+        // The toolkit's own patches and the host's are not an extension's to claim.
+        foreach (var prefix in reservedPrefixes)
+        {
+            if (Claims(manifest.Id, prefix) || manifest.Patches.Exists(patch => Claims(patch, prefix)))
+            {
+                return Reject(
+                    manifest.Id,
+                    SteamUiExtensionRejection.ReservedPrefix,
+                    $"ids and patches under '{prefix}' belong to the host",
+                    manifest);
             }
         }
 
@@ -183,7 +209,8 @@ public static class SteamUiExtensionHost
             return Reject(
                 manifest.Id,
                 SteamUiExtensionRejection.ApiVersionMismatch,
-                $"built against extension API {manifest.ApiVersion}, this host implements {ApiVersion}");
+                $"built against extension API {manifest.ApiVersion}, this host implements {ApiVersion}",
+                manifest);
         }
 
         // A patch this extension does not own is one it could use to displace another's work, so
@@ -195,13 +222,14 @@ public static class SteamUiExtensionHost
                 return Reject(
                     manifest.Id,
                     SteamUiExtensionRejection.UnscopedPatch,
-                    $"patch '{patch}' must start with '{manifest.Id}.'");
+                    $"patch '{patch}' must start with '{manifest.Id}.'",
+                    manifest);
             }
         }
 
         if (!TryReadScript(directory, manifest.Script, out var script, out var scriptError))
         {
-            return Reject(manifest.Id, SteamUiExtensionRejection.UnreadableScript, scriptError);
+            return Reject(manifest.Id, SteamUiExtensionRejection.UnreadableScript, scriptError, manifest);
         }
 
         return new SteamUiExtension(
@@ -247,13 +275,6 @@ public static class SteamUiExtensionHost
                 return false;
             }
 
-            // Checked before reading rather than after, so an oversized file is never loaded.
-            if (info.Length > MaximumScriptCharacters)
-            {
-                error = $"the script exceeds {MaximumScriptCharacters} UTF-8 bytes";
-                return false;
-            }
-
             script = File.ReadAllText(full, new UTF8Encoding(false, true));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
@@ -263,27 +284,28 @@ public static class SteamUiExtensionHost
             return false;
         }
 
-        if (Encoding.UTF8.GetByteCount(script) > MaximumScriptCharacters)
-        {
-            script = null;
-            error = $"the script exceeds {MaximumScriptCharacters} UTF-8 bytes";
-            return false;
-        }
-
         return true;
     }
 
     private static SteamUiExtension Reject(
         string id,
         SteamUiExtensionRejection rejection,
-        string? detail)
+        string? detail,
+        SteamUiExtensionManifest? manifest = null)
     {
-        return new SteamUiExtension(id, null, null, rejection, detail);
+        return new SteamUiExtension(id, manifest, null, rejection, detail);
+    }
+
+    // The prefix itself, or anything under it as a dotted scope.
+    private static bool Claims(string id, string prefix)
+    {
+        return string.Equals(id, prefix, StringComparison.Ordinal)
+               || id.StartsWith(prefix + ".", StringComparison.Ordinal);
     }
 
     private static bool IsSafeIdentifier(string? value)
     {
-        if (string.IsNullOrWhiteSpace(value) || value.Length > 96)
+        if (string.IsNullOrWhiteSpace(value))
         {
             return false;
         }

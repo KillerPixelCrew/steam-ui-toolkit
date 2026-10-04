@@ -4,16 +4,16 @@
 // Mapped against the September 2026 client beta on 2026-09-11. One module carries the library tile
 // and everything it draws:
 //
-//   TK    an exported React.memo (mobx observer): the app tile, props { app, bFeatured, context, … }
+//   tile  an exported React.memo (mobx observer): the app tile, props { app, bFeatured, context, … }
 //         rendered by Home's carousel, the library grid and three other callers, all through the
 //         export, and keyed in Steam's focus tree as `appportrait_<appid>`
-//     b.Z  Focusable, navKey "appportrait_<appid>"
-//       d.z  hover wrapper
+//     Focusable, navKey "appportrait_<appid>"
+//       hover wrapper
 //         div.LibraryItemOverlayOuterArea > div.LibraryItemOverlayInnerArea > div.LibraryBottomItems
 //           div.LibraryItemIcons     the icon row: justify-content space-between
-//             Kt                     exported: the Steam Input badge, props { overview }   <- anchor
+//             badge                  exported: the Steam Input badge, props { overview }   <- anchor
 //
-// `Kt` is exported but the tile calls it by its module-local name, so claiming the badge export
+// The badge is exported but the tile calls it by its module-local name, so claiming the badge export
 // changes nothing the tile draws. The claim is on the tile memo's `type` instead, and the badge is
 // found in what the tile RENDERS by element type — identity with the export, never a class name or
 // a minified name — and replaced by a row of two: this badge, then Valve's. The tile is drawn
@@ -23,18 +23,15 @@
 //
 // The badge names the library and says whether the game is installed, by colour: green when the
 // game is installed, grey when it is not — which is what a card being disconnected amounts to. The
-// text is the library's name alone, as the maintainer chose. A game that no published library
-// holds is on the internal library by definition and is labelled with the published internal name
-// while it is installed; one that is not installed anywhere gets no badge, because there is no
-// library to name.
+// text is the library's name alone, and the host names every library. A game that no published
+// library holds gets no badge, because there is no library to name.
 //
 // Big Art Mode is Steam's own `library_home_big_art` client setting, read from the settings store
 // the Home component itself reads it from. The badge is tile-relative and does not care, but a
 // consumer may: the gate reports the mode to the host through `homeLayout` when it first resolves
 // and whenever a tile render sees it change, and carries it in `status` for verification.
-// The host's published libraries, read once for every gate that names them: indexed by app id, with
-// the label for a game no listed library holds. A malformed entry is skipped rather than failing the
-// whole reading.
+// The host's published libraries, read once for every gate that names them, indexed by app id. A
+// malformed entry is skipped rather than failing the whole reading.
 const readLibraryBadgeState = (state) => {
     const libraries = new Map<number, { name: string; connected: boolean }>();
     const published = Array.isArray(state?.libraries) ? state.libraries : [];
@@ -51,23 +48,21 @@ const readLibraryBadgeState = (state) => {
             libraries.set(appid, library);
         }
     }
-    const internalLabel =
-        typeof state?.internalLabel === "string" && state.internalLabel ? state.internalLabel : "Internal";
-    return {libraries, internalLabel, count};
+    return {libraries, count};
 };
 
 // The library to name for one app overview, or null when there is none. Steam's own installed flag is
 // the authority on installed; a disconnected card's games are not installed by Steam's reckoning. The
 // published connection stands in only where the overview cannot say. A game that no published library
-// holds is on the internal library while it is installed, and one installed nowhere has no library.
+// holds has no library to name.
 const libraryForOverview = (overview, reading: ReturnType<typeof readLibraryBadgeState>) => {
     const appid = typeof overview?.appid === "number" ? overview.appid : null;
     if (appid === null) return null;
     const library = reading.libraries.get(appid);
     const installed =
         typeof overview.installed === "boolean" ? overview.installed : (library?.connected ?? false);
-    if (!library && !installed) return null;
-    return {name: library ? library.name : reading.internalLabel, installed};
+    if (!library) return null;
+    return {name: library.name, installed};
 };
 
 function createLibraryBadge() {
@@ -89,7 +84,6 @@ function createLibraryBadge() {
     const BigArtSetting = "library_home_big_art";
 
     const MaximumDescent = 12;
-    const MaximumChildren = 64;
 
     let runtime;
     let react;
@@ -217,7 +211,7 @@ function createLibraryBadge() {
             placed++;
             return withBadge(element);
         }
-        return mapChildren(react, element, (kid) => decorate(kid, depth + 1), MaximumChildren);
+        return mapChildren(react, element, (kid) => decorate(kid, depth + 1));
     };
 
     // Wraps the tile's observer so its OUTPUT can be changed. Cached against the original: a fresh
@@ -257,10 +251,9 @@ function createLibraryBadge() {
 
         // The tile is the module's one memo export; the badge is the one function export that draws
         // the controller-support icon. Both are chosen by what they are, never by their minified names.
-        const memoType = Symbol.for("react.memo");
         const tiles = Object.keys(exports).filter((name) => {
             const value = exports[name];
-            return value && typeof value === "object" && value.$$typeof === memoType;
+            return value && typeof value === "object" && value.$$typeof === ReactMemoType;
         });
         if (tiles.length !== 1) {
             lastError = `library tile export was ${tiles.length ? "ambiguous" : "absent"}`;
@@ -339,15 +332,17 @@ function createLibraryBadge() {
 
     const remove = () => {
         if (!installed) return {ok: true, absent: true};
-        installed = false;
-        unsubscribe = endSubscription(unsubscribe);
-        reading = readLibraryBadgeState(null);
-        tileCache.clear();
+        // Released before anything is forgotten, so a failed release stays installed and the next
+        // remove retries it.
         const released = releaseMember(tile, "type", claimKeys);
         if (!released.ok) {
             lastError = released.error ?? "library badge release failed";
             return {ok: false, error: lastError};
         }
+        installed = false;
+        unsubscribe = endSubscription(unsubscribe);
+        reading = readLibraryBadgeState(null);
+        tileCache.clear();
         outcome = "removed";
         return {ok: true, removed: true};
     };
@@ -403,7 +398,6 @@ function createLibraryDetails() {
     const RequiredClasses = ["GameStatsSection", "GameStat", "GameStatRight", "PlayBarLabel", "PlayBarDetailLabel"];
     const LabelToken = "#Settings_Page_Library";
     const StatKey = "steam-ui-library-details";
-    const MaximumChildren = 32;
 
     let runtime;
     let react: any = null;
@@ -448,9 +442,7 @@ function createLibraryDetails() {
     const transform = (create, type, props, key) => {
         if (type !== "div" || !installed || !classes || props?.className !== classes.section) return undefined;
         const children = Array.isArray(props.children) ? props.children : [props.children];
-        if (children.length > MaximumChildren || children.some((child) => child?.key === StatKey)) {
-            return undefined;
-        }
+        if (children.some((child) => child?.key === StatKey)) return undefined;
         const library = libraryForOverview(overviewIn(children), reading);
         if (!library) {
             without++;
@@ -464,7 +456,11 @@ function createLibraryDetails() {
 
     const resolve = () => {
         runtime = getWebpackRuntime("library-details");
-        react = runtime.resolve([...ReactTokens]);
+        react = resolveReact(runtime);
+        if (!react) {
+            lastError = "React unavailable";
+            return false;
+        }
         jsxRuntime = runtime.resolve([...JsxRuntimeTokens]);
         if (typeof jsxRuntime?.jsx !== "function" || typeof jsxRuntime?.jsxs !== "function") {
             lastError = "JSX runtime lacks jsx or jsxs";
@@ -516,14 +512,14 @@ function createLibraryDetails() {
 
     const remove = () => {
         if (!installed) return {ok: true, absent: true};
-        installed = false;
-        unsubscribe = endSubscription(unsubscribe);
-        reading = readLibraryBadgeState(null);
         const released = releaseElements(jsxRuntime, TransformName);
         if (!released.ok) {
             lastError = released.error ?? "library details release failed";
             return {ok: false, error: lastError};
         }
+        installed = false;
+        unsubscribe = endSubscription(unsubscribe);
+        reading = readLibraryBadgeState(null);
         lastOutcome = "removed";
         return {ok: true, removed: true};
     };

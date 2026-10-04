@@ -50,10 +50,9 @@ public sealed record SteamPageState(IReadOnlyList<SteamPage> Pages, long Revisio
 ///         describing it. A description can stop matching, and on 2026-09-24 one did.
 ///     </para>
 ///     <para>
-///         The export in the module carrying <c>router-backstack</c> remains as the fallback, for a client
-///         whose route list holds something other than plain Route elements. Neither it nor its module is
-///         a condition of installing: a gate that refuses a client because one lookup drifted takes every
-///         page down with it, which is exactly what happened.
+///         The probe still reports the module carrying <c>router-backstack</c>, for diagnostics only: the
+///         gate does not use it, and it is not a condition of installing. A gate that refuses a client
+///         because one lookup drifted takes every page down with it, which is exactly what happened.
 ///     </para>
 ///     <para>
 ///         Mapped against the live client on 2026-09-10: the switch carries 31 route children, its selection
@@ -73,7 +72,6 @@ public static class SteamPageSurface
     /// <summary>The gate that claims Steam's router and inserts the registered pages.</summary>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
-        "steam-ui.router-root",
         "pages",
         "steam-pages-v2:unique-router-module+claimable-memo+route-switch",
         $$"""
@@ -172,7 +170,7 @@ public static class SteamPageSurface
         Func<ValueTask<SteamPageState?>> read,
         string id = "pages")
     {
-        return SteamSurfaceModule.Declare(
+        return SteamUiModuleBuilder.Module(
             id,
             PatchId,
             enabled,

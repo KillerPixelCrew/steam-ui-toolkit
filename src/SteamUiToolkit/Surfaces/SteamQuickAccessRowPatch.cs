@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -21,16 +22,25 @@ namespace SteamUiToolkit;
 public sealed class SteamQuickAccessRowPatch : ISteamUiPatch
 {
     private const string NativeComponents = "'nativeComponents'";
-    private const string VerifyFallback = "Native-QAM component verification failed.";
+    private const string PerformanceActions = "performanceActions";
+    private const string VerifyFallback = "Steam UI component verification failed.";
 
+    // The Quick Access and TDP modules every row needs. They used to be asked by the bridge, which
+    // took every other surface down with them when one moved; they belong to the rows.
     private static readonly string[] CommonRequiredCounts =
     [
         "performanceRoot",
         "nativeFields",
         "nativeLayout",
         "localization",
-        "react"
+        "react",
+        "tdpAvailability",
+        "tdpComponent",
+        "profileProjection",
+        PerformanceActions
     ];
+
+    private static readonly Regex CountName = new(@"^[A-Za-z_$][A-Za-z0-9_$]*\z", RegexOptions.CultureInvariant);
 
     private readonly string _applyExpression;
 
@@ -45,14 +55,18 @@ public sealed class SteamQuickAccessRowPatch : ISteamUiPatch
     /// <param name="componentKind">Compiled component kind accepted by the injected host.</param>
     /// <param name="fingerprint">Stable structural fingerprint describing the exact positive match.</param>
     /// <param name="chunkLabel">Stable webpack chunk label, kept for live diagnostics and probe tooling.</param>
-    /// <param name="primaryCountName">The row-specific probe result property.</param>
+    /// <param name="primaryCountName">
+    ///     The row-specific probe result property, a JavaScript identifier because it becomes an object
+    ///     key in the probe.
+    /// </param>
     /// <param name="primaryTokens">Tokens that uniquely identify the row-specific factory.</param>
+    /// <exception cref="ArgumentException"><paramref name="primaryCountName" /> is not an identifier.</exception>
     public SteamQuickAccessRowPatch(
         string id,
         string componentKind,
         string fingerprint,
         string chunkLabel,
-        string primaryCountName = "performanceActions",
+        string primaryCountName = PerformanceActions,
         IReadOnlyList<string>? primaryTokens = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
@@ -60,17 +74,32 @@ public sealed class SteamQuickAccessRowPatch : ISteamUiPatch
         ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
         ArgumentException.ThrowIfNullOrWhiteSpace(chunkLabel);
         ArgumentException.ThrowIfNullOrWhiteSpace(primaryCountName);
+        if (!CountName.IsMatch(primaryCountName))
+        {
+            throw new ArgumentException(
+                $"Row {id} names its probe count '{primaryCountName}', which is not a JavaScript identifier.",
+                nameof(primaryCountName));
+        }
+
         Id = id;
         ComponentKind = componentKind;
         _fingerprint = fingerprint;
         _primaryCountName = primaryCountName;
 
         // Read-only structural probe shared by every row. Built once: the declaration never changes
-        // and the manager probes every row on each synchronization.
+        // and the manager probes every row on each synchronization. A row whose own module is the
+        // performance-actions one does not ask for it twice.
+        var primaryCount = primaryCountName == PerformanceActions
+            ? string.Empty
+            : $"{primaryCountName}:count({SteamUiProbeJs.Tokens(primaryTokens ?? SteamUiProbeJs.PerformanceActionTokens)}),";
         _probeExpression = $$"""
                              {{SteamUiProbeJs.Preamble(chunkLabel)}}
                                return JSON.stringify({
-                                 {{primaryCountName}}:count({{SteamUiProbeJs.Tokens(primaryTokens ?? SteamUiProbeJs.PerformanceActionTokens)}}),
+                                 {{primaryCount}}
+                                 performanceActions:count({{SteamUiProbeJs.Tokens(SteamUiProbeJs.PerformanceActionTokens)}}),
+                                 tdpAvailability:count(['is_tdp_limit_available','steamos_tdp_limit_enabled','tdp_limit_min','tdp_limit_max']),
+                                 tdpComponent:count({{SteamUiProbeJs.Tokens(SteamUiProbeJs.TdpPresentationTokens)}}),
+                                 profileProjection:count(['#PlatformPerformanceProfile_Label','steamos_platform_performance_profile','rgOptions']),
                                  performanceRoot:count(['#QuickAccess_Tab_Perf_Common_Settings','#QuickAccess_Tab_Perf_BatteryTimeRemaining','TS.ON_FRAME']),
                                  nativeFields:count({{SteamUiProbeJs.NativeFieldTokens}}),
                                  nativeLayout:count(['PanelSectionTitle','PanelSectionRow','spinner']),
@@ -101,24 +130,21 @@ public sealed class SteamQuickAccessRowPatch : ISteamUiPatch
     public string Id { get; }
 
     /// <inheritdoc />
-    public int Version => 1;
-
-    /// <inheritdoc />
     public SteamUiTargetRole TargetRole => SteamUiTargetRole.SharedJsContext;
-
-    /// <summary>One key for every row, so the mounted set serializes on one gate.</summary>
-    public string ResourceKey => "steam-ui.performance-root";
-
-    /// <inheritdoc />
-    public SteamUiPatchBounds Bounds { get; } = SteamUiPatchBounds.Default;
 
     /// <inheritdoc />
     public Task<SteamUiPatchProbeResult> ProbeAsync(
         SteamUiPatchContext context,
         CancellationToken cancellationToken)
     {
-        return SteamGatePatch.ProbeAsync(
-            context, _probeExpression, IsCompatible, _fingerprint, cancellationToken);
+        return SteamUiPatchEvaluation.EvaluateProbeAsync(
+            context,
+            SteamUiTargetRole.SharedJsContext,
+            _probeExpression,
+            IsCompatible,
+            _fingerprint,
+            "SharedJSContext is unavailable.",
+            cancellationToken);
     }
 
     /// <inheritdoc />
@@ -130,7 +156,7 @@ public sealed class SteamQuickAccessRowPatch : ISteamUiPatch
             context,
             SteamUiTargetRole.SharedJsContext,
             _applyExpression,
-            "Native-QAM component installation failed.",
+            "Steam UI component installation failed.",
             cancellationToken);
     }
 
@@ -157,7 +183,7 @@ public sealed class SteamQuickAccessRowPatch : ISteamUiPatch
             context,
             SteamUiTargetRole.SharedJsContext,
             _removeExpression,
-            "Native-QAM component removal failed.",
+            "Steam UI component removal failed.",
             cancellationToken);
     }
 
@@ -223,7 +249,7 @@ public sealed class SteamQuickAccessRowPatch : ISteamUiPatch
             return;
         }
 
-        SteamUiLog.Change("steam.ui.append." + Id, $"Native-QAM rows for {Id}: {report}");
+        SteamUiLog.Change("steam.ui.append." + Id, $"Steam UI rows for {Id}: {report}");
     }
 
     private static bool IsTruthy(JsonElement value)

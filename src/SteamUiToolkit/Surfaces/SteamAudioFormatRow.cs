@@ -59,7 +59,7 @@ public static class SteamAudioFormatRow
     public static SteamQuickAccessRowPatch Patch { get; } = new(
         PatchId,
         "audioFormat",
-        "native-qam-audio-format-v2:performance-actions+performance-root+valve-dropdown",
+        "steam-ui-audio-format-v2:performance-actions+performance-root+valve-dropdown",
         "steam_ui_audio_format_probe_");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
@@ -83,7 +83,7 @@ public static class SteamAudioFormatRow
         string id = "audioFormat")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return SteamSurfaceModule.Declare(
+        return SteamUiModuleBuilder.Module(
             id,
             PatchId,
             enabled,
@@ -91,13 +91,13 @@ public static class SteamAudioFormatRow
             SteamSurfaceJsonContext.Default.SteamAudioFormatState,
             [Patch],
             [
-                SteamSurfaceModule.Command<string>(
+                SteamUiModuleBuilder.Command<string>(
                     PatchId,
                     "setFormat",
                     SteamUiPayload.TryReadTarget,
                     backend.SetFormatAsync,
                     "The audio format payload is invalid."),
-                SteamSurfaceModule.Command<string>(
+                SteamUiModuleBuilder.Command<string>(
                     PatchId,
                     "setSpatial",
                     SteamUiPayload.TryReadTarget,

@@ -59,7 +59,7 @@ public static class SteamUiPatchEvaluation
             role,
             expression,
             cancellationToken).ConfigureAwait(false);
-        if (!result.Reachable || result.Value is null)
+        if (!result.Answered || result.Value is null)
         {
             return new SteamUiPatchOperationResult(false, result.Error ?? fallback);
         }
@@ -68,6 +68,11 @@ public static class SteamUiPatchEvaluation
         {
             using var document = JsonDocument.Parse(result.Value);
             var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return new SteamUiPatchOperationResult(false, Bounded(result.Value) ?? fallback);
+            }
+
             var succeeded = root.TryGetProperty("ok", out var ok)
                             && ok.ValueKind == JsonValueKind.True;
             if (succeeded && inspect is null)
@@ -110,7 +115,8 @@ public static class SteamUiPatchEvaluation
     ///     target that answered something unexpected are different states: the first reports no target
     ///     present, the second reports a present but incompatible one and keeps the page's own answer
     ///     as the diagnostic, which is what a remote log needs in order to tell a closed window from a
-    ///     Steam build that moved.
+    ///     Steam build that moved. A probe the page answered with an error is incompatible with that
+    ///     error as its diagnostic; it is not an absent target to be probed again.
     /// </remarks>
     public static async Task<SteamUiPatchProbeResult> EvaluateProbeAsync(
         SteamUiPatchContext context,
@@ -127,14 +133,14 @@ public static class SteamUiPatchEvaluation
             role,
             expression,
             cancellationToken).ConfigureAwait(false);
-        if (!result.Reachable || result.Value is null)
+        if (result.Answered && result.Error is not null)
         {
-            return new SteamUiPatchProbeResult(
-                false,
-                false,
-                false,
-                null,
-                result.Error ?? unreachable);
+            return new SteamUiPatchProbeResult(true, false, null, Bounded(result.Error));
+        }
+
+        if (!result.Answered || result.Value is null)
+        {
+            return new SteamUiPatchProbeResult(false, false, null, result.Error ?? unreachable);
         }
 
         try
@@ -143,20 +149,19 @@ public static class SteamUiPatchEvaluation
             if (NotReady(document.RootElement))
             {
                 return new SteamUiPatchProbeResult(
-                    false, false, false, null, "Steam has not finished loading: " + Bounded(result.Value));
+                    false, false, null, "Steam has not finished loading: " + Bounded(result.Value));
             }
 
             var matched = compatible(document.RootElement);
             return new SteamUiPatchProbeResult(
                 true,
                 matched,
-                matched,
                 matched ? fingerprint : null,
                 matched ? null : Bounded(result.Value));
         }
         catch (JsonException ex)
         {
-            return new SteamUiPatchProbeResult(true, false, false, null, ex.Message);
+            return new SteamUiPatchProbeResult(true, false, null, ex.Message);
         }
     }
 
@@ -182,7 +187,8 @@ public static class SteamUiPatchEvaluation
     /// </remarks>
     public static bool IsOne(JsonElement root, string property)
     {
-        return root.TryGetProperty(property, out var value)
+        return root.ValueKind == JsonValueKind.Object
+               && root.TryGetProperty(property, out var value)
                && value.ValueKind == JsonValueKind.Number
                && value.TryGetInt32(out var count)
                && count == 1;
@@ -194,7 +200,9 @@ public static class SteamUiPatchEvaluation
     /// <returns>True only when the property exists and is literally <c>true</c>.</returns>
     public static bool Flag(JsonElement root, string name)
     {
-        return root.TryGetProperty(name, out var value) && value.ValueKind is JsonValueKind.True;
+        return root.ValueKind == JsonValueKind.Object
+               && root.TryGetProperty(name, out var value)
+               && value.ValueKind is JsonValueKind.True;
     }
 
     /// <summary>Whether a probe found the claimed member claimable, or already this gate's own.</summary>
@@ -233,7 +241,9 @@ public static class SteamUiPatchEvaluation
         {
             using var document = JsonDocument.Parse(value);
             var root = document.RootElement;
-            if (!root.TryGetProperty("ok", out var ok) || ok.ValueKind != JsonValueKind.True)
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty("ok", out var ok)
+                || ok.ValueKind != JsonValueKind.True)
             {
                 return false;
             }

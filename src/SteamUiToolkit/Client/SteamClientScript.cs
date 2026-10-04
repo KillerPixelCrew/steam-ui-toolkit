@@ -1,31 +1,31 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace SteamUiToolkit;
 
 /// <summary>Outcome of one change the running Steam client was asked to make.</summary>
-/// <param name="Reachable">
-///     Whether a validated Steam target ran the request. An unreachable client changed nothing,
-///     so a caller may keep the request and offer it again; it must not read this as a refusal.
-/// </param>
-/// <param name="Accepted">Whether Steam completed the change without throwing.</param>
+/// <param name="Outcome">Whether the change was never sent, may have run, was refused or completed.</param>
 /// <param name="Error">
-///     Why the target was unreachable, or Steam's own error when it refused. Null on success.
+///     Why it was not sent, why its answer is unknown, or Steam's own error when it refused. Null when
+///     applied.
 /// </param>
-public readonly record struct SteamClientWriteResult(bool Reachable, bool Accepted, string? Error)
+public readonly record struct SteamClientWriteResult(SteamClientWriteOutcome Outcome, string? Error)
 {
-    /// <summary>Whether Steam was reached and completed the change.</summary>
-    public bool Succeeded => Reachable && Accepted;
+    /// <summary>Whether Steam answered that the change completed.</summary>
+    public bool Succeeded => Outcome == SteamClientWriteOutcome.Applied;
 }
 
 /// <summary>Shared construction and parsing for one-shot calls into Steam's client API.</summary>
 internal static class SteamClientScript
 {
+    // One error shape for every script: Steam's message when it gave one, and its EResult when it
+    // threw a result object instead (SteamClient.InstallFolder does).
     private const string ErrorReply =
-        "catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e)});}";
+        "catch(e){const m=e&&e.message;" +
+        "return JSON.stringify({ok:false,err:m?String(m):(e&&typeof e==='object')?undefined:String(e)," +
+        "result:e&&e.result});}";
 
     /// <summary>Formats an app id as the unsigned literal Steam's client API expects.</summary>
     /// <param name="appId">The app id.</param>
@@ -36,7 +36,7 @@ internal static class SteamClientScript
 
     /// <summary>
     ///     Wraps a statement list in an async IIFE that reports <c>{ok:true}</c> after it completes
-    ///     and <c>{ok:false,err}</c> when any statement throws.
+    ///     and <c>{ok:false,err,result}</c> when any statement throws.
     /// </summary>
     /// <param name="statements">The statements, each terminated with a semicolon.</param>
     internal static string Write(string statements)
@@ -107,79 +107,97 @@ internal static class SteamClientScript
         "return out;};" +
         "const shortcutIds=()=>{const s=shortcutApps();return s?new Set(s.map(a=>a.id)):null;};";
 
-    /// <summary>Runs an expression through the given transport, or the session's when none is given.</summary>
-    /// <param name="transport">A specific transport, or null for <see cref="SteamUiTransportSession" />.</param>
-    /// <param name="role">The target the expression needs.</param>
-    /// <param name="expression">The expression.</param>
-    /// <param name="timeout">The evaluation deadline.</param>
-    /// <param name="cancellationToken">Cancels the evaluation.</param>
-    /// <returns>The outcome. Never throws for an unreachable target, a timeout or a cancellation.</returns>
-    internal static async Task<CefEvalResult> EvaluateAsync(
-        ISteamUiTransport? transport,
-        SteamUiTargetRole role,
-        string expression,
-        TimeSpan timeout,
-        CancellationToken cancellationToken)
+    /// <summary>
+    ///     The outcome of a write whose script left no readable answer: never sent, or sent and
+    ///     unanswered.
+    /// </summary>
+    /// <param name="dispatch">How far the request got.</param>
+    internal static SteamClientWriteOutcome Unread(SteamUiDispatch dispatch)
     {
-        if (transport is null)
-        {
-            return role == SteamUiTargetRole.MainWindow
-                ? await SteamUiTransportSession.EvaluateOnVisibleWindowAsync(expression, timeout, cancellationToken)
-                    .ConfigureAwait(false)
-                : await SteamUiTransportSession.EvaluateAsync(expression, timeout, cancellationToken)
-                    .ConfigureAwait(false);
-        }
-
-        try
-        {
-            var result = await transport.EvaluateAsync(role, expression, timeout, cancellationToken)
-                .ConfigureAwait(false);
-            return result.Reachable
-                ? CefEvalResult.Ok(result.Value)
-                : CefEvalResult.Unreachable(result.Error ?? $"Steam UI {role} target is unavailable.");
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (OperationCanceledException)
-        {
-            return CefEvalResult.Unreachable("Timed out talking to Steam's debug port.");
-        }
-        catch (Exception ex)
-        {
-            return CefEvalResult.Unreachable(ex.Message);
-        }
+        return dispatch is SteamUiDispatch.NotSent or SteamUiDispatch.Closed
+            ? SteamClientWriteOutcome.NotSent
+            : SteamClientWriteOutcome.Unknown;
     }
 
     /// <summary>Maps the reply of a <see cref="Write" /> expression to a result.</summary>
     /// <param name="result">The evaluation outcome.</param>
-    internal static SteamClientWriteResult ParseWrite(CefEvalResult result)
+    internal static SteamClientWriteResult ParseWrite(SteamUiEvaluationResult result)
     {
-        if (!result.Reachable)
+        if (result.Dispatch != SteamUiDispatch.Answered)
         {
-            return new SteamClientWriteResult(false, false, result.Error);
+            return new SteamClientWriteResult(Unread(result.Dispatch), result.Error ?? "Steam did not answer.");
+        }
+
+        if (result.Error is not null)
+        {
+            return new SteamClientWriteResult(SteamClientWriteOutcome.Rejected, result.Error);
         }
 
         if (result.Value is null)
         {
-            return new SteamClientWriteResult(true, false, "No response from Steam.");
+            return new SteamClientWriteResult(SteamClientWriteOutcome.Unknown, "No response from Steam.");
         }
 
         try
         {
             using var document = JsonDocument.Parse(result.Value);
             var root = document.RootElement;
-            if (IsOk(root))
-            {
-                return new SteamClientWriteResult(true, true, null);
-            }
-
-            return new SteamClientWriteResult(true, false, ErrorOf(root) ?? "Steam rejected the change.");
+            return IsOk(root)
+                ? new SteamClientWriteResult(SteamClientWriteOutcome.Applied, null)
+                : new SteamClientWriteResult(
+                    SteamClientWriteOutcome.Rejected, RefusalOf(root) ?? "Steam rejected the change.");
         }
         catch (JsonException ex)
         {
-            return new SteamClientWriteResult(true, false, ex.Message);
+            return new SteamClientWriteResult(
+                SteamClientWriteOutcome.Unknown, $"Steam's reply was unreadable: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    ///     Maps the reply of a <see cref="Read" /> expression to a typed read. An answered refusal, an
+    ///     empty answer and an unreadable one all fail the read rather than producing an empty value.
+    /// </summary>
+    /// <typeparam name="T">What is read.</typeparam>
+    /// <param name="result">The evaluation outcome.</param>
+    /// <param name="what">What is read, for the error text.</param>
+    /// <param name="read">
+    ///     Reads the value from an <c>ok:true</c> reply. It throws <see cref="FormatException" /> for a
+    ///     reply that does not hold a valid value.
+    /// </param>
+    internal static SteamReadResult<T> ParseRead<T>(
+        SteamUiEvaluationResult result,
+        string what,
+        Func<JsonElement, T?> read)
+    {
+        if (result.Dispatch != SteamUiDispatch.Answered)
+        {
+            return new SteamReadResult<T>(result.Dispatch, default, result.Error ?? "Steam did not answer.");
+        }
+
+        if (result.Error is not null)
+        {
+            return new SteamReadResult<T>(result.Dispatch, default, result.Error);
+        }
+
+        if (result.Value is null)
+        {
+            return new SteamReadResult<T>(result.Dispatch, default, "No response from Steam.");
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(result.Value);
+            var root = document.RootElement;
+            return IsOk(root)
+                ? new SteamReadResult<T>(result.Dispatch, read(root), null)
+                : new SteamReadResult<T>(result.Dispatch, default, RefusalOf(root) ?? $"Steam returned no {what}.");
+        }
+        catch (Exception ex) when (ex is JsonException or FormatException or InvalidOperationException
+                                       or KeyNotFoundException)
+        {
+            return new SteamReadResult<T>(
+                result.Dispatch, default, $"Steam's {what} reply was unreadable: {ex.Message}");
         }
     }
 
@@ -192,14 +210,26 @@ internal static class SteamClientScript
                && ok.ValueKind == JsonValueKind.True;
     }
 
-    /// <summary>The <c>err</c> string of a reply object, when it has one.</summary>
+    /// <summary>
+    ///     Why a reply refused: its <c>err</c> text, or Steam's <c>EResult</c> code when it threw a result
+    ///     instead of a message. Null when the reply names neither.
+    /// </summary>
     /// <param name="root">The reply.</param>
-    internal static string? ErrorOf(JsonElement root)
+    internal static string? RefusalOf(JsonElement root)
     {
-        return root.ValueKind == JsonValueKind.Object
-               && root.TryGetProperty("err", out var err)
-               && err.ValueKind == JsonValueKind.String
-            ? err.GetString()
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        if (root.TryGetProperty("err", out var err) && err.ValueKind == JsonValueKind.String)
+        {
+            return err.GetString();
+        }
+
+        return root.TryGetProperty("result", out var code)
+               && code.ValueKind is JsonValueKind.Number or JsonValueKind.String
+            ? $"EResult {code.GetRawText()}"
             : null;
     }
 
@@ -208,7 +238,8 @@ internal static class SteamClientScript
     /// <param name="name">The property.</param>
     internal static string StringOf(JsonElement root, string name)
     {
-        return root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+        return root.ValueKind == JsonValueKind.Object
+               && root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString() ?? string.Empty
             : string.Empty;
     }

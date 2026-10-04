@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading;
@@ -16,6 +17,29 @@ public delegate bool SteamUiPayloadReader<T>(JsonElement payload, out T value);
 /// <summary>Public building blocks for consumer- and plugin-owned typed Steam UI modules.</summary>
 public static class SteamUiModuleBuilder
 {
+    /// <summary>Declares a surface that publishes one typed state.</summary>
+    /// <typeparam name="T">The published reference-type state.</typeparam>
+    /// <param name="id">The module id.</param>
+    /// <param name="patchId">The patch the state is published under.</param>
+    /// <param name="enabled">Whether the state may be published right now.</param>
+    /// <param name="read">Reads the current state, or null to publish nothing this round.</param>
+    /// <param name="typeInfo">Source-generated serializer metadata for the state.</param>
+    /// <param name="patches">The patches that install the surface.</param>
+    /// <param name="commands">The commands the surface answers.</param>
+    /// <returns>The module to register.</returns>
+    public static ISteamUiModule Module<T>(
+        string id,
+        string patchId,
+        Func<bool> enabled,
+        Func<ValueTask<T?>> read,
+        JsonTypeInfo<T> typeInfo,
+        IReadOnlyList<ISteamUiPatch> patches,
+        IReadOnlyList<SteamUiCommandHandler> commands)
+        where T : class
+    {
+        return new SteamUiModule(id, patches, [Publication(patchId, enabled, read, typeInfo)], commands);
+    }
+
     /// <summary>Creates a typed state publication with source-generated JSON metadata.</summary>
     /// <typeparam name="T">The published reference-type state.</typeparam>
     /// <param name="patchId">The patch receiving the state.</param>
@@ -82,6 +106,10 @@ public static class SteamUiModuleBuilder
     /// <param name="apply">The backend operation.</param>
     /// <param name="invalid">The refusal shown when payload validation fails.</param>
     /// <returns>The command handler.</returns>
+    /// <remarks>
+    ///     <paramref name="apply" /> runs on the bridge's request pump in arrival order and must return
+    ///     its task promptly; see <see cref="SteamUiCommandDelegate" />.
+    /// </remarks>
     public static SteamUiCommandHandler Command<T>(
         string patchId,
         string command,
@@ -89,12 +117,14 @@ public static class SteamUiModuleBuilder
         Func<T, CancellationToken, Task<SteamUiCommandResult>> apply,
         string invalid)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(patchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(command);
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(apply);
         return new SteamUiCommandHandler(patchId, command, (request, cancellationToken) =>
             reader(request.Payload, out var value)
                 ? apply(value, cancellationToken)
-                : Task.FromResult(new SteamUiCommandResult(false, invalid)));
+                : Task.FromResult(SteamUiCommandResult.Invalid(invalid)));
     }
 
     /// <summary>Creates a command whose backend does not consume a payload.</summary>
@@ -102,11 +132,17 @@ public static class SteamUiModuleBuilder
     /// <param name="command">The command name.</param>
     /// <param name="apply">The backend operation.</param>
     /// <returns>The command handler.</returns>
+    /// <remarks>
+    ///     <paramref name="apply" /> runs on the bridge's request pump in arrival order and must return
+    ///     its task promptly; see <see cref="SteamUiCommandDelegate" />.
+    /// </remarks>
     public static SteamUiCommandHandler Command(
         string patchId,
         string command,
         Func<CancellationToken, Task<SteamUiCommandResult>> apply)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(patchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(command);
         ArgumentNullException.ThrowIfNull(apply);
         return new SteamUiCommandHandler(patchId, command, (_, cancellationToken) => apply(cancellationToken));
     }

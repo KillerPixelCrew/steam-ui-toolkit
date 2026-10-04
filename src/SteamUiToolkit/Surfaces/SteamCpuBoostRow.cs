@@ -8,29 +8,34 @@ namespace SteamUiToolkit;
 
 /// <summary>The Performance menu's processor boost-mode dropdown.</summary>
 /// <remarks>
-///     The power-profile shape plus the per-game marker: host-named choices, the one in effect, a
-///     line of status, and the host's setting id while the running game's own profile supplies the
-///     value. The host owns what the choices mean and the OS write.
+///     The power-profile shape plus the accent marker: host-named choices, the one in effect, a line
+///     of status, and whether the row is marked. The host owns what the choices mean and the OS write.
 /// </remarks>
 /// <param name="Available">Whether selection is enabled. False keeps the status visible.</param>
-/// <param name="Options">At most 64 modes with unique identifiers.</param>
+/// <param name="Options">The modes, with unique identifiers.</param>
 /// <param name="Current">The mode in effect, or empty when the machine is set to something the host does not offer.</param>
 /// <param name="StatusText">Current state or the last failure.</param>
-/// <param name="OverrideId">The host's setting id while the running game overrides the value, else null.</param>
+/// <param name="Accent">
+///     Whether the row is marked: its description is drawn in Steam's accent colour after the host's
+///     <see cref="SteamQuickAccessLayout.AccentLabel" />.
+/// </param>
 public sealed record SteamCpuBoostState(
     bool Available,
     IReadOnlyList<SteamPowerProfileOption> Options,
     string Current,
     string StatusText,
-    string? OverrideId);
+    bool Accent = false);
 
 /// <summary>Applies a host's processor boost modes.</summary>
 public interface ISteamCpuBoostBackend
 {
-    /// <summary>Selects and verifies one published mode.</summary>
+    /// <summary>Dispatches the selection of one published mode.</summary>
     /// <param name="option">Stable mode id.</param>
     /// <param name="cancellationToken">Cancels before the write starts.</param>
-    /// <returns>The verified outcome or a refusal.</returns>
+    /// <returns>
+    ///     Success once the selection was dispatched, with the written value published as observed, or
+    ///     why it could not be dispatched. No outcome waits on a readback.
+    /// </returns>
     Task<SteamUiCommandResult> SetCpuBoostAsync(string option, CancellationToken cancellationToken);
 }
 
@@ -46,7 +51,7 @@ public static class SteamCpuBoostRow
     /// <summary>Reversible registration with the shared Performance row host.</summary>
     public static SteamQuickAccessRowPatch Patch { get; } = new(
         PatchId, "cpuBoost",
-        "native-qam-cpu-boost-v1:performance-actions+performance-root+valve-dropdown",
+        "steam-ui-cpu-boost-v1:performance-actions+performance-root+valve-dropdown",
         "steam_ui_cpu_boost_probe_");
 
     /// <summary>Serializes state for the injected component.</summary>
@@ -68,10 +73,10 @@ public static class SteamCpuBoostRow
         ISteamCpuBoostBackend backend, string id = "cpu-boost")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return SteamSurfaceModule.Declare(
+        return SteamUiModuleBuilder.Module(
             id, PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamCpuBoostState, [Patch],
             [
-                SteamSurfaceModule.Command<string>(PatchId, "setCpuBoost", SteamUiPayload.TryReadTarget,
+                SteamUiModuleBuilder.Command<string>(PatchId, "setCpuBoost", SteamUiPayload.TryReadTarget,
                     backend.SetCpuBoostAsync, "The processor boost payload is invalid.")
             ]);
     }

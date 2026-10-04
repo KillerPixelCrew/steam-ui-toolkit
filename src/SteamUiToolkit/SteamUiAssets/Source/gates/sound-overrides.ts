@@ -29,33 +29,26 @@ function createSoundOverrides() {
     lastError = "";
     if (!state?.sounds || typeof state.sounds !== "object") return;
     const entries = Object.entries(state.sounds);
-    if (entries.length > 128) {
-      lastError = "Too many sound resources";
-      return;
-    }
     let context: AudioContext | null = null;
     const next = new Map<string, string[]>();
-    let total = 0;
+    // A refused entry leaves the others loading and says which one it was.
+    const reject = (name: string) => {
+      if (current === generation && installed) lastError = `Rejected sound: ${name}`;
+    };
     try {
       context = new AudioContext();
       for (const [name, value] of entries) {
-        if (
-          !/^[a-zA-Z0-9_.-]+\.(wav|mp3|m4a|ogg)$/u.test(name) ||
-          !Array.isArray(value) ||
-          value.length > 16
-        )
+        if (!/^[a-zA-Z0-9_.-]+\.(wav|mp3|m4a|ogg)$/u.test(name) || !Array.isArray(value)) {
+          reject(name);
           continue;
+        }
         const valid: string[] = [];
         for (const url of value) {
           if (current !== generation || !installed) return;
-          if (
-            typeof url !== "string" ||
-            url.length > 1400000 ||
-            !/^data:audio\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+$/u.test(url)
-          )
+          if (typeof url !== "string" || !/^data:audio\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+$/u.test(url)) {
+            reject(name);
             continue;
-          total += url.length;
-          if (total > 24000000) throw new Error("Sound assets exceed the publication budget");
+          }
           try {
             const bytes = await (await fetch(url)).arrayBuffer();
             await context.decodeAudioData(bytes);
@@ -74,7 +67,7 @@ function createSoundOverrides() {
     }
   };
   const install = () => {
-    if (installed) return { ok: true, installed: true };
+    if (installed) return { ok: true, alreadyInstalled: true };
     manager = resolve();
     if (!manager) return { ok: false, error: "Gamepad audio manager unavailable" };
     const result = claimMember(
@@ -108,12 +101,19 @@ function createSoundOverrides() {
     return { ok: true, installed: true };
   };
   const remove = () => {
+    if (!installed) return { ok: true, absent: true };
+    // Released first: a failed release keeps the gate installed with its sounds, so the next remove
+    // retries it.
+    const result = releaseMember(manager, "PlayAudioURLWithRepeats", keys);
+    if (!result.ok) {
+      lastError = result.error ?? "sound override release failed";
+      return { ok: false, error: lastError };
+    }
+    installed = false;
     ++generation;
     sounds.clear();
     unsubscribe = endSubscription(unsubscribe);
-    const result = releaseMember(manager, "PlayAudioURLWithRepeats", keys);
-    if (result.ok) installed = false;
-    return result;
+    return { ok: true, removed: true };
   };
   const status = () => ({
     ok: true,

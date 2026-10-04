@@ -7,8 +7,9 @@ namespace SteamUiToolkit;
 /// <remarks>
 ///     CamelCase because that is what the injected validators read; the performance state's inner
 ///     objects override it with Valve's snake_case field names explicitly. Element and nested record
-///     types are generated from the roots listed here; only the token list the probes serialize directly
-///     is named on its own.
+///     types are generated from the roots listed here; a type a surface serializes on its own, outside
+///     a state, is listed too: the extension-tab entries, the file picker's answers, the settings pages
+///     and the probes' token list.
 /// </remarks>
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(SteamAudioState))]
@@ -39,6 +40,7 @@ namespace SteamUiToolkit;
 [JsonSerializable(typeof(SteamExtensionsTabAction))]
 [JsonSerializable(typeof(SteamExtensionsTabSetting))]
 [JsonSerializable(typeof(SteamPanelFoldsState))]
+[JsonSerializable(typeof(SteamQuickAccessLayout))]
 [JsonSerializable(typeof(SteamGameContextMenuState))]
 [JsonSerializable(typeof(SteamPowerMenuState))]
 [JsonSerializable(typeof(SteamStorageState))]

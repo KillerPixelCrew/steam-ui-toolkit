@@ -20,8 +20,6 @@
 // A shape is a tag and its attributes, in React's camelCase spelling because these are handed
 // straight to Steam's own createElement. Composing an icon from rects and circles where the geometry
 // allows keeps the path data short enough to read, which is the same reason Valve does it.
-type SteamUiIconShape = readonly [string, Readonly<Record<string, string | number | boolean>>];
-
 const SteamUiIconShapes: Readonly<Record<string, readonly SteamUiIconShape[]>> = Object.freeze({
     // -- Profile scope --------------------------------------------------------------------------
 
@@ -405,6 +403,10 @@ const SteamUiIconShapes: Readonly<Record<string, readonly SteamUiIconShape[]>> =
     sectionClosed: [["path", {d: "M9 4.6 16.4 12 9 19.4 7.2 17.6l5.6-5.6-5.6-5.6L9 4.6Z"}]],
 });
 
+// One shape of a glyph. Declared after the table because TypeScript erases a type together with
+// the comments that lead it, and this file's header has to reach the asset.
+type SteamUiIconShape = readonly [string, Readonly<Record<string, string | number | boolean>>];
+
 // Builds icons with Steam's own React, and caches the result: a React element is immutable, so one
 // per name and size can be handed to every render of every row rather than rebuilt on each pass.
 // An unknown name returns null, which is what Field, PanelSection and the section header below all
@@ -441,13 +443,18 @@ const createIconRenderer = (react) => {
 // A glyph the host supplies as SVG path data on a 24x24 grid: one path, filled with `currentColor`,
 // holes cut with `fill-rule="evenodd"`. That is Valve's own convention for the main menu's icons -
 // inline SVG with no size of its own, sized by the row's icon box - so a host's mark sits beside
-// Home and Library as one of them. Only path commands and numbers are accepted, bounded, so a
-// publication can describe a shape and nothing else. Cached per path; null when the data is not a
-// path.
-const SteamGlyphPattern = /^[MmLlHhVvCcSsQqTtAaZz0-9.,\-\s]{1,4096}$/u;
-const steamGlyphCache = new Map();
+// Home and Library as one of them. Only path commands and numbers are accepted, so a publication
+// can describe a shape and nothing else; its length is the host's. Cached per React and path, so a
+// glyph is never handed to a React that did not build it; null when the data is not a path.
+const SteamGlyphPattern = /^[MmLlHhVvCcSsQqTtAaZz0-9.,\-\s]+$/u;
+const steamGlyphCaches = new WeakMap();
 const renderSteamGlyph = (react, d) => {
     if (typeof d !== "string" || !SteamGlyphPattern.test(d)) return null;
+    let steamGlyphCache = steamGlyphCaches.get(react);
+    if (!steamGlyphCache) {
+        steamGlyphCache = new Map();
+        steamGlyphCaches.set(react, steamGlyphCache);
+    }
     const cached = steamGlyphCache.get(d);
     if (cached) return cached;
     const element = react.createElement(

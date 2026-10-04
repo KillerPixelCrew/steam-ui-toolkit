@@ -6,7 +6,14 @@
 // storage answers have the shape Steam's own hooks destructure, and removal puts Valve's method
 // back so nothing is left in the path.
 import assert from "node:assert/strict";
-import { gateSource, instantiate, loadAsset, sharedFragments } from "./check-harness.mjs";
+import {
+  assertRemoveRetries,
+  failingHost,
+  gateSource,
+  instantiate,
+  loadAsset,
+  sharedFragments,
+} from "./check-harness.mjs";
 
 const asset = loadAsset();
 
@@ -18,7 +25,7 @@ class Transport {
     return Promise.resolve({ BSuccess: () => true, Body: () => ({ original: true }) });
   }
 }
-const transport = new Transport();
+const { host: transport, failNext } = failingHost(new Transport());
 const provider = { GetDefaultTransport: () => transport };
 
 const requests = [];
@@ -187,6 +194,7 @@ await transport.SendMsg("StorageDeviceManager.GetState#1", {}, null, {});
 assert.equal(forwarded.length, 2, "after removal nothing may be intercepted");
 
 assert.ok(gate.install().ok, "the gate must be reinstallable");
-assert.ok(gate.remove().ok);
+assertRemoveRetries(gate, failNext, "storage");
+assert.ok(!Object.prototype.hasOwnProperty.call(transport, "SendMsg"), "a retried removal restores SendMsg");
 
 console.log("Storage service: availability, state shape, action forwarding, pass-through and restoration passed.");

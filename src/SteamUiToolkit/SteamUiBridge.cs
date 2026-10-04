@@ -48,10 +48,10 @@ public sealed record SteamUiBridgeRequest(
 /// <summary>Result of authorizing one narrow Steam UI bridge request.</summary>
 /// <param name="Accepted">Whether the host may dispatch the request.</param>
 /// <param name="Reason">A bounded rejection reason.</param>
-public readonly record struct SteamUiBridgeAuthorizationResult(bool Accepted, string? Reason);
+internal readonly record struct SteamUiBridgeAuthorizationResult(bool Accepted, string? Reason);
 
 /// <summary>Authorizes consumer-declared commands without exposing generic evaluation or host APIs.</summary>
-public sealed class SteamUiBridgeAuthorizer
+internal sealed class SteamUiBridgeAuthorizer
 {
     private readonly IReadOnlyDictionary<string, IReadOnlyList<string>> _commands;
 
@@ -216,13 +216,6 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
     /// </remarks>
     public const int DeliveryPartCharacters = 256 * 1024;
 
-    /// <summary>The largest envelope delivered at all, in parts.</summary>
-    /// <remarks>
-    ///     A guard against a runaway publication, not a size any surface is expected to reach. A
-    ///     state past it is refused, and the refusal itself is delivered, so the page can say so
-    ///     instead of showing the last state it was given as if it were current.
-    /// </remarks>
-    public const int MaximumDeliveryCharacters = 32 * 1024 * 1024;
 
     private const string Namespace = SteamUiBridgeIdentity.Namespace;
     private const string BindingName = SteamUiBridgeIdentity.BindingName;
@@ -354,6 +347,15 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
     /// <returns>True after a positive compatibility handshake.</returns>
     public async Task<bool> BootstrapAsync(CancellationToken cancellationToken = default)
     {
+        return (await BootstrapWithReasonAsync(cancellationToken).ConfigureAwait(false)).Ready;
+    }
+
+    /// <summary>Installs the bootstrap and says why it did not become ready.</summary>
+    /// <param name="cancellationToken">Cancels installation.</param>
+    /// <returns>Whether the handshake succeeded, and the page's or transport's reason when it did not.</returns>
+    internal async Task<(bool Ready, string? Error)> BootstrapWithReasonAsync(
+        CancellationToken cancellationToken = default)
+    {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -382,9 +384,9 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
                 expression,
                 OperationTimeout,
                 cancellationToken).ConfigureAwait(false);
-            if (!result.Reachable || result.Value is null)
+            if (!result.Answered || result.Value is null)
             {
-                return false;
+                return (false, result.Error ?? "Steam UI target unavailable.");
             }
 
             var ready = IsPositiveAcknowledgement(
@@ -393,7 +395,12 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             {
                 MarkNotReady();
                 SteamUiLog.Warn($"Steam UI bridge bootstrap failed: {malformed}");
-                return false;
+                return (false, malformed);
+            }
+
+            if (ready)
+            {
+                LogPriorDisposeFailures(result.Value);
             }
 
             lock (_stateSync)
@@ -403,20 +410,21 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
                     _generations = result.Generations;
                     _authorizer.Reset(_generations);
                     _ready = true;
-                }
-                else
-                {
-                    _ready = false;
+                    return (true, null);
                 }
 
-                return _ready;
+                _ready = false;
+                return (false, ready
+                    ? "Steam UI generation changed during the bootstrap."
+                    : "Steam UI bridge bootstrap was refused: "
+                      + (SteamUiPatchEvaluation.Bounded(result.Value) ?? "no answer"));
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             MarkNotReady();
             SteamUiLog.Warn($"Steam UI bridge bootstrap failed: {ex.Message}");
-            return false;
+            return (false, ex.Message);
         }
         finally
         {
@@ -428,7 +436,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
     /// <param name="request">The accepted request being completed.</param>
     /// <param name="ok">Whether the command succeeded.</param>
     /// <param name="payload">A bounded JSON payload, or null.</param>
-    /// <param name="error">A bounded semantic failure.</param>
+    /// <param name="error">A semantic failure, delivered whole to the page that shows it.</param>
     /// <param name="cancellationToken">Cancels delivery.</param>
     /// <returns>True when the current document accepted the response.</returns>
     public async Task<bool> RespondAsync(
@@ -448,14 +456,8 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             return false;
         }
 
+        // Delivered whole, however large: delivery is chunked into parts.
         var envelope = BuildResponse(request, ok, payload, error);
-        if (envelope.Length > MaximumDeliveryCharacters)
-        {
-            // The caller is waiting on this answer, so the refusal is the answer: a request that
-            // simply timed out would tell the page nothing about why.
-            envelope = BuildResponse(request, false, null, "The answer was too large to deliver.");
-        }
-
         return await DeliverAsync(envelope, generations, cancellationToken).ConfigureAwait(false);
     }
 
@@ -524,19 +526,6 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         {
             Remember(patchId, revision, generations);
             return true;
-        }
-
-        if (envelope.Length > MaximumDeliveryCharacters)
-        {
-            // Delivered rather than only logged: the page is showing the last state it was given, and
-            // the one place that can tell the user it is stale is the page.
-            await DeliverAsync(
-                    BuildRefusal(patchId, "This state is too large to deliver.", generations),
-                    generations,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            Forget(patchId);
-            return false;
         }
 
         var accepted = await DeliverAsync(envelope, generations, cancellationToken)
@@ -689,13 +678,20 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
 
         try
         {
-            await _transport.EvaluateAsync(
+            var removed = await _transport.EvaluateAsync(
                 SteamUiTargetRole.SharedJsContext,
                 "(()=>{const k=" + SteamCef.JsString(Namespace)
                                  + ";const b=window[k];if(b&&b.dispose)b.dispose('Steam UI removed');"
                                  + "try{delete window[k];}catch(e){}return JSON.stringify({ok:true});})()",
                 OperationTimeout,
                 cancellationToken).ConfigureAwait(false);
+            // Reported, not retried: the patch's own removal check reads the namespace next.
+            if (removed.Value is null || !SteamUiPatchEvaluation.IsSuccessful(removed.Value))
+            {
+                SteamUiLog.Warn(
+                    "Steam UI bridge namespace removal was not confirmed: "
+                    + (SteamUiPatchEvaluation.Bounded(removed.Value) ?? removed.Error ?? "no answer"));
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -718,7 +714,11 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         {
             using var parameters = JsonDocument.Parse(notification.ParametersJson);
             var root = parameters.RootElement;
-            if (!root.TryGetProperty("name", out var name)
+            // Kinds first: TryGetProperty on a non-object and GetString on a non-string throw
+            // InvalidOperationException, which the JsonException handler below does not catch.
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty("name", out var name)
+                || name.ValueKind != JsonValueKind.String
                 || name.GetString() != BindingName
                 || !root.TryGetProperty("payload", out var payloadElement)
                 || payloadElement.ValueKind != JsonValueKind.String)
@@ -742,15 +742,19 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             var authorization = _authorizer.Authorize(request);
             if (!authorization.Accepted)
             {
-                // The payload prefix is included because the identifying fields are exactly what a
+                // The payload's shape is included because the identifying fields are exactly what a
                 // decoding fault empties: "rejected /: schema version mismatch" describes a request
                 // that never decoded just as well as one that was genuinely refused, and telling
-                // them apart took a live tap on the Runtime binding.
+                // them apart took a live tap on the Runtime binding. Only its shape: a command can
+                // carry a plugin secret, and testers paste this log.
                 SteamUiLog.Change(
                     "steam.ui.bridge.rejected",
                     $"Steam UI bridge rejected {request.PatchId}/{request.Command}: "
                     + $"{authorization.Reason} (payload: "
-                    + payload[..Math.Min(payload.Length, 200)] + ")",
+                    + SteamUiShared.Bound(
+                        SteamUiShared.DescribePayload(payload),
+                        SteamUiShared.MaximumDiagnosticLength)
+                    + ")",
                     true);
                 return;
             }
@@ -902,7 +906,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         out string? malformed)
     {
         malformed = null;
-        if (!result.Reachable || result.Value is null)
+        if (!result.Answered || result.Value is null)
         {
             return false;
         }
@@ -924,6 +928,36 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         return ok
                && result.Generations.ExecutionContext == expectedGenerations.ExecutionContext
                && result.Generations.Document == expectedGenerations.Document;
+    }
+
+    /// <summary>Logs the gates the replaced bridge could not unwind, as its install answer names them.</summary>
+    /// <param name="acknowledgement">The positive install answer.</param>
+    private static void LogPriorDisposeFailures(string acknowledgement)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(acknowledgement);
+            if (!document.RootElement.TryGetProperty("priorDisposeFailures", out var failures)
+                || failures.ValueKind != JsonValueKind.Array
+                || failures.GetArrayLength() == 0)
+            {
+                return;
+            }
+
+            var names = new List<string?>();
+            foreach (var name in failures.EnumerateArray())
+            {
+                names.Add(name.ValueKind == JsonValueKind.String ? name.GetString() : name.GetRawText());
+            }
+
+            SteamUiLog.Warn(
+                "Steam UI bridge: the previous bridge could not remove gates: "
+                + SteamUiShared.Bound(string.Join(", ", names), SteamUiShared.MaximumDiagnosticLength));
+        }
+        catch (JsonException)
+        {
+            // The answer was already read as positive; a list that cannot be read only loses the log.
+        }
     }
 
     private static string WriteJson<TState>(TState state, Action<Utf8JsonWriter, TState> write)
@@ -999,8 +1033,8 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
 
             if (!string.IsNullOrEmpty(state.Error))
             {
-                writer.WriteString(
-                    "error", SteamUiShared.Bound(state.Error, SteamUiShared.MaximumDiagnosticLength));
+                // Whole: the page shows this refusal to the user, and delivery is chunked.
+                writer.WriteString("error", state.Error);
             }
         });
     }
@@ -1018,18 +1052,6 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             writer.WriteNumber("documentGeneration", state.Generations.Document);
             writer.WritePropertyName("payload");
             state.Payload.WriteTo(writer);
-        });
-    }
-
-    private static string BuildRefusal(string patchId, string reason, SteamUiGenerations generations)
-    {
-        return WriteJson((PatchId: patchId, Reason: reason, Generations: generations), static (writer, state) =>
-        {
-            writer.WriteString("type", "refused");
-            writer.WriteString("patchId", state.PatchId);
-            writer.WriteNumber("contextGeneration", state.Generations.ExecutionContext);
-            writer.WriteNumber("documentGeneration", state.Generations.Document);
-            writer.WriteString("reason", state.Reason);
         });
     }
 }

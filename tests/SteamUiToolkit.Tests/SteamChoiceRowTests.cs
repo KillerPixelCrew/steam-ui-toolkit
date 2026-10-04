@@ -35,18 +35,18 @@ public sealed class SteamChoiceRowTests
     }
 
     [Fact]
-    public void CpuBoostStateCarriesTheGameOverrideMarkerBesideTheChoice()
+    public void CpuBoostStateCarriesTheAccentBesideTheChoice()
     {
         var state = new SteamCpuBoostState(true,
             [new SteamPowerProfileOption("disabled", "Disabled"), new SteamPowerProfileOption("enabled", "Enabled")],
             "disabled",
             "Set for this game.",
-            "CpuBoost");
+            true);
 
         var json = SteamCpuBoostRow.Serialize(state);
 
         Assert.Equal("disabled", json.GetProperty("current").GetString());
-        Assert.Equal("CpuBoost", json.GetProperty("overrideId").GetString());
+        Assert.True(json.GetProperty("accent").GetBoolean());
         Assert.Equal("Enabled", json.GetProperty("options")[1].GetProperty("label").GetString());
     }
 
@@ -69,7 +69,7 @@ public sealed class SteamChoiceRowTests
 
     [Theory]
     [InlineData("{\"target\":\"battery\"}", true)]
-    [InlineData("{\"target\":\"custom\"}", false)]
+    [InlineData("{\"target\":\"custom\"}", true)]
     [InlineData("{\"target\":123}", false)]
     [InlineData("{\"target\":\"battery\",\"extra\":true}", false)]
     public async Task PresetCommandsStaySeparateFromWindowsProfiles(string json, bool valid)
@@ -89,7 +89,7 @@ public sealed class SteamChoiceRowTests
         Assert.Equal(valid, result.Succeeded);
         if (valid)
         {
-            Assert.Equal("preset ac battery", Assert.Single(backend.Calls));
+            Assert.StartsWith("preset ac ", Assert.Single(backend.Calls), StringComparison.Ordinal);
             Assert.Equal(cancellation.Token, Assert.Single(backend.Tokens));
         }
         else

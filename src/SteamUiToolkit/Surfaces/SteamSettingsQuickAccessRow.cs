@@ -33,7 +33,7 @@ public static class SteamSettingsQuickAccessRow
 
     /// <summary>The row patch.</summary>
     public static SteamQuickAccessRowPatch Patch { get; } = new(
-        PatchId, "settingsSections", "native-qam-settings-sections-v1:performance-root+valve-fields",
+        PatchId, "settingsSections", "steam-ui-settings-sections-v1:performance-root+valve-fields",
         "steam_ui_settings_sections_probe_");
 
     /// <summary>Serializes the typed publication.</summary>
@@ -53,10 +53,10 @@ public static class SteamSettingsQuickAccessRow
         ISteamSettingsQuickAccessBackend backend)
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return SteamSurfaceModule.Declare("settingsSections", PatchId, enabled, read,
+        return SteamUiModuleBuilder.Module("settingsSections", PatchId, enabled, read,
             SteamSurfaceJsonContext.Default.SteamSettingsQuickAccessState, [Patch],
             [
-                SteamSurfaceModule.Command<SetRequest>(PatchId, "set", TryReadSet,
+                SteamUiModuleBuilder.Command<SetRequest>(PatchId, "set", TryReadSet,
                     (request, token) => backend.SetAsync(request.Key, request.Value, token),
                     "The Quick Access setting payload is invalid.")
             ]);

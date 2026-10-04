@@ -12,7 +12,7 @@ namespace SteamUiToolkit;
 ///     choices, the one currently observed, and a line of status. The host owns what the choices mean.
 /// </remarks>
 /// <param name="Available">Whether selection is enabled. False keeps the status visible.</param>
-/// <param name="Options">At most 64 preferences with unique identifiers.</param>
+/// <param name="Options">The preferences, with unique identifiers.</param>
 /// <param name="Current">Observed preference id, or empty when the machine is set to something the host does not offer.</param>
 /// <param name="StatusText">Current state or the last failure.</param>
 public sealed record SteamHybridCoreState(
@@ -24,10 +24,13 @@ public sealed record SteamHybridCoreState(
 /// <summary>Applies a host's processor core preferences.</summary>
 public interface ISteamHybridCoreBackend
 {
-    /// <summary>Selects and verifies one published preference.</summary>
+    /// <summary>Dispatches the selection of one published preference.</summary>
     /// <param name="option">Stable preference id.</param>
     /// <param name="cancellationToken">Cancels before the write starts.</param>
-    /// <returns>The verified outcome or a refusal.</returns>
+    /// <returns>
+    ///     Success once the selection was dispatched, with the written value published as observed, or
+    ///     why it could not be dispatched. No outcome waits on a readback.
+    /// </returns>
     Task<SteamUiCommandResult> SetHybridCoresAsync(string option, CancellationToken cancellationToken);
 }
 
@@ -43,7 +46,7 @@ public static class SteamHybridCoreRow
     /// <summary>Reversible registration with the shared Performance row host.</summary>
     public static SteamQuickAccessRowPatch Patch { get; } = new(
         PatchId, "hybridCores",
-        "native-qam-hybrid-cores-v1:performance-actions+performance-root+valve-dropdown",
+        "steam-ui-hybrid-cores-v1:performance-actions+performance-root+valve-dropdown",
         "steam_ui_hybrid_cores_probe_");
 
     /// <summary>Serializes state for the injected component.</summary>
@@ -65,10 +68,10 @@ public static class SteamHybridCoreRow
         ISteamHybridCoreBackend backend, string id = "hybrid-cores")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return SteamSurfaceModule.Declare(
+        return SteamUiModuleBuilder.Module(
             id, PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamHybridCoreState, [Patch],
             [
-                SteamSurfaceModule.Command<string>(PatchId, "setHybridCores", SteamUiPayload.TryReadTarget,
+                SteamUiModuleBuilder.Command<string>(PatchId, "setHybridCores", SteamUiPayload.TryReadTarget,
                     backend.SetHybridCoresAsync, "The processor core preference payload is invalid.")
             ]);
     }

@@ -3,7 +3,7 @@ using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace SteamUiToolkit.Surfaces;
+namespace SteamUiToolkit;
 
 /// <summary>The native controller command to replay into a Steam window.</summary>
 public enum SteamNativeSurfaceAction
@@ -42,7 +42,7 @@ public static class SteamNativeSurfaceCommands
 
         var result = await transport.EvaluateAsync(SteamUiTargetRole.SharedJsContext, expression,
             TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
-        return result.Reachable && result.Generations == generations
+        return result.Answered && result.Generations == generations
                                 && SteamSharedContext.IsReadyAt(transport, generations)
                                 && result.Value == "true";
     }
@@ -90,7 +90,7 @@ public static class SteamNativeSurfaceCommands
                      if(pid===0)target=store?.MainWindowInstance;
                      else {
                        const windows=store?.OverlayWindows;
-                       if(!Array.isArray(windows)||windows.length>32)return false;
+                       if(!Array.isArray(windows))return false;
                        const matches=windows.filter(w=>w.params?.browserInfo?.m_unPID===pid&&w.params?.browserInfo?.m_unAppID===appid);
                        if(matches.length!==1||matches[0].IsGamepadUIOverlayWindow?.()!==true)return false;
                        target=matches[0];

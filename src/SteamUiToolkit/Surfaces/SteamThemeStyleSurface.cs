@@ -8,16 +8,16 @@ namespace SteamUiToolkit;
 /// <summary>One stylesheet block a host wants installed in Steam's windows.</summary>
 /// <param name="Id">
 ///     Stable identity within one publication: letters, digits, <c>_</c>, <c>.</c>, <c>:</c> and
-///     <c>-</c>, at most 96 characters. The gate keys its nodes by it.
+///     <c>-</c>. The gate keys its nodes by it.
 /// </param>
-/// <param name="Css">The stylesheet text, installed verbatim; at most 4 MiB.</param>
+/// <param name="Css">The stylesheet text, installed verbatim.</param>
 /// <param name="Targets">
 ///     Which windows the block is for, in CSSLoader's vocabulary: a whole-title regular expression,
 ///     tried against the window's own name as well as its title, <c>~text~</c> for a URL substring, or
-///     <c>!name</c> for a class on the document's root elements. At least one, at most 32.
+///     <c>!name</c> for a class on the document's root elements. At least one.
 /// </param>
 /// <param name="Hash">
-///     A short digest of <paramref name="Css" />, at most 64 characters. The gate compares hashes
+///     A short digest of <paramref name="Css" />. The gate compares hashes
 ///     rather than text, so an unchanged block is never rebuilt.
 /// </param>
 public sealed record SteamThemeStyle(string Id, string Css, IReadOnlyList<string> Targets, string Hash);
@@ -67,7 +67,6 @@ public static class SteamThemeStyleSurface
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
-        "steam-ui.theme-styles",
         "themeStyles",
         "steam-theme-styles-v1:popup-manager",
         """

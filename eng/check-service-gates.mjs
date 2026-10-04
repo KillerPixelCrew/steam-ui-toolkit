@@ -1,15 +1,24 @@
-// Runs the emitted service gates, Bluetooth and brightness, against inert Steam stubs and a fake
-// bridge. The gates are instantiated over the asset's own ownership primitives, RPC replies and gate
-// helpers, so the claims and replies exercised here are the shipped ones.
+// Runs the emitted service gates, Bluetooth, brightness, performance, audio and network, against
+// inert Steam stubs and a fake bridge. The gates are instantiated over the asset's own ownership
+// primitives, RPC replies and gate helpers, so the claims and replies exercised here are the shipped
+// ones.
 import assert from "node:assert/strict";
-import { gateSource, instantiate, loadAsset, sharedFragments, tick } from "./check-harness.mjs";
+import {
+  assertRemoveRetries,
+  failingHost,
+  gateSource,
+  instantiate,
+  loadAsset,
+  sharedFragments,
+  tick,
+} from "./check-harness.mjs";
 
 const asset = loadAsset();
 const shared = sharedFragments(asset);
 
 // --- Bluetooth: actions keep the device's identity, its progress and the backend's failures ------
 {
-  const rf = { GetState() {}, Pair() {} };
+  const { host: rf, failNext } = failingHost({ GetState() {}, Pair() {} });
   // The stub as the gate finds it: by its service method name and its shape, never by module id or
   // export name.
   const runtime = () => {
@@ -55,8 +64,9 @@ const shared = sharedFragments(asset);
   assert.equal(result.BSuccess(), false);
   assert.equal(result.BFailed(), true);
   assert.match(gate.status().lastError, /device unavailable/);
-  gate.remove();
-  console.log("Bluetooth actions preserve identity, progress and backend failures.");
+  assertRemoveRetries(gate, failNext, "Bluetooth");
+  assert.equal(Object.hasOwn(rf, "Connect"), false, "a method the stub never had is gone again");
+  console.log("Bluetooth actions preserve identity, progress, backend failures and removal retry.");
 }
 
 // --- Brightness: confirmed readback against an inert Steam observable ---------------------------
@@ -67,7 +77,7 @@ const shared = sharedFragments(asset);
     const nativeSetter = () => {
       throw new Error("native stub must not run");
     };
-    const display = { SetBrightness: nativeSetter };
+    const { host: display, failNext } = failingHost({ SetBrightness: nativeSetter });
     const observable = {
       m_currentValue: 1,
       Set(value) {
@@ -117,7 +127,15 @@ const shared = sharedFragments(asset);
     );
     const gate = create();
     assert.equal(gate.install().ok, true);
-    return { gate, display, observable, requests, publish: (value) => publish(value), nativeSetter };
+    return {
+      gate,
+      display,
+      observable,
+      requests,
+      publish: (value) => publish(value),
+      nativeSetter,
+      failNext,
+    };
   }
   const f = fixture();
   f.publish({ percent: 100, revision: 1 });
@@ -176,7 +194,135 @@ const shared = sharedFragments(asset);
   f.publish({ percent: 20, revision: 1 });
   await tick();
   assert.equal(f.observable.m_currentValue, 0.2, "reinstall accepts a fresh host revision sequence");
+  assertRemoveRetries(f.gate, f.failNext, "brightness");
+  assert.equal(f.display.SetBrightness, f.nativeSetter, "a retried removal hands the setter back");
   console.log(
-    "Brightness: confirmed readback, focused echoes, stale revisions, overlapping writes, failure and reinstall pass.",
+    "Brightness: confirmed readback, focused echoes, stale revisions, overlapping writes, failure, reinstall and removal retry pass.",
   );
+}
+
+// --- Performance: undecodable updates are refused, removal restores what it displaced -----------
+{
+  const { host: system, failNext } = failingHost({});
+  let publish;
+  const requests = [];
+  class SettingsUpdate {
+    static deserializeBinary(bytes) {
+      return { toObject: () => ({ bytes: [...bytes] }) };
+    }
+  }
+  const store = {
+    // A field Steam's store already held before the first publication, and three it did not.
+    m_msgState: { current_game_id: "seeded" },
+    CreateSettingsUpdateRequest: () => new SettingsUpdate(),
+  };
+  const gate = instantiate(
+    {
+      window: { SteamClient: { System: system }, SystemPerfStore: store },
+      ownedMarker: "__steamUiOwnedNamespace",
+      request: async (_, command, payload) => {
+        requests.push([command, payload]);
+      },
+      subscribe: (_, callback) => {
+        publish = callback;
+        return () => {};
+      },
+    },
+    `${shared}\n${gateSource(asset, "createPerfNamespace", "perf")}`,
+    "createPerfNamespace()",
+  );
+  assert.equal(gate.install().ok, true);
+  publish({ limits: { fps_limit_options: [30, 60] }, global: { fps: 60 }, currentGameId: "480" });
+  assert.equal(store.m_msgState.current_game_id, "480");
+  assert.deepEqual(store.m_msgState.settings, { global: { fps: 60 }, per_app: {} });
+
+  await system.Perf.UpdateSettings("AQI=");
+  assert.deepEqual(requests, [["updateSettings", { delta: { bytes: [1, 2] } }]]);
+  await assert.rejects(system.Perf.UpdateSettings("not base64!"), /could not be decoded/u);
+  await assert.rejects(system.Perf.UpdateSettings(null), /could not be decoded/u);
+  assert.equal(requests.length, 1, "an undecodable update is refused, never sent as an empty delta");
+
+  assertRemoveRetries(gate, failNext, "performance");
+  assert.equal(Object.hasOwn(system, "Perf"), false);
+  assert.equal(store.m_msgState.current_game_id, "seeded", "removal restores the displaced value");
+  for (const field of ["limits", "settings", "active_profile_game_id"]) {
+    assert.equal(Object.hasOwn(store.m_msgState, field), false, `removal deletes ${field} again`);
+  }
+  console.log("Performance: decoded updates, refused undecodable ones, displaced state and removal retry pass.");
+}
+
+// --- Audio: volume direction reaches the host the right way round --------------------------------
+{
+  const { host: system, failNext } = failingHost({});
+  const requests = [];
+  const gate = instantiate(
+    {
+      window: { SteamClient: { System: system } },
+      ownedMarker: "__steamUiOwnedNamespace",
+      getWebpackRuntime: () => {
+        throw new Error("no audio store in this fixture");
+      },
+      request: async (_, command, payload) => {
+        requests.push([command, payload]);
+      },
+      subscribe: () => () => {},
+    },
+    `${shared}\n${gateSource(asset, "createAudioNamespace", "audio")}`,
+    "createAudioNamespace()",
+  );
+  assert.equal(gate.install().ok, true);
+  // The client's own enum: Input is 0 and Output is 1.
+  await system.Audio.SetDeviceVolume(1, 1, 0.42);
+  await system.Audio.SetDeviceVolume(1, 0, 0.3);
+  await system.Audio.SetDeviceVolume(1, 5, 0.9);
+  assert.deepEqual(requests, [
+    ["setVolume", { percent: 42, input: false }],
+    ["setVolume", { percent: 30, input: true }],
+  ]);
+  assertRemoveRetries(gate, failNext, "audio");
+  assert.equal(Object.hasOwn(system, "Audio"), false);
+  console.log("Audio: volume directions and removal retry pass.");
+}
+
+// --- Network: scan observation and a removal that survives a store without its own methods -------
+{
+  const { host: network, failNext } = failingHost({
+    StartScanningForNetworks() {
+      return "started";
+    },
+    StopScanningForNetworks() {
+      return "stopped";
+    },
+  });
+  const proto = {};
+  const originalGetter = () => false;
+  Object.defineProperty(proto, "networkManagementAvailable", {
+    get: originalGetter,
+    configurable: true,
+  });
+  // No IsAnyDeviceConnected or IsAnyDeviceConnecting: removal must still hand everything back.
+  const store = Object.assign(Object.create(proto), { m_mapNetworkAccessPoints: new Map() });
+  const requests = [];
+  const gate = instantiate(
+    {
+      window: { SteamClient: { System: { Network: network } }, SystemNetworkStore: store },
+      request: async (_, command) => {
+        requests.push(command);
+      },
+      subscribe: () => () => {},
+    },
+    `${shared}\n${gateSource(asset, "createNetworkGate", "network")}`,
+    "createNetworkGate()",
+  );
+  assert.equal(gate.install().ok, true);
+  assert.equal(store.networkManagementAvailable, true);
+  assert.equal(network.StartScanningForNetworks(), "started", "the original still runs");
+  assert.equal(network.StopScanningForNetworks(), "stopped");
+  await tick();
+  assert.deepEqual(requests, ["startScan", "stopScan"]);
+  assertRemoveRetries(gate, failNext, "network");
+  assert.equal(gate.status().scanWrapped, false);
+  assert.equal(Object.getOwnPropertyDescriptor(proto, "networkManagementAvailable").get, originalGetter);
+  assert.equal(store.networkManagementAvailable, false);
+  console.log("Network: scan observation, store without refresh methods and removal retry pass.");
 }

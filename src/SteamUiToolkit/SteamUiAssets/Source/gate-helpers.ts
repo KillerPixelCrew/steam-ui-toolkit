@@ -81,6 +81,26 @@ const sourceOfSteamComponent = (value) => {
     return typeof value?.render === "function" ? String(value.render) : "";
 };
 
+// The class names a component's source writes in its string literals, whether its author passed
+// them to the class-name helper one by one or as one string. The quotes and the separators between
+// the arguments are the minifier's; the names are the author's.
+const steamClassNamesOf = (source: string) => {
+    const names = new Set<string>();
+    for (const literal of source.matchAll(/"([^"\\]*)"|'([^'\\]*)'/gu)) {
+        for (const name of (literal[1] ?? literal[2]).split(/\s+/u)) {
+            if (name) names.add(name);
+        }
+    }
+    return names;
+};
+
+// One of Steam's dialog buttons by the classes it draws with: DialogButton and _DialogLayout, and
+// the variant (Secondary, Primary, Small) that tells the buttons apart.
+const isSteamDialogButton = (value, variant: string) => {
+    const names = steamClassNamesOf(sourceOfSteamComponent(value));
+    return names.has("DialogButton") && names.has("_DialogLayout") && names.has(variant);
+};
+
 const optionalSteamExport = (runtime, tokens, predicate) => {
     try {
         return runtime.exported(tokens, predicate);
@@ -123,12 +143,8 @@ const resolveSteamFieldComponents = (runtime) => {
         const source = sourceOfSteamComponent(value);
         return source.includes("OnToggleChange") && source.includes("this.Toggle()");
     });
-    const dialogButton = uniqueSteamExport(fields, (value) =>
-        sourceOfSteamComponent(value).includes('"DialogButton","_DialogLayout","Secondary"'),
-    );
-    const dialogButtonPrimary = uniqueSteamExport(fields, (value) =>
-        sourceOfSteamComponent(value).includes('"DialogButton","_DialogLayout","Primary"'),
-    );
+    const dialogButton = uniqueSteamExport(fields, (value) => isSteamDialogButton(value, "Secondary"));
+    const dialogButtonPrimary = uniqueSteamExport(fields, (value) => isSteamDialogButton(value, "Primary"));
     // The class that DEFINES the validators, not one that merely inherits them. A class extending
     // TextField answers `typeof validateUrl === "function"` through its prototype chain, and the
     // 2026-09-24 client exports such a subclass beside the base: two fits, no unique match, no
@@ -161,12 +177,11 @@ const resolveSteamUiComponents = (runtime) => {
 
     const focusable = resolveNativeFocusable(runtime);
 
+    // The tabbed page is the module's one export that wraps a function component (a memo, here an
+    // observer), the rest being plain functions and a context; two such exports are refused.
     const tabsFactory = runtime.findUnique([".TabRowTabs", "activeTab:"]);
     const tabs = tabsFactory
-        ? uniqueSteamExport(
-              runtime(tabsFactory[0]),
-              (value) => value?.type && String(value.type).includes("(function()"),
-          )
+        ? uniqueSteamExport(runtime(tabsFactory[0]), (value) => typeof value?.type === "function")
         : null;
     const modalRoot = optionalSteamExport(
         runtime,
@@ -357,8 +372,18 @@ const closeSteamSideMenus = () => {
     }
 };
 
+// Whether an array of elements is a router's route list: found by content, an array of more than two
+// children holding a route for a path every client has. However many routes the client has.
+const isSteamRouteList = (react, value, knownRoute: string) =>
+    Array.isArray(value) &&
+    value.length > 2 &&
+    value.some((item) => react.isValidElement(item) && item.props?.path === knownRoute);
+
 // An absolute route other than the root.
-const isNavigableRoute = (route) => typeof route === "string" && route.startsWith("/") && route !== "/";
+// Absolute, not the root, and free of control characters, as the C# side refuses them too. No length
+// limit: a long route is still a route.
+const isNavigableRoute = (route) =>
+    typeof route === "string" && route.startsWith("/") && route !== "/" && !/[\u0000-\u001f\u007f]/u.test(route);
 
 // Only a route returned by a successful host command is followed. Publications cannot inject a
 // target, and the bounds keep this a router operation rather than an open-ended navigation API. A
@@ -374,18 +399,35 @@ const navigateSteamRoute = (route) => {
     return true;
 };
 
-// Valve's localize-with-fallback, chosen by what its source does rather than by parameter names:
-// it passes the token alone to LocalizeString and returns the token when no string exists. The
-// tokens "LocalizeString(e)" and "void 0===r?e" held until the September 2026 beta's minifier
-// renamed the parameters and flipped the comparison. Its siblings differ in what they do: the quiet
-// variant passes !0, the presence test compares with null, and the formatting variant builds
-// elements.
+// Whether a source calls `call` and every such call passes a single argument. Counting the
+// arguments reads what the author wrote, however the minifier then names and spells them.
+const callsWithOneArgument = (source: string, call: string) => {
+    let found = false;
+    for (let at = source.indexOf(call); at >= 0; at = source.indexOf(call, at + call.length)) {
+        let depth = 0;
+        for (let index = at + call.length; index < source.length; index++) {
+            const char = source[index];
+            if (char === "(" || char === "[" || char === "{") {
+                depth++;
+            } else if (char === ")" || char === "]" || char === "}") {
+                if (depth === 0) break;
+                depth--;
+            } else if (char === "," && depth === 0) {
+                return false;
+            }
+        }
+        found = true;
+    }
+    return found;
+};
+
+// Valve's localize-with-fallback, chosen by what its source does: it hands LocalizeString the token
+// and nothing else, and builds no elements. Its siblings in the module differ in exactly that: the
+// quiet variant and the presence test pass LocalizeString a second argument, and the formatting
+// variant builds elements around the string. An earlier match on how the minifier spelled the
+// comparisons broke with the September 2026 beta.
 const isLocalizer = (source: string) =>
-    source.includes(".LocalizeString(") &&
-    source.includes("void 0") &&
-    !source.includes("!0)") &&
-    !source.includes("!=null") &&
-    !source.includes("createElement");
+    callsWithOneArgument(source, ".LocalizeString(") && !source.includes("createElement");
 
 // Valve's localize-with-fallback from the localization module, by its shape (isLocalizer), or null
 // when the module or the function is not a unique match. When the minifier broke the older
@@ -465,6 +507,14 @@ const findUseObserver = (runtime) => {
 // A webpack class map, unwrapped when the module is an ES default export.
 const classMapOf = (exported) => (exported && exported.__esModule ? exported.default : exported);
 
+// Steam's accent blue, which a row the host marks draws its description in. The Quick Access rows
+// and the settings pages share it, so a marked value reads the same on both.
+const SteamAccentColor = "#1a9fff";
+// A description, as one span in the accent colour when the host marks the row, and as its plain
+// text otherwise. The words are the host's; an empty unmarked description draws nothing.
+const steamAccentDescription = (react, text, accent) =>
+    accent ? react.createElement("span", {style: {color: SteamAccentColor}}, text) : text || undefined;
+
 // An element's props with its key carried along. The key lives on the element, not in props, and
 // dropping it would re-key the node inside its parent's child list on every render.
 const keyed = (element, props = element.props) =>
@@ -476,13 +526,15 @@ const keyed = (element, props = element.props) =>
 // it (2026-09-24). React reads a portal by `$$typeof`, `children` and `containerInfo`, so a shallow
 // copy with mapped children is a portal to it.
 const PortalType = Symbol.for("react.portal");
+// What React marks a memo with, the one way a memo object is told apart from other exports.
+const ReactMemoType = Symbol.for("react.memo");
 const isPortal = (value) => !!value && typeof value === "object" && value.$$typeof === PortalType;
 
 // Maps a child list; answers the new list, or null when no child changed. A child mapped to null
 // is dropped. Shared by element and portal mapping so the two cannot drift on those rules.
-const mapEach = (react, children, map: (child: any) => unknown, maximum = Infinity) => {
+const mapEach = (react, children, map: (child: any) => unknown) => {
     const kids = react.Children.toArray(children);
-    if (!kids.length || kids.length > maximum) return null;
+    if (!kids.length) return null;
     let changed = false;
     const next: unknown[] = [];
     for (const kid of kids) {
@@ -498,10 +550,10 @@ const mapPortalChildren = (react, portal, map: (child: any) => unknown) => {
     return next ? {...portal, children: next} : portal;
 };
 
-// Maps an element's children and clones it only when one changed. An element with no children, or
-// with more than `maximum`, is returned as it is.
-const mapChildren = (react, element, map: (child: any) => unknown, maximum = Infinity) => {
-    const next = mapEach(react, element.props?.children, map, maximum);
+// Maps an element's children and clones it only when one changed. An element with no children is
+// returned as it is.
+const mapChildren = (react, element, map: (child: any) => unknown) => {
+    const next = mapEach(react, element.props?.children, map);
     return next ? react.cloneElement(element, {}, ...next) : element;
 };
 
@@ -762,8 +814,9 @@ const createSourceAdoption = (
     wrapFor: (original: any) => any,
     bound = MaximumMountedNodes,
 ) => {
-    // Each adopted fiber's original and whether it had a parent when adopted; see fiberAttached.
-    const adopted = new Map<any, {original: any; hadParent: boolean}>();
+    // Each adopted fiber's original, the wrapper it was given and whether it had a parent when
+    // adopted; see fiberAttached.
+    const adopted = new Map<any, {original: any; wrapper: any; hadParent: boolean}>();
     const prune = () => {
         for (const [fiber, {hadParent}] of [...adopted]) {
             if (hadParent && !fiberAttached(fiber)) adopted.delete(fiber);
@@ -777,8 +830,9 @@ const createSourceAdoption = (
             walkFibers(reactRootFibers(), bound, (fiber) => {
                 const type = fiber.type;
                 if (adopted.has(fiber) || !sourceMatches(type, tokens)) return false;
-                adopted.set(fiber, {original: type, hadParent: fiberAttached(fiber)});
-                retargetFiber(fiber, wrapFor(type));
+                const wrapper = wrapFor(type);
+                adopted.set(fiber, {original: type, wrapper, hadParent: fiberAttached(fiber)});
+                retargetFiber(fiber, wrapper);
                 invalidateFiberProps(fiber);
                 requestRender(fiber);
                 count++;
@@ -787,7 +841,11 @@ const createSourceAdoption = (
             return count;
         },
         release: () => {
-            for (const [fiber, {original}] of adopted) retargetFiber(fiber, original);
+            // Only a fiber still drawing our wrapper is handed back; a type something else set since
+            // is not ours to overwrite.
+            for (const [fiber, {original, wrapper}] of adopted) {
+                if (fiber.type === wrapper) retargetFiber(fiber, original);
+            }
             adopted.clear();
         },
         count: () => {
@@ -809,8 +867,3 @@ const releaseMountedType = (roots, elementType, replacement, original, bound: nu
     }
     return released;
 };
-
-// Mounted instances of a claimed memo still drawing something other than the memo's current
-// `type`: an adoption whose render has not happened yet, or a mount the claim never reached.
-const staleFibers = (roots, memo, bound: number) =>
-    memo ? mountedFibersOf(roots, memo, bound).filter((fiber) => fiber.type !== memo.type).length : 0;

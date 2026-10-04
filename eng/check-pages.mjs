@@ -7,8 +7,10 @@
 // that removal hands the router back untouched.
 import assert from "node:assert/strict";
 import {
+  assertRemoveRetries,
   createReact,
   element,
+  failingHost,
   gateSource,
   instantiate,
   loadAsset,
@@ -57,7 +59,11 @@ Object.defineProperty(Router, "toString", {
   value: () => 'function(){ "Settings.Root()"; "TopLevelTransition"; }',
 });
 
-const memo = { $$typeof: Symbol.for("react.memo"), type: Router, compare: null };
+const { host: memo, failNext } = failingHost({
+  $$typeof: Symbol.for("react.memo"),
+  type: Router,
+  compare: null,
+});
 // The gate finds the router through the React root, so the fixture provides one.
 const routeSwitchNode = {
   type: RouteSwitch,
@@ -195,7 +201,7 @@ assert.equal(
 );
 
 assert.ok(gate.install().ok, "the gate must be reinstallable");
-assert.ok(gate.remove().ok);
+assertRemoveRetries(gate, failNext, "pages");
 assert.equal(memo.type, Router);
 assert.equal(gate.status().routeSource, "none", "removal must drop the borrowed Route");
 

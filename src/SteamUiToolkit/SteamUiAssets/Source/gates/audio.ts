@@ -39,8 +39,8 @@ function createAudioNamespace() {
     const NO_DEVICE = 4294967295;
 
     // The key m_mapVolumes is keyed by, and the second argument of both SetDeviceVolume and
-    // OnAudioDeviceVolumeChanged. INPUT IS ZERO — read out of the client's own enum (module 74362:
-    // Input=0, Output=1) on 2026-08-30, after assuming the opposite: with the values swapped the
+    // OnAudioDeviceVolumeChanged. INPUT IS ZERO — read out of the client's own enum (Input=0,
+    // Output=1) on 2026-08-30, after assuming the opposite: with the values swapped the
     // output slider's writes were filtered out as "input" and the speaker volume was stored under
     // the input key, which put it on the microphone slider. Named because it has now been confused
     // with the volume itself AND mirrored, and neither mistake may recur silently.
@@ -94,23 +94,21 @@ function createAudioNamespace() {
     // ingestion path, the same verified path the network gate now owns for the network store.
     //
     // Found by what it is: the one audio-store module, and the one export on it carrying the store's
-    // availability flag and ingestion method. It was module 1409, export F5, when verified; the
-    // September 2026 beta renumbered the module and the probe refused the gate.
+    // availability flag and ingestion method, never by a module id: the September 2026 beta
+    // renumbered the module the store was first verified in and the probe refused the gate.
     const AudioStoreTokens = ["SteamClient.System.Audio", "RegisterForDeviceAdded", "m_bAvailable"];
     const isAudioStore = (value) =>
         !!value &&
         typeof value === "object" &&
         "m_bAvailable" in value &&
         typeof value.RegisterOrUpdateDevice === "function";
-    // One resolver and one store for the gate's life: the store is a singleton, and every publication
-    // asks for it, so looking it up again only pushed another chunk each time.
-    let resolver;
+    // One store for the gate's life: the store is a singleton and every publication asks for it. The
+    // bridge shares one resolver, so a lookup that failed is simply tried again next time.
     let cachedStore: any = null;
     const liveStore = () => {
         if (cachedStore) return cachedStore;
         try {
-            resolver ??= getWebpackRuntime("audio-store");
-            cachedStore = resolver.exported(AudioStoreTokens, isAudioStore) as any;
+            cachedStore = getWebpackRuntime("audio-store").exported(AudioStoreTokens, isAudioStore) as any;
         } catch {
             return null;
         }
@@ -346,25 +344,9 @@ function createAudioNamespace() {
 
     const remove = () => {
         if (!installed) return {ok: true, absent: true};
-        installed = false;
-        unsubscribe = endSubscription(unsubscribe);
 
-        for (const slot of Object.keys(callbacks)) callbacks[slot] = null;
-        const store = liveStore();
-        if (store) {
-            try {
-                for (const id of known) store.m_mapAudioDevices?.delete(id);
-                store.m_bAvailable = originalStoreState?.available ?? false;
-                store.m_activeOutputDeviceId = originalStoreState?.output ?? NO_DEVICE;
-                store.m_activeInputDeviceId = originalStoreState?.input ?? NO_DEVICE;
-            } catch (error) {
-                lastError = "audio store cleanup failed: " + String(error);
-            }
-        }
-        known = [];
-        lastFlOutputVolume = null;
-        lastFlInputVolume = null;
-        originalStoreState = null;
+        // Released first: a failed withdrawal leaves the gate installed with everything it knows, so
+        // the next remove retries it instead of answering absent over a namespace still in place.
         const withdrawn = withdrawNamespace(
             window.SteamClient?.System,
             "Audio",
@@ -374,6 +356,29 @@ function createAudioNamespace() {
             lastError = withdrawn.error ?? "audio namespace withdrawal failed";
             return {ok: false, error: lastError};
         }
+
+        installed = false;
+        unsubscribe = endSubscription(unsubscribe);
+
+        for (const slot of Object.keys(callbacks)) callbacks[slot] = null;
+        const store = liveStore();
+        if (store) {
+            try {
+                for (const id of known) store.m_mapAudioDevices?.delete(id);
+                // Only what a publication displaced; a store that was never fed keeps its own values.
+                if (originalStoreState) {
+                    store.m_bAvailable = originalStoreState.available;
+                    store.m_activeOutputDeviceId = originalStoreState.output;
+                    store.m_activeInputDeviceId = originalStoreState.input;
+                }
+            } catch (error) {
+                lastError = "audio store cleanup failed: " + String(error);
+            }
+        }
+        known = [];
+        lastFlOutputVolume = null;
+        lastFlInputVolume = null;
+        originalStoreState = null;
 
         return {ok: true, removed: true};
     };

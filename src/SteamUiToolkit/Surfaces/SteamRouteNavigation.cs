@@ -4,7 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace SteamUiToolkit.Surfaces;
+namespace SteamUiToolkit;
 
 /// <summary>Asks Steam's router to open one of its routes, once, from the host.</summary>
 /// <remarks>
@@ -57,7 +57,7 @@ public static class SteamRouteNavigation
         var result = await transport.EvaluateAsync(SteamUiTargetRole.SharedJsContext,
             CreateExpression(route, DateTimeOffset.UtcNow.AddSeconds(1).ToUnixTimeMilliseconds()),
             TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
-        return !cancellationToken.IsCancellationRequested && result.Reachable && result.Value == "true"
+        return !cancellationToken.IsCancellationRequested && result.Answered && result.Value == "true"
                && result.Generations == before.Generations
                && SteamSharedContext.IsReadyAt(transport, before.Generations);
     }

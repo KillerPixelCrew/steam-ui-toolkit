@@ -4,12 +4,12 @@
 // (b4b8be3) as evidence for the approach:
 //
 //   <memo>            source carries "Settings.Root()"; the router
-//     fd              Steam's own switch: computedMatch + TopLevelTransition, 31 route children
-//       <Route ...>   one per page, children of fd rather than rendered output
+//     switch          Steam's own route switch: computedMatch + TopLevelTransition, 31 route children
+//       <Route ...>   one per page, children of the switch rather than rendered output
 //
-// `fd` is not react-router's Switch. Its source shows the selection rule: it walks `children`, takes
-// the FIRST valid element whose `path` matches, and clones it with `location` and `computedMatch`.
-// Two things follow, and both are in the API rather than hidden:
+// The switch is Steam's own, not react-router's Switch. Its source shows the selection rule: it
+// walks `children`, takes the FIRST valid element whose `path` matches, and clones it with
+// `location` and `computedMatch`. Two things follow, and both are in the API rather than hidden:
 //
 //   - appending is safe for a path Steam does not have, and overriding one of Steam's requires
 //     going in front of it, so a page declares which it wants;
@@ -17,10 +17,10 @@
 //     props. No descent into rendered output is needed, unlike the navigation panel, where entries
 //     do not exist until the root renders.
 //
-// The Route component is Steam's own, resolved from the module that carries "router-backstack",
-// never react-router's. That is what gives a custom page native back-navigation: Steam's Route
-// registers the match with the back stack, so B and the back gesture pop the page the way they pop
-// /settings. Using react-router's Route renders the same content and silently loses that.
+// The Route component is Steam's own, taken off the route list Steam already rendered, never
+// react-router's. That is what gives a custom page native back-navigation: Steam's Route registers
+// the match with the back stack, so B and the back gesture pop the page the way they pop /settings.
+// Using react-router's Route renders the same content and silently loses that.
 const steamPageRenderers = new Map<string, (react: any, page: any) => any>();
 const registerSteamPageRenderer = (
   template: string,
@@ -108,11 +108,7 @@ function createPageHost() {
     );
 
   // Whether an array of elements is the router's route list.
-  const isRouteList = (value) =>
-    Array.isArray(value) &&
-    value.length > 2 &&
-    value.length < 512 &&
-    value.some((item) => react.isValidElement(item) && item.props?.path === KnownRoute);
+  const isRouteList = (value) => isSteamRouteList(react, value, KnownRoute);
 
   // Inserts the registered pages into the route list.
   //

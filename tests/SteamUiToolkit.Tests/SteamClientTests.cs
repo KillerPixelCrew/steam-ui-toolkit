@@ -6,34 +6,55 @@ public sealed class SteamClientTests
     // ---- Shared write replies ----
 
     [Fact]
-    public void WriteReplyDistinguishesUnreachableFromRefused()
+    public void WriteReplyDistinguishesNotSentUnknownRefusedAndApplied()
     {
-        var unreachable = SteamClientScript.ParseWrite(CefEvalResult.Unreachable("port closed"));
-        Assert.False(unreachable.Reachable);
-        Assert.False(unreachable.Succeeded);
-        Assert.Equal("port closed", unreachable.Error);
+        var notSent = SteamClientScript.ParseWrite(
+            FakeSteamUiTransport.Unanswered(SteamUiDispatch.NotSent, "port closed"));
+        Assert.Equal(SteamClientWriteOutcome.NotSent, notSent.Outcome);
+        Assert.False(notSent.Succeeded);
+        Assert.Equal("port closed", notSent.Error);
 
-        var refused = SteamClientScript.ParseWrite(CefEvalResult.Ok("""{"ok":false,"err":"bad id"}"""));
-        Assert.True(refused.Reachable);
-        Assert.False(refused.Accepted);
+        var closed = SteamClientScript.ParseWrite(
+            FakeSteamUiTransport.Unanswered(SteamUiDispatch.Closed, PersistentSteamUiTransport.DefaultClosedReason));
+        Assert.Equal(SteamClientWriteOutcome.NotSent, closed.Outcome);
+
+        var unknown = SteamClientScript.ParseWrite(
+            FakeSteamUiTransport.Unanswered(SteamUiDispatch.Unanswered, "timed out"));
+        Assert.Equal(SteamClientWriteOutcome.Unknown, unknown.Outcome);
+
+        var refused = SteamClientScript.ParseWrite(FakeSteamUiTransport.Answer("""{"ok":false,"err":"bad id"}"""));
+        Assert.Equal(SteamClientWriteOutcome.Rejected, refused.Outcome);
         Assert.Equal("bad id", refused.Error);
 
-        var accepted = SteamClientScript.ParseWrite(CefEvalResult.Ok("""{"ok":true}"""));
-        Assert.True(accepted.Succeeded);
-        Assert.Null(accepted.Error);
+        var thrown = SteamClientScript.ParseWrite(FakeSteamUiTransport.Answer(null, "Steam UI JavaScript exception"));
+        Assert.Equal(SteamClientWriteOutcome.Rejected, thrown.Outcome);
+
+        var applied = SteamClientScript.ParseWrite(FakeSteamUiTransport.Answer("""{"ok":true}"""));
+        Assert.True(applied.Succeeded);
+        Assert.Null(applied.Error);
     }
 
     [Theory]
-    [InlineData(null)]
-    [InlineData("not json")]
-    [InlineData("[1]")]
-    public void WriteReplyWithoutAnOkObjectIsARefusal(string? value)
+    [InlineData(null, SteamClientWriteOutcome.Unknown)]
+    [InlineData("not json", SteamClientWriteOutcome.Unknown)]
+    [InlineData("[1]", SteamClientWriteOutcome.Rejected)]
+    public void WriteReplyWithoutAnOkObjectIsNotApplied(string? value, SteamClientWriteOutcome expected)
     {
-        var result = SteamClientScript.ParseWrite(CefEvalResult.Ok(value));
+        // A script that ran and left no readable answer may have changed something, so it is unknown,
+        // never a refusal a caller could take as "nothing happened".
+        var result = SteamClientScript.ParseWrite(FakeSteamUiTransport.Answer(value));
 
-        Assert.True(result.Reachable);
-        Assert.False(result.Accepted);
+        Assert.Equal(expected, result.Outcome);
+        Assert.False(result.Succeeded);
         Assert.False(string.IsNullOrEmpty(result.Error));
+    }
+
+    [Fact]
+    public void ARefusalNamesSteamsResultCodeWhenItThrewOne()
+    {
+        var refused = SteamClientScript.ParseWrite(FakeSteamUiTransport.Answer("""{"ok":false,"result":8}"""));
+
+        Assert.Equal("EResult 8", refused.Error);
     }
 
     // ---- SteamApps ----
@@ -60,24 +81,25 @@ public sealed class SteamClientTests
     [Fact]
     public void AppDetailsReplyCarriesEveryField()
     {
-        var result = SteamApps.ParseDetails(CefEvalResult.Ok(
+        var result = SteamApps.ParseDetails(FakeSteamUiTransport.Answer(
             """
             {"ok":true,"launch":"-novid","exe":"\"C:\\G\\g.exe\"","args":"-x","dir":"\"C:\\G\\\"","install":"D:\\Lib\\G"}
             """));
 
-        Assert.True(result.Reachable);
+        Assert.True(result.Succeeded);
         Assert.Equal(
             new SteamAppDetails("-novid", "\"C:\\G\\g.exe\"", "-x", "\"C:\\G\\\"", "D:\\Lib\\G"),
-            result.Details);
+            result.Value);
     }
 
     [Fact]
     public void AppDetailsRefusalKeepsSteamsReason()
     {
-        var result = SteamApps.ParseDetails(CefEvalResult.Ok("""{"ok":false,"err":"Steam has no details"}"""));
+        var result = SteamApps.ParseDetails(FakeSteamUiTransport.Answer("""{"ok":false,"err":"Steam has no details"}"""));
 
-        Assert.True(result.Reachable);
-        Assert.Null(result.Details);
+        Assert.Equal(SteamUiDispatch.Answered, result.Dispatch);
+        Assert.False(result.Succeeded);
+        Assert.Null(result.Value);
         Assert.Equal("Steam has no details", result.Error);
     }
 
@@ -85,7 +107,7 @@ public sealed class SteamClientTests
     public void AddShortcutReplyCarriesTheConfirmedId()
     {
         var result = SteamApps.ParseAddShortcut(
-            CefEvalResult.Ok("""{"ok":true,"value":"2147483650","confirmed":true,"mismatch":""}"""));
+            FakeSteamUiTransport.Answer("""{"ok":true,"value":"2147483650","confirmed":true,"mismatch":""}"""));
 
         Assert.True(result.Succeeded);
         Assert.True(result.Confirmed);
@@ -98,7 +120,7 @@ public sealed class SteamClientTests
     public void AnAddTheLibraryDidNotConfirmKeepsItsIdAndItsReason()
     {
         // The entry may exist; the caller records it as unconfirmed and never writes to the id.
-        var result = SteamApps.ParseAddShortcut(CefEvalResult.Ok(
+        var result = SteamApps.ParseAddShortcut(FakeSteamUiTransport.Answer(
             """{"ok":true,"value":"2147483650","confirmed":false,"err":"Steam reported no new entry after creating this shortcut."}"""));
 
         Assert.True(result.Succeeded);
@@ -108,9 +130,31 @@ public sealed class SteamClientTests
     }
 
     [Fact]
+    public void AForeignEntryAnAddWithoutAnIdDidNotAdoptIsUnknown()
+    {
+        var result = SteamApps.ParseAddShortcut(FakeSteamUiTransport.Answer(
+            """{"ok":false,"unconfirmed":true,"err":"left alone"}"""));
+
+        Assert.Equal(SteamClientWriteOutcome.Unknown, result.Outcome);
+        Assert.Equal(0u, result.AppId);
+        Assert.False(result.Confirmed);
+        Assert.Equal("left alone", result.Error);
+    }
+
+    [Fact]
+    public void AnAddWithoutAnIdAdoptsOnlyTheEntryItAskedFor()
+    {
+        var script = SteamApps.AddShortcutScript("Game", "\"C:\\G\\g.exe\"", "C:\\G", "");
+
+        Assert.Contains("if(!returned&&gained.length===1){", script, StringComparison.Ordinal);
+        Assert.Contains("toLowerCase()!==exe.toLowerCase()||gn!==name", script, StringComparison.Ordinal);
+        Assert.Contains("unconfirmed:true", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AFieldThatDidNotReadBackIsReportedWithAConfirmedAdd()
     {
-        var result = SteamApps.ParseAddShortcut(CefEvalResult.Ok(
+        var result = SteamApps.ParseAddShortcut(FakeSteamUiTransport.Answer(
             """{"ok":true,"value":"2147483650","confirmed":true,"mismatch":"Steam holds a different name than was written."}"""));
 
         Assert.True(result.Confirmed);
@@ -120,29 +164,29 @@ public sealed class SteamClientTests
     [Fact]
     public void AShortcutListIsReadWhole()
     {
-        var result = SteamApps.ParseShortcuts(CefEvalResult.Ok(
+        var result = SteamApps.ParseShortcuts(FakeSteamUiTransport.Answer(
             """{"ok":true,"shortcuts":[{"id":"2147483650","name":"Game","exe":"\"C:\\G\\g.exe\"","dir":"C:\\G","args":"-x"}]}"""));
 
         Assert.True(result.Succeeded);
-        var shortcut = Assert.Single(result.Shortcuts!);
+        var shortcut = Assert.Single(result.Value!);
         Assert.Equal(new SteamShortcut(2147483650u, "Game", "\"C:\\G\\g.exe\"", "C:\\G", "-x"), shortcut);
     }
 
     [Fact]
     public void AnEmptyLibraryIsNotAFailedRead()
     {
-        var empty = SteamApps.ParseShortcuts(CefEvalResult.Ok("""{"ok":true,"shortcuts":[]}"""));
+        var empty = SteamApps.ParseShortcuts(FakeSteamUiTransport.Answer("""{"ok":true,"shortcuts":[]}"""));
         var failed = SteamApps.ParseShortcuts(
-            CefEvalResult.Ok("""{"ok":false,"err":"Steam did not return the details for shortcut 2147483650."}"""));
-        var unreachable = SteamApps.ParseShortcuts(CefEvalResult.Unreachable("port closed"));
+            FakeSteamUiTransport.Answer("""{"ok":false,"err":"Steam did not return the details for shortcut 2147483650."}"""));
+        var notSent = SteamApps.ParseShortcuts(FakeSteamUiTransport.Unanswered(SteamUiDispatch.NotSent, "port closed"));
 
         Assert.True(empty.Succeeded);
-        Assert.Empty(empty.Shortcuts!);
+        Assert.Empty(empty.Value!);
         Assert.False(failed.Succeeded);
-        Assert.Null(failed.Shortcuts);
+        Assert.Null(failed.Value);
         Assert.Contains("2147483650", failed.Error, StringComparison.Ordinal);
-        Assert.False(unreachable.Reachable);
-        Assert.Null(unreachable.Shortcuts);
+        Assert.Equal(SteamUiDispatch.NotSent, notSent.Dispatch);
+        Assert.Null(notSent.Value);
     }
 
     [Fact]
@@ -150,9 +194,9 @@ public sealed class SteamClientTests
     {
         // A store id here would mean the reply did not describe the entry that was just created,
         // and every caller keys its own record on this value.
-        var result = SteamApps.ParseAddShortcut(CefEvalResult.Ok("""{"ok":true,"value":"440"}"""));
+        var result = SteamApps.ParseAddShortcut(FakeSteamUiTransport.Answer("""{"ok":true,"value":"440"}"""));
 
-        Assert.True(result.Reachable);
+        Assert.Equal(SteamClientWriteOutcome.Unknown, result.Outcome);
         Assert.Equal(0u, result.AppId);
         Assert.Contains("440", result.Error);
     }
@@ -165,23 +209,26 @@ public sealed class SteamClientTests
     {
         // The id crosses as a decimal string because a shortcut id read back as a JSON number is
         // negative. A signed spelling is therefore a reply this library did not produce.
-        var result = SteamApps.ParseAddShortcut(CefEvalResult.Ok(reply));
+        var result = SteamApps.ParseAddShortcut(FakeSteamUiTransport.Answer(reply));
 
-        Assert.True(result.Reachable);
+        Assert.Equal(SteamClientWriteOutcome.Unknown, result.Outcome);
         Assert.Equal(0u, result.AppId);
         Assert.Equal("Steam reported an unreadable shortcut id.", result.Error);
     }
 
     [Fact]
-    public void AddShortcutDistinguishesUnreachableFromRefused()
+    public void AddShortcutDistinguishesNotSentUnknownAndRefused()
     {
-        var unreachable = SteamApps.ParseAddShortcut(CefEvalResult.Unreachable("port closed"));
-        Assert.False(unreachable.Reachable);
-        Assert.Equal("port closed", unreachable.Error);
+        var notSent = SteamApps.ParseAddShortcut(FakeSteamUiTransport.Unanswered(SteamUiDispatch.NotSent, "port closed"));
+        Assert.Equal(SteamClientWriteOutcome.NotSent, notSent.Outcome);
+        Assert.Equal("port closed", notSent.Error);
+
+        var unknown = SteamApps.ParseAddShortcut(FakeSteamUiTransport.Unanswered(SteamUiDispatch.Unanswered, "timed out"));
+        Assert.Equal(SteamClientWriteOutcome.Unknown, unknown.Outcome);
 
         var refused = SteamApps.ParseAddShortcut(
-            CefEvalResult.Ok("""{"ok":false,"err":"This Steam client does not expose AddShortcut."}"""));
-        Assert.True(refused.Reachable);
+            FakeSteamUiTransport.Answer("""{"ok":false,"err":"This Steam client does not expose AddShortcut."}"""));
+        Assert.Equal(SteamClientWriteOutcome.Rejected, refused.Outcome);
         Assert.False(refused.Succeeded);
         Assert.Equal("This Steam client does not expose AddShortcut.", refused.Error);
     }
@@ -193,23 +240,25 @@ public sealed class SteamClientTests
     {
         // Deleting a library entry cannot be undone by this call, and a store title has no shortcut
         // entry to delete, so the guard is an argument check rather than a Steam-side refusal.
+        var client = new SteamClient(new FakeSteamUiTransport());
+
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
-            () => SteamApps.RemoveShortcutAsync(appId));
+            () => client.Apps.RemoveShortcutAsync(appId));
     }
 
     [Fact]
-    public async Task AppDetailsReadReleasesItsSubscriptionAndUsesTheProbeTransport()
+    public async Task AppDetailsReadReleasesItsSubscriptionAndUsesTheClientTransport()
     {
         var transport = new FakeSteamUiTransport
         {
             EvaluationValue = """{"ok":true,"exe":"C:\\g.exe"}"""
         };
-        var probe = new SteamRunningAppsProbe(transport);
+        var client = new SteamClient(transport);
 
-        var result = await probe.ReadDetailsAsync(2147483650u);
+        var result = await client.RunningApps.ReadDetailsAsync(2147483650u);
 
-        Assert.Equal("C:\\g.exe", result.Details?.ShortcutExe);
-        Assert.Equal(string.Empty, result.Details?.InstallFolder);
+        Assert.Equal("C:\\g.exe", result.Value?.ShortcutExe);
+        Assert.Equal(string.Empty, result.Value?.InstallFolder);
         var expression = Assert.Single(transport.Expressions);
         Assert.Contains("RegisterForAppDetails(id,", expression);
         Assert.Contains(")(2147483650)", expression);
@@ -219,11 +268,27 @@ public sealed class SteamClientTests
     [Fact]
     public async Task AnEmptyArtworkImageIsRefusedBeforeSteamIsContacted()
     {
-        await Assert.ThrowsAsync<ArgumentException>(() => SteamApps.SetCustomArtworkAsync(
+        var client = new SteamClient(new FakeSteamUiTransport());
+
+        await Assert.ThrowsAsync<ArgumentException>(() => client.Apps.SetCustomArtworkAsync(
             440,
             SteamArtworkSlot.Hero,
             ReadOnlyMemory<byte>.Empty,
             SteamArtworkFormat.Png));
+    }
+
+    [Fact]
+    public async Task AClientThatThrowsReportsNotSentInsteadOfThrowing()
+    {
+        var transport = new FakeSteamUiTransport
+        {
+            OnEvaluate = _ => throw new ObjectDisposedException("transport")
+        };
+        var client = new SteamClient(transport);
+
+        var result = await client.Apps.SetLaunchOptionsAsync(440, "-novid");
+
+        Assert.Equal(SteamClientWriteOutcome.NotSent, result.Outcome);
     }
 
     // ---- SteamInstallFolders ----
@@ -263,26 +328,41 @@ public sealed class SteamClientTests
     [Theory]
     [InlineData("""{"ok":true,"purged":0,"existing":false}""", SteamLibraryAddStatus.Added, null)]
     [InlineData("""{"ok":true,"purged":2,"existing":true}""", SteamLibraryAddStatus.AlreadyPresent, "AlreadyMounted")]
-    [InlineData("""{"ok":false,"message":"DriveAlreadyHasLibrary"}""", SteamLibraryAddStatus.AlreadyPresent,
+    [InlineData("""{"ok":false,"err":"DriveAlreadyHasLibrary"}""", SteamLibraryAddStatus.AlreadyPresent,
         "DriveAlreadyHasLibrary")]
     [InlineData("""{"ok":false,"result":8}""", SteamLibraryAddStatus.Rejected, "EResult 8")]
-    [InlineData(null, SteamLibraryAddStatus.Unavailable, "No response from Steam.")]
+    [InlineData("""{"ok":true,"purged":0,"purgeFailed":1,"existing":false}""", SteamLibraryAddStatus.Partial,
+        "1 stale registration(s) at the same path could not be removed.")]
+    [InlineData(null, SteamLibraryAddStatus.Unknown, "No response from Steam.")]
     public void AddRepliesMapToStatuses(string? reply, SteamLibraryAddStatus status, string? detail)
     {
-        Assert.Equal(new SteamLibraryAddResult(status, detail), SteamInstallFolders.InterpretAdd(reply));
+        Assert.Equal(
+            new SteamLibraryAddResult(status, detail),
+            SteamInstallFolders.InterpretAdd(FakeSteamUiTransport.Answer(reply)));
+    }
+
+    [Fact]
+    public void AnAddThatNeverReachedSteamIsNotSentAndOneThatLostItsAnswerIsUnknown()
+    {
+        Assert.Equal(
+            SteamLibraryAddStatus.NotSent,
+            SteamInstallFolders.InterpretAdd(FakeSteamUiTransport.Unanswered(SteamUiDispatch.Closed, "closed")).Status);
+        Assert.Equal(
+            SteamLibraryAddStatus.Unknown,
+            SteamInstallFolders.InterpretAdd(FakeSteamUiTransport.Unanswered(SteamUiDispatch.Unanswered, "lost")).Status);
     }
 
     [Fact]
     public void RemoveAndLabelReportAnAbsentPath()
     {
-        const string absent = """{"ok":true,"absent":true}""";
+        var absent = FakeSteamUiTransport.Answer("""{"ok":true,"absent":true}""");
 
         Assert.Equal(SteamLibraryRemoveStatus.NotPresent, SteamInstallFolders.InterpretRemove(absent).Status);
         Assert.Equal(SteamLibraryLabelStatus.NotPresent, SteamInstallFolders.InterpretLabel(absent).Status);
         Assert.Equal(SteamLibraryRemoveStatus.Removed,
-            SteamInstallFolders.InterpretRemove("""{"ok":true,"removed":1}""").Status);
+            SteamInstallFolders.InterpretRemove(FakeSteamUiTransport.Answer("""{"ok":true,"removed":1}""")).Status);
         Assert.Equal(SteamLibraryLabelStatus.Applied,
-            SteamInstallFolders.InterpretLabel("""{"ok":true}""").Status);
+            SteamInstallFolders.InterpretLabel(FakeSteamUiTransport.Answer("""{"ok":true}""")).Status);
     }
 
     // ---- SteamDownloadActivity ----
@@ -296,7 +376,7 @@ public sealed class SteamClientTests
         Assert.NotNull(overview);
         Assert.True(overview.Value.Active);
         Assert.Equal("Downloading", overview.Value.State);
-        Assert.Equal(3280350, overview.Value.AppId);
+        Assert.Equal(3280350u, overview.Value.AppId);
         Assert.Equal(24162405, overview.Value.NetworkBytesPerSecond);
     }
 
@@ -332,7 +412,7 @@ public sealed class SteamClientTests
         Assert.NotNull(overview);
         Assert.False(overview.Value.Active);
         Assert.Equal("", overview.Value.State);
-        Assert.Equal(0, overview.Value.AppId);
+        Assert.Equal(0u, overview.Value.AppId);
     }
 
     [Theory]
@@ -352,33 +432,35 @@ public sealed class SteamClientTests
     [Fact]
     public void CollectionsParseKeepsNumericAppIdsOnly()
     {
-        var collections = SteamLibraryData.ParseCollections(
-            """{"ok":true,"collections":[{"id":"uc-1","name":"Fav","appids":[10,"x",20]}]}""");
+        var collections = SteamLibraryData.ParseCollections(FakeSteamUiTransport.Answer(
+            """{"ok":true,"collections":[{"id":"uc-1","name":"Fav","appids":[10,"x",20]}]}"""));
 
-        var collection = Assert.Single(collections);
+        Assert.True(collections.Succeeded);
+        var collection = Assert.Single(collections.Value!);
         Assert.Equal("uc-1", collection.Id);
         Assert.Equal("Fav", collection.Name);
-        Assert.Equal([10L, 20L], collection.AppIds);
+        Assert.Equal([10u, 20u], collection.AppIds);
     }
 
     [Fact]
     public void GamesParseSortsByNameAndFlagsShortcuts()
     {
-        var games = SteamLibraryData.ParseGames(
-            """{"ok":true,"apps":[{"id":20,"name":"beta"},{"id":"bad","name":"skip"},{"id":2147483650,"name":"Alpha","sc":true}]}""");
+        var games = SteamLibraryData.ParseReadGames(FakeSteamUiTransport.Answer(
+            """{"ok":true,"apps":[{"id":20,"name":"beta"},{"id":2147483650,"name":"Alpha","sc":true}]}"""));
 
+        Assert.True(games.Succeeded);
         Assert.Equal(
             [new SteamLibraryApp(2147483650, "Alpha", true), new SteamLibraryApp(20, "beta")],
-            games);
+            games.Games);
     }
 
     [Fact]
     public void TagsParseDropsUnnamedTags()
     {
-        var tags = SteamLibraryData.ParseTags(
-            """{"ok":true,"tags":[{"id":19,"name":"Action","count":4},{"id":7,"name":""}]}""");
+        var tags = SteamLibraryData.ParseTags(FakeSteamUiTransport.Answer(
+            """{"ok":true,"tags":[{"id":19,"name":"Action","count":4},{"id":7,"name":""}]}"""));
 
-        Assert.Equal([new SteamStoreTag(19, "Action", 4)], tags);
+        Assert.Equal([new SteamStoreTag(19, "Action", 4)], tags.Value!);
     }
 
     [Theory]
@@ -387,9 +469,12 @@ public sealed class SteamClientTests
     [InlineData("""{"ok":false,"err":"no store"}""")]
     [InlineData("""{"ok":true,"apps":{}}""")]
     [InlineData("""{"ok":true,"apps":[{"name":"missing id"}]}""")]
-    public void LibraryReadsDegradeToAnEmptyList(string? json)
+    public void AFailedLibraryReadIsNotAnEmptyLibrary(string? json)
     {
-        Assert.Empty(SteamLibraryData.ParseGames(json));
+        var games = SteamLibraryData.ParseReadGames(FakeSteamUiTransport.Answer(json));
+
+        Assert.False(games.Succeeded);
+        Assert.Empty(games.Games);
     }
 
     // ---- SteamCurrentPage ----
@@ -399,16 +484,12 @@ public sealed class SteamClientTests
     {
         Assert.Equal(
             new SteamCurrentApp(440, "focus"),
-            SteamCurrentPage.Parse(CefEvalResult.Ok("""{"id":440,"src":"focus"}""")));
+            SteamCurrentPage.Parse(FakeSteamUiTransport.Answer("""{"id":440,"src":"focus"}""")).Value);
         Assert.Equal(
             new SteamCurrentApp(440, "in-page"),
-            SteamCurrentPage.Parse(CefEvalResult.Ok("""{"id":440}""")));
-        Assert.Equal(
-            new SteamCurrentApp(0, "none"),
-            SteamCurrentPage.Parse(CefEvalResult.Unreachable("closed")));
-        Assert.Equal(
-            new SteamCurrentApp(0, "none"),
-            SteamCurrentPage.Parse(CefEvalResult.Ok("""{"id":"440"}""")));
+            SteamCurrentPage.Parse(FakeSteamUiTransport.Answer("""{"id":440}""")).Value);
+        Assert.False(SteamCurrentPage.Parse(FakeSteamUiTransport.Unanswered(SteamUiDispatch.Closed, "closed")).Succeeded);
+        Assert.False(SteamCurrentPage.Parse(FakeSteamUiTransport.Answer("""{"id":"440"}""")).Succeeded);
     }
 
     // ---- SteamRunningAppsProbe ----
@@ -417,7 +498,7 @@ public sealed class SteamClientTests
     public void RunningAppsReadingCarriesTheValidIdsAndTheGeneration()
     {
         var observation = SteamRunningAppsProbe.ParseObservation(
-            CefEvalResult.Ok("""{"ok":true,"ids":[1,0,2],"generation":7}"""));
+            FakeSteamUiTransport.Answer("""{"ok":true,"ids":[1,0,2],"generation":7}"""));
 
         Assert.True(observation.Reachable);
         Assert.Equal([1u, 2u], observation.AppIds);
@@ -426,37 +507,45 @@ public sealed class SteamClientTests
     }
 
     [Fact]
-    public void ADisabledTransportNamesNoAppInsteadOfFailing()
+    public void AClosedTransportNamesNoAppInsteadOfFailing()
     {
-        var disabled = SteamRunningAppsProbe.ParseObservation(
-            CefEvalResult.Unreachable("Steam CEF integration disabled in settings."));
-        var failed = SteamRunningAppsProbe.ParseObservation(CefEvalResult.Unreachable("socket closed"));
+        var closed = SteamRunningAppsProbe.ParseObservation(
+            FakeSteamUiTransport.Unanswered(SteamUiDispatch.Closed, "Steam UI transport held."));
+        var failed = SteamRunningAppsProbe.ParseObservation(
+            FakeSteamUiTransport.Unanswered(SteamUiDispatch.NotSent, "socket closed"));
 
-        Assert.True(disabled.Reachable);
-        Assert.Empty(disabled.AppIds);
-        Assert.Null(disabled.Diagnostic);
+        Assert.True(closed.Reachable);
+        Assert.Empty(closed.AppIds);
+        Assert.Null(closed.Diagnostic);
         Assert.False(failed.Reachable);
         Assert.Equal("socket closed", failed.Diagnostic);
-        Assert.True(SteamUiTransportSession.IsClosedReason(SteamUiTransportSession.DisabledReason));
-        Assert.False(SteamUiTransportSession.IsClosedReason("socket closed"));
-        Assert.False(SteamUiTransportSession.IsClosedReason(null));
     }
 
     [Fact]
     public void RunningAppsObserverRejectionIsUnreachable()
     {
         var observation = SteamRunningAppsProbe.ParseObservation(
-            CefEvalResult.Ok("""{"ok":false,"err":"GameSessions missing"}"""));
+            FakeSteamUiTransport.Answer("""{"ok":false,"err":"GameSessions missing"}"""));
 
         Assert.False(observation.Reachable);
         Assert.Equal("GameSessions missing", observation.Diagnostic);
     }
 
     [Fact]
+    public void TheObserverIsPublishedOnlyAfterSteamAcceptedTheRegistration()
+    {
+        var expression = SteamRunningAppsProbe.ObserveExpression;
+
+        Assert.True(
+            expression.IndexOf("RegisterForAppLifetimeNotifications", StringComparison.Ordinal)
+            < expression.IndexOf("window.__steamUiRunningApps=R;", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task RunningAppsLeaseRemovesTheObserverAndReleasesTheTransport()
     {
         var transport = new FakeSteamUiTransport();
-        var probe = new SteamRunningAppsProbe(transport);
+        var probe = new SteamClient(transport).RunningApps;
 
         var lease = await probe.SubscribeAsync();
         transport.EvaluationValue = """{"ok":true,"ids":[42],"generation":1}""";
@@ -497,16 +586,28 @@ public sealed class SteamClientTests
     [Fact]
     public void ACollectionReplyCarriesItsIdAndCountOrTheRefusal()
     {
-        var synced = SteamCollections.ParseSync(CefEvalResult.Ok("""{"ok":true,"id":"uc-9","count":4}"""));
+        var synced = SteamCollections.ParseSync(FakeSteamUiTransport.Answer("""{"ok":true,"id":"uc-9","count":4}"""));
         Assert.Equal((true, "uc-9", 4), (synced.Succeeded, synced.Id, synced.Count));
 
-        var deleted = SteamCollections.ParseSync(CefEvalResult.Ok("""{"ok":true,"id":null,"count":0}"""));
+        var deleted = SteamCollections.ParseSync(FakeSteamUiTransport.Answer("""{"ok":true,"id":null,"count":0}"""));
         Assert.True(deleted.Succeeded);
         Assert.Null(deleted.Id);
 
-        var refused = SteamCollections.ParseSync(CefEvalResult.Ok("""{"ok":false,"err":"not loaded"}"""));
-        Assert.Equal((true, false, "not loaded"), (refused.Reachable, refused.Accepted, refused.Error));
+        var refused = SteamCollections.ParseSync(FakeSteamUiTransport.Answer("""{"ok":false,"err":"not loaded"}"""));
+        Assert.Equal((SteamClientWriteOutcome.Rejected, "not loaded"), (refused.Outcome, refused.Error));
 
-        Assert.False(SteamCollections.ParseSync(CefEvalResult.Unreachable("closed")).Reachable);
+        Assert.Equal(
+            SteamClientWriteOutcome.NotSent,
+            SteamCollections.ParseSync(FakeSteamUiTransport.Unanswered(SteamUiDispatch.Closed, "closed")).Outcome);
+    }
+
+    [Fact]
+    public void ACollectionCreatedBeforeALaterStepFailedKeepsItsId()
+    {
+        var partial = SteamCollections.ParseSync(
+            FakeSteamUiTransport.Answer("""{"ok":false,"err":"Save failed","id":"uc-7"}"""));
+
+        Assert.Equal(SteamClientWriteOutcome.Rejected, partial.Outcome);
+        Assert.Equal("uc-7", partial.Id);
     }
 }

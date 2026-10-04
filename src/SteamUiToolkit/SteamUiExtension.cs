@@ -64,14 +64,17 @@ public enum SteamUiExtensionRejection
     /// <summary>Built against a different extension API version.</summary>
     ApiVersionMismatch,
 
-    /// <summary>The declared script is missing, outside the package, or too large.</summary>
+    /// <summary>The declared script is missing, outside the package, or not valid UTF-8.</summary>
     UnreadableScript,
 
     /// <summary>A patch id is not prefixed with the extension's own id.</summary>
     UnscopedPatch,
 
     /// <summary>Another installed extension already claimed this id or one of its patches.</summary>
-    Conflict
+    Conflict,
+
+    /// <summary>The id or a patch falls under a prefix the toolkit or the host reserves.</summary>
+    ReservedPrefix
 }
 
 /// <summary>One extension the host examined, loaded or not.</summary>
@@ -79,7 +82,10 @@ public enum SteamUiExtensionRejection
 ///     The extension's declared id, or its directory name when the manifest could not
 ///     be read — so a rejected extension can still be named in a log and in the UI.
 /// </param>
-/// <param name="Manifest">The manifest, when it parsed.</param>
+/// <param name="Manifest">
+///     The manifest, when it parsed, a rejected extension's included, so the host can still remove the
+///     patches it declared.
+/// </param>
 /// <param name="Script">The JavaScript to inject, when it was readable.</param>
 /// <param name="Rejection">Why it was not loaded, or <see cref="SteamUiExtensionRejection.None" />.</param>
 /// <param name="Detail">The specific reason, for the log and for the user.</param>

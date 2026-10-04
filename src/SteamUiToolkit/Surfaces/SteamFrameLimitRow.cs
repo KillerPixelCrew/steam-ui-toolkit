@@ -54,9 +54,9 @@ namespace SteamUiToolkit;
 ///     Every rate the display accepted, ascending. Windows takes a mode or refuses, so the refresh
 ///     mode is notched to exactly these.
 /// </param>
-/// <param name="OverrideId">
-///     The host's setting id while the running game's own profile supplies this value, so the row marks
-///     it in Steam's accent colour; null otherwise.
+/// <param name="Accent">
+///     Whether the row is marked: its description is drawn in Steam's accent colour after the host's
+///     <see cref="SteamQuickAccessLayout.AccentLabel" />.
 /// </param>
 public sealed record SteamFrameLimitState(
     bool Available,
@@ -73,20 +73,19 @@ public sealed record SteamFrameLimitState(
     int? RefreshMaxHz = null,
     int? CurrentRefreshHz = null,
     IReadOnlyList<int>? RefreshRates = null,
-    string? OverrideId = null);
+    bool Accent = false);
 
 /// <summary>What answers the unified row's two modes.</summary>
 public interface ISteamFrameLimitBackend
 {
     /// <summary>Applies a frame cap, or zero to switch the limit off.</summary>
     /// <param name="fps">The cap, or 0 for off.</param>
-    /// <param name="persistence">Which profile to keep it in.</param>
     /// <param name="correlationId">Correlates the command across the backend's log.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
     /// <returns>The outcome.</returns>
+    /// <remarks>Where the value is kept is the backend's decision; the row only says what was chosen.</remarks>
     Task<SteamUiCommandResult> SetFrameLimitAsync(
         int fps,
-        SteamSettingPersistence persistence,
         string correlationId,
         CancellationToken cancellationToken);
 
@@ -115,7 +114,7 @@ public static class SteamFrameLimitRow
     public static SteamQuickAccessRowPatch Patch { get; } = new(
         PatchId,
         "frameLimit",
-        "native-qam-frame-limit-v1:performance-actions+performance-root+valve-slider",
+        "steam-ui-frame-limit-v1:performance-actions+performance-root+valve-slider",
         "steam_ui_frame_limit_probe_");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
@@ -139,7 +138,7 @@ public static class SteamFrameLimitRow
         string id = "frame-limit")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return SteamSurfaceModule.Declare(
+        return SteamUiModuleBuilder.Module(
             id,
             PatchId,
             enabled,
@@ -148,18 +147,22 @@ public static class SteamFrameLimitRow
             [Patch],
             [
                 new SteamUiCommandHandler(PatchId, "setFrameLimit", (request, cancellationToken) =>
-                    SteamSurfaceModule.TryReadValueWrite(
-                        request.Payload, out var fps, out var persistence)
-                        ? backend.SetFrameLimitAsync(
-                            fps, persistence, request.ToCorrelationId(), cancellationToken)
-                        : SteamSurfaceModule.Invalid("The frame-limit payload is invalid.")),
-                SteamSurfaceModule.Command(
+                    TryReadValue(request.Payload, out var fps)
+                        ? backend.SetFrameLimitAsync(fps, request.ToCorrelationId(), cancellationToken)
+                        : Task.FromResult(SteamUiCommandResult.Invalid("The frame-limit payload is invalid."))),
+                SteamUiModuleBuilder.Command<int>(
                     PatchId,
                     "setRefreshRate",
-                    static (JsonElement payload, out int hz) =>
-                        SteamSurfaceModule.TryReadValueWrite(payload, out hz, out _),
+                    TryReadValue,
                     backend.SetRefreshRateAsync,
                     "The refresh-rate payload is invalid.")
             ]);
+    }
+
+    /// <summary>Reads the shape both of the row's writes send: <c>{value}</c> and nothing else.</summary>
+    private static bool TryReadValue(JsonElement payload, out int value)
+    {
+        return SteamUiPayload.TryReadInt(payload, "value", int.MinValue, int.MaxValue, out value)
+               && SteamUiPayload.HasExactly(payload, 1);
     }
 }

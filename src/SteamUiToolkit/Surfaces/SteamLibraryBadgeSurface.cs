@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 namespace SteamUiToolkit;
 
 /// <summary>One Steam library the badge can name, and the games it holds.</summary>
-/// <param name="Name">The badge text for a game in this library. Untrusted display text, bounded by the gate.</param>
+/// <param name="Name">The badge text for a game in this library, as the host names it.</param>
 /// <param name="Connected">
 ///     Whether the library is attached right now. Steam's own installed flag decides the badge's
 ///     colour where it can; this stands in only for a game whose overview cannot say.
@@ -17,14 +17,13 @@ public sealed record SteamLibraryBadgeLibrary(string Name, bool Connected, IRead
 
 /// <summary>Everything the badge needs to name a game's library.</summary>
 /// <param name="Libraries">
-///     The libraries worth naming — every tracked removable one, attached or not, so a game on an
-///     absent card keeps naming the card. A game in none of them is on the internal library.
+///     Every library the badge names, each by the name the host gives it: a removable one attached
+///     or not, so a game on an absent card keeps naming the card. A game in none of them gets no
+///     badge; the toolkit has no name of its own for a library.
 /// </param>
-/// <param name="InternalLabel">The badge text for an installed game that no listed library holds.</param>
 /// <param name="Revision">Monotonic host observation revision.</param>
 public sealed record SteamLibraryBadgeState(
     IReadOnlyList<SteamLibraryBadgeLibrary> Libraries,
-    string InternalLabel = "Internal",
     long Revision = 0);
 
 /// <summary>What the library badge tells its host.</summary>
@@ -92,7 +91,6 @@ public static class SteamLibraryBadgeSurface
     /// </remarks>
     public static ISteamUiPatch DetailsPatch { get; } = new SteamGatePatch(
         DetailsPatchId,
-        "steam-ui.jsx-runtime",
         "libraryDetails",
         "steam-library-details-v1:unique-jsx-runtime+play-bar-class-map",
         $$"""
@@ -123,7 +121,6 @@ public static class SteamLibraryBadgeSurface
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
-        "steam-ui.library-tile",
         "libraryBadge",
         "steam-library-badge-v1:unique-tile-module+single-memo-export+single-badge-export",
         $$"""
@@ -203,7 +200,7 @@ public static class SteamLibraryBadgeSurface
         string id = "library-badge")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return SteamSurfaceModule.Declare(
+        return SteamUiModuleBuilder.Module(
             id,
             PatchId,
             enabled,
@@ -211,7 +208,7 @@ public static class SteamLibraryBadgeSurface
             SteamSurfaceJsonContext.Default.SteamLibraryBadgeState,
             [Patch, DetailsPatch],
             [
-                SteamSurfaceModule.Command<bool>(
+                SteamUiModuleBuilder.Command<bool>(
                     PatchId,
                     "homeLayout",
                     TryReadHomeLayout,

@@ -7,10 +7,11 @@
 import assert from "node:assert/strict";
 import {
   createReact,
+  fragments,
+  helperLabels,
   instantiate,
   loadAsset,
-  sharedFragments,
-  slice,
+  tick,
   withSource,
 } from "./check-harness.mjs";
 
@@ -43,13 +44,22 @@ const named = (name, source) => withSource(Object.defineProperty(() => null, "na
 const Slider = named("Slider", "onChangeComplete notchCount valueSuffix explainerTitle");
 const Dropdown = named("Dropdown", "contextMenuPositionOptions childrenContainerWidth menuLabel");
 const Toggle = named("Toggle", "OnToggleChange this.Toggle()");
-const Button = named("Button", '"DialogButton","_DialogLayout","Secondary"');
-const Primary = named("Primary", '"DialogButton","_DialogLayout","Primary"');
+// The buttons are found by their class names however the arguments between them are spaced.
+const Button = named("Button", 'classNames(props.className, "DialogButton", "_DialogLayout", "Secondary")');
+const Primary = named("Primary", "classNames(props.className, 'DialogButton', '_DialogLayout', 'Primary')");
 const TextField = named("TextField", "class TextField");
 TextField.validateUrl = () => true;
 TextField.validateEmail = () => true;
 const Section = named("Section", 'className:"DialogSettingsSection"');
-const ValueField = named("ValueField", 'label:t,focusable:!0,inlineWrap:"shift-children-below"');
+// A component of one argument; the field layout that reads the same props takes two and is not it.
+const ValueField = withSource(
+  Object.defineProperty((props) => props && null, "name", { value: "ValueField" }),
+  'const {name, value, ...rest} = props; return <Field label={name} focusable inlineWrap="shift-children-below" {...rest}>',
+);
+const FieldLayout = withSource(
+  Object.defineProperty((props, ref) => props && ref && null, "name", { value: "FieldLayout" }),
+  'const {label, inlineWrap, focusable} = props; inlineWrap === "shift-children-below"',
+);
 const SmallButton = named("SmallButton", '"DialogButton _DialogLayout Small"');
 const Focusable = named("Focusable", "focusableIfEmpty onActivate onCancel focusClassName");
 const RoutedPages = named("RoutedPages", "function(e){const{pages:t,disableRouteReporting:c}=e}");
@@ -62,7 +72,7 @@ const modules = {
   react: { tokens: ["react.transitional.element", "useState", "cloneElement", "createElement"], exports: react },
   fields: {
     tokens: ["DialogSlider_Container", "DropDownField", "SliderField"],
-    exports: { Slider, Dropdown, Toggle, Button, Primary, TextField, Section, ValueField, SmallButton },
+    exports: { Slider, Dropdown, Toggle, Button, Primary, TextField, Section, ValueField, FieldLayout, SmallButton },
   },
   focusable: { tokens: ["focusableIfEmpty", "onActivate", '"Panel"'], exports: { Focusable } },
   modal: { tokens: ["props.bDisableBackgroundDismiss"], exports: { ShowModal } },
@@ -87,7 +97,7 @@ runtime.exported = (tokens, predicate) => {
 
 const api = instantiate(
   { window: {} },
-  `${sharedFragments(asset)}\n${slice(asset, "const SteamGlyphPattern", "function createAudioNamespace")}`,
+  fragments(asset, helperLabels(asset)),
   "{ resolveSteamSettingsComponents, SteamSettingsRequired, renderSteamSettings }",
 );
 
@@ -134,7 +144,7 @@ const pages = [
           { key: "future", kind: "hologram", label: "Future" },
           { key: "size", kind: "range", label: "Size", number: 1, labels: ["Small", "Medium", "Large"] },
           { key: "tone", kind: "color", label: "Tone", text: "#ff0000" },
-          { key: "tint", kind: "boolean", label: "Tint", description: "Ready", checked: false, override: true },
+          { key: "tint", kind: "boolean", label: "Tint", description: "Game override · Ready", checked: false, accent: true },
         ],
       },
     ],
@@ -142,6 +152,8 @@ const pages = [
 ];
 const changes = [];
 const actions = [];
+// What the host answers a write with: nothing, unless a check says otherwise.
+let answer = () => undefined;
 let revision = 1;
 const render = () => {
   hooks.index = 0;
@@ -149,7 +161,10 @@ const render = () => {
     route: "/host/settings",
     pages,
     revision,
-    onChange: (row, value) => changes.push([row.key, value]),
+    onChange: (row, value) => {
+      changes.push([row.key, value]);
+      return answer(row);
+    },
     onAction: (row) => actions.push(row.key),
   });
   return view.type(view.props);
@@ -169,8 +184,9 @@ assert.equal(tree.props.pages[0].content.props.children[0].props.label, "Integra
 
 // Kinds map to Steam's own fields.
 assert.equal(row(tree, "cef").type, Toggle);
-// A game override marks the description the way the Quick Access rows do, and nothing else.
-assert.equal(row(tree, "cef").props.description, undefined, "a row without an override keeps its plain text");
+// A marked row draws the host's description in the accent colour, the way the Quick Access rows do,
+// and adds no words of its own.
+assert.equal(row(tree, "cef").props.description, undefined, "an unmarked row keeps its plain text");
 {
   const marked = row(tree, "tint").props.description;
   assert.equal(marked.type, "span");
@@ -324,6 +340,38 @@ changes.length = 0;
 revision = 2;
 render(); // the effect clears the drafts, as React runs it after the commit
 tree = render();
-assert.equal(row(tree, "name").props.value, "old", "a new revision must drop the drafts typed before it");
+assert.equal(row(tree, "name").props.value, "old", "a new revision must drop the drafts written before it");
 
-console.log("Settings: native components, kinds, confirmation, drafts and secrets passed.");
+// Text being typed survives a publication that changes another row.
+const published = (key) => pages[0].sections[0].rows.find((candidate) => candidate.key === key);
+row(tree, "name").props.onChange({ target: { value: "typing" } });
+published("level").number = 7;
+revision = 3;
+render();
+tree = render();
+assert.equal(row(tree, "name").props.value, "typing", "an unrelated publication must keep a draft being typed");
+assert.equal(row(tree, "level").props.value, 7, "the other row shows what was published");
+
+// A refused write drops only its own draft and says why in that row's description.
+answer = (changed) => (changed.key === "mode" ? Promise.reject(new Error("Mode is locked by the device")) : undefined);
+row(tree, "mode").props.onChange({ data: "b", label: "B" });
+tree = render();
+assert.equal(row(tree, "mode").props.selectedOption, "b", "the choice shows while its write is in flight");
+await tick();
+tree = render();
+assert.equal(row(tree, "mode").props.selectedOption, "a", "a refused choice returns to the published value");
+assert.equal(row(tree, "mode").props.description, "Mode is locked by the device", "the refusal is the row's description");
+assert.equal(row(tree, "name").props.value, "typing", "a refusal leaves another row's draft alone");
+answer = () => undefined;
+row(tree, "mode").props.onChange({ data: "b", label: "B" });
+tree = render();
+assert.equal(row(tree, "mode").props.description, undefined, "changing the row again clears its refusal");
+
+// A draft gives way when its own row is published with another value.
+published("name").text = "replaced";
+revision = 4;
+render();
+tree = render();
+assert.equal(row(tree, "name").props.value, "replaced", "a republished row replaces its draft");
+
+console.log("Settings: native components, kinds, confirmation, drafts, refusals and secrets passed.");

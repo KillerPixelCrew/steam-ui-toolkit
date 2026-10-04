@@ -1,6 +1,6 @@
 using System.Linq;
 
-namespace SteamUiToolkit.Surfaces;
+namespace SteamUiToolkit;
 
 /// <summary>Reads whether SharedJSContext is still the connection a request was observed on.</summary>
 internal static class SteamSharedContext

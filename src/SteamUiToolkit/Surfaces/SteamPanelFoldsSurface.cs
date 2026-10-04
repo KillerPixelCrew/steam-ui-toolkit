@@ -16,7 +16,7 @@ namespace SteamUiToolkit;
 ///     injected side folds or opens a section the moment it is asked and keeps that until this state
 ///     agrees, which is what makes a fold outlive Steam rebuilding a tab.
 /// </remarks>
-/// <param name="Open">The open sections' ids, at most 256 of up to 160 characters.</param>
+/// <param name="Open">The open sections' ids.</param>
 public sealed record SteamPanelFoldsState(IReadOnlyList<string> Open);
 
 /// <summary>Keeps the folds of the Quick Access tabs' sections.</summary>
@@ -58,10 +58,10 @@ public static class SteamPanelFoldsSurface
         ISteamPanelFoldsBackend backend, string id = "panel-folds")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return SteamSurfaceModule.Declare(
+        return SteamUiModuleBuilder.Module(
             id, PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamPanelFoldsState, [],
             [
-                SteamSurfaceModule.Command<(string Id, bool Folded)>(
+                SteamUiModuleBuilder.Command<(string Id, bool Folded)>(
                     PatchId,
                     "setFolded",
                     TryReadFold,

@@ -68,7 +68,6 @@ public static class SteamNetworkSurface
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
-        "steam-ui.network-availability",
         "network",
         "steam-network-gate-v1:configurable-getter+currently-hidden",
         $$"""
@@ -134,7 +133,7 @@ public static class SteamNetworkSurface
         string id = "network")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return SteamSurfaceModule.Declare(
+        return SteamUiModuleBuilder.Module(
             id,
             PatchId,
             enabled,
@@ -142,8 +141,8 @@ public static class SteamNetworkSurface
             SteamSurfaceJsonContext.Default.SteamNetworkState,
             [Patch],
             [
-                SteamSurfaceModule.Command(PatchId, "startScan", backend.StartScanAsync),
-                SteamSurfaceModule.Command(PatchId, "stopScan", backend.StopScanAsync)
+                SteamUiModuleBuilder.Command(PatchId, "startScan", backend.StartScanAsync),
+                SteamUiModuleBuilder.Command(PatchId, "stopScan", backend.StopScanAsync)
             ]);
     }
 }

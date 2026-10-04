@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,21 +19,21 @@ public sealed record SteamStartupMovieChoice(string MovieId, string LocalPath, b
 }
 
 /// <summary>Outcome of setting Steam's own startup movie choice aside or putting it back.</summary>
-/// <param name="Reachable">Whether a validated Steam target ran the request. An unreachable client changed nothing.</param>
-/// <param name="Accepted">Whether Steam completed the change without throwing.</param>
+/// <param name="Outcome">Whether the change was never sent, may have run, was refused or completed.</param>
 /// <param name="Choice">
 ///     What was set aside or put back, or null when there was nothing to change: Steam already played
-///     its default when setting aside, or holds a newer choice of the user's when putting back.
+///     its default when setting aside, or holds a newer choice of the user's when putting back. A
+///     set-aside that failed after its first write still carries the choice Steam held, so the caller can
+///     keep it and give it back later.
 /// </param>
-/// <param name="Error">Why the target was unreachable, or Steam's own error. Null on success.</param>
+/// <param name="Error">Why it was not sent or not applied, or Steam's own error. Null on success.</param>
 public readonly record struct SteamStartupMovieResult(
-    bool Reachable,
-    bool Accepted,
+    SteamClientWriteOutcome Outcome,
     SteamStartupMovieChoice? Choice,
     string? Error)
 {
-    /// <summary>Whether Steam was reached and completed the change.</summary>
-    public bool Succeeded => Reachable && Accepted;
+    /// <summary>Whether Steam answered that the change completed.</summary>
+    public bool Succeeded => Outcome == SteamClientWriteOutcome.Applied;
 }
 
 /// <summary>Sets Steam's own startup movie choice aside so the override plays, and puts it back.</summary>
@@ -50,12 +51,24 @@ public readonly record struct SteamStartupMovieResult(
 ///         while Steam still holds the default, so a choice the user made since stays theirs. Mapped from
 ///         the September 2026 client bundle on 2026-09-28.
 ///     </para>
+///     <para>
+///         Steam's settings store can lag its window by a few seconds after a start, so both scripts wait
+///         for it, polling every 250 ms for up to five seconds, before they answer that it has not loaded.
+///     </para>
 /// </remarks>
-public static class SteamStartupMovie
+public sealed class SteamStartupMovie
 {
+    private const int SettingsWaitMs = 5_000;
+    private const int SettingsPollMs = 250;
+
     // The three settings, read as Steam holds them: an unset item id reads as "0" or empty.
-    private const string ReadChoice =
-        "const s=window.settingsStore,c=s&&s.clientSettings;" +
+    private static readonly string ReadChoice =
+        "let s=window.settingsStore,c=s&&s.clientSettings;" +
+        "for(let waited=0;(!c||typeof s.GetClientSetting!=='function')&&waited<" +
+        SettingsWaitMs.ToString(CultureInfo.InvariantCulture) + ";waited+=" +
+        SettingsPollMs.ToString(CultureInfo.InvariantCulture) + "){" +
+        "await new Promise(r=>setTimeout(r," + SettingsPollMs.ToString(CultureInfo.InvariantCulture) + "));" +
+        "s=window.settingsStore;c=s&&s.clientSettings;}" +
         "if(!c||typeof s.GetClientSetting!=='function')" +
         "return JSON.stringify({ok:false,err:'Steam has not loaded its settings yet.'});" +
         "const id=String(c.startup_movie_id??'');" +
@@ -68,44 +81,47 @@ public static class SteamStartupMovie
 
     private static readonly TimeSpan Budget = TimeSpan.FromSeconds(10);
 
+    private readonly SteamClient _client;
+
+    internal SteamStartupMovie(SteamClient client)
+    {
+        _client = client;
+    }
+
     /// <summary>Puts Steam on its default startup movie and answers the choice it held.</summary>
-    /// <param name="transport">A specific transport, or null for the session's.</param>
     /// <param name="cancellationToken">Cancels waiting.</param>
     /// <returns>The outcome, with the choice set aside. Never throws for an unreachable target.</returns>
-    public static async Task<SteamStartupMovieResult> SetAsideAsync(
-        ISteamUiTransport? transport = null,
-        CancellationToken cancellationToken = default)
+    public async Task<SteamStartupMovieResult> SetAsideAsync(CancellationToken cancellationToken = default)
     {
-        var result = await SteamClientScript.EvaluateAsync(
-                transport, SteamUiTargetRole.SharedJsContext, SetAsideScript(), Budget, cancellationToken)
-            .ConfigureAwait(false);
+        var result = await _client.ReadAsync(SetAsideScript(), Budget, cancellationToken).ConfigureAwait(false);
         return Parse(result);
     }
 
     /// <summary>Gives Steam back a choice set aside, unless the user has chosen anew since.</summary>
     /// <param name="choice">What <see cref="SetAsideAsync" /> answered.</param>
-    /// <param name="transport">A specific transport, or null for the session's.</param>
     /// <param name="cancellationToken">Cancels waiting.</param>
     /// <returns>The outcome, with the choice put back or null when Steam's newer one stayed.</returns>
-    public static async Task<SteamStartupMovieResult> RestoreAsync(
+    public async Task<SteamStartupMovieResult> RestoreAsync(
         SteamStartupMovieChoice choice,
-        ISteamUiTransport? transport = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(choice);
-        var result = await SteamClientScript.EvaluateAsync(
-                transport, SteamUiTargetRole.SharedJsContext, RestoreScript(choice), Budget, cancellationToken)
-            .ConfigureAwait(false);
+        var result = await _client.ReadAsync(RestoreScript(choice), Budget, cancellationToken).ConfigureAwait(false);
         return Parse(result);
     }
 
     /// <summary>The script <see cref="SetAsideAsync" /> runs. Pure, for tests.</summary>
+    /// <remarks>
+    ///     The first setter changes Steam's choice, so every failure after it answers the choice Steam
+    ///     held; the caller would otherwise lose the user's movie for good.
+    /// </remarks>
     internal static string SetAsideScript()
     {
         return SteamClientScript.Read(
             ReadChoice +
             "if(plain(now))return JSON.stringify({ok:true,choice:null});" +
-            "await set({movieId:'',localPath:'',shuffle:false});" +
+            "try{await set({movieId:'',localPath:'',shuffle:false});}" +
+            "catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e),choice:now});}" +
             "return JSON.stringify({ok:true,choice:now});");
     }
 
@@ -123,43 +139,51 @@ public static class SteamStartupMovie
     }
 
     /// <summary>Maps the reply of either script to a result. Pure, for tests.</summary>
-    internal static SteamStartupMovieResult Parse(CefEvalResult result)
+    /// <param name="result">The evaluation outcome.</param>
+    internal static SteamStartupMovieResult Parse(SteamUiEvaluationResult result)
     {
-        if (!result.Reachable)
+        if (result.Dispatch != SteamUiDispatch.Answered)
         {
-            return new SteamStartupMovieResult(false, false, null, result.Error);
+            return new SteamStartupMovieResult(
+                SteamClientScript.Unread(result.Dispatch), null, result.Error ?? "Steam did not answer.");
+        }
+
+        if (result.Error is not null)
+        {
+            return new SteamStartupMovieResult(SteamClientWriteOutcome.Rejected, null, result.Error);
         }
 
         if (result.Value is null)
         {
-            return new SteamStartupMovieResult(true, false, null, "No response from Steam.");
+            return new SteamStartupMovieResult(SteamClientWriteOutcome.Unknown, null, "No response from Steam.");
         }
 
         try
         {
             using var document = JsonDocument.Parse(result.Value);
             var root = document.RootElement;
-            if (!SteamClientScript.IsOk(root))
+            // Read whether or not the change completed: a set-aside that failed after its first write
+            // still answers what Steam held.
+            SteamStartupMovieChoice? choice = null;
+            if (root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("choice", out var held)
+                && held.ValueKind == JsonValueKind.Object)
             {
-                return new SteamStartupMovieResult(true, false, null,
-                    SteamClientScript.ErrorOf(root) ?? "Steam rejected the change.");
+                choice = new SteamStartupMovieChoice(
+                    SteamClientScript.StringOf(held, "movieId"),
+                    SteamClientScript.StringOf(held, "localPath"),
+                    held.TryGetProperty("shuffle", out var shuffle) && shuffle.ValueKind == JsonValueKind.True);
             }
 
-            if (!root.TryGetProperty("choice", out var choice) || choice.ValueKind != JsonValueKind.Object)
-            {
-                return new SteamStartupMovieResult(true, true, null, null);
-            }
-
-            return new SteamStartupMovieResult(true, true,
-                new SteamStartupMovieChoice(
-                    SteamClientScript.StringOf(choice, "movieId"),
-                    SteamClientScript.StringOf(choice, "localPath"),
-                    choice.TryGetProperty("shuffle", out var shuffle) && shuffle.ValueKind == JsonValueKind.True),
-                null);
+            return SteamClientScript.IsOk(root)
+                ? new SteamStartupMovieResult(SteamClientWriteOutcome.Applied, choice, null)
+                : new SteamStartupMovieResult(SteamClientWriteOutcome.Rejected, choice,
+                    SteamClientScript.RefusalOf(root) ?? "Steam rejected the change.");
         }
         catch (JsonException ex)
         {
-            return new SteamStartupMovieResult(true, false, null, ex.Message);
+            return new SteamStartupMovieResult(
+                SteamClientWriteOutcome.Unknown, null, $"Steam's reply was unreadable: {ex.Message}");
         }
     }
 }

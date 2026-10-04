@@ -123,11 +123,9 @@ public sealed class SteamQuickAccessRowPatchTests
             SteamPerformanceSurface.RefreshRateRow
         ];
 
-        // One kind per row because the injected host installs by kind, and one resource key for all
-        // of them because they mount into the same wrapped panel and must serialize on it.
+        // One kind per row because the injected host installs by kind.
         Assert.Equal(rows.Length, rows.Select(row => row.ComponentKind).Distinct().Count());
         Assert.Equal(rows.Length, rows.Select(row => row.Id).Distinct().Count());
-        Assert.Single(rows.Select(row => row.ResourceKey).Distinct());
     }
 
     /// <summary>
@@ -156,14 +154,14 @@ public sealed class SteamQuickAccessRowPatchTests
             if (expression.Contains("steam_ui_controller_target_probe_", StringComparison.Ordinal))
             {
                 return """
-                       {"controllerPresentation":1,"performanceRoot":1,"nativeFields":1,"nativeLayout":1,"localization":1,"react":1}
+                       {"controllerPresentation":1,"performanceActions":1,"tdpAvailability":1,"tdpComponent":1,"profileProjection":1,"performanceRoot":1,"nativeFields":1,"nativeLayout":1,"localization":1,"react":1}
                        """;
             }
 
             if (expression.Contains("_probe_", StringComparison.Ordinal))
             {
                 return $$"""
-                         {"performanceActions":{{_performanceActions}},"performanceRoot":1,"nativeFields":1,"nativeLayout":1,"localization":1,"react":1}
+                         {"performanceActions":{{_performanceActions}},"tdpAvailability":1,"tdpComponent":1,"profileProjection":1,"performanceRoot":1,"nativeFields":1,"nativeLayout":1,"localization":1,"react":1}
                          """;
             }
 

@@ -12,7 +12,7 @@ namespace SteamUiToolkit;
 /// <summary>Owns one persistent bounded CDP connection for each allowlisted Steam UI target.</summary>
 public sealed class PersistentSteamUiTransport : ISteamUiTransport
 {
-    private static readonly TimeSpan[] RetryDelays =
+    internal static readonly IReadOnlyList<TimeSpan> DefaultRetryDelays =
     [
         TimeSpan.FromSeconds(1),
         TimeSpan.FromSeconds(4),
@@ -45,36 +45,23 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
     private readonly ISteamUiEndpointDiscovery _discovery;
     private readonly Task _generationEventPump;
 
-    private readonly Channel<SteamUiTransportSnapshot> _generationEvents =
-        Channel.CreateBounded<SteamUiTransportSnapshot>(
-            new BoundedChannelOptions(64)
-            {
-                SingleReader = true,
-                SingleWriter = false,
-                FullMode = BoundedChannelFullMode.DropOldest
-            });
-
-    private readonly Task _notificationEventPump;
-
-    // Generation-changing notifications are hints a later one supersedes, so evicting the oldest is
-    // harmless. A Runtime.bindingCalled frame is a user action, so it has its own lane that refuses
-    // (and logs) a write when full instead of silently evicting an earlier action, and a burst of
-    // navigation notifications can never push one out.
-    private readonly Channel<SteamUiNotification> _notificationEvents =
-        Channel.CreateBounded<SteamUiNotification>(
-            new BoundedChannelOptions(256)
-            {
-                SingleReader = true,
-                SingleWriter = false,
-                FullMode = BoundedChannelFullMode.DropOldest
-            });
+    // A generation snapshot is a hint a later one of the same role supersedes, so each role keeps
+    // only its latest in TargetChannel.PendingGeneration and this lane carries which roles have one.
+    // A role is queued at most once, so the lane is never full and a burst on one role can never
+    // evict another role's snapshot. A Runtime.bindingCalled frame is a user action, so it has its
+    // own lane that refuses (and logs) a write when full instead of evicting an earlier action.
+    private readonly Channel<SteamUiTargetRole> _generationEvents;
 
     private readonly bool _ownsDiscovery;
+    private readonly IReadOnlyList<TimeSpan> _retryDelays;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly ISteamUiCdpWireFactory _wireFactory;
     private int _disposed;
-    private volatile string _closedReason = SteamUiTransportSession.DisabledReason;
+    private volatile string _closedReason = DefaultClosedReason;
     private volatile bool _enabled = true;
+
+    /// <summary>The reason a closed transport reports when the host gave none.</summary>
+    public const string DefaultClosedReason = "Steam CEF integration disabled in settings.";
 
     /// <summary>Creates a production transport using Steam's validated loopback endpoint.</summary>
     public PersistentSteamUiTransport()
@@ -91,45 +78,52 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         : this(
             new SteamUiEndpointDiscovery(requireMainWindow),
             new SteamUiWebSocketWireFactory(),
-            true)
+            true,
+            null)
     {
     }
 
+    /// <summary>Creates a transport over a supplied discovery and wire factory.</summary>
+    /// <param name="discovery">Finds the target for a role.</param>
+    /// <param name="wireFactory">Opens the channel to a discovered target.</param>
+    /// <param name="retryDelays">The reconnect backoff steps; null for the production 1, 4, 16 and 30 s.</param>
     internal PersistentSteamUiTransport(
-        ISteamUiEndpointDiscovery discovery, ISteamUiCdpWireFactory wireFactory)
-        : this(discovery, wireFactory, false)
+        ISteamUiEndpointDiscovery discovery,
+        ISteamUiCdpWireFactory wireFactory,
+        IReadOnlyList<TimeSpan>? retryDelays = null)
+        : this(discovery, wireFactory, false, retryDelays)
     {
     }
 
     private PersistentSteamUiTransport(
         ISteamUiEndpointDiscovery discovery,
         ISteamUiCdpWireFactory wireFactory,
-        bool ownsDiscovery)
+        bool ownsDiscovery,
+        IReadOnlyList<TimeSpan>? retryDelays)
     {
         _discovery = discovery ?? throw new ArgumentNullException(nameof(discovery));
         _wireFactory = wireFactory ?? throw new ArgumentNullException(nameof(wireFactory));
         _ownsDiscovery = ownsDiscovery;
+        _retryDelays = retryDelays is { Count: > 0 } ? retryDelays : DefaultRetryDelays;
         _channels = Enum.GetValues<SteamUiTargetRole>().ToDictionary(
             role => role,
             role => new TargetChannel(role));
-        _notificationEventPump = PumpAsync(
-            _notificationEvents.Reader,
-            () => NotificationReceived,
-            "Steam UI notification handler failed");
-        _bindingEventPump = PumpAsync(
-            _bindingEvents.Reader,
-            () => NotificationReceived,
-            "Steam UI binding handler failed");
-        _generationEventPump = PumpAsync(
-            _generationEvents.Reader,
-            () => GenerationChanged,
-            "Steam UI generation handler failed");
+        _generationEvents = Channel.CreateBounded<SteamUiTargetRole>(
+            new BoundedChannelOptions(_channels.Count)
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                FullMode = BoundedChannelFullMode.Wait
+            });
+        _bindingEventPump = PumpBindingsAsync();
+        _generationEventPump = PumpGenerationsAsync();
     }
 
-    /// <summary>Raised for the generation-changing notifications and <c>Runtime.bindingCalled</c>.</summary>
+    /// <summary>Raised for each <c>Runtime.bindingCalled</c> notification.</summary>
     /// <remarks>
-    ///     Other CDP notifications from the enabled domains have no consumer and are dropped
-    ///     as they arrive.
+    ///     Generation-changing notifications only advance generations and raise
+    ///     <see cref="GenerationChanged" />. Other CDP notifications from the enabled domains have no
+    ///     consumer and are dropped as they arrive.
     /// </remarks>
     public event EventHandler<SteamUiNotification>? NotificationReceived;
 
@@ -140,24 +134,7 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
     public ValueTask<IAsyncDisposable> SubscribeAsync(
         SteamUiTargetRole role, CancellationToken cancellationToken = default)
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        cancellationToken.ThrowIfCancellationRequested();
-        var channel = GetChannel(role);
-        lock (channel.Sync)
-        {
-            channel.Subscribers++;
-            // A zero-subscriber release cancels its loop immediately but that task may not have
-            // observed cancellation yet. Keying restart only on IsCompleted left a new subscriber
-            // holding a channel whose sole reconnect loop was already doomed to exit.
-            if (_enabled
-                && (channel.ReconnectCancellation is null
-                    || channel.ReconnectCancellation.IsCancellationRequested))
-            {
-                StartReconnectLocked(channel);
-            }
-        }
-
-        return ValueTask.FromResult<IAsyncDisposable>(new Subscription(this, channel));
+        return ValueTask.FromResult(Subscribe(role, true, cancellationToken));
     }
 
     /// <inheritdoc />
@@ -172,7 +149,9 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         SteamUiShared.ThrowIfInvalidTimeout(timeout);
         if (!_enabled)
         {
-            return SteamUiEvaluationResult.Unavailable(
+            return new SteamUiEvaluationResult(
+                SteamUiDispatch.Closed,
+                null,
                 _closedReason,
                 GenerationsOf(GetChannel(role)));
         }
@@ -192,13 +171,16 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
             {
                 lock (channel.Sync)
                 {
-                    return SteamUiEvaluationResult.Unavailable(
+                    return new SteamUiEvaluationResult(
+                        SteamUiDispatch.NotSent,
+                        null,
                         channel.LastFailure ?? "Steam UI target is unavailable.",
                         channel.Generations);
                 }
             }
 
-            var value = await connection.EvaluateAsync(expression, timeout, lease.Deadline)
+            // Any answer, a JavaScript exception included, proves the renderer is alive.
+            var (value, error) = await connection.EvaluateAsync(expression, timeout, lease.Deadline)
                 .ConfigureAwait(false);
             SetHealth(
                 channel,
@@ -206,13 +188,42 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
                 SteamUiTransportHealth.Ready,
                 null);
             ResetTimeouts(channel, lease.OwnershipGeneration);
-            return new SteamUiEvaluationResult(true, value, null, GenerationsOf(channel));
+            return new SteamUiEvaluationResult(SteamUiDispatch.Answered, value, error, GenerationsOf(channel));
+        }
+        catch (SteamUiUnansweredException ex) when (ex.InnerException is OperationCanceledException
+                                                     && cancellationToken.IsCancellationRequested)
+        {
+            // The caller stopped waiting after the send began. That says nothing about Steam's health,
+            // but the expression may still run.
+            return new SteamUiEvaluationResult(
+                SteamUiDispatch.Unanswered,
+                null,
+                "Steam UI evaluation was cancelled after it was sent.",
+                GenerationsOf(channel));
+        }
+        catch (SteamUiUnansweredException ex) when (ex.InnerException is OperationCanceledException)
+        {
+            DropUnansweredConnection(channel, lease.OwnershipGeneration, connection!);
+            return new SteamUiEvaluationResult(
+                SteamUiDispatch.Unanswered, null, "Steam UI evaluation timed out.", GenerationsOf(channel));
+        }
+        catch (SteamUiUnansweredException ex)
+        {
+            var cause = ex.InnerException ?? ex;
+            SetHealth(
+                channel,
+                lease.OwnershipGeneration,
+                cause is InvalidDataException ? SteamUiTransportHealth.Incompatible : SteamUiTransportHealth.Retrying,
+                cause.Message);
+            return new SteamUiEvaluationResult(
+                SteamUiDispatch.Unanswered, null, cause.Message, GenerationsOf(channel));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // The caller gave up, which says nothing about Steam. Never a health signal.
-            return SteamUiEvaluationResult.Unavailable(
-                "Steam UI evaluation was cancelled.", GenerationsOf(channel));
+            // The caller gave up before anything was sent, which says nothing about Steam. Never a
+            // health signal.
+            return new SteamUiEvaluationResult(
+                SteamUiDispatch.NotSent, null, "Steam UI evaluation was cancelled.", GenerationsOf(channel));
         }
         catch (OperationCanceledException)
         {
@@ -221,8 +232,9 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
                 DropUnansweredConnection(channel, lease.OwnershipGeneration, connection);
             }
 
-            return SteamUiEvaluationResult.Unavailable(
-                "Steam UI evaluation timed out.", GenerationsOf(channel));
+            return new SteamUiEvaluationResult(
+                SteamUiDispatch.NotSent, null, "Steam UI evaluation timed out before it was sent.",
+                GenerationsOf(channel));
         }
         catch (InvalidDataException ex)
         {
@@ -231,9 +243,7 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
                 lease.OwnershipGeneration,
                 SteamUiTransportHealth.Incompatible,
                 ex.Message);
-            // Steam answered; its CDP reply or JavaScript result was incompatible. Preserve that
-            // distinction so callers do not diagnose a renamed API as a closed Steam client.
-            return new SteamUiEvaluationResult(true, null, ex.Message, GenerationsOf(channel));
+            return new SteamUiEvaluationResult(SteamUiDispatch.NotSent, null, ex.Message, GenerationsOf(channel));
         }
         catch (Exception ex)
         {
@@ -242,7 +252,7 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
                 lease.OwnershipGeneration,
                 SteamUiTransportHealth.Retrying,
                 ex.Message);
-            return SteamUiEvaluationResult.Unavailable(ex.Message, GenerationsOf(channel));
+            return new SteamUiEvaluationResult(SteamUiDispatch.NotSent, null, ex.Message, GenerationsOf(channel));
         }
     }
 
@@ -317,12 +327,11 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
             }
         }
 
-        _notificationEvents.Writer.TryComplete();
         _bindingEvents.Writer.TryComplete();
         _generationEvents.Writer.TryComplete();
         try
         {
-            await Task.WhenAll(_notificationEventPump, _bindingEventPump, _generationEventPump)
+            await Task.WhenAll(_bindingEventPump, _generationEventPump)
                 .WaitAsync(TimeSpan.FromSeconds(1))
                 .ConfigureAwait(false);
         }
@@ -350,8 +359,10 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {
-        var subscription = await SubscribeAsync(role, cancellationToken)
-            .ConfigureAwait(false);
+        // A request-only subscription. The request connects through EnsureConnectedAsync itself, so
+        // a reconnect loop started here only raced it for the connect gate and was cancelled again by
+        // the release. Releasing still closes the connection when nobody else holds the channel.
+        var subscription = Subscribe(role, false, cancellationToken);
         var channel = GetChannel(role);
         var ownershipGeneration = GetOwnershipGeneration(channel);
         var deadline = CancellationTokenSource.CreateLinkedTokenSource(
@@ -360,14 +371,51 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         return new RequestLease(subscription, channel, ownershipGeneration, deadline);
     }
 
+    /// <summary>Counts one holder of the channel, starting its reconnect loop for a persistent one.</summary>
+    /// <param name="role">The target the holder needs.</param>
+    /// <param name="reconnect">Whether the holder keeps the channel connected between requests.</param>
+    /// <param name="cancellationToken">Cancels acquisition.</param>
+    /// <returns>The subscription whose disposal releases the holder.</returns>
+    private IAsyncDisposable Subscribe(
+        SteamUiTargetRole role, bool reconnect, CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        cancellationToken.ThrowIfCancellationRequested();
+        var channel = GetChannel(role);
+        lock (channel.Sync)
+        {
+            channel.Subscribers++;
+            // A zero-subscriber release cancels its loop immediately but that task may not have
+            // observed cancellation yet. Keying restart only on IsCompleted left a new subscriber
+            // holding a channel whose sole reconnect loop was already doomed to exit.
+            if (reconnect
+                && _enabled
+                && (channel.ReconnectCancellation is null
+                    || channel.ReconnectCancellation.IsCancellationRequested))
+            {
+                StartReconnectLocked(channel);
+            }
+        }
+
+        return new Subscription(this, channel);
+    }
+
     /// <summary>Stops or resumes all CEF traffic while retaining subscriber intent.</summary>
     /// <param name="enabled">Whether repository-owned evaluations may reach Steam.</param>
-    /// <param name="closedReason">What evaluations report while closed; null for the settings reason.</param>
-    internal void SetEnabled(bool enabled, string? closedReason = null)
+    /// <param name="closedReason">
+    ///     What evaluations report while closed, for a host that holds the transport closed for a reason
+    ///     other than its settings; null for <see cref="DefaultClosedReason" />.
+    /// </param>
+    /// <remarks>
+    ///     The host's master switch. While closed, every evaluation answers
+    ///     <see cref="SteamUiDispatch.Closed" /> with the closed reason and nothing reaches Steam.
+    /// </remarks>
+    /// <exception cref="ObjectDisposedException">The transport was disposed.</exception>
+    public void SetEnabled(bool enabled, string? closedReason = null)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         _closedReason = string.IsNullOrWhiteSpace(closedReason)
-            ? SteamUiTransportSession.DisabledReason
+            ? DefaultClosedReason
             : closedReason;
         if (_enabled == enabled)
         {
@@ -410,7 +458,9 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         channel.ReconnectCancellation?.Dispose();
         channel.ReconnectCancellation = CancellationTokenSource.CreateLinkedTokenSource(
             _shutdown.Token);
-        var ownershipGeneration = ++channel.OwnershipGeneration;
+        // Every detach has already moved the generation past the previous owner's loop, so the new
+        // loop takes the current one and a request leased under it keeps its connection attempt.
+        var ownershipGeneration = channel.OwnershipGeneration;
         _ = ReconnectLoopAsync(
             channel,
             ownershipGeneration,
@@ -426,6 +476,7 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         while (_enabled && !cancellationToken.IsCancellationRequested)
         {
             SteamUiCdpConnection? connection;
+            var absent = false;
             try
             {
                 connection = await EnsureConnectedAsync(
@@ -433,6 +484,7 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
                         ownershipGeneration,
                         cancellationToken)
                     .ConfigureAwait(false);
+                absent = connection is null;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -472,8 +524,10 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
                 }
             }
 
-            var delay = RetryDelay(attempt);
-            attempt++;
+            // A target that is simply not there yet (Steam starting, Big Picture not open) is polled
+            // at the first step, so attachment follows its window within one step. Only failed and
+            // dropped connections escalate the backoff.
+            var delay = absent ? _retryDelays[0] : RetryDelay(_retryDelays, attempt++);
             try
             {
                 await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
@@ -486,9 +540,9 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
     }
 
     /// <summary>Returns the bounded reconnect delay for a zero-based failed attempt.</summary>
-    internal static TimeSpan RetryDelay(int attempt)
+    internal static TimeSpan RetryDelay(IReadOnlyList<TimeSpan> delays, int attempt)
     {
-        return RetryDelays[Math.Clamp(attempt, 0, RetryDelays.Length - 1)];
+        return delays[Math.Clamp(attempt, 0, delays.Count - 1)];
     }
 
     private async Task<SteamUiCdpConnection?> EnsureConnectedAsync(
@@ -610,7 +664,7 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
                     channel.LastFailure = null;
                 }
 
-                RaiseGenerationChanged(Snapshot(channel));
+                RaiseGenerationChanged(channel);
                 return connection;
             }
             catch
@@ -724,10 +778,7 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
             return;
         }
 
-        var snapshot = Snapshot(channel);
-        RaiseNotificationReceived(
-            new SteamUiNotification(channel.Role, method, parameters, snapshot.Generations));
-        RaiseGenerationChanged(snapshot);
+        RaiseGenerationChanged(channel);
     }
 
     private void OnConnectionClosed(
@@ -883,43 +934,69 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         }
     }
 
-    private void RaiseNotificationReceived(SteamUiNotification notification)
+    /// <summary>Keeps the role's latest snapshot and queues the role when none was pending.</summary>
+    private void RaiseGenerationChanged(TargetChannel channel)
     {
-        _notificationEvents.Writer.TryWrite(notification);
-    }
-
-    private void RaiseGenerationChanged(SteamUiTransportSnapshot snapshot)
-    {
-        _generationEvents.Writer.TryWrite(snapshot);
-    }
-
-    private async Task PumpAsync<T>(
-        ChannelReader<T> reader,
-        Func<EventHandler<T>?> handlers,
-        string failure)
-    {
-        // Both pumps start in the constructor, which a consumer may well run on its UI thread.
-        // Without this the loop captures that SynchronizationContext and posts every handler back
-        // to it, so a busy UI thread stalls generation and notification delivery instead of the
-        // other way round.
-        await foreach (var item in reader.ReadAllAsync().ConfigureAwait(false))
+        bool queued;
+        lock (channel.Sync)
         {
-            var current = handlers();
-            if (current is null)
+            queued = channel.PendingGeneration is not null;
+            channel.PendingGeneration = Snapshot(channel);
+        }
+
+        if (!queued)
+        {
+            _generationEvents.Writer.TryWrite(channel.Role);
+        }
+    }
+
+    // Both pumps start in the constructor, which a consumer may well run on its UI thread. Without
+    // ConfigureAwait(false) the loop captures that SynchronizationContext and posts every handler
+    // back to it, so a busy UI thread stalls generation and binding delivery instead of the other
+    // way round.
+    private async Task PumpBindingsAsync()
+    {
+        await foreach (var notification in _bindingEvents.Reader.ReadAllAsync().ConfigureAwait(false))
+        {
+            Raise(NotificationReceived, notification, "Steam UI binding handler failed");
+        }
+    }
+
+    private async Task PumpGenerationsAsync()
+    {
+        await foreach (var role in _generationEvents.Reader.ReadAllAsync().ConfigureAwait(false))
+        {
+            var channel = _channels[role];
+            SteamUiTransportSnapshot? snapshot;
+            lock (channel.Sync)
             {
-                continue;
+                snapshot = channel.PendingGeneration;
+                channel.PendingGeneration = null;
             }
 
-            foreach (EventHandler<T> handler in current.GetInvocationList())
+            if (snapshot is not null)
             {
-                try
-                {
-                    handler(this, item);
-                }
-                catch (Exception ex)
-                {
-                    SteamUiLog.Warn($"{failure}: {ex.Message}");
-                }
+                Raise(GenerationChanged, snapshot, "Steam UI generation handler failed");
+            }
+        }
+    }
+
+    private void Raise<T>(EventHandler<T>? handlers, T item, string failure)
+    {
+        if (handlers is null)
+        {
+            return;
+        }
+
+        foreach (EventHandler<T> handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                handler(this, item);
+            }
+            catch (Exception ex)
+            {
+                SteamUiLog.Warn($"{failure}: {ex.Message}");
             }
         }
     }
@@ -994,6 +1071,9 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         internal long OwnershipGeneration { get; set; }
 
         internal CancellationTokenSource? ReconnectCancellation { get; set; }
+
+        /// <summary>The latest undelivered generation snapshot; the role is queued once while it is set.</summary>
+        internal SteamUiTransportSnapshot? PendingGeneration { get; set; }
     }
 
     private readonly struct RequestLease(

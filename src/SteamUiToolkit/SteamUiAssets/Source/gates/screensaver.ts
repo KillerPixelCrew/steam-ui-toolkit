@@ -273,23 +273,21 @@ function createScreensaverSettings() {
 
     const resolve = () => {
         runtime = getWebpackRuntime("screensaver-settings");
-        react = runtime.resolve([...ReactTokens]);
-        if (typeof react?.useSyncExternalStore !== "function" || typeof react?.useEffect !== "function") {
+        const fields = resolveSteamFieldComponents(runtime);
+        react = fields?.react ?? null;
+        if (!react) {
+            lastError = "React unavailable";
+            return false;
+        }
+        if (typeof react.useSyncExternalStore !== "function" || typeof react.useEffect !== "function") {
             lastError = "React runtime lacks useSyncExternalStore or useEffect";
             return false;
         }
-        const fields = runtime.resolve([...FieldTokens]);
-        const dropdowns = new Set(
-            Object.values(fields).filter(
-                (value) =>
-                    typeof value === "function" && DropdownMarkers.every((token) => String(value).includes(token)),
-            ),
-        );
-        if (dropdowns.size !== 1) {
+        if (!fields?.dropdown) {
             lastError = "the dropdown field was not a unique match";
             return false;
         }
-        dropdown = [...dropdowns][0];
+        dropdown = fields.dropdown;
         const pages = runtime.exported(
             [...RouteTokens],
             (value) => typeof value?.Settings?.Customization === "function",
@@ -310,7 +308,6 @@ function createScreensaverSettings() {
 
         // Wanted, not required: without it the rows still follow the host, and a change to Steam's
         // timeout reaches the host on the section's next render. `status.tracking` says which.
-        useObserver = null;
         useObserver = findUseObserver(runtime);
         return true;
     };
@@ -345,6 +342,13 @@ function createScreensaverSettings() {
 
     const remove = () => {
         if (!installed) return {ok: true, absent: true};
+        // Released first: a failed release keeps the gate installed with its rows, so the next
+        // remove retries it instead of answering absent over a claim still in place.
+        const released = releaseMemo(react, MemoName);
+        if (!released.ok) {
+            lastError = released.error ?? "React useMemo could not be released";
+            return {ok: false, error: lastError};
+        }
         installed = false;
         unsubscribe = endSubscription(unsubscribe);
         if (reportTimer) {
@@ -356,11 +360,6 @@ function createScreensaverSettings() {
         pending.clear();
         lastReport = "";
         local.changed();
-        const released = releaseMemo(react, MemoName);
-        if (!released.ok) {
-            lastError = released.error ?? "React useMemo could not be released";
-            return {ok: false, error: lastError};
-        }
         pageCache.clear();
         sectionCache.clear();
         return {ok: true, removed: true};

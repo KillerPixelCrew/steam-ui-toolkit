@@ -176,6 +176,12 @@ function createNativeComponentHost() {
       patchId: SteamFoldsPatchId,
       command: "setFolded",
     }),
+    // The host's Quick Access layout: sections, headings, glyphs, folds and the accent label. Not a
+    // row either, and it takes no command. Without it each tab draws its rows in one untitled group.
+    quickAccessLayout: Object.freeze({
+      patchId: "steam-ui.quick-access-layout",
+      command: "",
+    }),
 
     // Valve's own components. They carry no command because they never call the host directly: they
     // read SystemPerfStore and write through SteamClient.System.Perf.UpdateSettings, which is the
@@ -223,10 +229,14 @@ function createNativeComponentHost() {
   // Every row command carries a fresh action generation, so its echo can be matched to the write.
   const sendCommand = (definition, command, payload) =>
     request(definition.patchId, command, payload, nextActionGeneration(definition.patchId));
-  // A controlled switch's change: a boolean that differs from what the device reports is sent.
-  const toggleCommand = (definition, state) => (enabled) => {
+  // A controlled switch's change: a boolean that differs from what the device reports is sent, and
+  // its refusal goes to `refuse` for the row's description; the next change clears it ("").
+  const toggleCommand = (definition, state, refuse: (text: string) => void) => (enabled) => {
     if (typeof enabled !== "boolean" || enabled === state.enabled) return;
-    void sendCommand(definition, definition.command, { enabled }).catch(() => {});
+    refuse("");
+    void sendCommand(definition, definition.command, { enabled }).catch((reason) =>
+      refuse(refusalText(reason)),
+    );
   };
   // The one function export carrying every token. Through the shared matcher, so an export Steam
   // aliases under two names counts once and a getter that throws counts as no match.
@@ -292,21 +302,16 @@ function createNativeComponentHost() {
     return { react, slider, dropdown, toggle, labelField, section, row, localize, icon, focusable };
   };
   const normalizeText = (value) => (typeof value === "string" ? value : "");
-  // The host's setting id while the running game's own profile supplies a row's value. The row only
-  // tests it for presence, so anything that is not a non-blank string means no override.
-  const normalizeOverrideId = (value) => (typeof value === "string" && value.trim().length > 0 ? value : null);
-  // Steam's accent blue, the colour its own UI uses for a highlighted state.
-  const OverrideColor = "#1a9fff";
-  // A row whose value the running game's profile supplies says so in its own description, in Steam's
-  // accent colour, so a changed value stands out from the global ones without adding a control.
-  const overrideDescription = (controlRuntime, overrideId, text) =>
-    overrideId
-      ? controlRuntime.react.createElement(
-          "span",
-          { style: { color: OverrideColor } },
-          text ? "Game override · " + text : "Game override",
-        )
-      : text || undefined;
+  // A row the host marks says so in its own description, in Steam's accent colour, led by the label the
+  // host's layout publishes (steam-ui.quick-access-layout). The toolkit holds no word of its own for it.
+  const accentDescription = (controlRuntime, accent, text) => {
+    const label = accent ? normalizeText(acceptedStates.get("quickAccessLayout")?.accentLabel) : "";
+    return steamAccentDescription(
+      controlRuntime.react,
+      [label, text].filter(Boolean).join(" · "),
+      accent === true,
+    );
+  };
   // Deliberately small. Everything the row needs is a switch position and a reason, because the
   // device capability behind it answers in exactly those terms.
   const normalizeVrrState = (value) => {
@@ -317,20 +322,17 @@ function createNativeComponentHost() {
       enabled: value.enabled,
       progress: normalizeText(value.progress),
       statusText: normalizeText(value.statusText),
-      overrideId: normalizeOverrideId(value.overrideId),
+      accent: value.accent === true,
     });
   };
   const normalizeAutoTdpState = (value) => {
     if (!value || typeof value !== "object" || typeof value.available !== "boolean") return null;
     if (typeof value.enabled !== "boolean" || typeof value.controlling !== "boolean") return null;
-    // The watts figure is only ever a display detail beside the switch, so a value outside the
-    // range any power limit uses is dropped rather than rejecting the whole state and taking the
-    // switch away with it.
+    // The watts figure is only ever a display detail beside the switch, so a value that is not a
+    // positive whole number is dropped rather than rejecting the whole state and taking the switch
+    // away with it.
     const watts =
-      typeof value.watts === "number" &&
-      Number.isInteger(value.watts) &&
-      value.watts >= 1 &&
-      value.watts <= 200
+      typeof value.watts === "number" && Number.isInteger(value.watts) && value.watts >= 1
         ? value.watts
         : null;
     return Object.freeze({
@@ -344,7 +346,7 @@ function createNativeComponentHost() {
   };
   const normalizeControllerState = (value) => {
     if (!value || typeof value !== "object" || typeof value.available !== "boolean") return null;
-    if (!Array.isArray(value.targets) || value.targets.length > 8) return null;
+    if (!Array.isArray(value.targets)) return null;
     const targets: Readonly<{ id: string; label: string; available: boolean }>[] = [];
     const ids = new Set();
     for (const item of value.targets) {
@@ -355,7 +357,7 @@ function createNativeComponentHost() {
       // SteamDeckComposite, Xbox360, DualShock4. A lowercase-only pattern rejected every one of
       // them, so the whole state normalised to null and the controller row never drew, with
       // nothing anywhere saying a state had been received and thrown away.
-      if (!/^[A-Za-z0-9._-]{1,64}$/.test(id) || !label || ids.has(id)) return null;
+      if (!/^[A-Za-z0-9._-]+$/.test(id) || !label || ids.has(id)) return null;
       ids.add(id);
       targets.push(Object.freeze({ id, label, available: item.available !== false }));
     }
@@ -373,8 +375,7 @@ function createNativeComponentHost() {
       observedTarget,
       progress: normalizeText(value.progress),
       statusText: normalizeText(value.statusText),
-      applicationRestartRequired: value.applicationRestartRequired === true,
-      overrideId: normalizeOverrideId(value.overrideId),
+      accent: value.accent === true,
     });
   };
   const validEnum = (value, allowed) =>
@@ -391,12 +392,12 @@ function createNativeComponentHost() {
       "queued",
       "applying",
       // A write the host accepted and stored but has not made yet, because what it applies to
-      // is not addressable right now — WSGM reports it when Steam has named a running game
+      // is not addressable right now — a host reports it when Steam has named a running game
       // whose executable Windows has not exposed, so the cap is saved against the game rather
       // than sprayed onto the global profile. It was missing from this list, and a settled
       // outcome the host can legitimately report was therefore rejected as malformed: adjusting
       // the frame-limit slider while a game was starting deleted the row the user had just
-      // touched (Claw, 2026-09-04). Not busy — the value is stored, and the row stays live.
+      // touched (2026-09-04). Not busy — the value is stored, and the row stays live.
       "deferred",
       "applied",
       "rejected",
@@ -409,7 +410,7 @@ function createNativeComponentHost() {
       progress,
       fault: normalizeText(value.fault),
       statusText: normalizeText(value.statusText),
-      overrideId: normalizeOverrideId(value.overrideId),
+      accent: value.accent === true,
     });
   };
   // Validated rather than trusted, like every other semantic state: this arrives over the bridge
@@ -470,14 +471,19 @@ function createNativeComponentHost() {
     });
   };
 
+  // A host's reading for a range row, clamped into the range, or null when it is not a number.
+  const clampReading = (value, minimum, maximum) =>
+    typeof value === "number" && Number.isFinite(value)
+      ? Math.min(maximum, Math.max(minimum, value))
+      : null;
   const normalizeDeviceRange = (value) => {
     if (value === null || value === undefined) return null;
     if (!value || typeof value !== "object" || typeof value.available !== "boolean") return null;
     const minimum = Number(value.minimum);
     const maximum = Number(value.maximum);
     const step = Number(value.step);
-    const desired = value.desired === null ? null : Number(value.desired);
-    const observed = value.observed === null ? null : Number(value.observed);
+    // The descriptor decides whether the slider draws; the readings only where it sits, clamped
+    // into the range, with an off-step one shown as is until the user moves it.
     if (
       !Number.isInteger(minimum) ||
       !Number.isInteger(maximum) ||
@@ -486,17 +492,7 @@ function createNativeComponentHost() {
       maximum > 100 ||
       minimum >= maximum ||
       step < 1 ||
-      step > maximum - minimum ||
-      (desired !== null &&
-        (!Number.isInteger(desired) ||
-          desired < minimum ||
-          desired > maximum ||
-          (desired - minimum) % step !== 0)) ||
-      (observed !== null &&
-        (!Number.isInteger(observed) ||
-          observed < minimum ||
-          observed > maximum ||
-          (observed - minimum) % step !== 0))
+      step > maximum - minimum
     )
       return null;
     return Object.freeze({
@@ -504,11 +500,11 @@ function createNativeComponentHost() {
       minimum,
       maximum,
       step,
-      desired,
-      observed,
+      desired: clampReading(value.desired, minimum, maximum),
+      observed: clampReading(value.observed, minimum, maximum),
       progress: normalizeText(value.progress),
       statusText: normalizeText(value.statusText),
-      overrideId: normalizeOverrideId(value.overrideId),
+      accent: value.accent === true,
     });
   };
   const normalizeDeviceControlsState = (value) => {
@@ -523,7 +519,7 @@ function createNativeComponentHost() {
       observedColor: number | null;
       progress: string;
       statusText: string;
-      overrideId: string | null;
+      accent: boolean;
     }>[] = [];
     const ids = new Set();
     for (const zone of value.lightingZones) {
@@ -552,7 +548,7 @@ function createNativeComponentHost() {
           observedColor,
           progress: normalizeText(zone.progress),
           statusText: normalizeText(zone.statusText),
-          overrideId: normalizeOverrideId(zone.overrideId),
+          accent: zone.accent === true,
         }),
       );
     }
@@ -577,18 +573,17 @@ function createNativeComponentHost() {
     // A cap only has to be something the limiter could hold. It is deliberately NOT required to
     // sit between the bookends: a host that raised its floor, or a limiter written behind the
     // host's back, would otherwise publish a state that deleted the whole row — and this row is
-    // the only place the user could have corrected the value. Observed on a Claw (2026-09-03),
+    // the only place the user could have corrected the value. Observed on a handheld (2026-09-03),
     // where a 12 FPS cap under a floor of 30 took the Quick Access slider away entirely and left
     // no way to put it back. The bookends stretch to reach the value instead.
-    const capUnusable = (fps) => fps !== null && (!Number.isInteger(fps) || fps < 0 || fps > 1000);
+    const capUnusable = (fps) => fps !== null && (!Number.isInteger(fps) || fps < 0);
     if (
       (minimumFps !== null &&
         maximumFps !== null &&
         (!Number.isInteger(minimumFps) ||
           !Number.isInteger(maximumFps) ||
           minimumFps < 0 ||
-          maximumFps < minimumFps ||
-          maximumFps > 1000)) ||
+          maximumFps < minimumFps)) ||
       capUnusable(desiredFps) ||
       capUnusable(observedFps) ||
       (common.available && minimumFps === null)
@@ -755,7 +750,7 @@ function createNativeComponentHost() {
   // an unknown one comes straight back.
   //
   // EVERY label goes through this, not only the host-invented ones. With the rows finally
-  // rendering on the reference Claw, "#QuickAccess_Tab_Perf_FramerateLimit" and
+  // rendering on the reference device, "#QuickAccess_Tab_Perf_FramerateLimit" and
   // "#QuickAccess_Tab_Perf_PerfOverlayLevel" both came back raw and were shown to the user as
   // their token text. A bare localize() call here is a bug waiting for the next missing string.
   //
@@ -786,6 +781,7 @@ function createNativeComponentHost() {
   const createVrrControl = (controlRuntime) =>
     function SteamUiVrrControl() {
       const state = useSemanticState(controlRuntime, "vrr", normalizeVrrState);
+      const [refusal, setRefusal] = controlRuntime.react.useState("");
       if (!state) return note("vrr", "no state");
       if (!state.available) return note("vrr", "unavailable: " + (state.statusText || "no reason"));
       if (!controlRuntime.toggle) return note("vrr", "Steam ToggleField was not resolved");
@@ -801,19 +797,20 @@ function createNativeComponentHost() {
           "Variable refresh rate",
         ),
         icon: controlRuntime.icon("pulse"),
-        description: overrideDescription(controlRuntime,state.overrideId, state.statusText),
+        description: refusal || accentDescription(controlRuntime, state.accent, state.statusText),
         checked: state.enabled,
         // Controlled: the switch shows what the device reports, so a write the panel refuses
         // leaves it where the hardware actually is rather than where it was clicked.
         controlled: true,
         disabled: isBusy(state.progress),
-        onChange: toggleCommand(definition, state),
+        onChange: toggleCommand(definition, state, setRefusal),
       });
       return toggle;
     };
   const createAutoTdpControl = (controlRuntime) =>
     function SteamUiAutoTdpControl() {
       const state = useSemanticState(controlRuntime, "autoTdp", normalizeAutoTdpState);
+      const [refusal, setRefusal] = controlRuntime.react.useState("");
       if (!state) return note("autoTdp", "no state");
       if (!state.available)
         return note("autoTdp", "unavailable: " + (state.statusText || "no reason"));
@@ -840,14 +837,14 @@ function createNativeComponentHost() {
         // The host's own control; Valve has no string for it, so no token is passed.
         label: "Automatic TDP",
         icon: controlRuntime.icon("auto"),
-        description: description || undefined,
+        description: refusal || description || undefined,
         checked: state.enabled,
         // Controlled, so the switch shows the stored setting rather than its own click. A command
         // that does not land leaves the switch where the setting actually is instead of showing a
         // change that did not happen.
         controlled: true,
         disabled: isBusy(state.progress),
-        onChange: toggleCommand(definition, state),
+        onChange: toggleCommand(definition, state, setRefusal),
       });
     };
   const normalizePowerProfileState = (value) => {
@@ -858,19 +855,22 @@ function createNativeComponentHost() {
     )
       return null;
     const ids = new Set();
-    const options: { id: string; label: string }[] = [];
+    const options: { id: string; label: string; selectable: boolean }[] = [];
     for (const item of value.options) {
       const label = normalizeText(item?.label);
       if (
         !item ||
         typeof item.id !== "string" ||
-        !/^[A-Za-z0-9._-]{1,64}$/.test(item.id) ||
+        !/^[A-Za-z0-9._-]+$/.test(item.id) ||
         !label.trim() ||
         ids.has(item.id)
       )
         return null;
       ids.add(item.id);
-      options.push({ id: item.id, label });
+      // An option the host marks unselectable names a state the user cannot pick, such as values
+      // that match none of the presets: it is listed only where it is the current value, and never
+      // sent.
+      options.push({ id: item.id, label, selectable: item.selectable !== false });
     }
     return {
       available: value.available,
@@ -879,20 +879,44 @@ function createNativeComponentHost() {
       statusText: normalizeText(value.statusText),
     };
   };
-  // The Windows power profile and processor core rows: one dropdown over the same state shape,
-  // differing in kind, label and glyph. No options is nothing to choose, so the reason goes to
-  // renderOutcomes rather than onto an empty, disabled dropdown. The component keeps the name it
-  // is created under, and the glyph is built by the caller so each row's `icon("…")` stays a literal
-  // the glyph ownership check can read.
-  const createChoiceControl = (controlRuntime, kind, label, name, icon) =>
+  // A refused write's reason, whole, for the row's description.
+  const refusalText = (reason) => normalizeText(String(reason?.message ?? reason));
+  // One dropdown write: pending while it is in flight, and its refusal handed to `refuse` for the
+  // row's description rather than swallowed. The next write clears it ("") as it starts.
+  const sendPending = (setPending, refuse: (text: string) => void, sent: Promise<unknown>) => {
+    setPending(true);
+    refuse("");
+    void sent
+      .catch((reason) => refuse(refusalText(reason)))
+      .finally(() => setPending(false));
+  };
+  // The Windows power profile, processor core and CPU boost rows: one dropdown over the same state
+  // shape, differing in kind, label, glyph and how a state describes itself (the boost row carries
+  // the per-game marker). No options is nothing to choose, so the reason goes to renderOutcomes
+  // rather than onto an empty, disabled dropdown. The component keeps the name it is created under,
+  // and the glyph is built by the caller so each row's `icon("…")` stays a literal the glyph
+  // ownership check can read.
+  const createChoiceControl = (
+    controlRuntime,
+    kind,
+    label,
+    name,
+    icon,
+    normalize = normalizePowerProfileState,
+    describe = (state) => state.statusText || undefined,
+  ) =>
     ({
       [name]: function () {
-        const state = useSemanticState(controlRuntime, kind, normalizePowerProfileState);
+        const state = useSemanticState(controlRuntime, kind, normalize);
         const [pending, setPending] = controlRuntime.react.useState(false);
+        const [refusal, setRefusal] = controlRuntime.react.useState("");
         if (!state) return note(kind, "no state");
         if (!state.options.length)
           return note(kind, "no options: " + (state.statusText || "no reason"));
-        const options = state.options.map((option) => ({ data: option.id, label: option.label }));
+        const options = state.options
+          .filter((option) => option.selectable || option.id === state.current)
+          .map((option) => ({ data: option.id, label: option.label }));
+        const selectable = (id) => state.options.some((option) => option.id === id && option.selectable);
         const definition = definitions[kind];
         drew(kind);
         summarize(kind, options.find((option) => option.data === state.current)?.label ?? "");
@@ -904,7 +928,7 @@ function createNativeComponentHost() {
             ? state.current
             : undefined,
           disabled: pending || !state.available || options.length < 2,
-          description: state.statusText || undefined,
+          description: refusal || describe(state),
           layout: "below",
           onChange: (option) => {
             if (
@@ -912,13 +936,14 @@ function createNativeComponentHost() {
               !state.available ||
               !option ||
               option.data === state.current ||
-              !options.some((candidate) => candidate.data === option.data)
+              !selectable(option.data)
             )
               return;
-            setPending(true);
-            void sendCommand(definition, definition.command, { target: option.data })
-              .catch(() => {})
-              .finally(() => setPending(false));
+            sendPending(
+              setPending,
+              setRefusal,
+              sendCommand(definition, definition.command, { target: option.data }),
+            );
           },
         });
       },
@@ -940,82 +965,50 @@ function createNativeComponentHost() {
       "SteamUiHybridCoreControl",
       () => controlRuntime.icon("cores"),
     );
-  // The power-profile shape plus the per-game marker. The shared choice control has no place for
-  // the marker, so this row draws its own dropdown over the same state.
+  // The power-profile shape plus the per-game marker, which the boost row's description carries.
   const normalizeCpuBoostState = (value) => {
     const state = normalizePowerProfileState(value);
-    return state ? { ...state, overrideId: normalizeOverrideId(value.overrideId) } : null;
+    return state ? { ...state, accent: value.accent === true } : null;
   };
   const createCpuBoostControl = (controlRuntime) =>
-    function SteamUiCpuBoostControl() {
-      const state = useSemanticState(controlRuntime, "cpuBoost", normalizeCpuBoostState);
-      const [pending, setPending] = controlRuntime.react.useState(false);
-      if (!state) return note("cpuBoost", "no state");
-      if (!state.options.length)
-        return note("cpuBoost", "no options: " + (state.statusText || "no reason"));
-      const options = state.options.map((option) => ({ data: option.id, label: option.label }));
-      const definition = definitions.cpuBoost;
-      drew("cpuBoost");
-      summarize(
-        "cpuBoost",
-        options.find((option) => option.data === state.current)?.label ?? "",
-      );
-      return controlRuntime.react.createElement(controlRuntime.dropdown, {
-        label: "CPU boost mode",
-        icon: controlRuntime.icon("turbo"),
-        rgOptions: options,
-        selectedOption: options.some((option) => option.data === state.current)
-          ? state.current
-          : undefined,
-        disabled: pending || !state.available || options.length < 2,
-        description: overrideDescription(controlRuntime, state.overrideId, state.statusText),
-        layout: "below",
-        onChange: (option) => {
-          if (
-            pending ||
-            !state.available ||
-            !option ||
-            option.data === state.current ||
-            !options.some((candidate) => candidate.data === option.data)
-          )
-            return;
-          setPending(true);
-          void sendCommand(definition, definition.command, { target: option.data })
-            .catch(() => {})
-            .finally(() => setPending(false));
-        },
-      });
-    };
+    createChoiceControl(
+      controlRuntime,
+      "cpuBoost",
+      "CPU boost mode",
+      "SteamUiCpuBoostControl",
+      () => controlRuntime.icon("turbo"),
+      normalizeCpuBoostState,
+      (state) => accentDescription(controlRuntime, state.accent, state.statusText),
+    );
   const normalizePowerPresetState = (value) => {
     const state = normalizePowerProfileState(value);
     if (!state || typeof value.ac !== "string" || typeof value.battery !== "string") return null;
     const valid = (id) => id === "" || state.options.some((option) => option.id === id);
-    if (
-      !valid(value.ac) ||
-      !valid(value.battery) ||
-      (state.options.some((option) => option.id === "custom") &&
-        value.ac !== "custom" &&
-        value.battery !== "custom")
-    )
-      return null;
+    if (!valid(value.ac) || !valid(value.battery)) return null;
     return {
       ...state,
       ac: value.ac,
       battery: value.battery,
       scope: normalizeText(value.scope),
       unsetLabel: normalizeText(value.unsetLabel),
-      acOverrideId: normalizeOverrideId(value.acOverrideId),
-      batteryOverrideId: normalizeOverrideId(value.batteryOverrideId),
+      acAccent: value.acAccent === true,
+      batteryAccent: value.batteryAccent === true,
     };
   };
   const createPowerPresetControl = (controlRuntime) =>
     function SteamUiPowerAssignments() {
       const state = useSemanticState(controlRuntime, "powerPreset", normalizePowerPresetState);
       const [pending, setPending] = controlRuntime.react.useState(false);
+      // A refusal belongs to the assignment whose write it answered.
+      const [refusal, setRefusal] = controlRuntime.react.useState(null);
       if (!state || !state.options.length) return note("powerPreset", "no state");
       const options = [
-        { data: "", label: state.unsetLabel || "Manual selection" },
-        ...state.options.map((option) => ({ data: option.id, label: option.label })),
+        { data: "", label: state.unsetLabel || "Manual selection", selectable: true },
+        ...state.options.map((option) => ({
+          data: option.id,
+          label: option.label,
+          selectable: option.selectable,
+        })),
       ];
       const definition = definitions.powerPreset;
       // The unset entry is the way back to Global for a game's own assignment, so the override needs
@@ -1025,15 +1018,20 @@ function createNativeComponentHost() {
         iconName,
         selected,
         command,
-        overrideId: string | null,
+        accent: boolean,
         description?: string,
       ) =>
         controlRuntime.react.createElement(controlRuntime.dropdown, {
           label,
           icon: controlRuntime.icon(iconName),
           layout: "below",
-          description: overrideDescription(controlRuntime,overrideId, description),
-          rgOptions: options.filter((option) => option.data !== "custom" || selected === "custom"),
+          description:
+            refusal?.command === command
+              ? refusal.text
+              : accentDescription(controlRuntime, accent, description),
+          rgOptions: options
+            .filter((option) => option.selectable || option.data === selected)
+            .map((option) => ({ data: option.data, label: option.label })),
           selectedOption: selected,
           disabled: pending || !state.available,
           onChange: (option) => {
@@ -1041,14 +1039,14 @@ function createNativeComponentHost() {
               pending ||
               !state.available ||
               !option ||
-              option.data === "custom" ||
-              !options.some((item) => item.data === option.data)
+              !options.some((item) => item.data === option.data && item.selectable)
             )
               return;
-            setPending(true);
-            void sendCommand(definition, command, { target: option.data || null })
-              .catch(() => {})
-              .finally(() => setPending(false));
+            sendPending(
+              setPending,
+              (text) => setRefusal(text ? { command, text } : null),
+              sendCommand(definition, command, { target: option.data || null }),
+            );
           },
         });
       drew("powerPreset");
@@ -1093,7 +1091,7 @@ function createNativeComponentHost() {
           "plug",
           state.ac,
           definition.acCommand,
-          state.acOverrideId,
+          state.acAccent,
           orphaned,
         ),
         assignment(
@@ -1101,25 +1099,25 @@ function createNativeComponentHost() {
           "battery",
           state.battery,
           definition.batteryCommand,
-          state.batteryOverrideId,
+          state.batteryAccent,
         ),
       );
     };
   const createControllerControl = (controlRuntime) =>
     function SteamUiControllerTargetControl() {
       const state = useSemanticState(controlRuntime, "controllerTarget", normalizeControllerState);
+      const [refusal, setRefusal] = controlRuntime.react.useState("");
       if (!state) return note("controllerTarget", "no state");
       if (!state.available)
         return note("controllerTarget", "unavailable: " + (state.statusText || "no reason"));
       const options = state.targets
         .filter((target) => target.available)
         .map((target) => ({ data: target.id, label: target.label }));
-      const selected = state.observedTarget || state.selectedTarget;
-      if (!options.some((option) => option.data === selected))
-        return note(
-          "controllerTarget",
-          `selected '${selected}' is not among ${options.length} available target(s)`,
-        );
+      // What the host reports, or nothing when neither the observed nor the selected target is one
+      // of the available ones: the dropdown still draws, with no selection, so the user can pick.
+      const reported = state.observedTarget || state.selectedTarget;
+      const selected = options.some((option) => option.data === reported) ? reported : undefined;
+      if (!options.length) return note("controllerTarget", "no available targets");
       drew("controllerTarget");
       summarize(
         "controllerTarget",
@@ -1128,9 +1126,11 @@ function createNativeComponentHost() {
       const definition = definitions.controllerTarget;
       const setTarget = (option) => {
         if (!option || !options.some((candidate) => candidate.data === option.data)) return;
-        void sendCommand(definition, definition.command, { target: option.data }).catch(() => {});
+        setRefusal("");
+        void sendCommand(definition, definition.command, { target: option.data }).catch((reason) =>
+          setRefusal(refusalText(reason)),
+        );
       };
-      const restart = state.applicationRestartRequired ? " Restart the application to rebind." : "";
       const dropdown = controlRuntime.react.createElement(controlRuntime.dropdown, {
         label: localizeOr(
           controlRuntime,
@@ -1141,8 +1141,10 @@ function createNativeComponentHost() {
         rgOptions: options,
         selectedOption: selected,
         onChange: setTarget,
-        disabled: isBusy(state.progress) || options.length < 2,
-        description: overrideDescription(controlRuntime,state.overrideId, (state.statusText || "") + restart),
+        // One target is still a choice while none is shown as selected.
+        disabled: isBusy(state.progress) || (options.length < 2 && selected !== undefined),
+        description:
+          refusal || accentDescription(controlRuntime, state.accent, state.statusText),
         layout: "below",
       });
       return dropdown;
@@ -1150,6 +1152,7 @@ function createNativeComponentHost() {
   const createResolutionControl = (controlRuntime) =>
     function SteamUiResolutionControl() {
       const state = useSemanticState(controlRuntime, "resolution", normalizeResolutionState);
+      const [refusal, setRefusal] = controlRuntime.react.useState("");
       if (!state) return note("resolution", "no state");
       if (!state.available)
         return note("resolution", "unavailable: " + (state.statusText || "no reason"));
@@ -1166,7 +1169,10 @@ function createNativeComponentHost() {
         if (!option || !state.options.includes(option.data)) return;
         // "target" rather than "value": that is the payload shape every dropdown here uses, and
         // the host's reader rejects an object carrying anything else.
-        void sendCommand(definition, definition.command, { target: option.data }).catch(() => {});
+        setRefusal("");
+        void sendCommand(definition, definition.command, { target: option.data }).catch((reason) =>
+          setRefusal(refusalText(reason)),
+        );
       };
       return controlRuntime.react.createElement(controlRuntime.dropdown, {
         // Not localized, deliberately. The client has no token meaning "display resolution":
@@ -1180,7 +1186,7 @@ function createNativeComponentHost() {
         // which would silently misreport what the display is doing.
         selectedOption: state.options.includes(state.current) ? state.current : undefined,
         onChange: setResolution,
-        description: state.statusText || undefined,
+        description: refusal || state.statusText || undefined,
         layout: "below",
       });
     };
@@ -1191,14 +1197,14 @@ function createNativeComponentHost() {
         value && Array.isArray(value.pages) && Number.isSafeInteger(value.revision) ? value : null);
       const folds = useSemanticState(controlRuntime, "panelFolds", normalizePanelFoldsState);
       const react = controlRuntime.react;
-      const [drafts, setDrafts] = react.useState({});
-      react.useEffect(() => setDrafts({}), [state?.revision]);
-      if (!state || !ui?.valueField || !ui?.smallButton) return null;
-      const change = (row, value, commit = true) => {
-        setDrafts(previous => ({ ...previous, [row.key]: value }));
-        if (commit) void sendCommand(definitions.settingsSections, "set", { key: row.key, value })
-          .catch(() => setDrafts(previous => { const next = { ...previous }; delete next[row.key]; return next; }));
-      };
+      // The settings page's own draft keeping: a refused write shows why on its row, and a
+      // publication that changes another row keeps what is being typed here.
+      const drafts = useSteamSettingDrafts(react, state?.revision);
+      if (!state) return note("settingsSections", "no state");
+      if (!ui?.valueField || !ui?.smallButton)
+        return note("settingsSections", "Steam's settings value field or small button was not resolved");
+      const change = drafts.change((row, value) =>
+        sendCommand(definitions.settingsSections, "set", { key: row.key, value }));
       const action = row => change(row, true);
       return react.createElement(react.Fragment, null, ...state.pages.map(page => {
         const key = "settings." + page.id;
@@ -1209,7 +1215,7 @@ function createNativeComponentHost() {
           renderSteamUiGroup(controlRuntime, {
             key: key + "." + (section.id ?? index), title: section.title || undefined,
           }, ...(section.rows ?? []).map(row => react.createElement(controlRuntime.row, { key: row.key },
-            renderSteamSettingRow(ui, { ...row, layout: "below" }, drafts[row.key], change, action))))));
+            renderSteamSettingRow(ui, drafts.row({ ...row, layout: "below" }), drafts.draft(row), change, action))))));
       }));
     };
 
@@ -1217,6 +1223,8 @@ function createNativeComponentHost() {
     function SteamUiAudioFormatControl() {
       const state = useSemanticState(controlRuntime, "audioFormat", normalizeAudioFormatState);
       const [pending, setPending] = controlRuntime.react.useState(false);
+      // A refusal belongs to the dropdown whose write it answered; two share a command.
+      const [refusal, setRefusal] = controlRuntime.react.useState(null);
       if (!state) return note("audioFormat", "no state");
       if (!state.available)
         return note("audioFormat", "unavailable: " + (state.statusText || "no reason"));
@@ -1230,7 +1238,7 @@ function createNativeComponentHost() {
           rgOptions: options,
           selectedOption: current || undefined,
           disabled: pending || choices.length < 2,
-          description: state.statusText || undefined,
+          description: (refusal?.label === label ? refusal.text : "") || state.statusText || undefined,
           layout: "below",
           onChange: (option) => {
             if (
@@ -1240,10 +1248,11 @@ function createNativeComponentHost() {
               !options.some((choice) => choice.data === option.data)
             )
               return;
-            setPending(true);
-            void sendCommand(definition, command, { target: option.data })
-              .catch(() => {})
-              .finally(() => setPending(false));
+            sendPending(
+              setPending,
+              (text) => setRefusal(text ? { label, text } : null),
+              sendCommand(definition, command, { target: option.data }),
+            );
           },
         });
       };
@@ -1307,16 +1316,21 @@ function createNativeComponentHost() {
       // the notch INDEX, which is what a notch slider reports while it is being dragged.
       // Unconditional, ahead of every early return — these are hooks.
       const refreshEchoed = useEchoedValue(controlRuntime, currentRefreshNotch(state));
+      const [refusal, setRefusal] = controlRuntime.react.useState("");
       if (!state) return note("frameLimit", "no state");
       if (!state.available)
         return note("frameLimit", "unavailable: " + (state.statusText || "no reason"));
-      if (value === null) return note("frameLimit", "no observed or desired fps");
+      // No observed or desired cap still draws the row: the slider sits where an unset cap does and
+      // hides its number until the user moves it.
       drew("frameLimit");
       const definition = definitions.frameLimit;
-      const send = (command, nextValue) =>
-        void sendCommand(definition, command, { value: nextValue, persistence: "automatic" }).catch(
-          () => {},
+      // A refused write shows why under the slider until the next write.
+      const send = (command, nextValue) => {
+        setRefusal("");
+        void sendCommand(definition, command, { value: nextValue }).catch(
+          (reason) => setRefusal(refusalText(reason)),
         );
+      };
       const setCap = (nextValue) => {
         if (
           !Number.isInteger(nextValue) ||
@@ -1414,10 +1428,11 @@ function createNativeComponentHost() {
         // "60 FPS (60 Hz)" is how SteamOS's unified row names a cap and the rate it will be
         // presented at. In refresh mode the notch label already carries the number.
         valueSuffix: refreshMode ? " Hz" : pairedHz ? ` FPS (${pairedHz} Hz)` : " FPS",
-        showValue: !refreshMode,
+        showValue: !refreshMode && echoed.value !== null,
         showBookendLabels: !refreshMode,
         disabled: isBusy(state.progress),
-        description: overrideDescription(controlRuntime,state.overrideId, state.fault || state.statusText),
+        description:
+          refusal || accentDescription(controlRuntime, state.accent, state.fault || state.statusText),
         onChange: refreshMode ? refreshEchoed.onChange : echoed.onChange,
         onChangeComplete: (next) =>
           refreshMode
@@ -1483,17 +1498,15 @@ function createNativeComponentHost() {
       stepWatts: step,
       observedWatts: observed,
     } = value;
+    // A valid descriptor draws the slider. The reading is a display detail: none leaves the slider
+    // at its minimum with no number, one outside the range is shown at the nearer end, and one off
+    // the step is shown as is until the user moves it.
     if (
       ![min, max, step].every(Number.isInteger) ||
       min < 1 ||
-      max > 200 ||
       min >= max ||
       step < 1 ||
-      step > max - min ||
-      !Number.isInteger(observed) ||
-      observed < min ||
-      observed > max ||
-      (observed - min) % step !== 0
+      step > max - min
     )
       return null;
     return {
@@ -1501,10 +1514,10 @@ function createNativeComponentHost() {
       min,
       max,
       step,
-      observed,
+      observed: clampReading(observed, min, max),
       progress: normalizeText(value.progress),
       statusText: normalizeText(value.statusText),
-      overrideId: normalizeOverrideId(value.overrideId),
+      accent: value.accent === true,
     };
   };
   const normalizePowerLimitState = (value) =>
@@ -1514,7 +1527,7 @@ function createNativeComponentHost() {
           boost: normalizePowerLimitRange(value.boost),
           unified: value.unified === true,
           canSelectMode: value.canSelectMode === true,
-          modeOverrideId: normalizeOverrideId(value.modeOverrideId),
+          modeAccent: value.modeAccent === true,
         }
       : null;
   const createPowerLimitControl = (controlRuntime) =>
@@ -1537,8 +1550,8 @@ function createNativeComponentHost() {
             checked: state.unified,
             controlled: true,
             disabled: busy,
-            description: overrideDescription(controlRuntime,
-              state.modeOverrideId,
+            description: accentDescription(controlRuntime,
+              state.modeAccent,
               error || "Coordinate sustained and boost limits with one target.",
             ),
             onChange: (unified) => {
@@ -1553,7 +1566,7 @@ function createNativeComponentHost() {
               setSending(true);
               setError("");
               void sendCommand(definition, definition.modeCommand, { unified })
-                .catch((reason) => setError(normalizeText(String(reason))))
+                .catch((reason) => setError(normalizeText(reason?.message ?? String(reason))))
                 .finally(() => {
                   pending.current = false;
                   setSending(false);
@@ -1590,7 +1603,7 @@ function createNativeComponentHost() {
           setSending(true);
           setError("");
           void sendCommand(definition, command, { watts })
-            .catch((reason) => setError(normalizeText(String(reason))))
+            .catch((reason) => setError(normalizeText(reason?.message ?? String(reason))))
             .finally(() => {
               pending.current = false;
               setSending(false);
@@ -1607,13 +1620,14 @@ function createNativeComponentHost() {
               min: range.min,
               max: range.max,
               step: range.step,
-              value: echo.value,
+              // No reading sits at the minimum with no number, and sends nothing until moved.
+              value: echo.value ?? range.min,
               valueSuffix: " W",
-              showValue: true,
+              showValue: echo.value !== null,
               showBookendLabels: true,
               disabled: busy || !range.available,
-              description: overrideDescription(controlRuntime,
-                range.overrideId,
+              description: accentDescription(controlRuntime,
+                range.accent,
                 error ||
                   (state.unified
                     ? `Sustained ${state.sustained?.observed ?? "?"} W · Boost ${state.boost?.observed ?? "?"} W`
@@ -1637,15 +1651,23 @@ function createNativeComponentHost() {
     };
 
   const createDeviceControlsControl = (controlRuntime) =>
-    function SteamUiDeviceControls() {
+    // `sections` is the Quick Settings sections of the host's layout, or null without one.
+    function SteamUiDeviceControls({ sections }) {
       const state = useSemanticState(
         controlRuntime,
         "deviceControls",
         normalizeDeviceControlsState,
       );
       const definition = definitions.deviceControls;
-      const send = (command, payload) =>
-        void sendCommand(definition, command, payload).catch(() => {});
+      // A refusal belongs to the row whose write it answered, and shows there until the next write.
+      const [refusal, setRefusal] = controlRuntime.react.useState(null);
+      const refusalFor = (command) => (refusal?.command === command ? refusal.text : "");
+      const send = (command, payload) => {
+        setRefusal(null);
+        void sendCommand(definition, command, payload).catch((reason) =>
+          setRefusal({ command, text: refusalText(reason) }),
+        );
+      };
       const queueColorCommit = useTrailingCommit(controlRuntime, 350, ({ zone, color }) =>
         send(definition.colorCommand, { zone, color }),
       );
@@ -1679,7 +1701,9 @@ function createNativeComponentHost() {
           ),
         );
       };
-      if (state.chargeLimit?.available && chargeEcho.value !== null) {
+      // A range with no reading still draws, at its minimum with no number, and sends nothing until
+      // the user moves it.
+      if (state.chargeLimit?.available) {
         const range = state.chargeLimit;
         appendSlider("steam-ui-charge-limit", {
           label: "Battery charge limit",
@@ -1688,12 +1712,14 @@ function createNativeComponentHost() {
           min: range.minimum,
           max: range.maximum,
           step: range.step,
-          value: chargeEcho.value,
+          value: chargeEcho.value ?? range.minimum,
           valueSuffix: "%",
-          showValue: true,
+          showValue: chargeEcho.value !== null,
           showBookendLabels: true,
           disabled: isBusy(range.progress),
-          description: overrideDescription(controlRuntime,range.overrideId, range.statusText),
+          description:
+            refusalFor(definition.chargeCommand) ||
+            accentDescription(controlRuntime, range.accent, range.statusText),
           onChange: chargeEcho.onChange,
           onChangeComplete: (next) =>
             chargeEcho.onChangeComplete(next, (percent) =>
@@ -1703,7 +1729,7 @@ function createNativeComponentHost() {
       }
 
       const chargingRows = rows.splice(0);
-      if (state.lightingBrightness?.available && brightnessEcho.value !== null) {
+      if (state.lightingBrightness?.available) {
         const range = state.lightingBrightness;
         appendSlider("steam-ui-lighting-brightness", {
           label: "Lighting brightness",
@@ -1712,12 +1738,14 @@ function createNativeComponentHost() {
           min: range.minimum,
           max: range.maximum,
           step: range.step,
-          value: brightnessEcho.value,
+          value: brightnessEcho.value ?? range.minimum,
           valueSuffix: "%",
-          showValue: true,
+          showValue: brightnessEcho.value !== null,
           showBookendLabels: true,
           disabled: isBusy(range.progress),
-          description: overrideDescription(controlRuntime,range.overrideId, range.statusText),
+          description:
+            refusalFor(definition.brightnessCommand) ||
+            accentDescription(controlRuntime, range.accent, range.statusText),
           onChange: brightnessEcho.onChange,
           onChangeComplete: (next) =>
             brightnessEcho.onChangeComplete(next, (percent) =>
@@ -1734,14 +1762,21 @@ function createNativeComponentHost() {
             controlRuntime.react.createElement(controlRuntime.toggle, {
               label: "Edit color",
               icon: controlRuntime.icon("pencil"),
-              // Which zones the running game colours itself, so it shows without opening the editor.
-              description: zones.some((candidate) => candidate.overrideId)
-                ? "Game override · " +
-                  zones
-                    .filter((candidate) => candidate.overrideId)
-                    .map((candidate) => candidate.label)
-                    .join(", ")
-                : undefined,
+              // Which zones the host marks, after its accent label, so it shows without opening the
+              // editor, or why the last colour was refused. Plain text, not accented.
+              description:
+                refusalFor(definition.colorCommand) ||
+                (zones.some((candidate) => candidate.accent)
+                  ? [
+                      normalizeText(acceptedStates.get("quickAccessLayout")?.accentLabel),
+                      zones
+                        .filter((candidate) => candidate.accent)
+                        .map((candidate) => candidate.label)
+                        .join(", "),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")
+                  : undefined),
               checked: editingColor,
               controlled: true,
               onChange: setEditingColor,
@@ -1770,7 +1805,7 @@ function createNativeComponentHost() {
                 }
               },
               disabled: options.length < 2,
-              description: overrideDescription(controlRuntime,zone.overrideId, zone.statusText),
+              description: accentDescription(controlRuntime, zone.accent, zone.statusText),
               layout: "below",
             }),
           ),
@@ -1874,28 +1909,34 @@ function createNativeComponentHost() {
       if (!rows.length && !chargingRows.length)
         return note("deviceControls", "no compatible charge or lighting rows");
       drew("deviceControls", `rendered ${rows.length + chargingRows.length} row(s)`);
-      // Two sections, two detail lines, each under its section's title: the charge limit, and the
-      // lighting's brightness and zone.
-      summarize("Charging", chargeValue === null ? "" : `Limit ${chargeValue}%`);
+      // Two groups, two detail lines, each under the kind its section names: the charge limit, and
+      // the lighting's brightness and zone.
+      summarize("charging", chargeValue === null ? "" : `Limit ${chargeValue}%`);
       summarize(
-        "RGB lighting",
+        "lighting",
         [brightnessValue === null ? "" : `${brightnessValue}%`, zone ? zone.label : ""]
           .filter(Boolean)
           .join(" · "),
       );
+      // Each group draws in the layout's section that names its kind, or untitled without a layout.
+      // A layout that names neither leaves the group out.
+      const group = (kind, groupRows) => {
+        const section = Array.isArray(sections)
+          ? sections.find((candidate) => candidate.kinds.includes(kind))
+          : untitledSection(kind, [kind]);
+        return groupRows.length && section
+          ? hostSection(controlRuntime, section, true, groupRows, folds)
+          : null;
+      };
       return controlRuntime.react.createElement(
         controlRuntime.react.Fragment,
         null,
-        chargingRows.length
-          ? hostSection(controlRuntime, "charging", "Charging", true, chargingRows, folds)
-          : null,
-        rows.length
-          ? hostSection(controlRuntime, "lighting", "RGB lighting", true, rows, folds)
-          : null,
+        group("charging", chargingRows),
+        group("lighting", rows),
       );
     };
 
-  // Steam's own FPS counter rows, which the host replaces with its RTSS-driven overlay. Identified by
+  // Steam's own FPS counter rows, which a host whose limiter overlay replaces them hides. Identified by
   // localising the same tokens Steam did rather than by CSS class or visible text: the classes
   // are hashed per client build and the text changes with the user's language, while the token is
   // the one thing that is neither.
@@ -1907,7 +1948,17 @@ function createNativeComponentHost() {
   // Localized once the runtime answers for at least one token. An empty answer is asked again on
   // the next render, because the localization table can arrive after the panel first draws.
   let nativeFpsLabels: { runtime: unknown; labels: string[] } | null = null;
-  let lastHidden = 0;
+  // Rows hidden by each render that filters: the root and every component wrapper on the way down
+  // count their own, because a wrapper's output exists only once React renders it, after the root
+  // has returned. The diagnostic is their sum, written after each of those renders.
+  const hiddenByComponent = new Map<unknown, number>();
+  const publishHidden = (component, hidden: number) => {
+    hiddenByComponent.set(component, hidden);
+    if (!appendDiagnostics.perf) return;
+    let total = 0;
+    for (const count of hiddenByComponent.values()) total += count;
+    appendDiagnostics.perf.nativeRowsHidden = total;
+  };
 
   // Wrappers that carry the filter into a component's own render output, cached against the
   // component so React keeps seeing one stable type per original and never remounts the subtree.
@@ -1921,14 +1972,14 @@ function createNativeComponentHost() {
   /// the filter previously ran and hid zero rows. Each function component met on the way down is
   /// replaced by a wrapper that renders the original and filters what it returns, which is the
   /// same mechanism Decky's createReactTreePatcher uses to reach into this panel.
-  const hideNativeRows = (controlRuntime, element, labels, depth) => {
+  const hideNativeRows = (controlRuntime, element, labels, depth, counted: { hidden: number }) => {
     if (depth > 12 || !controlRuntime.react.isValidElement(element)) return element;
 
     // Compared as text on both sides: a label is sometimes a localiser element and sometimes a
     // plain string, and matching the raw prop found nothing at all.
     const label = textOf(element.props && element.props.label);
     if (label !== null && labels.includes(label)) {
-      lastHidden++;
+      counted.hidden++;
       return null;
     }
 
@@ -1941,11 +1992,14 @@ function createNativeComponentHost() {
         descendCache,
         (type) =>
           function SteamUiDescend(props) {
-            return hideNativeRows(controlRuntime, type(props), labels, 0);
+            const own = { hidden: 0 };
+            const output = hideNativeRows(controlRuntime, type(props), labels, 0, own);
+            publishHidden(type, own.hidden);
+            return output;
           },
       ) ??
       mapChildren(controlRuntime.react, element, (kid) =>
-        hideNativeRows(controlRuntime, kid, labels, depth + 1),
+        hideNativeRows(controlRuntime, kid, labels, depth + 1, counted),
       )
     );
   };
@@ -1968,14 +2022,13 @@ function createNativeComponentHost() {
     }
     const labels = nativeFpsLabels!.labels;
     if (!filteredNative || filteredNative.inner !== inner) {
+      hiddenByComponent.clear();
       filteredNative = {
         inner,
         component: function SteamUiFilteredPerformance(props) {
-          lastHidden = 0;
-          const filtered = hideNativeRows(controlRuntime, inner(props), labels, 0);
-          if (appendDiagnostics.perf) {
-            appendDiagnostics.perf.nativeRowsHidden = lastHidden;
-          }
+          const own = { hidden: 0 };
+          const filtered = hideNativeRows(controlRuntime, inner(props), labels, 0, own);
+          publishHidden(inner, own.hidden);
           return filtered;
         },
       };
@@ -2010,80 +2063,90 @@ function createNativeComponentHost() {
         : rendered;
     };
 
-  // The glyph beside each section header, keyed by the header text so every placement — the
-  // Performance groups, the Quick Settings Display group and the device sections — reads from one
-  // table instead of carrying its icon at its own call site.
-  // No header shares a glyph with a row beneath it, and no two rows share one either: the panel
-  // is scanned by shape before it is read, so a repeated glyph says two controls are the same
-  // control.
-  const SectionIcons = Object.freeze({
-    "Profile scope": "profile",
-    "Power profiles": "sliders",
-    "Display and frame rate": "timer",
-    "Power limits": "gauge",
-    Controller: "controller",
-    Reset: "reset",
-    Display: "display",
-    Audio: "audio",
-    Charging: "batteryCharging",
-    "RGB lighting": "colors",
-  });
-  // 18px is the size Valve's own header rule gives a section icon, against a 16px header.
-  const sectionIcon = (controlRuntime, title) => controlRuntime.icon(SectionIcons[title], 18);
+  // The host's Quick Access layout (steam-ui.quick-access-layout): each tab's sections, their
+  // headings, glyphs and folds, and the row kinds drawn under each. The toolkit holds none of its
+  // own. A section without an id or a kind list is skipped rather than costing the whole layout.
+  const normalizeQuickAccessSections = (value) => {
+    const sections: Readonly<{
+      id: string;
+      title: string;
+      icon: string;
+      folds: boolean;
+      kinds: readonly string[];
+    }>[] = [];
+    if (!Array.isArray(value)) return Object.freeze(sections);
+    const ids = new Set();
+    for (const item of value) {
+      const id = normalizeText(item?.id);
+      if (!id || ids.has(id) || !Array.isArray(item.kinds)) continue;
+      ids.add(id);
+      sections.push(
+        Object.freeze({
+          id,
+          title: normalizeText(item.title),
+          icon: normalizeText(item.icon),
+          folds: item.folds === true,
+          kinds: Object.freeze(item.kinds.filter((kind) => typeof kind === "string" && kind)),
+        }),
+      );
+    }
+    return Object.freeze(sections);
+  };
+  const normalizeQuickAccessLayout = (value) =>
+    value && typeof value === "object"
+      ? Object.freeze({
+          performance: normalizeQuickAccessSections(value.performance),
+          performanceEnd: normalizeQuickAccessSections(value.performanceEnd),
+          quickSettings: normalizeQuickAccessSections(value.quickSettings),
+          quickSettingsEnd: normalizeQuickAccessSections(value.quickSettingsEnd),
+          hideValveFpsRows: value.hideValveFpsRows === true,
+          accentLabel: normalizeText(value.accentLabel),
+        })
+      : null;
+  // Without a layout a tab's rows draw in one untitled group that does not fold.
+  const untitledSection = (id, kinds) =>
+    Object.freeze({ id, title: "", icon: "", folds: false, kinds: Object.freeze(kinds) });
 
-  // What a folded section's heading reports: the summaries of the rows drawn under it, in the row
-  // table's order, and one left under the section's own title by a row that draws more than one
-  // section, which is how the device rows report Charging and RGB lighting.
-  const sectionSummary = (title) =>
+  // 18px is the size Valve's own header rule gives a section icon, against a 16px header. The glyph
+  // is named by the host; a name the kit does not draw leaves the heading without one.
+  const sectionIcon = (controlRuntime, name) => controlRuntime.icon(name, 18);
+
+  // What a folded section's heading reports: the summaries of its rows, in the row table's order,
+  // then those a row leaves under a kind of the section's own, which is how the device rows report
+  // their charging and lighting sections.
+  const sectionSummary = (section) =>
     [
       ...new Set([
-        ...controlRows.map((row) => row[0]).filter((kind) => (RowGroups[kind] || "Display") === title),
-        title,
+        ...controlRows.map((row) => row[0]).filter((kind) => section.kinds.includes(kind)),
+        ...section.kinds,
       ]),
     ]
       .map((kind) => summaries[kind])
       .filter(Boolean)
       .join(" · ");
 
-  // The section each kind is drawn under; anything unlisted is a Display row.
-  const RowGroups = Object.freeze({
-    valveProfileHeader: "Profile scope",
-    powerPreset: "Power profiles",
-    powerProfile: "Power profiles",
-    hybridCores: "Power profiles",
-    cpuBoost: "Power profiles",
-    valveOverlayLevel: "Display and frame rate",
-    frameLimit: "Display and frame rate",
-    vrr: "Display and frame rate",
-    powerLimit: "Power limits",
-    autoTdp: "Power limits",
-    controllerTarget: "Controller",
-    valveReset: "Reset",
-    audioFormat: "Audio",
-  });
   // A section is a kit group: a heading with the section's glyph, its title and, folded, what its
-  // rows report, over the rows. Profile scope is Valve's header and per-game toggle and stays
-  // open; Reset is one button and has no heading; every other section folds under its title. A
-  // section whose rows all draw nothing stays mounted, so those rows keep their subscriptions and
-  // can bring it back when state arrives; it is only taken out of layout. `folds` is the host's
-  // published open list, or null.
-  const hostSection = (controlRuntime, key, title, shown, rows, folds) =>
-    title === "Reset"
-      ? renderSteamUiGroup(controlRuntime, { key, hidden: !shown }, ...rows)
+  // rows report, over the rows. A section with no title has no heading, and one the host does not
+  // fold stays open. A section whose rows all draw nothing stays mounted, so those rows keep their
+  // subscriptions and can bring it back when state arrives; it is only taken out of layout. The
+  // fold is kept under the section's id. `folds` is the host's published open list, or null.
+  const hostSection = (controlRuntime, section, shown, rows, folds) =>
+    !section.title
+      ? renderSteamUiGroup(controlRuntime, { key: section.id, hidden: !shown }, ...rows)
       : renderSteamUiGroup(
           controlRuntime,
           {
-            key,
-            title,
-            icon: sectionIcon(controlRuntime, title),
-            detail: sectionSummary(title) || undefined,
+            key: section.id,
+            title: section.title,
+            icon: sectionIcon(controlRuntime, section.icon),
+            detail: sectionSummary(section) || undefined,
             hidden: !shown,
-            ...(title === "Profile scope"
-              ? {}
-              : {
-                  collapsed: isFolded(folds, title),
-                  onToggle: () => setFolded(title, !isFolded(folds, title)),
-                }),
+            ...(section.folds
+              ? {
+                  collapsed: isFolded(folds, section.id),
+                  onToggle: () => setFolded(section.id, !isFolded(folds, section.id)),
+                }
+              : {}),
           },
           ...rows,
         );
@@ -2092,8 +2155,8 @@ function createNativeComponentHost() {
   let controlRows: any[][] = [];
 
   // Shape of what Steam's performance root returned, so the rows it renders can be identified
-  // without guessing. Needed to suppress Steam's own FPS counter rows in favour of the host's
-  // RTSS overlay: their DOM classes are hashed per client build and unusable as selectors.
+  // without guessing. Needed to suppress Steam's own FPS counter rows in favour of the host's own
+  // overlay: their DOM classes are hashed per client build and unusable as selectors.
   const describe = (controlRuntime, element, depth) => {
     if (!controlRuntime.react.isValidElement(element)) return typeof element;
     const t: any = element.type;
@@ -2104,75 +2167,86 @@ function createNativeComponentHost() {
       : { [name]: kids.map((k) => describe(controlRuntime, k, depth + 1)) };
   };
 
-  const appendControls = (controlRuntime, tree, placement = "perf", folds = null) => {
-    // Rendered React elements from Steam's own untyped runtime.
-    const controls: unknown[] = [];
-    const groups = new Map<string, unknown[]>();
-    // Groups with at least one row that drew. Valve's components report nothing, so theirs count.
-    const drawnGroups = new Set<string>();
+  // `layout` is the host's published layout, or null.
+  const appendControls = (controlRuntime, tree, placement = "perf", folds = null, layout: any = null) => {
+    // Rendered React elements from Steam's own untyped runtime, with the kind each draws.
+    const rows: [string, unknown][] = [];
+    // Kinds with at least one row that drew. Valve's components report nothing, so theirs count.
+    const drawn = new Set<string>();
     for (const [kind, key, component, rowPlacement] of controlRows) {
       if (rowPlacement !== placement || !registrations.has(kind) || !component) continue;
-      const element = controlRuntime.react.createElement(
-        controlRuntime.row,
-        { key },
-        controlRuntime.react.createElement(component),
-      );
-      controls.push(element);
-      const group = RowGroups[kind] || "Display";
-      if (!groups.has(group)) groups.set(group, []);
-      groups.get(group)!.push(element);
-      if (kind.startsWith("valve") || drawnKinds.has(kind)) drawnGroups.add(group);
+      rows.push([
+        kind,
+        controlRuntime.react.createElement(
+          controlRuntime.row,
+          { key },
+          controlRuntime.react.createElement(component),
+        ),
+      ]);
+      if (kind.startsWith("valve") || drawnKinds.has(kind)) drawn.add(kind);
     }
-    if (
-      placement === "quickSettings" &&
-      registrations.has("deviceControls") &&
-      deviceControlsControl
-    ) {
-      // Device controls render their own Charging and RGB sections after Valve's common settings.
-      controls.push(
-        controlRuntime.react.createElement(deviceControlsControl, {
-          key: "steam-ui-device-controls",
-        }),
-      );
-    }
-    if (placement === "perf" && registrations.has("settingsSections") && settingsSectionsControl)
-      controls.push(controlRuntime.react.createElement(settingsSectionsControl, { key: "steam-ui-settings-sections" }));
-    if (!controls.length) {
+    const leading = layout
+      ? placement === "perf"
+        ? layout.performance
+        : layout.quickSettings
+      : [untitledSection("steam-ui-" + placement, rows.map(([kind]) => kind))];
+    const trailing = layout
+      ? placement === "perf"
+        ? layout.performanceEnd
+        : layout.quickSettingsEnd
+      : [];
+    // A section draws the rows of its kinds in the row table's order. One with none of them is left
+    // out, and a kind no section names is not drawn while a layout is published.
+    const sections = (list) =>
+      list.flatMap((section) => {
+        const own = rows.filter(([kind]) => section.kinds.includes(kind)).map(([, element]) => element);
+        return own.length
+          ? [hostSection(controlRuntime, section, section.kinds.some((kind) => drawn.has(kind)), own, folds)]
+          : [];
+      });
+    const deviceControls =
+      placement === "quickSettings" && registrations.has("deviceControls") && deviceControlsControl
+        ? controlRuntime.react.createElement(deviceControlsControl, {
+            key: "steam-ui-device-controls",
+            sections: layout ? [...layout.quickSettings, ...layout.quickSettingsEnd] : null,
+          })
+        : null;
+    const settingsSections =
+      placement === "perf" && registrations.has("settingsSections") && settingsSectionsControl
+        ? controlRuntime.react.createElement(settingsSectionsControl, { key: "steam-ui-settings-sections" })
+        : null;
+    if (!rows.length && !deviceControls && !settingsSections) {
       appendDiagnostics[placement] = { controls: 0, inserted: false, ownSection: false };
       return tree;
     }
+    const controls = rows.length + (deviceControls ? 1 : 0) + (settingsSections ? 1 : 0);
 
     // Quick Settings keeps Valve's common controls intact. The native-row filtering
     // below is about Steam's FPS counter rows on the PERFORMANCE panel; running it against a
     // different tab's tree would be hiding rows this code has never even looked at.
     if (placement === "quickSettings") {
-      const sections = ["Display", "Audio"].filter(title => groups.has(title)).map(title =>
-        hostSection(controlRuntime, "steam-ui-quick-settings-" + title.toLowerCase(), title,
-          drawnGroups.has(title), groups.get(title)!, folds));
       appendDiagnostics[placement] = {
-        controls: controls.length,
+        controls,
         inserted: true,
         ownSection: true,
       };
-      // Display controls lead the tab rather than trailing it: brightness and the shortcut
+      // The host's sections lead the tab rather than trailing it: brightness and the shortcut
       // toggles read below them naturally, and a dropdown at the bottom of a scrolling tab is
       // the control a user finds last. Valve's own sections between are drawn as kit blocks too,
-      // so the tab reads as one column of groups.
+      // so the tab reads as one column of groups. The closing sections and the device controls'
+      // own follow Valve's.
       return controlRuntime.react.createElement(
         controlRuntime.react.Fragment,
         null,
         steamUiKitStyle(controlRuntime.react),
-        ...sections,
+        ...sections(leading),
         controlRuntime.react.createElement(
           "div",
           { key: "steam-ui-valve-sections", className: "steam-ui-kit-valve" },
           tree,
         ),
-        registrations.has("deviceControls") && deviceControlsControl
-          ? controlRuntime.react.createElement(deviceControlsControl, {
-              key: "steam-ui-device-controls",
-            })
-          : null,
+        ...sections(trailing),
+        deviceControls,
       );
     }
 
@@ -2184,7 +2258,7 @@ function createNativeComponentHost() {
     // the ELEMENT returned by performanceRoot(props), and an element's props.children holds only
     // what was passed IN, never what its component produces when React renders it. Steam's
     // section exists only after that rendering, so the walk terminated on a root with no
-    // children — measured on the reference Claw as depthReached 0, sectionSeen false, with the
+    // children — measured on the reference device as depthReached 0, sectionSeen false, with the
     // section component itself resolved and all five rows built. It failed silently, which is
     // why an empty Quick Access panel survived so long: every other signal said success.
     //
@@ -2193,38 +2267,21 @@ function createNativeComponentHost() {
     const own = controlRuntime.react.createElement(
       controlRuntime.react.Fragment,
       null,
-      ...[
-        "Profile scope",
-        "Power profiles",
-        "Display and frame rate",
-        "Power limits",
-        "Controller",
-      ]
-        .filter((title) => groups.has(title))
-        .map((title) =>
-          hostSection(
-            controlRuntime,
-            title,
-            title,
-            drawnGroups.has(title),
-            groups.get(title)!,
-            folds,
-          ),
-        ),
+      ...sections(leading),
     );
 
-    // Steam's FPS rows are suppressed only on this path, which runs when the host has rows of its own
-    // to put in their place. Hiding them and then rendering nothing would leave the user neither.
-    // What remains of Valve's tree is the battery line, which the kit draws small under its class.
+    // Steam's FPS rows are hidden only when the host's layout asks, for a host whose own overlay
+    // replaces them; otherwise Valve's tree is untouched. What remains of it is the battery line,
+    // which the kit draws small under its class.
     const native = controlRuntime.react.createElement(
       "div",
       { key: "steam-ui-native-performance", className: "steam-ui-kit-battery" },
-      withNativeRowsHidden(controlRuntime, tree),
+      layout?.hideValveFpsRows === true ? withNativeRowsHidden(controlRuntime, tree) : tree,
     );
     // Described when status asks rather than on every render of the panel.
     let description: string | undefined;
     appendDiagnostics.perf = {
-      controls: controls.length,
+      controls,
       inserted: true,
       ownSection: true,
       get tree() {
@@ -2238,12 +2295,10 @@ function createNativeComponentHost() {
       steamUiKitStyle(controlRuntime.react),
       native,
       own,
-      registrations.has("settingsSections") && settingsSectionsControl
-        ? controlRuntime.react.createElement(settingsSectionsControl, { key: "steam-ui-settings-sections" }) : null,
-      // Reset must follow every section, including dynamically published GPU/plugin sections.
-      groups.has("Reset")
-        ? hostSection(controlRuntime, "Reset", "Reset", drawnGroups.has("Reset"), groups.get("Reset")!, folds)
-        : null,
+      settingsSections,
+      // The closing sections follow every other one, including dynamically published host
+      // settings sections.
+      ...sections(trailing),
     );
   };
   // Resolve every dependency before changing React or registering a component.
@@ -2312,8 +2367,8 @@ function createNativeComponentHost() {
       ? withIcon(controlRuntime, valveOverlayLevel, controlRuntime.icon("layers"))
       : null;
 
-    // Registration, component and placement share one table. The group order below determines
-    // section placement; this table determines the order of controls within each group.
+    // Registration, component and placement share one table. The host's layout decides the
+    // sections; this table determines the order of controls within each section.
     controlRows = [
       ["valveProfileHeader", "steam-ui-valve-profile-header", valveProfileHeaderControl, "perf"],
       ["valveProfileHeader", "steam-ui-valve-profile-toggle", valveProfileToggleControl, "perf"],
@@ -2353,7 +2408,8 @@ function createNativeComponentHost() {
         [],
       );
       const folds = useSemanticState(controlRuntime, "panelFolds", normalizePanelFoldsState);
-      return appendControls(controlRuntime, performanceRoot(props), "perf", folds);
+      const layout = useSemanticState(controlRuntime, "quickAccessLayout", normalizeQuickAccessLayout);
+      return appendControls(controlRuntime, performanceRoot(props), "perf", folds, layout);
     }
 
     // One wrapper per wrapped tab, matched by root identity in the same memoized tab array.
@@ -2372,14 +2428,12 @@ function createNativeComponentHost() {
         fallbackKey: "steam-ui-performance-root",
       },
       {
-        match: (type) => {
-          if (typeof type !== "function" || type === performanceRoot) return false;
-          const source = String(type);
-          return (
-            source.includes("#QuickAccess_Tab_Settings_Section_Other_Title") &&
-            source.includes("#QuickAccess_ReorderControllers_Button")
-          );
-        },
+        match: (type) =>
+          type !== performanceRoot &&
+          sourceMatches(type, [
+            "#QuickAccess_Tab_Settings_Section_Other_Title",
+            "#QuickAccess_ReorderControllers_Button",
+          ]),
         // The original is only known at match time, so the wrapper is built then — and cached by
         // original, because a fresh component identity on every memo pass would remount the whole
         // tab on each render.
@@ -2398,7 +2452,12 @@ function createNativeComponentHost() {
                 "panelFolds",
                 normalizePanelFoldsState,
               );
-              return appendControls(controlRuntime, original(props), "quickSettings", folds);
+              const layout = useSemanticState(
+                controlRuntime,
+                "quickAccessLayout",
+                normalizeQuickAccessLayout,
+              );
+              return appendControls(controlRuntime, original(props), "quickSettings", folds, layout);
             };
             quickSettingsWrapCache.set(original, wrapped);
           }
@@ -2413,6 +2472,13 @@ function createNativeComponentHost() {
       // empty array, or one that starts with a string or number, is answered before any filtering.
       if (!Array.isArray(value) || !value.length) return value;
       if (typeof value[0] === "string" || typeof value[0] === "number") return value;
+      // Many memoized arrays hold objects too; only one with a tab's panel element is worth copying.
+      let tabs = false;
+      for (let index = 0; index < value.length && !tabs; index++) {
+        const item = value[index];
+        tabs = !!item && typeof item === "object" && controlRuntime.react.isValidElement(item.panel);
+      }
+      if (!tabs) return value;
       let result = value;
       for (const wrapper of wrappers) {
         const matches = result.filter(
@@ -2443,7 +2509,8 @@ function createNativeComponentHost() {
     return true;
   };
   const install = (kind) => {
-    if (disposedHost || !Object.hasOwn(definitions, kind))
+    if (disposedHost) return { ok: false, error: "component host disposed" };
+    if (!Object.hasOwn(definitions, kind))
       return { ok: false, error: "component is not allowlisted" };
     if (!ensurePatched())
       return {

@@ -2,27 +2,28 @@
 //
 // The panel is module-private. Mapped against the live client on 2026-09-10:
 //
-//   v_            an exported React.memo, the VR-aware outer wrapper
-//     fe          navID "MainNavMenuContainer", role "application"
-//       c.g       nav context
-//         Ie      the panel root, props { loggedIn, menuOpen }   <- local, not exported
-//           d.Z   role "menu", aria-label #MainMenu_Title, flow-children "column"
-//             Ae  one route entry, props { route, active, label, icon, onGamepadFocus }
-//             me  one action entry, props { label, action, active, icon, onGamepadFocus }
+//   memo          an exported React.memo, the VR-aware outer wrapper
+//     container   navID "MainNavMenuContainer", role "application"
+//       context   nav context
+//         root    the panel root, props { loggedIn, menuOpen }   <- local, not exported
+//           menu  role "menu", aria-label #MainMenu_Title, flow-children "column"
+//             route entry   props { route, active, label, icon, onGamepadFocus }
+//             action entry  props { label, action, active, icon, onGamepadFocus }
 //
-// Re-read on 2026-09-24: `Ae` maps its route to `me` through the router, so both draw the same row -
-// Valve's Focusable with the menu's own Item, ItemIcon and ItemLabel classes, the active dot, and
-// mouse and gamepad activation. `Ae` also gives the row its active state and navigates with Valve's
-// own route action; `me` calls `action`. Power is an action entry, Library a route entry.
+// Re-read on 2026-09-24: a route entry maps its route to an action entry through the router, so both
+// draw the same row - Valve's Focusable with the menu's own Item, ItemIcon and ItemLabel classes,
+// the active dot, and mouse and gamepad activation. A route entry also gives the row its active
+// state and navigates with Valve's own route action; an action entry calls `action`. Power is an
+// action entry, Library a route entry.
 //
-// `Ie` builds its list from `ve(loggedIn)` and maps it to entry elements keyed by the descriptor's
-// own `key`. Neither `Ie` nor `ve` is exported, and `ve` calls hooks — calling the module's own
-// exported list builder from outside a render throws React error #321, which is how that was
-// established rather than assumed. So both reading the entries and changing them have to happen
-// during a render, and one wrapper serves both.
+// The panel root builds its list from a module-local builder given `loggedIn` and maps it to entry
+// elements keyed by the descriptor's own `key`. Neither the root nor the builder is exported, and
+// the builder calls hooks — calling the module's own exported list builder from outside a render
+// throws React error #321, which is how that was established rather than assumed. So both reading
+// the entries and changing them have to happen during a render, and one wrapper serves both.
 //
 // The claim is on the exported memo's `type`, which is the only public handle on the panel. From
-// there the descent reaches `Ie` by rendering: a component's children do not exist until React
+// there the descent reaches the panel root by rendering: a component's children do not exist until React
 // renders it, so a walk over props.children alone arrives nowhere. That is the same mechanism
 // `hideNativeRows` in components.ts already uses, pointed at a different target.
 //
@@ -375,17 +376,20 @@ function createNavigationPanel() {
 
     const remove = () => {
         if (!installed) return {ok: true, absent: true};
+
+        // Released before anything is forgotten, so a failed release stays installed and the next
+        // remove retries it.
+        const released = releaseMember(memo, "type", claimKeys);
+        if (!released.ok) {
+            lastError = released.error ?? "navigation panel release failed";
+            return {ok: false, error: lastError};
+        }
         installed = false;
         unsubscribe = endSubscription(unsubscribe);
 
         desired = {items: [], hidden: []};
         descendCache.clear();
         panelCache.clear();
-        const released = releaseMember(memo, "type", claimKeys);
-        if (!released.ok) {
-            lastError = released.error ?? "navigation panel release failed";
-            return {ok: false, error: lastError};
-        }
         mounted.release(memo.type);
         hosts.release();
 

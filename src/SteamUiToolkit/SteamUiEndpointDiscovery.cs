@@ -20,7 +20,7 @@ namespace SteamUiToolkit;
 /// <param name="Type">The CDP target type, as Steam reported it.</param>
 /// <param name="Title">The page title, as Steam reported it.</param>
 /// <param name="Url">The page URL, as Steam reported it.</param>
-public sealed record SteamUiEndpoint(
+internal sealed record SteamUiEndpoint(
     string BrowserId,
     string TargetId,
     SteamUiTargetRole Role,
@@ -30,11 +30,8 @@ public sealed record SteamUiEndpoint(
     string Url);
 
 /// <summary>Finds the Steam target for a role.</summary>
-/// <remarks>
-///     Public alongside <see cref="ISteamUiCdpWire" />, and for the same reason: substituting
-///     discovery is how a consumer tests without Steam running.
-/// </remarks>
-public interface ISteamUiEndpointDiscovery
+/// <remarks>The seam the toolkit's own tests substitute to run without Steam.</remarks>
+internal interface ISteamUiEndpointDiscovery
 {
     /// <summary>Finds the current target for one role.</summary>
     /// <param name="role">The surface wanted.</param>

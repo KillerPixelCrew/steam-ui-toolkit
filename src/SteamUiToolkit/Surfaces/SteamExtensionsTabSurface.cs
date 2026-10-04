@@ -121,7 +121,6 @@ public static class SteamExtensionsTabSurface
     /// <summary>The Quick Access tab patch.</summary>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
-        "steam-ui.extensions-tab",
         "extensionsTab",
         "steam-extensions-tab-v2:unique-qam-browser-view+claimable-memo+native-panel",
         $$"""
@@ -184,7 +183,7 @@ public static class SteamExtensionsTabSurface
         string id = "extensions-tab")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return SteamSurfaceModule.Declare(
+        return SteamUiModuleBuilder.Module(
             id,
             PatchId,
             enabled,
@@ -192,14 +191,14 @@ public static class SteamExtensionsTabSurface
             SteamSurfaceJsonContext.Default.SteamExtensionsTabState,
             [Patch],
             [
-                SteamSurfaceModule.Command(
+                SteamUiModuleBuilder.Command(
                     PatchId,
                     "activate",
                     static (JsonElement payload, out string extensionId) =>
-                        SteamUiPayload.TryReadNonBlankString(payload, "id", out extensionId),
+                        SteamUiPayload.TryReadOnlyString(payload, "id", out extensionId),
                     backend.ActivateAsync,
                     "The extension activation payload is invalid."),
-                SteamSurfaceModule.Command<(string Id, string Key, JsonElement Value, long Revision)>(
+                SteamUiModuleBuilder.Command<(string Id, string Key, JsonElement Value, long Revision)>(
                     PatchId,
                     "configure",
                     TryReadConfiguration,

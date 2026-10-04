@@ -52,7 +52,8 @@ const showSteamFilePicker = (ui, options: any = {}) =>
             const [loading, setLoading] = react.useState(false);
             // The folder asked for last. A listing that answers after a later one was asked for, a
             // slow network drive overtaken by a local folder, is dropped rather than shown, so what
-            // "Use this folder" accepts is always the folder on screen.
+            // "Use this folder" accepts is always the folder on screen. -1 once the picker is gone,
+            // so nothing that answers after that is applied.
             const requested = react.useRef(0);
 
             const open = (path: string) => {
@@ -80,14 +81,24 @@ const showSteamFilePicker = (ui, options: any = {}) =>
             react.useEffect(() => {
                 void request(SteamFilePickerPatchId, "listPlaces", {}).then(
                     (answer: any) => {
+                        if (requested.current < 0) return;
                         const found = answer?.places ?? [];
                         setPlaces(found);
+                        // The start folder opens only while nothing else has been asked for.
                         const first = options.start || found[0]?.path;
-                        if (first) open(first);
+                        if (first && requested.current === 0) open(first);
                     },
-                    (failure: any) =>
-                        setError(String(failure?.message ?? failure ?? "The drives could not be listed.")),
+                    (failure: any) => {
+                        if (requested.current < 0) return;
+                        setError(String(failure?.message ?? failure ?? "The drives could not be listed."));
+                    },
                 );
+                // However the modal goes away, by a choice, Cancel, B, or Steam closing it, the
+                // caller hears once: a choice already settled, and anything else is a cancel.
+                return () => {
+                    requested.current = -1;
+                    settle(null);
+                };
             }, []);
 
             const current = listing?.path ?? "";
@@ -184,7 +195,7 @@ const showSteamFilePicker = (ui, options: any = {}) =>
                     ),
                     mode === "folder"
                         ? react.createElement(
-                              ui.dialogButtonPrimary,
+                              ui.dialogButtonPrimary ?? ui.dialogButton,
                               {
                                   onClick: useCurrent,
                                   disabled: !current || !!listing?.error || loading,

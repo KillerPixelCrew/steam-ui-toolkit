@@ -16,8 +16,10 @@
 // are prefixed `steam-ui-kit-` and the rules are flat, so a host can add to them without fighting
 // specificity.
 //
-// Three rules reach into Steam's own markup, by structure rather than by any of its hashed class
-// names. A block zeroes the field bleed Steam's panel rows give their fields
+// One rule names a Steam class: the tabbed page's header row is picked by the substring
+// `gamepadtabbedpage_TabHeaderRowWrapper` of its class, which survives the hash suffix Steam adds,
+// to give that row the panel's background. Three more reach into Steam's own markup by structure
+// rather than by any class name. A block zeroes the field bleed Steam's panel rows give their fields
 // (`--field-negative-horizontal-margin`, 16px, so a field can run to the panel's edge): a block
 // has a border, and a field runs to that. The Quick Access menu also gives a field's control
 // container a 270px minimum width and its buttons a 160px one, from an id-scoped rule, so both are
@@ -402,10 +404,10 @@ const renderSteamUiChips = (ui, chips: { label: string; onClick: () => void; des
   return h(
     ui.focusable,
     { "flow-children": "row", className: "steam-ui-kit-chips" },
-    ...chips.map((chip) =>
+    ...chips.map((chip, index) =>
       h(
         ui.dialogButton,
-        { key: chip.label, onClick: chip.onClick, onOKActionDescription: chip.description },
+        { key: `${index}:${chip.label}`, onClick: chip.onClick, onOKActionDescription: chip.description },
         chip.label,
       ),
     ),
@@ -442,7 +444,7 @@ const renderSteamUiGallery = (
             h(
               ui.focusable,
               {
-                key: url,
+                key: `${at}:${url}`,
                 className: `steam-ui-kit-thumb${at === index ? " current" : ""}`,
                 onActivate: () => props.onSelect(at),
                 onFocus: () => props.onSelect(at),
@@ -531,7 +533,7 @@ const renderSteamUiTabbedPage = (
   },
 ) => {
   const h = ui.react.createElement;
-  const active = props.tabs.some((tab) => tab.id === props.active) ? props.active : props.tabs[0].id;
+  const active = props.tabs.some((tab) => tab.id === props.active) ? props.active : (props.tabs[0]?.id ?? "");
   return h(
     "div",
     { id: props.id, className: "steam-ui-kit-page", "aria-label": props.label },

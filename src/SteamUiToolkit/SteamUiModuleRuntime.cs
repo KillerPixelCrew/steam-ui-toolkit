@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -27,6 +28,11 @@ namespace SteamUiToolkit;
 ///         had a 28 W limit stored, the gate had forwarded it, and the hardware was still at 30 W with not
 ///         one line saying why.
 ///     </para>
+///     <para>
+///         A module whose callback throws is quarantined for as long as it stays registered: its traffic
+///         is refused and its patches are faulted in the patch manager, which removes them and keeps them
+///         off whatever the host's switches say.
+///     </para>
 /// </remarks>
 public sealed class SteamUiModuleRuntime : IAsyncDisposable
 {
@@ -34,13 +40,19 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
 
     private readonly Func<bool> _commandsEnabled;
 
+    // Modules that failed, by instance: a module that is removed and declared again by a restarted
+    // plugin is a new instance and starts unfaulted.
+    private readonly HashSet<ISteamUiModule> _failedModules = new(ReferenceEqualityComparer.Instance);
+
     // Sequences restart at 1 for every bridge generation, so a handler from the previous document
     // that has not yet observed cancellation would otherwise collide with the new document's first
     // request, and the new request would be dropped unanswered.
-    private readonly Dictionary<InflightKey, CancellationTokenSource> _inflight = [];
-    private readonly SteamUiModuleSet _modules;
-    private readonly HashSet<string> _failedModules = new(StringComparer.Ordinal);
+    private readonly Dictionary<InflightKey, (CancellationTokenSource Cancellation, ISteamUiModule? Module)>
+        _inflight = [];
+
     private readonly object _moduleGate = new();
+    private readonly SemaphoreSlim _modulesChange = new(1, 1);
+    private readonly SteamUiPatchManager _patches;
     private readonly Task _publication;
     private readonly SemaphoreSlim _publicationSignal = new(0, 1);
     private readonly Func<bool> _publishEnabled;
@@ -48,6 +60,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
     private readonly HashSet<Task> _requestTasks = [];
     private readonly CancellationTokenSource _shutdown = new();
     private int _disposed;
+    private volatile SteamUiModuleSet _modules;
     private int _publicationPending;
 
     /// <summary>Raised once when a module's callback or publication throws.</summary>
@@ -56,6 +69,10 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
     /// <summary>Starts the publication pump and begins answering bridge requests.</summary>
     /// <param name="bridge">The bridge this runtime publishes through and answers on.</param>
     /// <param name="modules">The registered modules supplying publications and command handlers.</param>
+    /// <param name="patches">
+    ///     The manager the modules' patches are registered with. A failing module's patches are faulted
+    ///     there, so they are removed and stay off for as long as the module is registered.
+    /// </param>
     /// <param name="commandsEnabled">
     ///     Whether commands may be answered at all right now. A command
     ///     arriving while this is false is refused with a reason rather than dropped.
@@ -67,11 +84,13 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
     public SteamUiModuleRuntime(
         SteamUiBridgeHost bridge,
         SteamUiModuleSet modules,
+        SteamUiPatchManager patches,
         Func<bool> commandsEnabled,
         Func<bool> publishEnabled)
     {
         _bridge = bridge ?? throw new ArgumentNullException(nameof(bridge));
         _modules = modules ?? throw new ArgumentNullException(nameof(modules));
+        _patches = patches ?? throw new ArgumentNullException(nameof(patches));
         _commandsEnabled = commandsEnabled ?? throw new ArgumentNullException(nameof(commandsEnabled));
         _publishEnabled = publishEnabled ?? throw new ArgumentNullException(nameof(publishEnabled));
         _bridge.RequestReceived += OnRequestReceived;
@@ -80,6 +99,17 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
 
     /// <summary>Stops answering, drains in-flight work, and releases the pump.</summary>
     public async ValueTask DisposeAsync()
+    {
+        await ShutdownAsync(CancellationToken.None).ConfigureAwait(false);
+    }
+
+    /// <summary>Stops answering and waits for in-flight work, no longer than the caller allows.</summary>
+    /// <param name="cancellationToken">
+    ///     The caller's deadline. When it fires, the publication round and the requests still running
+    ///     are left to finish on their own, named in one log line, and this returns.
+    /// </param>
+    /// <returns>A task that completes once the work drained or the deadline passed.</returns>
+    public async Task ShutdownAsync(CancellationToken cancellationToken)
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
         {
@@ -91,10 +121,15 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
         _shutdown.Cancel();
         try
         {
-            await _publication.ConfigureAwait(false);
+            await _publication.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
         }
         catch (OperationCanceledException)
         {
+            LogAbandoned();
+            return;
         }
 
         Task[] requestTasks;
@@ -105,7 +140,11 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
 
         try
         {
-            await Task.WhenAll(requestTasks).ConfigureAwait(false);
+            await Task.WhenAll(requestTasks).WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            LogAbandoned();
         }
         catch (Exception ex)
         {
@@ -115,6 +154,19 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
         // These managed synchronization objects are collected with the runtime. A bridge callback
         // already dispatched just before unsubscription may still observe the cancelled token;
         // disposing the source here would turn that harmless late callback into a teardown race.
+    }
+
+    private void LogAbandoned()
+    {
+        int requests;
+        lock (_requestGate)
+        {
+            requests = _requestTasks.Count;
+        }
+
+        SteamUiLog.Warn(
+            $"Steam UI semantic runtime shutdown reached its deadline with {requests} request(s) still "
+            + $"running and the publication round {(_publication.IsCompleted ? "finished" : "still running")}.");
     }
 
     /// <summary>Asks for one publication round, coalescing repeats into the pending one.</summary>
@@ -131,6 +183,81 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
         }
     }
 
+    /// <summary>Routes commands and publications through another module set.</summary>
+    /// <param name="next">
+    ///     The complete set from now on: the modules that stay, the ones added and none of the ones
+    ///     removed.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the removal of patches that left.</param>
+    /// <returns>A task that completes once removed patches were retracted and added ones registered.</returns>
+    /// <remarks>
+    ///     For modules that come and go while the host runs, such as a plugin's when it becomes ready or
+    ///     stops. A patch is kept only when the same instance is in both sets; a module declared again by
+    ///     a restarted plugin is new, so its patches are removed and registered again and it starts
+    ///     unfaulted. A removed module's in-flight requests are cancelled and its commands are answered
+    ///     as unhandled from the moment the set is swapped. The bridge's command vocabulary is the
+    ///     consumer's to keep in step with <see cref="SteamUiModuleSet.AllowedCommands" />.
+    /// </remarks>
+    public async Task ReplaceModulesAsync(SteamUiModuleSet next, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(next);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        await _modulesChange.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var current = _modules;
+            var nextPatches = new HashSet<ISteamUiPatch>(next.Patches, ReferenceEqualityComparer.Instance);
+            var currentPatches = new HashSet<ISteamUiPatch>(current.Patches, ReferenceEqualityComparer.Instance);
+            var nextModules = new HashSet<ISteamUiModule>(next.Modules, ReferenceEqualityComparer.Instance);
+            var removed = current.Patches.Where(patch => !nextPatches.Contains(patch)).ToArray();
+            var added = next.Patches.Where(patch => !currentPatches.Contains(patch)).ToArray();
+
+            _modules = next;
+            lock (_moduleGate)
+            {
+                _failedModules.RemoveWhere(module => !nextModules.Contains(module));
+            }
+
+            List<CancellationTokenSource> leaving = [];
+            lock (_requestGate)
+            {
+                foreach (var (cancellation, module) in _inflight.Values)
+                {
+                    if (module is not null && !nextModules.Contains(module))
+                    {
+                        leaving.Add(cancellation);
+                    }
+                }
+            }
+
+            foreach (var cancellation in leaving)
+            {
+                SteamUiShared.CancelSafely(cancellation);
+            }
+
+            foreach (var patch in removed)
+            {
+                await _patches.UnregisterAsync(patch.Id, cancellationToken).ConfigureAwait(false);
+            }
+
+            foreach (var patch in added)
+            {
+                _patches.Register(patch);
+            }
+
+            if (added.Length > 0)
+            {
+                _patches.QueueSynchronization();
+            }
+
+            QueuePublication();
+        }
+        finally
+        {
+            _modulesChange.Release();
+        }
+    }
+
     /// <summary>Cancels every request still in flight.</summary>
     /// <remarks>
     ///     Called when a generation is replaced. A semantic operation is authorized against one
@@ -143,7 +270,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
         CancellationTokenSource[] inflight;
         lock (_requestGate)
         {
-            inflight = [.. _inflight.Values];
+            inflight = [.. _inflight.Values.Select(entry => entry.Cancellation)];
         }
 
         foreach (var cancellation in inflight)
@@ -179,9 +306,10 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
         using var requestCancellation =
             CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
         var key = InflightKey.Of(request);
+        var found = _modules.TryGetCommand(request.PatchId, request.Command, out var handler, out var module);
         lock (_requestGate)
         {
-            if (!_inflight.TryAdd(key, requestCancellation))
+            if (!_inflight.TryAdd(key, (requestCancellation, module)))
             {
                 SteamUiLog.Warn(
                     $"Steam UI request {request.PatchId}/{request.Command} reused sequence "
@@ -199,15 +327,27 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
                 return;
             }
 
-            outcome = !_commandsEnabled()
-                      || IsModuleFailed(request.PatchId)
-                      || !_modules.TryGetCommand(
-                          request.PatchId,
-                          request.Command,
-                          out var handler)
-                      || handler is null
-                ? SteamUiCommandResult.Refused
-                : await handler(request, requestCancellation.Token).ConfigureAwait(false);
+            // One reason per cause: a log or a row has to be able to say which it was.
+            if (!_commandsEnabled())
+            {
+                outcome = SteamUiCommandResult.Refused;
+            }
+            else if (!found || handler is null || module is null)
+            {
+                outcome = SteamUiCommandResult.Unhandled;
+            }
+            else if (IsModuleFailed(module))
+            {
+                outcome = SteamUiCommandResult.Quarantined;
+            }
+            else
+            {
+                outcome = await handler(request, requestCancellation.Token).ConfigureAwait(false);
+                if (!outcome.Succeeded && outcome.Error is null)
+                {
+                    outcome = outcome with { Error = SteamUiCommandResult.NoReasonReported };
+                }
+            }
         }
         catch (OperationCanceledException) when (requestCancellation.IsCancellationRequested)
         {
@@ -216,7 +356,11 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            FailModule(request.PatchId, "command " + request.Command, ex);
+            if (module is not null)
+            {
+                FailModule(module, "command " + request.Command, ex);
+            }
+
             outcome = new SteamUiCommandResult(false, ex.Message);
         }
 
@@ -224,15 +368,18 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
         // schedule: the first prints, the repeats are counted.
         if (!outcome.Succeeded)
         {
-            // The payload goes with the reason. A refusal that names a missing field is unreadable
-            // without the payload it was reading: "named neither a volume nor a drive" is the same
-            // line whether the identifier was absent, spelled differently, or of a type the reader
-            // rejected, and those have completely different fixes.
+            // The payload's shape goes with the reason. A refusal that names a missing field is
+            // unreadable without the payload it was reading: "named neither a volume nor a drive" is
+            // the same line whether the identifier was absent, spelled differently, or of a type the
+            // reader rejected, and those have completely different fixes. Only its shape, never its
+            // values: a plugin's secret setting travels as a payload, and testers paste this log.
             SteamUiLog.Change(
                 $"steam.ui.request.{request.PatchId}.{request.Command}",
                 $"Steam UI request {request.PatchId}/{request.Command} did nothing: "
-                + (outcome.Error ?? "no reason reported")
-                + $" Payload: {request.Payload}",
+                + outcome.Error
+                + " Payload: "
+                + SteamUiShared.DescribePayload(
+                    request.Payload.ValueKind == JsonValueKind.Undefined ? null : request.Payload.GetRawText()),
                 true);
         }
 
@@ -289,11 +436,11 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
                 // promises them a thread. It is the deliveries that were the serial cost, one
                 // Runtime.evaluate at a time under the operation timeout, so those go out together.
                 List<Task> deliveries = [];
-                foreach (var publication in _modules.Publications)
+                foreach (var (publication, module) in _modules.OwnedPublications)
                 {
                     try
                     {
-                        if (IsModuleFailed(publication.PatchId) || !publication.Enabled())
+                        if (IsModuleFailed(module) || !publication.Enabled())
                         {
                             continue;
                         }
@@ -323,7 +470,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
                     }
                     catch (Exception ex)
                     {
-                        FailModule(publication.PatchId, "state publication", ex);
+                        FailModule(module, "state publication", ex);
                         SteamUiLog.Change(
                             "steam.ui.publication." + publication.PatchId,
                             $"Steam UI state publication {publication.PatchId} failed: {ex.Message}",
@@ -389,10 +536,13 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
 
     private void CancelInflight(InflightKey key)
     {
-        CancellationTokenSource? cancellation;
+        CancellationTokenSource? cancellation = null;
         lock (_requestGate)
         {
-            _inflight.TryGetValue(key, out cancellation);
+            if (_inflight.TryGetValue(key, out var entry))
+            {
+                cancellation = entry.Cancellation;
+            }
         }
 
         SteamUiShared.CancelSafely(cancellation);
@@ -403,7 +553,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
         lock (_requestGate)
         {
             if (_inflight.TryGetValue(key, out var current)
-                && ReferenceEquals(current, owner))
+                && ReferenceEquals(current.Cancellation, owner))
             {
                 _inflight.Remove(key);
             }
@@ -437,36 +587,34 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
         }
     }
 
-    private void FailModule(string patchId, string operation, Exception error)
+    /// <summary>Quarantines the module whose own callback failed and faults the patches it installs.</summary>
+    /// <param name="module">The module that declared the failing callback.</param>
+    /// <param name="operation">What failed, for the log.</param>
+    /// <param name="error">The failure.</param>
+    private void FailModule(ISteamUiModule module, string operation, Exception error)
     {
-        if (!_modules.TryGetModule(patchId, out var module) || module is null)
-        {
-            SteamUiLog.Warn($"Steam UI {operation} for unknown module {patchId} failed: {error.Message}");
-            return;
-        }
-
         lock (_moduleGate)
         {
-            if (!_failedModules.Add(module.Id))
+            if (!_failedModules.Add(module))
             {
                 return;
             }
         }
 
         SteamUiLog.Warn($"Steam UI module {module.Id} failed during {operation}: {error}");
+        foreach (var patch in module.Patches)
+        {
+            _patches.Fault(patch.Id, $"Module {module.Id} failed during {operation}: {error.Message}");
+        }
+
         ModuleFailed?.Invoke(this, new SteamUiModuleFailure(module, operation, error.Message, error.StackTrace));
     }
 
-    private bool IsModuleFailed(string patchId)
+    private bool IsModuleFailed(ISteamUiModule module)
     {
-        if (!_modules.TryGetModule(patchId, out var module) || module is null)
-        {
-            return false;
-        }
-
         lock (_moduleGate)
         {
-            return _failedModules.Contains(module.Id);
+            return _failedModules.Contains(module);
         }
     }
 }

@@ -41,7 +41,6 @@ public static class SteamPowerMenuSurface
     /// <summary>The power menu patch.</summary>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
-        "steam-ui.jsx-runtime",
         "powerMenu",
         "steam-power-menu-v1:unique-power-menu-module+jsx-element-transform",
         $$"""
@@ -82,7 +81,7 @@ public static class SteamPowerMenuSurface
         string id = "power-menu")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return SteamSurfaceModule.Declare(
+        return SteamUiModuleBuilder.Module(
             id,
             PatchId,
             enabled,
@@ -90,7 +89,7 @@ public static class SteamPowerMenuSurface
             SteamSurfaceJsonContext.Default.SteamPowerMenuState,
             [Patch],
             [
-                SteamSurfaceModule.Command(PatchId, "switchToDesktop", backend.SwitchToDesktopAsync)
+                SteamUiModuleBuilder.Command(PatchId, "switchToDesktop", backend.SwitchToDesktopAsync)
             ]);
     }
 }

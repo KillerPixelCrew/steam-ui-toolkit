@@ -32,17 +32,21 @@ enabled; this repository supplies mechanisms and truthful state.
   gates, the component host, `settings.ts`, which draws a host's settings pages with Steam's own
   routed sidebar, sections and fields, and `ui-kit.ts`, the elements a host draws around Steam's
   fields.
-- `eng/build-prelude.mjs`: deterministic source composition and TypeScript validation.
-- `eng/run-checks.mjs`: builds the prelude and runs every emitted-asset check, stopping at the first
-  failure; `eng/check-harness.mjs` is what the checks share (asset loading, marker slices, gate
-  instantiation over the real ownership primitives and gate helpers, and a React stand-in).
+- `eng/steam-ui-fragments.mjs`: the one fragment list and compile, shared by this repository's
+  prelude build and a consumer's asset builder. `eng/build-prelude.mjs` is the CLI that writes
+  `dist/` from it.
+- `eng/run-checks.mjs`: builds the prelude and runs every `eng/check-*.mjs` it finds, stopping at
+  the first failure; `eng/check-harness.mjs` is what the checks share (asset loading, whole
+  fragments by their `// @fragment` label, gate instantiation over the real ownership primitives
+  and gate helpers, and a React stand-in).
 - `eng/check-*.mjs`: the emitted-asset checks. `check-ownership-claims` (claim primitives),
   `check-startup` (module resolver, component host, network probe, bridge replay),
   `check-power-profile` (row dropdowns, glyphs, device controls, sections, power sliders and the
   slider echo), `check-service-gates` (Bluetooth and brightness), `check-navigation-panel`,
-  `check-settings-fields` (the settings renderer), `check-pages`, `check-storage`, `check-library` (library badge, details stat and the JSX claim),
-  `check-extension-surfaces` (the Extensions tab and the game context menu),
-  `check-home-carousel` and `check-screensaver`.
+  `check-settings-fields` (the settings renderer), `check-pages`, `check-storage`, `check-library`
+  (library badge, details stat and the JSX claim), `check-extension-surfaces` (the Extensions tab
+  and the game context menu), `check-home-carousel`, `check-screensaver`, `check-power-menu`,
+  `check-theme-styles`, `check-sound-overrides` and `check-ui-kit`.
 - `tests/SteamUiToolkit.Tests`: transport, bridge, lifecycle, extension, and surface contracts, with
   one shared set of fakes, builders and the recording backend under `Fakes/`.
 
@@ -70,8 +74,9 @@ A complete surface owns its whole vertical slice:
 - module wiring and contract tests.
 
 Register the bridge and dependent surface patches in the same manager, but do not rely on
-registration call order: the manager synchronizes by patch id and retries unmet conditions. Quick
-Access rows share the documented performance-root resource so their mutations serialize.
+registration call order: the manager applies the bridge first and removes it last, synchronizes the
+rest by patch id and retries unmet conditions. Every pass runs under one scheduler gate, so patch
+mutations serialize.
 
 ## The UI kit
 
@@ -111,8 +116,7 @@ publish success into a newer generation.
 
 ## Patch lifecycle invariants
 
-Every patch must have a stable id, positive version, target role, resource key, and bounded
-operations.
+Every patch must have a stable id, a target role, and bounded operations.
 
 - Probe is read-only and returns a semantic fingerprint, not merely a module id.
 - Compatibility must be unique. More than one structural match is unsafe.
@@ -170,16 +174,19 @@ containment, strict UTF-8, size, API-version, id-scope, and deterministic confli
 
 ## TypeScript asset contract
 
-`eng/build-prelude.mjs` owns fragment order. The prelude remains an open IIFE for consumer
-fragments; the complete asset appends `epilogue.ts` and closes it. `types.ts` is declarations only
-and must not emit runtime code.
+`eng/steam-ui-fragments.mjs` owns fragment order for this repository and for every consumer that
+imports it. The prelude remains an open IIFE for consumer fragments; the complete asset appends
+`epilogue.ts` and closes it. `types.ts` is declarations only and must not emit runtime code.
 
 The emitted asset is intentionally readable, type-stripped ES2022 JavaScript. Do not bundle, minify,
 downlevel, or add helpers. `types.ts`, `bridge.ts`, `ownership.ts` and `rpc.ts` come first; every
-other top-level fragment and every file under `gates/` is discovered in sorted order, matching
-WSGM's `build-steam-assets.mjs`. A new shared fragment therefore needs no builder change in either
-repository, but it must not be read during bundle evaluation before its own definition. Changes to
-fragment roles or ordering belong in both builders and the reference documentation.
+other top-level fragment and every file under `gates/` is discovered in sorted order. A new shared
+fragment therefore needs no builder change in either repository, but it must not be read during
+bundle evaluation before its own definition. Every fragment after `bridge.ts` opens with a
+`// @fragment <label>` line, so a fragment must open with runtime code: TypeScript erases the
+comments that lead a `type` declaration, and the compile refuses an asset that lost a marker.
+Changes to fragment roles or ordering belong in `steam-ui-fragments.mjs` and the reference
+documentation.
 
 A change to `ownership.ts` must be exercised against the emitted output through the ownership claims
 gate, not only reasoned about from TypeScript source.
@@ -213,7 +220,8 @@ npm run prelude:claims
 
 CI uses .NET 10 and Node 22. `prelude:claims` runs `eng/run-checks.mjs`, which builds the prelude
 and runs every emitted-asset check against it. Given an asset path, the runner checks that asset
-without building, which is how a consumer can check its own composed asset.
+without building, which is how a consumer can check its own composed asset. A new check runs by
+being an `eng/check-*.mjs` file; there is no list to add it to.
 
 Run focused tests during iteration, but retain the full gate for code or asset changes. A change to
 Steam module matching, localization, layout, or runtime behavior also needs explicit validation

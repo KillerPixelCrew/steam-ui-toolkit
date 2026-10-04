@@ -9,14 +9,17 @@ namespace SteamUiToolkit;
 /// <summary>One independently writable power limit, in watts.</summary>
 /// <param name="Available">Whether the control may be operated.</param>
 /// <param name="MinimumWatts">Lowest supported wattage.</param>
-/// <param name="MaximumWatts">Highest supported wattage, at most 200.</param>
+/// <param name="MaximumWatts">Highest supported wattage; the device's descriptor is the authority for it.</param>
 /// <param name="StepWatts">Increment between supported values.</param>
-/// <param name="ObservedWatts">Hardware readback, or null when unknown.</param>
+/// <param name="ObservedWatts">
+///     The wattage shown: the value written, or what the device reads back where it can, or null when
+///     there is none. The slider still draws without it, at its minimum with its value hidden.
+/// </param>
 /// <param name="Progress">Command progress, including applying or uncertain.</param>
 /// <param name="StatusText">A bounded explanation of availability or the last outcome.</param>
-/// <param name="OverrideId">
-///     The host's setting id while the running game's own profile supplies this value, so the row marks
-///     it in Steam's accent colour; null otherwise.
+/// <param name="Accent">
+///     Whether the row is marked: its description is drawn in Steam's accent colour after the host's
+///     <see cref="SteamQuickAccessLayout.AccentLabel" />.
 /// </param>
 public sealed record SteamPowerLimitRangeState(
     bool Available,
@@ -26,23 +29,20 @@ public sealed record SteamPowerLimitRangeState(
     int? ObservedWatts,
     string Progress,
     string StatusText,
-    string? OverrideId = null);
+    bool Accent = false);
 
 /// <summary>Observed sustained and boost power limits shown in Quick Access.</summary>
 /// <param name="Sustained">The sustained power limit, PL1.</param>
 /// <param name="Boost">The boost power limit, PL2.</param>
 /// <param name="Unified">Whether the primary slider controls the coordinated power pair.</param>
 /// <param name="CanSelectMode">Whether the backend supports manual mode selection.</param>
-/// <param name="ModeOverrideId">
-///     The host's setting id while the running game's own profile supplies the unified or advanced
-///     mode; null otherwise.
-/// </param>
+/// <param name="ModeAccent">Whether the unified-or-advanced mode switch is marked, like a row's <c>Accent</c>.</param>
 public sealed record SteamPowerLimitState(
     SteamPowerLimitRangeState Sustained,
     SteamPowerLimitRangeState Boost,
     bool Unified = false,
     bool CanSelectMode = false,
-    string? ModeOverrideId = null);
+    bool ModeAccent = false);
 
 /// <summary>Routes explicit power slider edits through the consumer's hardware coordinator.</summary>
 public interface ISteamPowerLimitBackend
@@ -53,7 +53,7 @@ public interface ISteamPowerLimitBackend
     /// <returns>The persistence outcome.</returns>
     Task<SteamUiCommandResult> SetUnifiedModeAsync(bool unified, CancellationToken cancellationToken)
     {
-        return Task.FromResult(SteamUiCommandResult.Refused);
+        return Task.FromResult(SteamUiCommandResult.ModeSelectionUnsupported);
     }
 
     /// <summary>Sets sustained power, PL1.</summary>
@@ -86,7 +86,7 @@ public static class SteamPowerLimitSurface
     public static SteamQuickAccessRowPatch Patch { get; } = new(
         PatchId,
         "powerLimit",
-        "native-qam-power-limits-v3:performance-actions+performance-root+unified-mode",
+        "steam-ui-power-limits-v3:performance-actions+performance-root+unified-mode",
         "steam_ui_power_limits_probe_");
 
     /// <summary>Serializes both independent limits for the injected controls.</summary>
@@ -110,7 +110,7 @@ public static class SteamPowerLimitSurface
         string id = "power-limit")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return SteamSurfaceModule.Declare(
+        return SteamUiModuleBuilder.Module(
             id,
             PatchId,
             enabled,
@@ -118,7 +118,7 @@ public static class SteamPowerLimitSurface
             SteamSurfaceJsonContext.Default.SteamPowerLimitState,
             [Patch],
             [
-                SteamSurfaceModule.Command(
+                SteamUiModuleBuilder.Command(
                     PatchId,
                     "setUnifiedMode",
                     static (JsonElement payload, out bool unified) =>
@@ -129,13 +129,13 @@ public static class SteamPowerLimitSurface
                     },
                     backend.SetUnifiedModeAsync,
                     "The manual power mode payload is invalid."),
-                SteamSurfaceModule.Command<int>(
+                SteamUiModuleBuilder.Command<int>(
                     PatchId,
                     "setPrimaryLimit",
                     TryReadWatts,
                     backend.SetPrimaryLimitAsync,
                     "The sustained power-limit payload is invalid."),
-                SteamSurfaceModule.Command<int>(
+                SteamUiModuleBuilder.Command<int>(
                     PatchId,
                     "setBoostLimit",
                     TryReadWatts,
@@ -148,6 +148,6 @@ public static class SteamPowerLimitSurface
     {
         watts = default;
         return SteamUiPayload.HasExactly(payload, 1)
-               && SteamUiPayload.TryReadInt(payload, "watts", 1, 200, out watts);
+               && SteamUiPayload.TryReadInt(payload, "watts", 1, int.MaxValue, out watts);
     }
 }

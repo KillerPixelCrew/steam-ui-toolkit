@@ -70,12 +70,12 @@ public static class SteamUiPayload
         return true;
     }
 
-    /// <summary>Reads a payload that is exactly one bounded identifier named <c>target</c>.</summary>
+    /// <summary>Reads a payload that is exactly one identifier named <c>target</c>.</summary>
     /// <param name="payload">The request payload.</param>
     /// <param name="target">The identifier, when this returns true.</param>
     /// <returns>Whether the payload is exactly that shape.</returns>
     /// <remarks>
-    ///     Identifiers are 1–64 characters of ASCII letters, digits, <c>.</c>, <c>_</c> and <c>-</c>.
+    ///     Identifiers are one or more ASCII letters, digits, <c>.</c>, <c>_</c> and <c>-</c>.
     ///     Uppercase is allowed because ids a host sends are often PascalCase; a lowercase-only rule
     ///     once rejected every valid controller target while the row rendered normally.
     /// </remarks>
@@ -91,7 +91,7 @@ public static class SteamUiPayload
 
         var candidate = property.GetString();
         if (!HasExactly(payload, 1)
-            || candidate is not { Length: >= 1 and <= 64 }
+            || candidate is not { Length: >= 1 }
             || !ValidTargetId(candidate))
         {
             return false;

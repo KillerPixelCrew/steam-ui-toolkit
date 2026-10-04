@@ -14,7 +14,7 @@ public sealed record SteamTimeoutOption(int Seconds, string Label);
 
 /// <summary>One host-owned row in Steam's Screensaver settings.</summary>
 /// <param name="Id">
-///     Stable row identity: a lowercase letter, then up to 31 lowercase letters, digits or hyphens. The
+///     Stable row identity: a lowercase letter, then lowercase letters, digits or hyphens. The
 ///     row's choices come back under it.
 /// </param>
 /// <param name="Label">The row's label.</param>
@@ -31,7 +31,7 @@ public sealed record SteamTimeoutRow(
     bool Available);
 
 /// <summary>What the host adds to Steam's Screensaver settings.</summary>
-/// <param name="Rows">The rows, in order, appended after Steam's own; at most four.</param>
+/// <param name="Rows">The rows, in order, appended after Steam's own.</param>
 /// <param name="Revision">Monotonic host observation revision.</param>
 public sealed record SteamScreensaverState(IReadOnlyList<SteamTimeoutRow> Rows, long Revision = 0);
 
@@ -91,7 +91,7 @@ public static class SteamScreensaverSurface
     /// <summary>The patch id this surface publishes under and answers commands for.</summary>
     public const string PatchId = "steam-ui.screensaver";
 
-    private static readonly Regex RowId = new("^[a-z][a-z0-9-]*$", RegexOptions.CultureInvariant);
+    private static readonly Regex RowId = new(@"^[a-z][a-z0-9-]*\z", RegexOptions.CultureInvariant);
 
     /// <summary>The exact command vocabulary the injected gate sends.</summary>
     public static IReadOnlyList<string> Commands { get; } = ["report", "setTimeout"];
@@ -104,7 +104,6 @@ public static class SteamScreensaverSurface
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
-        "steam-ui.settings-pages",
         "screensaver",
         "steam-screensaver-v1:unique-section-module+customization-route+settings-store",
         $$"""
@@ -212,7 +211,7 @@ public static class SteamScreensaverSurface
         string id = "screensaver")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return SteamSurfaceModule.Declare(
+        return SteamUiModuleBuilder.Module(
             id,
             PatchId,
             enabled,
@@ -220,13 +219,13 @@ public static class SteamScreensaverSurface
             SteamSurfaceJsonContext.Default.SteamScreensaverState,
             [Patch],
             [
-                SteamSurfaceModule.Command<SteamScreensaverReport>(
+                SteamUiModuleBuilder.Command<SteamScreensaverReport>(
                     PatchId,
                     "report",
                     TryReadReport,
                     backend.ReportAsync,
                     "The screensaver report is invalid."),
-                SteamSurfaceModule.Command(
+                SteamUiModuleBuilder.Command(
                     PatchId,
                     "setTimeout",
                     static (JsonElement payload, out (string Row, int Seconds) timeout) =>

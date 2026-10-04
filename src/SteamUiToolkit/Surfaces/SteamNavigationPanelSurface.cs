@@ -26,8 +26,8 @@ namespace SteamUiToolkit;
 ///     An entry with a route is drawn by Valve's own route entry: it is active on that page and below
 ///     it, and selecting it navigates with Valve's own action, so the host is not asked. Without one,
 ///     selecting the entry sends <c>activate</c>, and an answer carrying a <c>route</c> is followed
-///     after the menu closes. A route that is not absolute, is <c>/</c>, or is longer than 256
-///     characters is not drawn.
+///     after the menu closes. A route that is not absolute, is <c>/</c>, or contains a control
+///     character is not drawn.
 /// </param>
 /// <param name="Glyph">
 ///     The entry's icon as SVG path data on a 24x24 grid, filled with the row's own colour and with
@@ -109,7 +109,6 @@ public static class SteamNavigationPanelSurface
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
-        "steam-ui.navigation-panel-root",
         "navigationPanel",
         "steam-navigation-panel-v1:unique-menu-module+single-memo-export",
         $$"""
@@ -173,7 +172,7 @@ public static class SteamNavigationPanelSurface
         string id = "navigation-panel")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return SteamSurfaceModule.Declare(
+        return SteamUiModuleBuilder.Module(
             id,
             PatchId,
             enabled,
@@ -181,11 +180,11 @@ public static class SteamNavigationPanelSurface
             SteamSurfaceJsonContext.Default.SteamNavigationPanelState,
             [Patch],
             [
-                SteamSurfaceModule.Command(
+                SteamUiModuleBuilder.Command(
                     PatchId,
                     "activate",
                     static (JsonElement payload, out string entryId) =>
-                        SteamUiPayload.TryReadNonBlankString(payload, "id", out entryId),
+                        SteamUiPayload.TryReadOnlyString(payload, "id", out entryId),
                     backend.ActivateAsync,
                     "The navigation activation payload is invalid.")
             ]);

@@ -8,22 +8,25 @@ namespace SteamUiToolkit;
 
 /// <summary>The variable-refresh switch as the row renders it.</summary>
 /// <param name="Available">Whether a backend capability backs the switch at all. False hides the row.</param>
-/// <param name="Enabled">What the device reports now, not what was last asked for.</param>
+/// <param name="Enabled">
+///     The switch as the host publishes it: the value it wrote, or what the device reads back where it
+///     can. No outcome waits on a readback.
+/// </param>
 /// <param name="Progress">
 ///     Command progress; the row disables itself while <c>queued</c>, <c>applying</c> or
 ///     <c>replacing</c>.
 /// </param>
 /// <param name="StatusText">One line describing the state, or why the row cannot be operated.</param>
-/// <param name="OverrideId">
-///     The host's setting id while the running game's own profile supplies this value, so the row marks
-///     it in Steam's accent colour; null otherwise.
+/// <param name="Accent">
+///     Whether the row is marked: its description is drawn in Steam's accent colour after the host's
+///     <see cref="SteamQuickAccessLayout.AccentLabel" />.
 /// </param>
 public sealed record SteamVariableRefreshState(
     bool Available,
     bool Enabled,
     string Progress,
     string StatusText,
-    string? OverrideId = null);
+    bool Accent = false);
 
 /// <summary>What answers the variable-refresh switch.</summary>
 public interface ISteamVariableRefreshBackend
@@ -57,7 +60,7 @@ public static class SteamVariableRefreshRow
     public static SteamQuickAccessRowPatch Patch { get; } = new(
         PatchId,
         "vrr",
-        "native-qam-vrr-v1:performance-actions+performance-root+valve-toggle",
+        "steam-ui-vrr-v1:performance-actions+performance-root+valve-toggle",
         "steam_ui_variable_refresh_probe_");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
@@ -82,7 +85,7 @@ public static class SteamVariableRefreshRow
         string id = "vrr")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return SteamSurfaceModule.Declare(
+        return SteamUiModuleBuilder.Module(
             id,
             PatchId,
             enabled,
@@ -90,7 +93,7 @@ public static class SteamVariableRefreshRow
             SteamSurfaceJsonContext.Default.SteamVariableRefreshState,
             [Patch],
             [
-                SteamSurfaceModule.Command<bool>(
+                SteamUiModuleBuilder.Command<bool>(
                     PatchId,
                     "setVariableRefreshRate",
                     SteamUiPayload.TryReadEnabled,

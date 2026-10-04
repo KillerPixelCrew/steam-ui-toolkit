@@ -502,7 +502,8 @@ public static class SteamPerformanceDeltaReader
         ulong raw = value.ValueKind switch
         {
             JsonValueKind.Number when value.TryGetUInt64(out var number) => number,
-            JsonValueKind.String when ulong.TryParse(value.GetString(), out var parsed) => parsed,
+            JsonValueKind.String when ulong.TryParse(
+                value.GetString(), NumberStyles.None, CultureInfo.InvariantCulture, out var parsed) => parsed,
             _ => 0
         };
 
@@ -556,9 +557,8 @@ public static class SteamPerformanceSurface
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
-        "steam-ui.performance-namespace",
         "perf",
-        "native-qam-perf-v1:store+absent-namespace+reachable-singleton",
+        "steam-ui-perf-v1:store+absent-namespace+reachable-singleton",
         // The store is counted by the source tokens that make it the perf store, never by module
         // id; the singleton is reached through the one exported class with a Get() whose body
         // declares the state, because the state is written into a client that is already running.
@@ -597,21 +597,21 @@ public static class SteamPerformanceSurface
     public static SteamQuickAccessRowPatch ProfileHeaderRow { get; } = new(
         "steam-ui.valve-profile-header",
         "valveProfileHeader",
-        "native-qam-valve-profile-header-v1:performance-actions+performance-root+valve-header",
+        "steam-ui-valve-profile-header-v1:performance-actions+performance-root+valve-header",
         "steam_ui_valve_header_probe_");
 
     /// <summary>Valve's reset-to-default button, rendered last because it undoes everything above it.</summary>
     public static SteamQuickAccessRowPatch ResetRow { get; } = new(
         "steam-ui.valve-reset",
         "valveReset",
-        "native-qam-valve-reset-v1:performance-actions+performance-root+valve-reset",
+        "steam-ui-valve-reset-v1:performance-actions+performance-root+valve-reset",
         "steam_ui_valve_reset_probe_");
 
     /// <summary>Valve's own performance-overlay selector.</summary>
     public static SteamQuickAccessRowPatch OverlayLevelRow { get; } = new(
         "steam-ui.valve-overlay-level",
         "valveOverlayLevel",
-        "native-qam-valve-overlay-level-v1:performance-actions+performance-root+valve-selector",
+        "steam-ui-valve-overlay-level-v1:performance-actions+performance-root+valve-selector",
         "steam_ui_valve_overlay_probe_");
 
     /// <summary>Valve's manual refresh-rate row, mounted into Quick Settings.</summary>
@@ -622,7 +622,7 @@ public static class SteamPerformanceSurface
     public static SteamQuickAccessRowPatch RefreshRateRow { get; } = new(
         "steam-ui.valve-refresh-rate",
         "valveRefreshRate",
-        "native-qam-valve-refresh-rate-v1:performance-actions+performance-root+valve-refresh",
+        "steam-ui-valve-refresh-rate-v1:performance-actions+performance-root+valve-refresh",
         "steam_ui_valve_refresh_probe_");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
@@ -647,7 +647,7 @@ public static class SteamPerformanceSurface
         string id = "performance")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return SteamSurfaceModule.Declare(
+        return SteamUiModuleBuilder.Module(
             id,
             PatchId,
             enabled,
@@ -663,8 +663,8 @@ public static class SteamPerformanceSurface
                         out var delta,
                         out var readError)
                         ? backend.ApplyAsync(delta, request.ToCorrelationId(), cancellationToken)
-                        : SteamSurfaceModule.Invalid(
-                            readError ?? "The performance delta payload is invalid."))
+                        : Task.FromResult(SteamUiCommandResult.Invalid(
+                            readError ?? "The performance delta payload is invalid.")))
             ]);
     }
 }

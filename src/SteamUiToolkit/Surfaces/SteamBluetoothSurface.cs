@@ -158,7 +158,6 @@ public static class SteamBluetoothSurface
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
-        "steam-ui.bluetooth-manager-service",
         "bluetooth",
         "steam-bluetooth-v1:operations+writable-stub+reachable-cache",
         $$"""
@@ -213,7 +212,7 @@ public static class SteamBluetoothSurface
         string id = "bluetooth")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return SteamSurfaceModule.Declare(
+        return SteamUiModuleBuilder.Module(
             id,
             PatchId,
             enabled,
@@ -221,7 +220,7 @@ public static class SteamBluetoothSurface
             SteamSurfaceJsonContext.Default.SteamBluetoothState,
             [Patch],
             [
-                SteamSurfaceModule.Command<bool>(
+                SteamUiModuleBuilder.Command<bool>(
                     PatchId,
                     "setDiscovering",
                     SteamUiPayload.TryReadEnabled,
@@ -241,7 +240,7 @@ public static class SteamBluetoothSurface
         string command,
         Func<string, CancellationToken, Task<SteamUiCommandResult>> operation)
     {
-        return SteamSurfaceModule.Command(
+        return SteamUiModuleBuilder.Command(
             PatchId,
             command,
             static (payload, out deviceId) =>
@@ -256,7 +255,7 @@ public static class SteamBluetoothSurface
         string flagName,
         Func<string, bool, CancellationToken, Task<SteamUiCommandResult>> operation)
     {
-        return SteamSurfaceModule.Command(
+        return SteamUiModuleBuilder.Command(
             PatchId,
             command,
             (JsonElement payload, out (string Device, bool Flag) value) =>

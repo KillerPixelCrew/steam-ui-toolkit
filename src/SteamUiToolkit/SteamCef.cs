@@ -118,8 +118,12 @@ public static class SteamCef
             return false;
         }
 
+        // Only a loopback or wildcard (0.0.0.0) row can answer a connect to 127.0.0.1. A process
+        // bound to one specific LAN address on the port is never reached, so it must not decide the
+        // verdict by sitting in the table ahead of Steam's own wildcard row.
         var candidates = listeners
-            .Where(l => l.Port == DebugPort)
+            .Where(l => l.Port == DebugPort
+                        && l.LocalAddress is NativeTcp.Loopback or 0)
             .OrderBy(l => l.LocalAddress == NativeTcp.Loopback ? 0 : 1)
             .ToList();
         if (candidates.Count == 0)

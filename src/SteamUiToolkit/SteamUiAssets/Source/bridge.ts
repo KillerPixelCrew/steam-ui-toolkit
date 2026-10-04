@@ -23,8 +23,11 @@
         return JSON.stringify({ok: true, reused: true, version: prior.version});
     }
     // A prior bridge unwinds every gate it registered while their closures still hold what they
-    // displaced; see dispose below.
-    if (typeof prior?.dispose === "function") prior.dispose("generation replaced");
+    // displaced; see dispose below. It names the gates that could not unwind, and the install result
+    // carries them so the host can log them: nothing else would ever show that a gate stayed behind.
+    const priorDispose = typeof prior?.dispose === "function" ? prior.dispose("generation replaced") : null;
+    const priorDisposeFailures =
+        Array.isArray(priorDispose) && priorDispose.length ? priorDispose.map(String) : undefined;
 
     const pending = new Map();
     const subscribers = new Map();
@@ -34,16 +37,22 @@
     // current.
     const refusalSubscribers = new Map();
     const latestRefusals = new Map();
-    // The one delivery being reassembled from parts. A new delivery id replaces it, so a set cut
-    // short is dropped rather than delivered half.
-    let assembling: { id: number; count: number; parts: string[] } | null = null;
+    // Deliveries being reassembled from parts, by delivery id. The host sends a large response and a
+    // large state publication independently, so their parts can interleave; one shared slot made each
+    // cancel the other. A set cut short is dropped rather than delivered half, and one the host
+    // abandoned dies with the document.
+    const assembling = new Map<number, { count: number; parts: string[] }>();
     let nextSequence = 0;
     let disposed = false;
 
     // One reviewed runtime tap for every gate. Capturing webpack's runtime by pushing an empty
     // chunk is the proven primitive; six private copies only made it possible for their safety and
     // diagnostics to drift. This helper captures the runtime but never evaluates an unknown module.
-    const getWebpackRuntime = (scope) => createSteamUiModuleResolver(scope);
+    // The resolver is kept once a capture succeeds (the factory throws while the runtime is
+    // unavailable, so nothing is cached until then), so every gate shares one chunk push and one
+    // source cache. It remembers no failure, so a module that threw during a cold start recovers.
+    let webpackResolver: ReturnType<typeof createSteamUiModuleResolver> | undefined;
+    const getWebpackRuntime = (scope) => (webpackResolver ??= createSteamUiModuleResolver(scope));
 
     const allowed = (patchId, command) => {
         const commands = config.allowed[patchId];
@@ -118,9 +127,13 @@
             }
         });
     };
+    // After dispose a subscription registers nothing and hands back a no-op. It does not throw: the
+    // old bridge's components can still run an effect before Steam unmounts them, and a throw there
+    // would take down the React tree it sits in.
     const subscribe = (patchId, callback) => {
         if (!Object.hasOwn(config.allowed, patchId) || typeof callback !== "function")
             throw new Error("subscription not allowlisted");
+        if (disposed) return () => false;
         let set = subscribers.get(patchId);
         if (!set) subscribers.set(patchId, (set = new Set()));
         set.add(callback);
@@ -139,6 +152,7 @@
     const subscribeRefusal = (patchId, callback) => {
         if (!Object.hasOwn(config.allowed, patchId) || typeof callback !== "function")
             throw new Error("subscription not allowlisted");
+        if (disposed) return () => false;
         let set = refusalSubscribers.get(patchId);
         if (!set) refusalSubscribers.set(patchId, (set = new Set()));
         set.add(callback);
@@ -163,6 +177,7 @@
     };
     const deliver = (envelope) => {
         if (
+            disposed ||
             !envelope ||
             envelope.version !== config.version ||
             envelope.contextGeneration !== config.contextGeneration ||
@@ -201,10 +216,12 @@
         }
         return false;
     };
-    // One part of an envelope too large for a single evaluation. Parts arrive in order, each
-    // acknowledged before the next is sent; the last one delivers the reassembled envelope.
+    // One part of an envelope too large for a single evaluation. A delivery's parts arrive in order,
+    // each acknowledged before the next is sent, though another delivery's parts may come between
+    // them; the last one delivers the reassembled envelope.
     const deliverPart = (part) => {
         if (
+            disposed ||
             !part ||
             part.contextGeneration !== config.contextGeneration ||
             part.documentGeneration !== config.documentGeneration ||
@@ -217,48 +234,53 @@
             typeof part.text !== "string"
         )
             return false;
-        if (part.index === 0) assembling = { id: part.id, count: part.count, parts: [] };
-        if (
-            !assembling ||
-            assembling.id !== part.id ||
-            assembling.count !== part.count ||
-            assembling.parts.length !== part.index
-        ) {
-            assembling = null;
+        if (part.index === 0) assembling.set(part.id, {count: part.count, parts: []});
+        const entry = assembling.get(part.id);
+        if (!entry || entry.count !== part.count || entry.parts.length !== part.index) {
+            // Only this delivery is dropped; another one being reassembled is untouched.
+            assembling.delete(part.id);
             return false;
         }
-        assembling.parts.push(part.text);
-        if (assembling.parts.length < assembling.count) return true;
-        const text = assembling.parts.join("");
-        assembling = null;
+        entry.parts.push(part.text);
+        if (entry.parts.length < entry.count) return true;
+        const text = entry.parts.join("");
+        assembling.delete(part.id);
         try {
             return deliver(JSON.parse(text));
         } catch {
             return false;
         }
     };
+    // Returns the names of the gates that could not unwind, so the bridge replacing this one can
+    // report them.
     const dispose = (reason) => {
-        if (disposed) return;
+        if (disposed) return [];
         disposed = true;
+        const failures: string[] = [];
         // Resident gates own callbacks, service overlays and timers outside the bridge namespace.
         // Removing only the component host left the Manager gate polling every second after the bridge
         // that answered it had gone away, and left the other service wrappers calling dead closures.
         //
         // Every registered gate, not a list: a gate this file does not know about is exactly the case
         // a list gets wrong, and it is the normal case once a consumer adds one.
-        for (const gate of gates.values()) {
+        for (const [name, gate] of gates) {
             const owned = gate as { remove?: () => unknown; dispose?: () => unknown };
             // Both, where present. `remove` unwinds what the gate installed in the client; `dispose`
             // releases what it holds inside this bridge, and the component host has only the latter.
-            try {
-                owned.remove?.();
-            } catch {
+            // A throw or an `{ok: false}` from either names the gate.
+            let failed = false;
+            for (const step of [owned.remove, owned.dispose]) {
+                if (typeof step !== "function") continue;
+                try {
+                    const result = step.call(owned) as { ok?: unknown } | null | undefined;
+                    if (result && typeof result === "object" && result.ok === false) failed = true;
+                } catch {
+                    failed = true;
+                }
             }
-            try {
-                owned.dispose?.();
-            } catch {
-            }
+            if (failed) failures.push(name);
         }
+        gates.clear();
         for (const item of pending.values()) {
             clearTimeout(item.timer);
             item.reject(new Error(reason || "Steam UI bridge disposed"));
@@ -268,8 +290,10 @@
         latestStates.clear();
         refusalSubscribers.clear();
         latestRefusals.clear();
-        assembling = null;
+        assembling.clear();
         actionGenerations.clear();
+        webpackResolver = undefined;
+        return failures;
     };
 
     // Stamped on every namespace the host defines on SteamClient, so a later probe can tell OUR namespace
@@ -319,4 +343,4 @@
     // NOT a return: every fragment after this file is concatenated into the same IIFE, so returning
     // the install result here would make each gate's top-level registerGate call unreachable and the
     // bridge would publish with an empty registry. epilogue.ts returns this once the bundle has run.
-    installResult = JSON.stringify({ok: true, reused: false, version: config.version});
+    installResult = JSON.stringify({ok: true, reused: false, version: config.version, priorDisposeFailures});

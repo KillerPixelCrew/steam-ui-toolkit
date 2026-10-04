@@ -143,41 +143,19 @@ public sealed class SteamUiBridgeHostTests
     }
 
     [Fact]
-    public async Task AnOversizedStateDeliversItsRefusalInstead()
+    public async Task ALongRefusalReachesThePageWhole()
     {
-        // The page holds the last state it was given; only the refusal can tell it that is stale.
+        // The page shows a refusal to the user, so it is never cut; delivery is chunked.
         await using var transport = new FakeSteamUiTransport();
         await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
         Assert.True(await host.BootstrapAsync());
         var afterBootstrap = transport.Expressions.Count;
-        var oversized = TestJson.Parse(
-            "{\"value\":\"" + new string('x', SteamUiBridgeHost.MaximumDeliveryCharacters) + "\"}");
+        var reason = new string('r', 5000);
 
-        Assert.False(await host.PublishStateAsync("example.performance", oversized));
+        Assert.True(await host.RespondAsync(Request(transport.Generations, 1, 1), false, null, reason));
 
-        // Quotes inside the envelope are JSON-escaped in the expression.
-        var sent = Assert.Single(transport.Expressions.Skip(afterBootstrap));
-        Assert.Contains("\\u0022type\\u0022:\\u0022refused\\u0022", sent, StringComparison.Ordinal);
-        Assert.DoesNotContain("xxxx", sent, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task AnOversizedAnswerIsDeliveredAsARefusal()
-    {
-        // A request left to time out would tell the waiting page nothing about why.
-        await using var transport = new FakeSteamUiTransport();
-        await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
-        Assert.True(await host.BootstrapAsync());
-        var afterBootstrap = transport.Expressions.Count;
-        var oversized = TestJson.Parse(
-            "{\"value\":\"" + new string('x', SteamUiBridgeHost.MaximumDeliveryCharacters) + "\"}");
-
-        Assert.True(await host.RespondAsync(Request(transport.Generations, 1, 1), true, oversized, null));
-
-        var sent = Assert.Single(transport.Expressions.Skip(afterBootstrap));
-        Assert.Contains("too large", sent, StringComparison.Ordinal);
-        Assert.Contains("\\u0022ok\\u0022:false", sent, StringComparison.Ordinal);
-        Assert.DoesNotContain("xxxx", sent, StringComparison.Ordinal);
+        var sent = string.Concat(transport.Expressions.Skip(afterBootstrap));
+        Assert.Contains(reason, sent, StringComparison.Ordinal);
     }
 
     [Fact]

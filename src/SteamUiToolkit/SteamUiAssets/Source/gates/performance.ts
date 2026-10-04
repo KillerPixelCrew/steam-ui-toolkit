@@ -18,15 +18,21 @@ function createPerfNamespace() {
 
     // The message class is never named here — it is taken from an instance the store builds, so
     // this stays correct across minification and client updates. An object argument is still
-    // accepted because that is what a caller other than the store would pass, and an
-    // undecodable one is forwarded as-is so the host logs a readable rejection instead of nothing.
+    // accepted because that is what a caller other than the store would pass. Anything that cannot
+    // be decoded answers null, and the update is refused rather than sent as an empty delta that the
+    // host would accept as "nothing changed".
     const decodeSettingsUpdate = (payload) => {
-        if (typeof payload !== "string") return payload?.toObject?.() ?? payload ?? {};
+        if (typeof payload !== "string") {
+            const decoded = payload?.toObject?.() ?? payload;
+            if (decoded && typeof decoded === "object") return decoded;
+            lastError = "settings update could not be decoded: not a message";
+            return null;
+        }
         try {
             const constructor = store()?.CreateSettingsUpdateRequest?.()?.constructor;
             if (typeof constructor?.deserializeBinary !== "function") {
                 lastError = "settings update could not be decoded: no deserializeBinary";
-                return {};
+                return null;
             }
 
             const binary = atob(payload);
@@ -38,15 +44,25 @@ function createPerfNamespace() {
             return constructor.deserializeBinary(bytes).toObject();
         } catch (error) {
             lastError = "settings update could not be decoded: " + String(error);
-            return {};
+            return null;
         }
     };
+
+    // The four fields the gate writes, as Steam's store held them before the first publication:
+    // presence and value, so removal hands back exactly that rather than an invented empty state.
+    const DisplacedFields = ["limits", "settings", "current_game_id", "active_profile_game_id"];
+    let displaced: { field: string, present: boolean, value: unknown }[] | null = null;
 
     const onState = (state) => {
         if (!installed || !state) return;
         const target = store();
         if (!target || !target.m_msgState) return;
         try {
+            displaced ??= DisplacedFields.map((field) => ({
+                field,
+                present: Object.hasOwn(target.m_msgState, field),
+                value: target.m_msgState[field],
+            }));
             target.m_msgState.limits = state.limits ?? {};
             target.m_msgState.settings = {
                 global: state.global ?? {},
@@ -87,8 +103,11 @@ function createPerfNamespace() {
             // the overlay-level selector snapped back to off, the frame cap never took, VRR never
             // toggled. Decoding through the message's OWN deserializeBinary keeps the wire format the
             // client's business; toObject() then emits snake_case field names, which is what the host reads.
-            UpdateSettings: (payload) =>
-                request(patchId, "updateSettings", {delta: decodeSettingsUpdate(payload)}, 0),
+            UpdateSettings: (payload) => {
+                const delta = decodeSettingsUpdate(payload);
+                if (delta === null) return Promise.reject(new Error(lastError));
+                return request(patchId, "updateSettings", {delta}, 0);
+            },
             RegisterForStateChanges: () => ({
                 unregister: () => {
                 }
@@ -117,30 +136,34 @@ function createPerfNamespace() {
 
     const remove = () => {
         if (!installed) return {ok: true, absent: true};
-        installed = false;
-        unsubscribe = endSubscription(unsubscribe);
-
-        const target = store();
-        if (target?.m_msgState) {
-            try {
-                // Back to the empty state the Windows client leaves it in, so every control returns to
-                // rendering nothing rather than keeping the host's last answer.
-                target.m_msgState.limits = undefined;
-                target.m_msgState.settings = undefined;
-                target.m_msgState.current_game_id = undefined;
-                target.m_msgState.active_profile_game_id = undefined;
-            } catch (error) {
-                lastError = String(error);
-            }
-        }
 
         // Marker-checked, which this path was not: it deleted whatever was at System.Perf, so a real
-        // backend appearing under a still-installed gate would have been removed by the host's own cleanup.
+        // backend appearing under a still-installed gate would have been removed by the host's own
+        // cleanup. Released first, so a failed withdrawal leaves the gate installed and the next
+        // remove retries it.
         const withdrawn = withdrawNamespace(window.SteamClient?.System, "Perf", ownedMarker);
         if (!withdrawn.ok) {
             lastError = withdrawn.error ?? "perf namespace withdrawal failed";
             return {ok: false, error: lastError};
         }
+
+        installed = false;
+        unsubscribe = endSubscription(unsubscribe);
+
+        // Back to what the store held before the first publication, so every control returns to
+        // rendering what it did before the host answered rather than keeping the host's last answer.
+        const target = store();
+        if (target?.m_msgState && displaced) {
+            try {
+                for (const {field, present, value} of displaced) {
+                    if (present) target.m_msgState[field] = value;
+                    else delete target.m_msgState[field];
+                }
+            } catch (error) {
+                lastError = String(error);
+            }
+        }
+        displaced = null;
 
         return {ok: true, removed: true};
     };

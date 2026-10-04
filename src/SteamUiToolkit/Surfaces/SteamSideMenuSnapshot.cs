@@ -5,7 +5,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace SteamUiToolkit.Surfaces;
+namespace SteamUiToolkit;
 
 /// <summary>The verified Steam side-menu state for one window.</summary>
 public enum SteamSideMenu
@@ -31,7 +31,7 @@ public sealed record SteamWindowSideMenu(
     uint AppId,
     SteamSideMenu Menu,
     bool? OverlayActive = null,
-    bool? KeyboardOpen = false);
+    bool? KeyboardOpen = null);
 
 /// <summary>A bounded observation tied to the CEF generation that produced it.</summary>
 /// <param name="Generations">The observed transport generations.</param>
@@ -65,11 +65,11 @@ public static class SteamSideMenuObserver
                                                            if(side?.None!==0||side?.Main!==1||side?.QuickAccess!==2)return null;
                                                            const store=ui?.WindowStore, main=store?.MainWindowInstance;
                                                            const overlays=store?.OverlayWindows;
-                                                           if(!main||!Array.isArray(overlays)||overlays.length>32)return null;
+                                                           if(!main||!Array.isArray(overlays))return null;
                                                            const read=(w,pid,appid)=>{
                                                              if(typeof w?.MenuStore?.GetOpenSideMenu!=="function")throw Error("menu unavailable");
                                                              const activation=window[{{SteamCef.JsString(SteamOverlayActivationPatch.StateKey)}}];
-                                                             const active=pid===0?false:activation?.live===true&&!activation.overflow
+                                                             const active=pid===0?false:activation?.live===true
                                                                ?activation.events.get(`${pid}:${appid}`):undefined;
                                                              const keyboard=w.VirtualKeyboardManager?.IsShowingVirtualKeyboard?.Value;
                                                              return {pid,appid,menu:w.MenuStore.GetOpenSideMenu(),active:typeof active==='boolean'?active:null,
@@ -92,12 +92,12 @@ public static class SteamSideMenuObserver
         var result = await transport.EvaluateAsync(SteamUiTargetRole.SharedJsContext,
             ReadExpression, TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
         var current = SteamSharedContext.IsReadyAt(transport, result.Generations);
-        return new SteamSideMenuSnapshot(result.Generations, result.Reachable && current ? Parse(result.Value) : null);
+        return new SteamSideMenuSnapshot(result.Generations, result.Answered && current ? Parse(result.Value) : null);
     }
 
     internal static IReadOnlyList<SteamWindowSideMenu>? Parse(string? value)
     {
-        if (value is null || value.Length > 8192)
+        if (value is null)
         {
             return null;
         }
@@ -106,7 +106,7 @@ public static class SteamSideMenuObserver
         {
             using var document = JsonDocument.Parse(value);
             var root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Array || root.GetArrayLength() is < 1 or > 33)
+            if (root.ValueKind != JsonValueKind.Array || root.GetArrayLength() < 1)
             {
                 return null;
             }

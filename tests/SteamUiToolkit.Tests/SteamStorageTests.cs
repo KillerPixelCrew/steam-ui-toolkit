@@ -32,21 +32,21 @@ public sealed class SteamStorageTests
 
         Assert.Contains("StorageDeviceManager.IsServiceAvailable#1", probe, StringComparison.Ordinal);
         Assert.Contains("GetDefaultTransport", probe, StringComparison.Ordinal);
-        Assert.Contains("transportResolved", probe, StringComparison.Ordinal);
-        Assert.Contains("claimable", probe, StringComparison.Ordinal);
-        Assert.Contains("__steamUiStorageClaimed", probe, StringComparison.Ordinal);
+        // Source text only: the probe never calls an export of the transport module to reach it.
+        Assert.DoesNotContain("GetDefaultTransport?.(", probe, StringComparison.Ordinal);
+        Assert.DoesNotContain("SendMsg", probe, StringComparison.Ordinal);
     }
 
     [Theory]
-    [InlineData("""{"service":1,"transportModule":1,"transportResolved":1,"claimable":true}""", true)]
-    // No transport resolved: nothing to claim, and claiming the wrong object carries Steam's traffic.
-    [InlineData("""{"service":1,"transportModule":1,"transportResolved":0,"claimable":true}""", false)]
-    [InlineData("""{"service":1,"transportModule":1,"transportResolved":1,"claimable":false}""", false)]
+    [InlineData("""{"service":1,"transportModule":1}""", true)]
     // Two modules naming the service is ambiguous rather than a reason to pick one.
-    [InlineData("""{"service":2,"transportModule":1,"transportResolved":1,"claimable":true}""", false)]
-    [InlineData("""{"service":0,"transportModule":1,"transportResolved":1,"claimable":true}""", false)]
+    [InlineData("""{"service":2,"transportModule":1}""", false)]
+    [InlineData("""{"service":0,"transportModule":1}""", false)]
+    [InlineData("""{"service":1,"transportModule":0}""", false)]
+    [InlineData("""{"service":1,"transportModule":2}""", false)]
     [InlineData("""{"error":"Steam modules unavailable"}""", false)]
-    public void CompatibilityRequiresAUniqueServiceAndAClaimableTransport(string json, bool expected)
+    [InlineData("""[1]""", false)]
+    public void CompatibilityRequiresAUniqueServiceAndTransportModule(string json, bool expected)
     {
         using var document = JsonDocument.Parse(json);
 
@@ -114,17 +114,19 @@ public sealed class SteamStorageTests
         ]);
         var patchId = SteamStorageSurface.PatchId;
 
-        Assert.True((await DispatchAsync(set, patchId, "eject", """{"blockDeviceId":2}""")).Succeeded);
-        Assert.True((await DispatchAsync(set, patchId, "unmount", """{"driveId":1}""")).Succeeded);
+        Assert.True((await DispatchAsync(set, patchId, "eject", Storage(0, 2))).Succeeded);
+        Assert.True((await DispatchAsync(set, patchId, "unmount", Storage(1, 0))).Succeeded);
         var refused = await DispatchAsync(set, patchId, "eject", """{}""");
 
         Assert.Equal("The storage eject payload named neither a volume nor a drive.", refused.Error);
 
-        // Zero is Steam's "not named" rather than a drive, so it refuses like an absent property.
-        var zero = await DispatchAsync(
-            set, patchId, "eject", """{"blockDeviceId":0,"driveId":0}""");
+        // Zero is Steam's "not named" rather than a drive.
+        var zero = await DispatchAsync(set, patchId, "eject", Storage(0, 0));
         Assert.Equal("The storage eject payload named neither a volume nor a drive.", zero.Error);
-        Assert.Equal(["eject 2/0", "eject 0/1"], backend.Calls);
+
+        // Ids are unsigned 32-bit, so one above int.MaxValue is a drive like any other.
+        Assert.True((await DispatchAsync(set, patchId, "eject", Storage(3000000000, 0))).Succeeded);
+        Assert.Equal(["eject 2/0", "eject 0/1", "eject 0/3000000000"], backend.Calls);
     }
 
     [Fact]
@@ -140,15 +142,23 @@ public sealed class SteamStorageTests
 
         // Steam's Format Drive modal sends Adopt with the typed name and its validate flag, so
         // both have to survive the trip; a bare adopt still works with neither.
-        Assert.True((await DispatchAsync(
-            set, patchId, "adopt", """{"driveId":1,"label":"Games","validate":true}""")).Succeeded);
-        Assert.True((await DispatchAsync(set, patchId, "adopt", """{"driveId":1}""")).Succeeded);
+        Assert.True((await DispatchAsync(set, patchId, "adopt", Storage(1, 0, "Games", true))).Succeeded);
+        Assert.True((await DispatchAsync(set, patchId, "adopt", Storage(1, 0))).Succeeded);
         Assert.True((await DispatchAsync(set, patchId, "trimall", """{}""")).Succeeded);
-        var refused = await DispatchAsync(set, patchId, "format", """{"driveId":0}""");
+        var refused = await DispatchAsync(set, patchId, "format", Storage(0, 0));
+        var extra = await DispatchAsync(
+            set, patchId, "adopt", """{"driveId":1,"blockDeviceId":0,"label":"","validate":false,"x":1}""");
 
         Assert.Equal("The storage format payload is invalid.", refused.Error);
+        Assert.Equal("The storage adopt payload is invalid.", extra.Error);
         Assert.Equal(
             ["adopt 1 'Games' validate=True", "adopt 1 '' validate=False", "trimall"],
             backend.Calls);
+    }
+
+    // The one shape every storage action sends.
+    private static string Storage(uint driveId, uint blockDeviceId, string label = "", bool validate = false)
+    {
+        return $$"""{"driveId":{{driveId}},"blockDeviceId":{{blockDeviceId}},"label":"{{label}}","validate":{{(validate ? "true" : "false")}}}""";
     }
 }

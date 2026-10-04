@@ -7,13 +7,18 @@ using System.Threading.Tasks;
 namespace SteamUiToolkit;
 
 /// <summary>One host-provided power profile.</summary>
-/// <param name="Id">Stable identifier, 1-64 ASCII letters, digits, dots, underscores or hyphens.</param>
-/// <param name="Label">Display name, independent of identity; the injected row bounds it to 240 characters.</param>
-public sealed record SteamPowerProfileOption(string Id, string Label);
+/// <param name="Id">Stable identifier, one or more ASCII letters, digits, dots, underscores or hyphens.</param>
+/// <param name="Label">Display name, independent of identity.</param>
+/// <param name="Selectable">
+///     Whether the user may choose it. An option that is not selectable describes a state the host
+///     reports but cannot be asked for: a dropdown lists it only while it is that dropdown's current
+///     value, and never sends it.
+/// </param>
+public sealed record SteamPowerProfileOption(string Id, string Label, bool Selectable = true);
 
 /// <summary>The Performance menu's power-profile dropdown.</summary>
 /// <param name="Available">Whether selection is enabled. False keeps the status visible.</param>
-/// <param name="Options">At most 64 profiles with unique identifiers.</param>
+/// <param name="Options">The profiles, with unique identifiers.</param>
 /// <param name="Current">Observed profile id, or empty when unknown.</param>
 /// <param name="StatusText">Current state or the last failure.</param>
 public sealed record SteamPowerProfileState(
@@ -25,10 +30,13 @@ public sealed record SteamPowerProfileState(
 /// <summary>Applies a host's power profiles.</summary>
 public interface ISteamPowerProfileBackend
 {
-    /// <summary>Selects and verifies one published profile.</summary>
+    /// <summary>Dispatches the selection of one published profile.</summary>
     /// <param name="option">Stable profile id.</param>
     /// <param name="cancellationToken">Cancels before the write starts.</param>
-    /// <returns>The verified outcome or a refusal.</returns>
+    /// <returns>
+    ///     Success once the selection was dispatched, with the written value published as observed, or
+    ///     why it could not be dispatched. No outcome waits on a readback.
+    /// </returns>
     Task<SteamUiCommandResult> SetPowerProfileAsync(string option, CancellationToken cancellationToken);
 }
 
@@ -44,7 +52,7 @@ public static class SteamPowerProfileRow
     /// <summary>Reversible registration with the shared Performance row host.</summary>
     public static SteamQuickAccessRowPatch Patch { get; } = new(
         PatchId, "powerProfile",
-        "native-qam-power-profile-v1:performance-actions+performance-root+valve-dropdown",
+        "steam-ui-power-profile-v1:performance-actions+performance-root+valve-dropdown",
         "steam_ui_power_profile_probe_");
 
     /// <summary>Serializes state for the injected component.</summary>
@@ -66,10 +74,10 @@ public static class SteamPowerProfileRow
         ISteamPowerProfileBackend backend, string id = "power-profile")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return SteamSurfaceModule.Declare(
+        return SteamUiModuleBuilder.Module(
             id, PatchId, enabled, read, SteamSurfaceJsonContext.Default.SteamPowerProfileState, [Patch],
             [
-                SteamSurfaceModule.Command<string>(PatchId, "setPowerProfile", SteamUiPayload.TryReadTarget,
+                SteamUiModuleBuilder.Command<string>(PatchId, "setPowerProfile", SteamUiPayload.TryReadTarget,
                     backend.SetPowerProfileAsync, "The power-profile payload is invalid.")
             ]);
     }

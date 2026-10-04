@@ -1,25 +1,31 @@
 import assert from "node:assert/strict";
 import { runInNewContext } from "node:vm";
 import {
+  fragment,
   gateSource,
   loadAsset,
   readSource,
   sharedFragments,
   slice,
-  sliceToGate,
 } from "./check-harness.mjs";
 
 const asset = loadAsset();
 const probeSource = readSource("src/SteamUiToolkit/Surfaces/SteamUiProbeJs.cs");
-const probeClose = probeSource.match(/Close = "([^"]*)";/u)[1];
+// The C# probes run the raw module-resolver.ts bytes inside SteamUiProbeJs's preamble, so the
+// preamble is executed here exactly as a probe embeds it. A reshaped preamble fails here by name
+// rather than leaving the probes' resolver unexercised.
+const probeClose = probeSource.match(/Close = "([^"]*)";/u)?.[1];
+const probePreamble = probeSource.match(/(?:=>|return)\s*\$\$"""\s*([\s\S]*?)\s*""";/u)?.[1];
+const resolverSlot = "{{SteamUiModuleResolver.CreateExpression(chunkLabel)}}";
+assert.ok(probeClose, "SteamUiProbeJs.Close must stay one string literal this check can run");
+assert.ok(
+  probePreamble?.includes(resolverSlot),
+  "SteamUiProbeJs's preamble must stay one raw string that embeds the shared module resolver",
+);
 const resolver = readSource("src/SteamUiToolkit/SteamUiAssets/Source/module-resolver.ts");
-const preamble = probeSource
-  .match(/(?:=>|return)\s*\$\$"""\s*([\s\S]*?)\s*""";/u)[1]
-  .replace("{{SteamUiModuleResolver.CreateExpression(chunkLabel)}}", `(${resolver})("test")`);
-const start = asset.indexOf("function createSteamUiModuleResolver(");
-const returnIndex = asset.indexOf("return requirePresent;", start);
-const end = returnIndex < 0 ? -1 : asset.indexOf("}", returnIndex) + 1;
-assert.ok(start >= 0 && end > start);
+const preamble = probePreamble.replace(resolverSlot, `(${resolver})("test")`);
+// The emitted resolver, as the asset carries it.
+const emittedResolver = fragment(asset, "module-resolver.ts");
 
 // This is the loader shape read from the failing Steam session. Calling a missing factory
 // caches empty exports even when that factory is registered later.
@@ -45,7 +51,7 @@ function fixture() {
 
 for (const source of [
   `${preamble} return req; }catch(error){throw error;} })()`,
-  `(()=>{${asset.slice(start, end)} return createSteamUiModuleResolver('test');})()`,
+  `(()=>{${emittedResolver} return createSteamUiModuleResolver('test');})()`,
 ]) {
   const f = fixture();
   const guarded = runInNewContext(source, { window: f.window }, { timeout: 1000 });
@@ -71,12 +77,19 @@ for (const source of [
   assert.throws(() => guarded.resolve(["missing-token"]), /module absent/u);
   assert.throws(() => guarded.resolve([]), /fingerprint invalid/u);
   assert.equal(f.calls(), 2);
-  f.factories.broken = () => {
+  // A factory that threw once (a dependency not ready during a cold start) is not remembered as
+  // failed: Steam's loader keeps the exports it set and never runs it again, so the next resolution
+  // hands those to the shape tests instead of refusing for the bridge's life.
+  let brokenRuns = 0;
+  f.factories.broken = (_module, exports) => {
+    brokenRuns++;
+    exports.ready = true;
     throw new Error("dependency missing");
   };
   assert.throws(() => guarded("broken"), /resolution failed/u);
-  assert.throws(() => guarded("broken"), /previously failed/u);
-  assert.equal(f.calls(), 3);
+  assert.equal(guarded("broken").ready, true, "the exports the factory set stay usable");
+  assert.equal(brokenRuns, 1, "the factory ran once");
+  assert.equal(f.calls(), 4);
   // Exports are chosen by shape: aliases of one value count once, two distinct fits are refused.
   f.factories.store = (_module, exports) => {
     /* export-token */
@@ -102,16 +115,15 @@ for (const source of [
 const host = gateSource(asset, "createNativeComponentHost", "nativeComponents");
 // The row glyphs, which the host builds a renderer from before it resolves anything else. Taken from
 // the asset rather than stubbed, so a fragment that stopped being emitted fails here instead of
-// silently leaving every row without an icon. It ends at the first hoisted `function create…` after
-// it, which is the module resolver in either composition.
-const icons = sliceToGate(asset, "const SteamUiIconShapes =");
+// silently leaving every row without an icon.
+const icons = fragment(asset, "icons.ts");
 assert.match(icons, /const createIconRenderer =/u);
 // The ownership primitives for the shared useMemo claim the host takes, and the gate helpers it
 // walks Steam's tree and resolves its fields with.
 const shared = sharedFragments(asset);
 const createHost = (window) =>
   runInNewContext(
-    `${asset.slice(start, end)}
+    `${emittedResolver}
      ${shared}
      ${icons}
      const getWebpackRuntime = scope => createSteamUiModuleResolver(scope);
@@ -146,7 +158,7 @@ function componentFixture() {
     localization(_module, exports) {
       // Attempting to localize token Unable to find localization token LocalizeString
       exports.localize = function () {
-        // let r=C.LocalizeString(e);return r===void 0?e:r
+        // const text = LocalizationManager.LocalizeString(token); return text === undefined ? token : text
       };
     },
     performance(_module, exports) {
@@ -238,8 +250,9 @@ const bridge = runInNewContext(
     latestStates: new Map(),
     refusalSubscribers: new Map(),
     latestRefusals: new Map(),
-    assembling: null,
+    assembling: new Map(),
     pending: new Map(),
+    disposed: false,
   },
   { timeout: 1000 },
 );
@@ -277,10 +290,22 @@ console.log(`Steam bridge: cached and live subscriber failures isolated for ${id
   assert.equal(part(7, 2, cut[2]), true);
   assert.equal(seen.at(-1).big.length, 50, "the reassembled state reaches subscribers");
 
-  // A set cut short is dropped: a new id replaces it, and a part out of order is refused.
-  assert.equal(part(8, 0, cut[0]), true);
-  assert.equal(part(9, 1, cut[1]), false, "a part of another delivery is refused");
-  assert.equal(part(8, 2, cut[2]), false, "the interrupted set is gone");
+  // Two deliveries whose parts interleave both arrive: reassembly is keyed by delivery id.
+  const delivered = seen.length;
+  for (let index = 0; index < cut.length; index++) {
+    assert.equal(part(8, index, cut[index]), true);
+    assert.equal(part(9, index, cut[index]), true);
+  }
+  assert.equal(seen.length, delivered + 2, "both interleaved deliveries reach subscribers");
+
+  // A part out of order drops only its own delivery; the other one being reassembled is untouched.
+  assert.equal(part(11, 0, cut[0]), true);
+  assert.equal(part(12, 0, cut[0]), true);
+  assert.equal(part(11, 2, cut[2]), false, "a part out of order is refused");
+  assert.equal(part(11, 1, cut[1]), false, "the interrupted set is gone");
+  assert.equal(part(12, 1, cut[1]), true);
+  assert.equal(part(12, 2, cut[2]), true, "the other delivery still completes");
+  assert.equal(part(13, 1, cut[1]), false, "a part of an unknown delivery is refused");
   assert.equal(part(10, 0, cut[0], { documentGeneration: 99 }), false, "a stale document is refused");
 
   // A refusal reaches the surface, and the next state clears it.

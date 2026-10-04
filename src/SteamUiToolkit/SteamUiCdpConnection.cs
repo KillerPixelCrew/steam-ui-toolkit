@@ -14,12 +14,11 @@ namespace SteamUiToolkit;
 
 /// <summary>The framed message channel a CDP connection runs over.</summary>
 /// <remarks>
-///     Public because it is the seam a consumer substitutes to exercise its patches without a running
-///     Steam client. Everything above it — generations, request correlation, the patch lifecycle — is
-///     worth testing that way, and a framework that can only be tested against live Steam is one whose
-///     consumers will not test at all.
+///     The seam the toolkit's own tests substitute to exercise generations, request correlation and
+///     the patch lifecycle without a running Steam client. A consumer fakes
+///     <see cref="ISteamUiTransport" /> instead.
 /// </remarks>
-public interface ISteamUiCdpWire : IAsyncDisposable
+internal interface ISteamUiCdpWire : IAsyncDisposable
 {
     /// <summary>Sends one complete message.</summary>
     /// <param name="message">The UTF-8 payload.</param>
@@ -34,7 +33,7 @@ public interface ISteamUiCdpWire : IAsyncDisposable
 }
 
 /// <summary>Opens a channel to a discovered target.</summary>
-public interface ISteamUiCdpWireFactory
+internal interface ISteamUiCdpWireFactory
 {
     /// <summary>Connects to one target.</summary>
     /// <param name="endpoint">
@@ -146,6 +145,11 @@ internal sealed class SteamUiWebSocketWire : ISteamUiCdpWire
     }
 }
 
+/// <summary>An evaluation that was sent but never answered, so it may have run.</summary>
+/// <param name="inner">What ended the wait: a cancellation, a timeout, a lost connection or a framing fault.</param>
+internal sealed class SteamUiUnansweredException(Exception inner)
+    : IOException("Steam UI evaluation was sent but not answered: " + inner.Message, inner);
+
 internal sealed class SteamUiCdpConnection : IAsyncDisposable
 {
     private const int MaximumOutstandingRequests = 32;
@@ -232,48 +236,71 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
         Completion = ReadLoopAsync();
     }
 
-    internal async Task<string?> EvaluateAsync(
+    /// <summary>Evaluates one expression and returns what the page answered.</summary>
+    /// <returns>
+    ///     The by-value result, or the bounded JavaScript exception as <c>Error</c>. An exception the page
+    ///     threw is still an answer: only protocol and framing faults throw.
+    /// </returns>
+    /// <exception cref="SteamUiUnansweredException">
+    ///     The request was sent but no usable answer was read, so the expression may have run. Every
+    ///     failure before the send began propagates unchanged.
+    /// </exception>
+    internal async Task<(string? Value, string? Error)> EvaluateAsync(
         string expression, TimeSpan timeout, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(expression);
-        var response = await InvokeAsync(
-            "Runtime.evaluate",
-            writer =>
-            {
-                writer.WriteString("expression", expression);
-                writer.WriteBoolean("awaitPromise", true);
-                writer.WriteBoolean("returnByValue", true);
-                writer.WriteBoolean("userGesture", true);
-            },
-            timeout,
-            cancellationToken).ConfigureAwait(false);
+        var sent = false;
+        JsonElement response;
+        try
+        {
+            response = await InvokeAsync(
+                "Runtime.evaluate",
+                writer =>
+                {
+                    writer.WriteString("expression", expression);
+                    writer.WriteBoolean("awaitPromise", true);
+                    writer.WriteBoolean("returnByValue", true);
+                    writer.WriteBoolean("userGesture", true);
+                },
+                timeout,
+                cancellationToken,
+                () => sent = true).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (sent)
+        {
+            // A started frame is always finished, so Steam may run it even though this caller stopped
+            // waiting or never read the reply.
+            throw new SteamUiUnansweredException(ex);
+        }
 
         if (response.TryGetProperty("exceptionDetails", out var exception))
         {
-            throw new InvalidDataException(
+            return (null,
                 $"Steam UI JavaScript exception: {SteamUiShared.Bound(exception.GetRawText(), SteamUiShared.MaximumDiagnosticLength)}");
         }
 
         if (!response.TryGetProperty("result", out var result))
         {
-            throw new InvalidDataException("Steam UI evaluation response lacked a result.");
+            throw new SteamUiUnansweredException(
+                new InvalidDataException("Steam UI evaluation response lacked a result."));
         }
 
         if (result.TryGetProperty("value", out var value))
         {
-            return value.ValueKind == JsonValueKind.String
+            return (value.ValueKind == JsonValueKind.String
                 ? value.GetString()
-                : value.GetRawText();
+                : value.GetRawText(), null);
         }
 
-        return null;
+        return (null, null);
     }
 
     internal async Task<JsonElement> InvokeAsync(
         string method,
         Action<Utf8JsonWriter>? writeParameters,
         TimeSpan timeout,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action? sendStarted = null)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
@@ -304,21 +331,25 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
         {
             var request = BuildRequest(id, method, writeParameters);
             await _sendGate.WaitAsync(deadline.Token).ConfigureAwait(false);
+            // The frame itself goes out under the connection's lifetime only. A caller cancel or
+            // timeout that aborted the send would leave half a frame on a socket every other caller
+            // shares, so the caller stops waiting for the send instead of cancelling it.
+            sendStarted?.Invoke();
+            var sending = SendAndReleaseAsync(request);
             try
             {
-                try
-                {
-                    await _wire.SendAsync(request, deadline.Token).ConfigureAwait(false);
-                }
-                catch
-                {
-                    _shutdown.Cancel();
-                    throw;
-                }
+                await sending.WaitAsync(deadline.Token).ConfigureAwait(false);
             }
-            finally
+            catch (OperationCanceledException)
             {
-                _sendGate.Release();
+                // A send that later fails has already ended the connection; observe it so the
+                // fault is not reported as unobserved.
+                _ = sending.ContinueWith(
+                    static task => _ = task.Exception,
+                    CancellationToken.None,
+                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+                throw;
             }
 
             return await completion.Task.WaitAsync(deadline.Token).ConfigureAwait(false);
@@ -326,6 +357,26 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
         finally
         {
             TryTakePending(id, out _);
+        }
+    }
+
+    private async Task SendAndReleaseAsync(ReadOnlyMemory<byte> request)
+    {
+        try
+        {
+            await _wire.SendAsync(request, _shutdown.Token).ConfigureAwait(false);
+        }
+        catch
+        {
+            // A frame that failed part-way leaves the socket unusable for everyone.
+            _shutdown.Cancel();
+            throw;
+        }
+        finally
+        {
+            // Released when the frame is finished, not when the caller leaves, so the next sender
+            // never starts inside a half-written frame.
+            _sendGate.Release();
         }
     }
 

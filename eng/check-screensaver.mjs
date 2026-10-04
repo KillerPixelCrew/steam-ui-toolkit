@@ -9,8 +9,10 @@
 // holding the same claim keeps it when this gate is removed, and that removal hands everything back.
 import assert from "node:assert/strict";
 import {
+  assertRemoveRetries,
   createReact,
   element,
+  failingHost,
   Fragment,
   gateSource,
   instantiate,
@@ -26,11 +28,13 @@ let effects = [];
 function originalUseMemo(factory) {
   return factory();
 }
-const react = createReact({
-  useMemo: originalUseMemo,
-  useSyncExternalStore: (_subscribe, snapshot) => snapshot(),
-  useEffect: (effect) => effects.push(effect),
-});
+const { host: react, failNext } = failingHost(
+  createReact({
+    useMemo: originalUseMemo,
+    useSyncExternalStore: (_subscribe, snapshot) => snapshot(),
+    useEffect: (effect) => effects.push(effect),
+  }),
+);
 const runEffects = () => effects.splice(0).forEach((effect) => effect());
 
 // Valve's modules, reduced to what the gate resolves on.
@@ -313,7 +317,7 @@ assert.deepEqual(
 // Two customization entries is ambiguous, and the list is left alone.
 const twice = [customization, { ...customization }];
 assert.equal(react.useMemo(() => twice, []), twice);
-assert.ok(screensaver.remove().ok);
+assertRemoveRetries(screensaver, failNext, "screensaver");
 assert.equal(react.useMemo, originalUseMemo);
 
 console.log(

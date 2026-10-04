@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import {
   createReact,
   element,
+  fragment,
+  fragments,
   gateSource,
+  helperLabels,
   instantiate,
   loadAsset,
   readSource,
@@ -64,7 +67,10 @@ const Primary = named("Primary", '"DialogButton","_DialogLayout","Primary"');
 const TextField = named("TextField", "class TextField");
 TextField.validateUrl = () => true;
 TextField.validateEmail = () => true;
-const ValueField = named("ValueField", 'label:t,focusable:!0,inlineWrap:"shift-children-below"');
+const ValueField = withSource(
+  Object.defineProperty((props) => props && null, "name", { value: "ValueField" }),
+  'return <Field label={name} focusable inlineWrap="shift-children-below" {...rest}>',
+);
 const SmallButton = named("SmallButton", '"DialogButton _DialogLayout Small"');
 const PanelSection = named("PanelSection", "PanelSectionTitle spinner");
 const PanelRow = { $$typeof: Symbol.for("react.forward_ref"), render: () => null };
@@ -141,11 +147,17 @@ const globals = {
   createIconRenderer: () => () => null,
   window,
 };
-// The settings renderer sits after the icons, outside the shared fragments; the tab draws its
-// settings with it.
+// The settings renderer and the kit sit after the icons, outside the shared fragments; the tab
+// draws its settings with them. The icon renderer is the fixture's own, so the icons fragment joins
+// from its glyph helpers.
+const icons = fragment(asset, "icons.ts");
+const glyphs = icons.indexOf("const SteamGlyphPattern");
+assert.ok(glyphs >= 0, "the icons fragment must define the glyph helpers");
+const helpers = helperLabels(asset);
 const code =
   sharedFragments(asset) +
-  slice(asset, "const SteamGlyphPattern", "function createAudioNamespace") +
+  icons.slice(glyphs) +
+  fragments(asset, helpers.slice(helpers.indexOf("icons.ts") + 1)) +
   gateSource(asset, "createExtensionsTab", "extensionsTab") +
   gateSource(asset, "createGameContextMenu", "gameContextMenu");
 const { extensions, menu, createExtensions, unclaimedValue } = instantiate(
@@ -501,6 +513,8 @@ const originalRender = GameMenu.prototype.render;
 assert.equal(menu.install().ok, true);
 subscriptions.get("steam-ui.game-context-menu")({ items: [{ id: "art", label: "Artwork" }] });
 jsx.jsx(GameMenu, {});
+assert.equal(jsx.jsx, originalJsx, "the capture transform is withdrawn once the menu class is held");
+assert.equal(menu.status().observing, true, "a held menu class still counts as observing");
 const first = new GameMenu().render();
 const inserted = first.props.children.flat()[0];
 assert.equal(inserted.props.children[0], "Artwork", "first opening already includes commands");

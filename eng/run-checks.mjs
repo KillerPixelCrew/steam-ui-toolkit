@@ -4,27 +4,14 @@
 //   node eng/run-checks.mjs               build dist/prelude.js, then check it
 //   node eng/run-checks.mjs <asset path>  check an asset composed elsewhere, without building
 import { spawnSync } from "node:child_process";
+import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { repositoryRoot } from "./check-harness.mjs";
 
-const checks = [
-  "check-ownership-claims.mjs",
-  "check-power-profile.mjs",
-  "check-startup.mjs",
-  "check-service-gates.mjs",
-  "check-navigation-panel.mjs",
-  "check-settings-fields.mjs",
-  "check-pages.mjs",
-  "check-storage.mjs",
-  "check-library.mjs",
-  "check-home-carousel.mjs",
-  "check-screensaver.mjs",
-  "check-extension-surfaces.mjs",
-  "check-power-menu.mjs",
-  "check-theme-styles.mjs",
-  "check-sound-overrides.mjs",
-  "check-ui-kit.mjs",
-];
+// Every eng/check-*.mjs is a check: a new one runs by existing, with no list to forget it in.
+const checks = readdirSync(join(repositoryRoot, "eng"))
+  .filter((name) => /^check-.+\.mjs$/u.test(name) && name !== "check-harness.mjs")
+  .sort();
 
 const run = (script, args) =>
   spawnSync(process.execPath, [join(repositoryRoot, "eng", script), ...args], { stdio: "inherit" })
@@ -45,4 +32,4 @@ for (const check of checks) {
     process.exit(status);
   }
 }
-console.log(`All ${checks.length} emitted-asset checks passed.`);
+console.log(`All ${checks.length} discovered emitted-asset checks passed.`);

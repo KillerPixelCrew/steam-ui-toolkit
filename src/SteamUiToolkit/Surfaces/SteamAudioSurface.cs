@@ -104,9 +104,8 @@ public static class SteamAudioSurface
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
-        "steam-ui.audio-namespace",
         "audio",
-        "native-qam-audio-v1:store+absent-namespace+reachable-singleton",
+        "steam-ui-audio-v1:store+absent-namespace+reachable-singleton",
         $$"""
           {{SteamUiProbeJs.Preamble("steam_ui_audio_probe_")}}
             let singleton=false;
@@ -155,7 +154,7 @@ public static class SteamAudioSurface
     {
         ArgumentNullException.ThrowIfNull(read);
         ArgumentNullException.ThrowIfNull(backend);
-        return SteamSurfaceModule.Declare(
+        return SteamUiModuleBuilder.Module(
             id,
             PatchId,
             enabled,
@@ -170,14 +169,14 @@ public static class SteamAudioSurface
                         ? new SteamUiCommandResult(false, "Audio is not currently observable.")
                         : new SteamUiCommandResult(true, null, Serialize(state));
                 }),
-                SteamSurfaceModule.Command<(string Id, bool Input)>(
+                SteamUiModuleBuilder.Command<(string Id, bool Input)>(
                     PatchId,
                     "setDefaultDevice",
                     TryReadDevicePayload,
                     (device, cancellationToken) =>
                         backend.SetDefaultDeviceAsync(device.Id, device.Input, cancellationToken),
                     "The audio device payload is invalid."),
-                SteamSurfaceModule.Command<(int Percent, bool Input)>(
+                SteamUiModuleBuilder.Command<(int Percent, bool Input)>(
                     PatchId,
                     "setVolume",
                     TryReadVolumePayload,

@@ -19,7 +19,7 @@ public sealed class SteamUiCdpConnectionTests
             wire, (_, _) => { }, (_, _) => { });
         connection.Start();
 
-        var value = await connection.EvaluateAsync(
+        var (value, _) = await connection.EvaluateAsync(
             "JSON.stringify({ok:true})", TimeSpan.FromSeconds(1), CancellationToken.None);
 
         Assert.Equal("ok", value);
@@ -48,7 +48,7 @@ public sealed class SteamUiCdpConnectionTests
             (_, _) => Interlocked.Increment(ref closes));
         connection.Start();
 
-        var value = await connection.EvaluateAsync(
+        var (value, _) = await connection.EvaluateAsync(
             "'x'", TimeSpan.FromSeconds(1), CancellationToken.None);
 
         Assert.Equal("ok", value);
@@ -82,9 +82,12 @@ public sealed class SteamUiCdpConnectionTests
         using var cancellation = new CancellationTokenSource();
         cancellation.CancelAfter(TimeSpan.FromMilliseconds(50));
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => connection.EvaluateAsync(
+        // The first request was sent before the caller stopped waiting, so it may have run: that is
+        // reported as unanswered, carrying the cancellation.
+        var unanswered = await Assert.ThrowsAsync<SteamUiUnansweredException>(() => connection.EvaluateAsync(
             "'first'", TimeSpan.FromSeconds(1), cancellation.Token));
-        var second = await connection.EvaluateAsync(
+        Assert.IsAssignableFrom<OperationCanceledException>(unanswered.InnerException);
+        var (second, _) = await connection.EvaluateAsync(
             "'second'", TimeSpan.FromSeconds(1), CancellationToken.None);
 
         Assert.Equal("second", second);
@@ -121,7 +124,7 @@ public sealed class SteamUiCdpConnectionTests
         await handlerStarted.Task.WaitAsync(TimeSpan.FromSeconds(15));
         try
         {
-            Assert.Equal("ok", await evaluation.WaitAsync(TimeSpan.FromSeconds(15)));
+            Assert.Equal("ok", (await evaluation.WaitAsync(TimeSpan.FromSeconds(15))).Value);
             Assert.False(releaseHandler.Task.IsCompleted);
         }
         finally
@@ -145,7 +148,7 @@ public sealed class SteamUiCdpConnectionTests
             (_, _) => { });
         connection.Start();
 
-        var value = await connection.EvaluateAsync(
+        var (value, _) = await connection.EvaluateAsync(
             "'ok'", TimeSpan.FromSeconds(1), CancellationToken.None);
 
         Assert.Equal("ok", value);

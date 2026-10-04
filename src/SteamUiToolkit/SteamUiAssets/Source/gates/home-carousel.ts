@@ -78,7 +78,8 @@ function createHomeCarousel() {
 
     let lastOutcome = "never rendered";
     let lastReport = "";
-    let lastAdoption = {adopted: 0, scheduled: false};
+    // The Homes on screen at install, kept so status counts them without walking the tree.
+    const mounted = createMountedAdoption(MaximumNodesVisited);
     let cached: {
         key: unknown[];
         list: number[];
@@ -249,7 +250,6 @@ function createHomeCarousel() {
             fallback: fellBack,
         };
         cached = {key, list, window: steamGames.length, css, counts};
-        report(counts);
         return cached;
     };
 
@@ -311,7 +311,7 @@ function createHomeCarousel() {
     // mounted and loading from the start. Given the whole library, that length would mount every
     // game at once; the component's default of 3 mounted only the tiles in view, so each image
     // started loading when its tile scrolled in, and again when it came back, which is slow wherever
-    // the art is not in Steam's local cache (2026-09-29, 246 games on an Ally). Steam's own length
+    // the art is not in Steam's local cache (2026-09-29, 246 games on a handheld). Steam's own length
     // keeps the first tiles loading at once and the rest loading ahead of focus.
     const recentGamesFor = (type) => {
         if (typeof type !== "function" || type.prototype?.isReactComponent) return type;
@@ -338,7 +338,7 @@ function createHomeCarousel() {
         if (!type || typeof type !== "object") return false;
         let known = carouselChecks.get(type);
         if (known === undefined) {
-            const inner = type.$$typeof === Symbol.for("react.memo") ? type.type : null;
+            const inner = type.$$typeof === ReactMemoType ? type.type : null;
             const source = typeof inner === "function" ? String(inner) : "";
             known = CarouselTokens.every((token) => source.includes(token));
             carouselChecks.set(type, known);
@@ -357,7 +357,13 @@ function createHomeCarousel() {
             react.useSyncExternalStore(local.subscribe, local.revision);
             const inputs = tracked ? tracked(readInputs, "SteamUiHomeCarousel") : readInputs();
             const tree = inner(props);
-            return installed ? retarget(tree, inputs) : tree;
+            const output = installed ? retarget(tree, inputs) : tree;
+            // Reported after the render rather than from it; `report` drops a repeat of the same counts.
+            const counts = installed ? cached?.counts : null;
+            react.useEffect(() => {
+                if (counts) report(counts);
+            }, [counts]);
+            return output;
         };
         wrapped = react.memo(Carousel, type.compare ?? undefined);
         carouselCache.set(type, wrapped);
@@ -378,10 +384,8 @@ function createHomeCarousel() {
     const isHome = (type) =>
         !!type &&
         typeof type === "object" &&
-        type.$$typeof === Symbol.for("react.memo") &&
-        typeof type.type === "function" &&
-        (type.type[claimKeys.marker] === true ||
-            HomeTokens.every((token) => String(type.type).includes(token)));
+        type.$$typeof === ReactMemoType &&
+        sourceMatches(unclaimedValue(type.type, claimKeys), HomeTokens);
 
     // Home from the router's route list. The list is found by content — the array holding a route for
     // /library/home — and the page element under that route names the Home memo. Bounded and
@@ -398,7 +402,7 @@ function createHomeCarousel() {
             // A Fragment's fiber holds its children array as the props themselves.
             const props = node.memoizedProps;
             const children = Array.isArray(props) ? props : props?.children;
-            if (!Array.isArray(children) || children.length <= 2 || children.length >= 512) return;
+            if (!isSteamRouteList(react, children, KnownRoute)) return;
             const route = children.find(
                 (child) => react.isValidElement(child) && child.props?.path === KnownRoute,
             );
@@ -422,8 +426,12 @@ function createHomeCarousel() {
             return false;
         }
         react = resolvedReact;
-        if (typeof react.useSyncExternalStore !== "function" || typeof react.memo !== "function") {
-            lastError = "React runtime lacks useSyncExternalStore or memo";
+        if (
+            typeof react.useSyncExternalStore !== "function" ||
+            typeof react.useEffect !== "function" ||
+            typeof react.memo !== "function"
+        ) {
+            lastError = "React runtime lacks useSyncExternalStore, useEffect or memo";
             return false;
         }
 
@@ -441,7 +449,6 @@ function createHomeCarousel() {
 
         // Wanted, not required: without it the carousel still follows the host and Steam's own list,
         // and an install elsewhere shows on its next render. `status.tracking` says which.
-        useObserver = null;
         useObserver = findUseObserver(runtime);
 
         home = findHome();
@@ -477,13 +484,7 @@ function createHomeCarousel() {
 
         installed = true;
         lastError = "";
-        const {adopted, scheduled} = adoptMountedType(
-            reactRootFibers(),
-            home,
-            home.type,
-            MaximumNodesVisited,
-        );
-        lastAdoption = {adopted, scheduled};
+        const {adopted} = mounted.adopt(home, home.type);
         unsubscribe = subscribe(patchId, (published) => {
             const ids = Array.isArray(published?.disconnectedAppIds) ? published.disconnectedAppIds : [];
             const disconnected = new Set<number>();
@@ -496,11 +497,19 @@ function createHomeCarousel() {
             };
             local.changed();
         });
-        return {ok: true, installed: true, reclaimed: claim.reclaimed, adopted: lastAdoption.adopted};
+        return {ok: true, installed: true, reclaimed: claim.reclaimed, adopted};
     };
 
     const remove = () => {
         if (!installed) return {ok: true, absent: true};
+        // Released before anything is forgotten, so a failed release stays installed and the next
+        // remove retries it.
+        const wrapper = home?.type;
+        const released = releaseMember(home, "type", claimKeys);
+        if (!released.ok) {
+            lastError = released.error ?? "home carousel release failed";
+            return {ok: false, error: lastError};
+        }
         installed = false;
         unsubscribe = endSubscription(unsubscribe);
         // A carousel on screen re-renders and hands back Steam's own list and overscan.
@@ -510,15 +519,9 @@ function createHomeCarousel() {
         lastReport = "";
         carouselCache.clear();
         recentGamesCache.clear();
-        const wrapper = home?.type;
-        const released = releaseMember(home, "type", claimKeys);
-        if (!released.ok) {
-            lastError = released.error ?? "home carousel release failed";
-            return {ok: false, error: lastError};
-        }
         // Adopted Homes draw the original again on their next render; the memo already does.
         releaseMountedType(reactRootFibers(), home, wrapper, home.type, MaximumNodesVisited);
-        lastAdoption = {adopted: 0, scheduled: false};
+        mounted.release(home.type);
         lastOutcome = "removed";
         return {ok: true, removed: true};
     };
@@ -533,9 +536,9 @@ function createHomeCarousel() {
         disconnected: policy.disconnected.size,
         counts: cached?.counts ?? null,
         search: lastSearch,
-        // Homes on screen at install, and any still drawing something other than the memo's current
-        // type: an adoption whose render is pending, or a mount the claim never reached.
-        mounted: {...lastAdoption, stale: staleFibers(reactRootFibers(), home, MaximumNodesVisited)},
+        // Homes on screen at install, and how many of them still draw something other than the
+        // claim: an adoption whose render is pending, or a type React reset underneath us.
+        mounted: mounted.status(),
         lastOutcome,
         lastError,
     });

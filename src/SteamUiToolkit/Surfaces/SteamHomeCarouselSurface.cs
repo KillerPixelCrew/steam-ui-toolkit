@@ -93,7 +93,6 @@ public static class SteamHomeCarouselSurface
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
-        "steam-ui.home-root",
         "homeCarousel",
         "steam-home-carousel-v1:unique-home-module+route-home-memo",
         $$"""
@@ -124,7 +123,7 @@ public static class SteamHomeCarouselSurface
               // A Fragment's fiber holds its children array as the props themselves.
               const props=node.memoizedProps;
               const kids=Array.isArray(props)?props:props&&props.children;
-              if(Array.isArray(kids)&&kids.length>2&&kids.length<512){
+              if(Array.isArray(kids)&&kids.length>2){
                 const route=kids.find(k=>k&&k.props&&k.props.path==='/library/home');
                 if(route){
                   homeRoutes++;
@@ -226,7 +225,7 @@ public static class SteamHomeCarouselSurface
         string id = "home-carousel")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return SteamSurfaceModule.Declare(
+        return SteamUiModuleBuilder.Module(
             id,
             PatchId,
             enabled,
@@ -234,7 +233,7 @@ public static class SteamHomeCarouselSurface
             SteamSurfaceJsonContext.Default.SteamHomeCarouselState,
             [Patch],
             [
-                SteamSurfaceModule.Command<SteamHomeCarouselReport>(
+                SteamUiModuleBuilder.Command<SteamHomeCarouselReport>(
                     PatchId,
                     "report",
                     TryReadReport,

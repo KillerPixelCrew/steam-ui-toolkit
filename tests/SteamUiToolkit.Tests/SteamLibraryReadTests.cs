@@ -5,7 +5,7 @@ public sealed class SteamLibraryReadTests
     [Fact]
     public void AValidEmptyLibraryRemainsSuccessful()
     {
-        var result = SteamLibraryData.ParseReadGames(CefEvalResult.Ok("{\"ok\":true,\"apps\":[]}"));
+        var result = SteamLibraryData.ParseReadGames(FakeSteamUiTransport.Answer("{\"ok\":true,\"apps\":[]}"));
         Assert.True(result.Succeeded);
         Assert.Empty(result.Games);
     }
@@ -17,13 +17,13 @@ public sealed class SteamLibraryReadTests
     [InlineData("invalid")]
     public void FailedOrInvalidAnswersNeverPretendToBeAnEmptyLibrary(string payload)
     {
-        Assert.False(SteamLibraryData.ParseReadGames(CefEvalResult.Ok(payload)).Succeeded);
+        Assert.False(SteamLibraryData.ParseReadGames(FakeSteamUiTransport.Answer(payload)).Succeeded);
     }
 
     [Fact]
     public void AConfirmedLibraryIncludesTheShortcutIdentityAndSortsNames()
     {
-        var result = SteamLibraryData.ParseReadGames(CefEvalResult.Ok(
+        var result = SteamLibraryData.ParseReadGames(FakeSteamUiTransport.Answer(
             "{\"ok\":true,\"apps\":[{\"id\":2147483690,\"name\":\"Zed\",\"sc\":true},{\"id\":42,\"name\":\"Alpha\",\"sc\":false}]}"));
         Assert.True(result.Succeeded);
         Assert.Equal(["Alpha", "Zed"], result.Games.Select(game => game.Name));

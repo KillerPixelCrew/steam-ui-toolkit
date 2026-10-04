@@ -7,8 +7,8 @@ using System.Threading.Tasks;
 namespace SteamUiToolkit;
 
 /// <summary>The panel backlight level Steam's brightness slider shows.</summary>
-/// <param name="Percent">The level, 0 to 100, read from the panel itself.</param>
-/// <param name="Revision">Monotonic host observation revision, shared by publications and command readback.</param>
+/// <param name="Percent">The level, 0 to 100: what the host last wrote, or read from the panel.</param>
+/// <param name="Revision">Monotonic host observation revision, shared by publications and command answers.</param>
 public sealed record SteamBrightnessState(int Percent, long Revision = 0);
 
 /// <summary>What answers Steam's brightness slider.</summary>
@@ -17,7 +17,10 @@ public interface ISteamBrightnessBackend
     /// <summary>Sets the panel backlight.</summary>
     /// <param name="percent">The level, 0 to 100.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns>The outcome with serialized <see cref="SteamBrightnessState" /> readback as its payload on success.</returns>
+    /// <returns>
+    ///     Success once the level was dispatched, carrying the serialized <see cref="SteamBrightnessState" />
+    ///     with the written level; or why it could not be dispatched. No outcome waits on a readback.
+    /// </returns>
     Task<SteamUiCommandResult> SetBrightnessAsync(int percent, CancellationToken cancellationToken);
 }
 
@@ -26,7 +29,7 @@ public interface ISteamBrightnessBackend
 ///     The slider ships in the Windows client behind one settings boolean, and its native
 ///     <c>SetBrightness</c> is a stub whose change notifications never fire. The gate reveals the flag,
 ///     claims the setter so the slider's writes reach the backend, and feeds the store's observable
-///     from confirmed readback. Pending user requests and programmatic state projection are separate:
+///     from the host's published level. Pending user requests and programmatic state projection are separate:
 ///     an observable refresh must never invoke the hardware setter. Revisions reject stale publications.
 /// </remarks>
 public static class SteamBrightnessSurface
@@ -46,7 +49,6 @@ public static class SteamBrightnessSurface
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
-        "steam-ui.brightness-availability",
         "brightness",
         "steam-brightness-v1:hidden-flag+present-backend",
         $$"""
@@ -101,7 +103,7 @@ public static class SteamBrightnessSurface
         string id = "brightness")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return SteamSurfaceModule.Declare(
+        return SteamUiModuleBuilder.Module(
             id,
             PatchId,
             enabled,
@@ -109,11 +111,12 @@ public static class SteamBrightnessSurface
             SteamSurfaceJsonContext.Default.SteamBrightnessState,
             [Patch],
             [
-                SteamSurfaceModule.Command(
+                SteamUiModuleBuilder.Command(
                     PatchId,
                     "setBrightness",
                     static (JsonElement payload, out int percent) =>
-                        SteamUiPayload.TryReadInt(payload, "percent", 0, 100, out percent),
+                        SteamUiPayload.TryReadInt(payload, "percent", 0, 100, out percent)
+                        && SteamUiPayload.HasExactly(payload, 1),
                     backend.SetBrightnessAsync,
                     "The brightness payload is invalid.")
             ]);

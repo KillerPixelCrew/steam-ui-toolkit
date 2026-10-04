@@ -85,9 +85,9 @@ described by `SteamSettingsRowKind`; `docs/reference.md` lists what each kind dr
 
 **`SteamLibraryBadgeSurface.Module`** draws a library badge on every library tile, immediately left
 of Valve's Steam Input badge in the tile's icon row: the name of the library holding the game, green
-when the game is installed and grey when it is not. Publish `SteamLibraryBadgeState` with the
-libraries worth naming and their app ids; a game in none of them is on the internal library and gets
-`InternalLabel`. The claim is on the tile memo's `type`, so Home's carousel and the library grid are
+when the game is installed and grey when it is not. Publish `SteamLibraryBadgeState` with every
+library and its app ids, each by the name the host gives it; a game in none of them gets no badge.
+The claim is on the tile memo's `type`, so Home's carousel and the library grid are
 covered by one claim, and the badge shows exactly when Valve shows the icon row. Implement
 `ISteamLibraryBadgeBackend` to hear `homeLayout`, which reports Steam's own Big Art Mode setting
 when the gate resolves it and whenever a tile render sees it change.
@@ -148,23 +148,27 @@ keeps one Windows implementation behind both Steam's pages and your own.
 stable ids, display labels and observed state through `SteamPowerProfileState`, and implement
 `ISteamPowerProfileBackend` to validate and apply selections. **`SteamPowerPresetRow.Module`** adds
 independent AC and battery assignments with `SteamPowerPresetState` and `ISteamPowerPresetBackend`.
-The active preset is read-only, Custom included. A host may also publish `custom` as a saved source
-assignment, which is displayed only for that source and never sent as a selection command. Empty
-preset options hide those controls. The toolkit does not change OS power settings itself.
+The active preset is read-only. An option published with `Selectable = false` is displayed only in
+a dropdown whose current value it is and never sent as a selection command. Empty preset options
+hide those controls. The toolkit does not change OS power settings itself.
 
-Performance controls use titled native sections. Quick Settings places display controls before
-Steam's common settings, then separate Charging and RGB lighting sections.
+The host lays the rows out: `SteamQuickAccessLayoutSurface` publishes the sections of each Quick
+Access tab, their titles, glyphs and folds, which row kinds each holds, whether Steam's own FPS rows
+are hidden and the label a marked row's description leads with. Without a layout each tab's rows
+draw in one untitled group.
 
 ## Reading and driving the client
 
-Beyond changing the front-end, the library reads and drives the running client: app details, launch
-options and custom artwork (`SteamApps`), library folders (`SteamInstallFolders`), the download
-queue (`SteamDownloadActivity`), collections, games and store tags (`SteamLibraryData`), the game
-page in view (`SteamCurrentPage`) and the apps Steam is running (`SteamRunningAppsProbe`). These are
-one-shot calls over the same transport, and each separates "Steam was never reached" from "Steam
-refused", because only the second one is an answer.
+Beyond changing the front-end, the library reads and drives the running client through one
+`SteamClient` composed over your transport: app details, launch options and custom artwork
+(`Apps`), library folders (`InstallFolders`), the download queue (`Downloads`), collections
+(`Collections`), games and store tags (`Library`), the game page in view (`CurrentPage`), Steam's
+startup movie choice (`StartupMovie`) and the apps Steam is running (`RunningApps`). These are
+one-shot calls over the same transport. A write reports whether it was never sent, may have run
+(`Unknown`), was refused or was applied, and a read says whether Steam answered, because "Steam was
+never reached" and "Steam refused" call for different things.
 
-**`SteamRunningAppsProbe`** keeps the running set current from Steam's own lifetime notifications,
+**`SteamClient.RunningApps`** keeps the running set current from Steam's own lifetime notifications,
 so an application can tell which games Steam is running without watching processes.
 
 ### Game state, end to end
@@ -190,17 +194,17 @@ SteamCef.EnsureRemoteDebuggingEnabled(steamPath?.Replace('/', '\\'), enabled: tr
 // 3. One transport for the process. It connects on first use and reconnects by itself.
 await using var transport = new PersistentSteamUiTransport();
 
-// 4. Attach it to the session that the one-shot calls borrow. Without this they answer
-//    "Steam UI transport is not active" and nothing else works.
-SteamUiTransportSession.Attach(transport);
+// 4. One client over it. Every one-shot read and write goes through a client you pass around;
+//    nothing in the library is process-global.
+var steam = new SteamClient(transport);
 
 // 5. Read the library once, so a running app can be named rather than numbered.
-var names = (await SteamLibraryData.ListGamesAsync())
-    .ToDictionary(app => (uint)app.AppId, app => app.Name);
+var library = await steam.Library.ReadGamesAsync();
+var names = library.Games.ToDictionary(app => app.AppId, app => app.Name);
 
 // 6. Read which games Steam is running. The lease keeps the page observer installed; disposing it
 //    removes the observer again.
-var running = new SteamRunningAppsProbe(transport);
+var running = steam.RunningApps;
 await using (await running.SubscribeAsync())
 {
     var reading = await running.ObserveAsync();
@@ -346,14 +350,16 @@ it through `window[namespace].gate(name)`, declared in a module like any other.
 `SteamUiModuleRuntime` runs the two traffic directions between your modules and the client.
 
 Which patches are on when stays yours, because that is application policy and every host's rules
-differ. `SteamUiPatchManager.SetGlobalEnabled` and `SetPatchEnabled` start synchronization
-immediately, and their `Async` counterparts wait until retraction or reapplication has finished. Use
-the awaited forms when shutdown, a settings confirmation or an emergency kill switch has to know
-cleanup is done.
+differ. `SteamUiPatchManager.SetGlobalEnabled` and `SetPatchEnabled` queue a synchronization when
+the switch moves, `QueueSynchronization` asks for one directly, and `Synchronized` tells you when a
+queued pass is done. The `Async` counterparts wait until retraction or reapplication has finished.
+Use the awaited forms when a settings confirmation or an emergency kill switch has to know cleanup
+is done, and `ShutdownAsync` with your deadline at shutdown. Give the runtime the manager too: a
+module whose callback throws has its patches faulted there, so they come off and stay off.
 
 ## Status
 
-0.1.0, single consumer, moving. Two different things are unstable.
+0.2.0, single consumer, moving. Two different things are unstable.
 
 **The API,** because one application shaped it. The parts most likely to change are the ones that
 consumer does not stress: the extension host has no second implementer, and nobody has built against
@@ -378,6 +384,6 @@ MIT, see `LICENSE`.
 with the shared native fields. Advanced audio in Quick Settings uses separate channel and format
 selectors under Audio. See [the surface contract](docs/reference.md).
 
-For a game picker, use `SteamLibraryData.ReadGamesAsync` to distinguish an unavailable or invalid
+For a game picker, use `SteamClient.Library.ReadGamesAsync` to distinguish an unavailable or invalid
 library from a confirmed empty one. `SteamLibraryReadResult` carries the error and the confirmed
 items; see the reference's library-read contract.

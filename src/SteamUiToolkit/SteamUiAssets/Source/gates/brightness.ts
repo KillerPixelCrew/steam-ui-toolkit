@@ -32,21 +32,20 @@ function createBrightnessGate() {
 
     // The display settings store by what it is: the one module holding the brightness observable,
     // and the one exported class on it with a singleton Get() whose body declares that observable.
-    // It was module 59547, export mG, when verified; the September 2026 beta renumbered the module.
+    // Client builds renumber the module (the September 2026 beta did), so no id is kept.
     const DisplayStoreTokens = ["m_flDisplayBrightness", "is_display_brightness_available"];
     const isDisplayStoreClass = (value) =>
         typeof value === "function" &&
         typeof value.Get === "function" &&
         String(value).includes("m_flDisplayBrightness");
-    // One resolver and one store for the gate's life: the store is a singleton, and every publication
-    // and status read asks for it, so looking it up again only pushed another chunk each time.
-    let resolver;
+    // One store for the gate's life: the store is a singleton and every publication and status read
+    // asks for it. The bridge shares one resolver, so a lookup that failed is simply tried again.
     let cachedStore: any = null;
     const displayStore = () => {
         if (cachedStore) return cachedStore;
         try {
-            resolver ??= getWebpackRuntime("brightness-store");
-            cachedStore = (resolver.exported(DisplayStoreTokens, isDisplayStoreClass) as any).Get() ?? null;
+            const runtime = getWebpackRuntime("brightness-store");
+            cachedStore = (runtime.exported(DisplayStoreTokens, isDisplayStoreClass) as any).Get() ?? null;
         } catch {
             return null;
         }
@@ -135,6 +134,8 @@ function createBrightnessGate() {
         if (!released.ok) {
             lastError = released.error ?? "brightness setter release failed";
         }
+
+        return released.ok;
     };
 
     const install = () => {
@@ -173,21 +174,24 @@ function createBrightnessGate() {
 
     const remove = () => {
         if (!installed) return {ok: true, absent: true};
+
+        // Both claims are released before anything is forgotten: a failed release leaves the gate
+        // installed, so the next remove retries what is left (a released claim answers ok again).
+        if (!restoreSetter()) return {ok: false, error: lastError};
         const message = settings();
+        if (message) {
+            const released = releaseValue(message, field, availability);
+            if (!released.ok) {
+                lastError = released.error ?? "brightness release failed";
+                return {ok: false, error: lastError};
+            }
+        }
+
         installed = false;
         ++requestVersion;
         pendingWrite = false;
         unsubscribe = endSubscription(unsubscribe);
-
-        restoreSetter();
-        if (!message) return {ok: true, removed: true, storeGone: true};
-        const released = releaseValue(message, field, availability);
-        if (!released.ok) {
-            lastError = released.error ?? "brightness release failed";
-            return {ok: false, error: lastError};
-        }
-
-        return {ok: true, removed: true};
+        return message ? {ok: true, removed: true} : {ok: true, removed: true, storeGone: true};
     };
 
     const status = () => {

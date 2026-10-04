@@ -2,40 +2,18 @@ namespace SteamUiToolkit.Tests;
 
 public sealed class SteamUiPatchManagerTests
 {
-    private static readonly SteamUiPatchBounds FixtureBounds = new(TimeSpan.FromSeconds(1), 1024, 1024);
+    private static readonly TimeSpan FixtureTimeout = TimeSpan.FromSeconds(1);
 
     [Fact]
-    public void PatchBoundsPreservePublishedNamedArguments()
+    public async Task RegistrationRejectsAnInvalidPhaseTimeout()
     {
-        SteamUiPatchBounds bounds = new(
-            TimeSpan.FromSeconds(1),
-            4096,
-            512);
+        await using var transport = new FakeSteamUiTransport();
+        await using var manager = new SteamUiPatchManager(transport);
 
-        Assert.Equal(TimeSpan.FromSeconds(1), bounds.OperationTimeout);
-        Assert.Equal(4096, bounds.MaximumExpressionCharacters);
-        Assert.Equal(512, bounds.MaximumDiagnosticCharacters);
-    }
-
-    [Fact]
-    public void PatchBoundsRejectInvalidTimeoutsAndSizes()
-    {
-        Assert.Throws<ArgumentOutOfRangeException>(() => new SteamUiPatchBounds(
-            TimeSpan.Zero,
-            1,
-            1));
-        Assert.Throws<ArgumentOutOfRangeException>(() => new SteamUiPatchBounds(
-            TimeSpan.FromSeconds(31),
-            1,
-            1));
-        Assert.Throws<ArgumentOutOfRangeException>(() => new SteamUiPatchBounds(
-            TimeSpan.FromSeconds(1),
-            0,
-            1));
-        Assert.Throws<ArgumentOutOfRangeException>(() => new SteamUiPatchBounds(
-            TimeSpan.FromSeconds(1),
-            1,
-            64 * 1024 + 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            manager.Register(new FakePatch("zero") { OperationTimeout = TimeSpan.Zero }));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            manager.Register(new FakePatch("long") { OperationTimeout = TimeSpan.FromSeconds(31) }));
     }
 
     [Theory]
@@ -68,7 +46,7 @@ public sealed class SteamUiPatchManagerTests
         List<string> order = [];
         foreach (var id in (string[])["steam-ui.animations", "steam-ui.bridge", "steam-ui.themes"])
         {
-            manager.Register(new FakePatch(id, id) { Bounds = FixtureBounds, Applied = order.Add });
+            manager.Register(new FakePatch(id) { OperationTimeout = FixtureTimeout, Applied = order.Add });
         }
 
         await manager.SynchronizeAsync();
@@ -81,7 +59,7 @@ public sealed class SteamUiPatchManagerTests
     {
         await using var transport = new FakeSteamUiTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        var patch = new FakePatch { Bounds = FixtureBounds };
+        var patch = new FakePatch { OperationTimeout = FixtureTimeout };
         manager.Register(patch);
         await manager.SynchronizeAsync();
         Assert.Equal(SteamUiPatchState.Verified, Assert.Single(manager.GetSnapshots()).State);
@@ -98,7 +76,7 @@ public sealed class SteamUiPatchManagerTests
     {
         await using var transport = new FakeSteamUiTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        var patch = new FakePatch { Bounds = FixtureBounds, BlockVerification = true };
+        var patch = new FakePatch { OperationTimeout = FixtureTimeout, BlockVerification = true };
         manager.Register(patch);
         var applying = manager.SynchronizeAsync();
         await patch.VerifyStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
@@ -115,7 +93,7 @@ public sealed class SteamUiPatchManagerTests
     {
         await using var transport = new FakeSteamUiTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        var patch = new FakePatch { Bounds = FixtureBounds };
+        var patch = new FakePatch { OperationTimeout = FixtureTimeout };
         manager.Register(patch);
         await manager.SynchronizeAsync();
         patch.Compatible = false;
@@ -132,7 +110,7 @@ public sealed class SteamUiPatchManagerTests
     {
         await using var transport = new FakeSteamUiTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        var patch = new FakePatch { Bounds = FixtureBounds, TargetPresent = false };
+        var patch = new FakePatch { OperationTimeout = FixtureTimeout, TargetPresent = false };
         manager.Register(patch);
 
         await manager.SynchronizeAsync();
@@ -162,7 +140,7 @@ public sealed class SteamUiPatchManagerTests
     {
         await using var transport = new FakeSteamUiTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        var patch = new FakePatch { Bounds = FixtureBounds };
+        var patch = new FakePatch { OperationTimeout = FixtureTimeout };
         manager.Register(patch);
 
         await manager.SynchronizeAsync();
@@ -178,7 +156,7 @@ public sealed class SteamUiPatchManagerTests
     {
         await using var transport = new FakeSteamUiTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        var patch = new FakePatch { Bounds = FixtureBounds, BlockVerification = true };
+        var patch = new FakePatch { OperationTimeout = FixtureTimeout, BlockVerification = true };
         manager.Register(patch);
 
         var synchronization = manager.SynchronizeAsync();
@@ -195,7 +173,7 @@ public sealed class SteamUiPatchManagerTests
     {
         await using var transport = new FakeSteamUiTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        var patch = new FakePatch { Bounds = FixtureBounds };
+        var patch = new FakePatch { OperationTimeout = FixtureTimeout };
         manager.Register(patch);
         await manager.SynchronizeAsync();
 
@@ -209,7 +187,7 @@ public sealed class SteamUiPatchManagerTests
     {
         await using var transport = new FakeSteamUiTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        var patch = new FakePatch { Bounds = FixtureBounds };
+        var patch = new FakePatch { OperationTimeout = FixtureTimeout };
         manager.Register(patch);
         await manager.SynchronizeAsync();
 
@@ -228,7 +206,7 @@ public sealed class SteamUiPatchManagerTests
     {
         await using var transport = new FakeSteamUiTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        var patch = new FakePatch { Bounds = FixtureBounds };
+        var patch = new FakePatch { OperationTimeout = FixtureTimeout };
         manager.Register(patch);
         await manager.SynchronizeAsync();
 
@@ -243,8 +221,8 @@ public sealed class SteamUiPatchManagerTests
     {
         await using var transport = new FakeSteamUiTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        var broken = new FakePatch("broken", "dom-a") { ThrowOnApply = true };
-        var healthy = new FakePatch("healthy", "dom-b");
+        var broken = new FakePatch("broken") { ThrowOnApply = true };
+        var healthy = new FakePatch("healthy");
         manager.Register(broken);
         manager.Register(healthy);
 
@@ -260,8 +238,8 @@ public sealed class SteamUiPatchManagerTests
     {
         await using var transport = new FakeSteamUiTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        var first = new FakePatch("first", "dom-a");
-        var second = new FakePatch("second", "dom-b");
+        var first = new FakePatch("first");
+        var second = new FakePatch("second");
         manager.Register(first);
         manager.Register(second);
         await manager.SynchronizeAsync();
@@ -318,7 +296,7 @@ public sealed class SteamUiPatchManagerTests
         await using SteamUiPatchManager manager = new(transport);
         FakePatch patch = new()
         {
-            Bounds = new SteamUiPatchBounds(TimeSpan.FromSeconds(1), 4096, 512),
+            OperationTimeout = TimeSpan.FromSeconds(1),
             PhaseDelay = TimeSpan.FromMilliseconds(500)
         };
         manager.Register(patch);

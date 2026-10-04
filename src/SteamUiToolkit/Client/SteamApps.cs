@@ -23,12 +23,6 @@ public sealed record SteamAppDetails(
     string ShortcutStartDir,
     string InstallFolder);
 
-/// <summary>Outcome of reading one app's details.</summary>
-/// <param name="Reachable">Whether a validated Steam target ran the read.</param>
-/// <param name="Details">The details, or null when Steam did not answer for this id.</param>
-/// <param name="Error">Why the read produced no details.</param>
-public readonly record struct SteamAppDetailsResult(bool Reachable, SteamAppDetails? Details, string? Error);
-
 /// <summary>A custom artwork slot, numbered as Steam's <c>SetCustomArtworkForApp</c> expects.</summary>
 /// <remarks>
 ///     Icons are deliberately absent. Steam has no client call that changes one: a store title's icon
@@ -64,11 +58,19 @@ public enum SteamArtworkFormat
 }
 
 /// <summary>A custom logo placement in Steam's app-details store.</summary>
+/// <param name="Anchor">
+///     Steam's <c>pinnedPosition</c>: where the logo sits on the hero image, such as <c>BottomLeft</c>
+///     or <c>CenterCenter</c>.
+/// </param>
+/// <param name="WidthPercent">The logo's width as a percentage of the hero's width, 5 to 100.</param>
+/// <param name="HeightPercent">The logo's height as a percentage of the hero's height, 5 to 100.</param>
 public sealed record SteamLogoPosition(string Anchor, int WidthPercent, int HeightPercent);
 
 /// <summary>Outcome of asking the running client to create a non-Steam shortcut.</summary>
-/// <param name="Reachable">
-///     Whether a validated Steam target ran the request. An unreachable client created nothing.
+/// <param name="Outcome">
+///     Whether the request was never sent, may have created an entry, was refused, or created one.
+///     <see cref="SteamClientWriteOutcome.Unknown" /> means a shortcut may exist that nobody can name;
+///     the caller reports it and scans again rather than adding a second time.
 /// </param>
 /// <param name="AppId">
 ///     The shortcut's id: the one the library gained when it gained exactly one, else the one Steam
@@ -84,14 +86,14 @@ public sealed record SteamLogoPosition(string Anchor, int WidthPercent, int Heig
 ///     either way; this says what it holds is not what was asked for.
 /// </param>
 public readonly record struct SteamShortcutAddResult(
-    bool Reachable,
+    SteamClientWriteOutcome Outcome,
     uint AppId,
     bool Confirmed,
     string? Error,
     string? Mismatch = null)
 {
-    /// <summary>Whether Steam was reached and a shortcut id is known.</summary>
-    public bool Succeeded => Reachable && AppId != 0;
+    /// <summary>Whether Steam created a shortcut and its id is known.</summary>
+    public bool Succeeded => Outcome == SteamClientWriteOutcome.Applied && AppId != 0;
 }
 
 /// <summary>One non-Steam shortcut as the running client holds it.</summary>
@@ -107,26 +109,7 @@ public sealed record SteamShortcut(
     string StartDirectory,
     string LaunchOptions);
 
-/// <summary>Outcome of reading every non-Steam shortcut in the library.</summary>
-/// <param name="Reachable">Whether a validated Steam target ran the read.</param>
-/// <param name="Shortcuts">
-///     Every shortcut, or null when the library could not be read whole. Empty means the library has
-///     none; it never stands in for a read that failed.
-/// </param>
-/// <param name="Error">Why the read produced no list.</param>
-public readonly record struct SteamShortcutListResult(
-    bool Reachable,
-    IReadOnlyList<SteamShortcut>? Shortcuts,
-    string? Error)
-{
-    /// <summary>Whether the whole list was read.</summary>
-    public bool Succeeded => Reachable && Shortcuts is not null;
-}
-
-/// <summary>
-///     Reads and changes per-app configuration in the running client through
-///     <c>SteamClient.Apps</c>, over the session's transport (<see cref="SteamUiTransportSession" />).
-/// </summary>
+/// <summary>Reads and changes per-app configuration in the running client through <c>SteamClient.Apps</c>.</summary>
 /// <remarks>
 ///     <para>
 ///         Steam stores launch values <em>verbatim</em>: it neither adds nor strips the quotes its own
@@ -134,10 +117,7 @@ public readonly record struct SteamShortcutListResult(
 ///         <c>localconfig.vdf</c> immediately, so no restart is needed.
 ///     </para>
 ///     <para>
-///         Every change goes through one gate, one at a time. Each is a separate evaluation against a
-///         client that is mutating its own library store: two in flight at once is how that store gets
-///         corrupted, and a shortcut added by one caller while another diffs the library would make the
-///         other misread which entry it created.
+///         Every change goes through the client's write lane (<see cref="SteamClient" />), one at a time.
 ///     </para>
 ///     <para>
 ///         A store title and a non-Steam shortcut take different calls. A store title's launch options
@@ -146,7 +126,7 @@ public readonly record struct SteamShortcutListResult(
 ///         Target and Launch Arguments.
 ///     </para>
 /// </remarks>
-public static class SteamApps
+public sealed class SteamApps
 {
     private const uint ShortcutAppIdFloor = 0x80000000;
 
@@ -172,8 +152,12 @@ public static class SteamApps
 
     private static readonly TimeSpan Budget = TimeSpan.FromSeconds(20);
 
-    // One change to the client's library at a time, whoever asks for it.
-    internal static readonly SemaphoreSlim Writes = new(1, 1);
+    private readonly SteamClient _client;
+
+    internal SteamApps(SteamClient client)
+    {
+        _client = client;
+    }
 
     /// <summary>
     ///     Converts a stored app id to the unsigned 32-bit id Steam's client API expects. A shortcut id
@@ -197,29 +181,31 @@ public static class SteamApps
     /// <summary>Reads one app's launch and install configuration.</summary>
     /// <param name="appId">The Steam app id, or a shortcut's generated id.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
-    /// <returns>The outcome. Never throws for an unreachable client.</returns>
-    public static Task<SteamAppDetailsResult> ReadDetailsAsync(
+    /// <returns>
+    ///     The details. An answered failure (Steam has no details for the id) fails the read with Steam's
+    ///     reason; never throws for an unreachable client.
+    /// </returns>
+    public Task<SteamReadResult<SteamAppDetails>> ReadDetailsAsync(
         uint appId,
         CancellationToken cancellationToken = default)
     {
-        return ReadDetailsAsync(null, appId, Budget, cancellationToken);
+        return ReadDetailsAsync(appId, Budget, cancellationToken);
     }
 
     /// <summary>Replaces a store title's launch options.</summary>
     /// <param name="appId">The Steam app id.</param>
     /// <param name="launchOptions">The new value, stored verbatim.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns>Whether Steam accepted the change.</returns>
-    public static async Task<SteamClientWriteResult> SetLaunchOptionsAsync(
+    /// <returns>What became of the change.</returns>
+    public Task<SteamClientWriteResult> SetLaunchOptionsAsync(
         uint appId,
         string launchOptions,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(launchOptions);
-        var expression = SteamClientScript.Write(
+        return WriteAsync(SteamClientScript.Write(
             "await SteamClient.Apps.SetAppLaunchOptions(" + SteamClientScript.AppId(appId) + "," +
-            SteamCef.JsString(launchOptions) + ");");
-        return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
+            SteamCef.JsString(launchOptions) + ");"), cancellationToken);
     }
 
     /// <summary>Replaces what a non-Steam shortcut runs.</summary>
@@ -227,9 +213,9 @@ public static class SteamApps
     /// <param name="target">The new Target, stored verbatim (quote a path that contains spaces).</param>
     /// <param name="launchArguments">The new Launch Arguments, stored verbatim.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns>Whether Steam accepted both values.</returns>
+    /// <returns>What became of the change.</returns>
     /// <remarks>The start directory is never written, so the shortcut keeps its working directory.</remarks>
-    public static async Task<SteamClientWriteResult> SetShortcutLaunchAsync(
+    public Task<SteamClientWriteResult> SetShortcutLaunchAsync(
         uint appId,
         string target,
         string launchArguments,
@@ -237,11 +223,11 @@ public static class SteamApps
     {
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(launchArguments);
-        var expression = SteamClientScript.Write(
+        return WriteAsync(SteamClientScript.Write(
             "const app=" + SteamClientScript.AppId(appId) + ";" +
             "await SteamClient.Apps.SetShortcutExe(app," + SteamCef.JsString(target) + ");" +
-            "await SteamClient.Apps.SetShortcutLaunchOptions(app," + SteamCef.JsString(launchArguments) + ");");
-        return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
+            "await SteamClient.Apps.SetShortcutLaunchOptions(app," + SteamCef.JsString(launchArguments) + ");"),
+            cancellationToken);
     }
 
     /// <summary>Replaces what a non-Steam shortcut runs and where it runs from.</summary>
@@ -250,12 +236,12 @@ public static class SteamApps
     /// <param name="startDirectory">The new start directory, stored verbatim.</param>
     /// <param name="launchArguments">The new Launch Arguments, stored verbatim.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns>Whether Steam accepted all three values.</returns>
+    /// <returns>What became of the change.</returns>
     /// <remarks>
     ///     For a caller that owns the whole command. Moving a shortcut from one program to another and
     ///     leaving the old start directory behind runs the new program from the old one's folder.
     /// </remarks>
-    public static async Task<SteamClientWriteResult> SetShortcutLaunchAsync(
+    public Task<SteamClientWriteResult> SetShortcutLaunchAsync(
         uint appId,
         string target,
         string startDirectory,
@@ -265,12 +251,12 @@ public static class SteamApps
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(startDirectory);
         ArgumentNullException.ThrowIfNull(launchArguments);
-        var expression = SteamClientScript.Write(
+        return WriteAsync(SteamClientScript.Write(
             "const app=" + SteamClientScript.AppId(appId) + ";" +
             "await SteamClient.Apps.SetShortcutExe(app," + SteamCef.JsString(target) + ");" +
             "await SteamClient.Apps.SetShortcutStartDir(app," + SteamCef.JsString(startDirectory) + ");" +
-            "await SteamClient.Apps.SetShortcutLaunchOptions(app," + SteamCef.JsString(launchArguments) + ");");
-        return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
+            "await SteamClient.Apps.SetShortcutLaunchOptions(app," + SteamCef.JsString(launchArguments) + ");"),
+            cancellationToken);
     }
 
     /// <summary>Reads every non-Steam shortcut in the library, with what each one runs, in one call.</summary>
@@ -279,9 +265,11 @@ public static class SteamApps
     /// <remarks>
     ///     All or nothing. A shortcut whose details Steam did not return fails the read rather than
     ///     appearing with empty fields: a caller comparing what it wrote against what Steam holds would
-    ///     read an empty Target as somebody else's entry.
+    ///     read an empty Target as somebody else's entry. An empty list means the library has none; it
+    ///     never stands in for a read that failed.
     /// </remarks>
-    public static async Task<SteamShortcutListResult> ListShortcutsAsync(CancellationToken cancellationToken = default)
+    public async Task<SteamReadResult<IReadOnlyList<SteamShortcut>>> ListShortcutsAsync(
+        CancellationToken cancellationToken = default)
     {
         var expression = SteamClientScript.Read(
             SteamClientScript.ShortcutIdsFunction +
@@ -298,8 +286,7 @@ public static class SteamApps
             "if(gap)return JSON.stringify({ok:false,err:'Steam did not return the details for shortcut '+gap.id+'.'});" +
             "out.push(...read);}" +
             "return JSON.stringify({ok:true,shortcuts:out});");
-        var result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
-            .ConfigureAwait(false);
+        var result = await _client.ReadAsync(expression, Budget, cancellationToken).ConfigureAwait(false);
         return ParseShortcuts(result);
     }
 
@@ -323,6 +310,9 @@ public static class SteamApps
     ///         before-and-after diff of the library, and the diff is the authority: the return value's
     ///         contract has never been verified across client builds, while the diff is observation.
     ///         The fields are then set on the entry the library gained, never on the returned id alone.
+    ///         When Steam returns no id, the one entry the library gained is adopted only when its Target
+    ///         and name are the ones asked for; anything else is left alone and reported
+    ///         <see cref="SteamClientWriteOutcome.Unknown" />, because it may be somebody else's.
     ///     </para>
     ///     <para>
     ///         The fields are written twice on purpose. <c>AddShortcut</c>'s positional contract is not
@@ -333,7 +323,7 @@ public static class SteamApps
     ///         read back until they match or two seconds pass, and any that still differs is reported.
     ///     </para>
     /// </remarks>
-    public static async Task<SteamShortcutAddResult> AddShortcutAsync(
+    public async Task<SteamShortcutAddResult> AddShortcutAsync(
         string name,
         string target,
         string startDirectory,
@@ -345,7 +335,300 @@ public static class SteamApps
         ArgumentNullException.ThrowIfNull(startDirectory);
         ArgumentNullException.ThrowIfNull(launchArguments);
 
+        var expression = AddShortcutScript(name, target, startDirectory, launchArguments);
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return new SteamShortcutAddResult(
+                SteamClientWriteOutcome.NotSent, 0, false, "The request was cancelled before it was sent.");
+        }
+
+        var result = await _client.WriteAsync(expression, Budget, CancellationToken.None).ConfigureAwait(false);
+        var outcome = ParseAddShortcut(result);
+        if (outcome is { Outcome: SteamClientWriteOutcome.Applied, Confirmed: false }
+            or { Outcome: SteamClientWriteOutcome.Unknown })
+        {
+            SteamUiLog.Warn($"Steam did not confirm a new shortcut: {outcome.Error}");
+        }
+        else if (outcome.Mismatch is { } mismatch)
+        {
+            SteamUiLog.Warn($"A new shortcut did not read back as written: {mismatch}");
+        }
+
+        return outcome;
+    }
+
+    /// <summary>Deletes a non-Steam shortcut from the running client's library.</summary>
+    /// <param name="appId">The shortcut's generated id.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>What became of the removal.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">
+    ///     <paramref name="appId" /> is not in the generated-shortcut range. A store title has no
+    ///     shortcut entry to delete, and removing one is not something this call can undo.
+    /// </exception>
+    public Task<SteamClientWriteResult> RemoveShortcutAsync(
+        uint appId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsShortcutAppId(appId))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(appId), appId, "Only a non-Steam shortcut id can be removed.");
+        }
+
+        return WriteAsync(SteamClientScript.Write(
+            "if(typeof SteamClient?.Apps?.RemoveShortcut!=='function')" +
+            "throw new Error('This Steam client does not expose RemoveShortcut.');" +
+            "await SteamClient.Apps.RemoveShortcut(" + SteamClientScript.AppId(appId) + ");"), cancellationToken);
+    }
+
+    /// <summary>Replaces one custom artwork slot. Steam persists and renders it without a restart.</summary>
+    /// <param name="appId">The Steam app id, or a shortcut's generated id.</param>
+    /// <param name="slot">The slot.</param>
+    /// <param name="image">The encoded image.</param>
+    /// <param name="format">The image encoding.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>What became of the change.</returns>
+    /// <exception cref="ArgumentException">The image is empty.</exception>
+    public async Task<SteamClientWriteResult> SetCustomArtworkAsync(
+        uint appId,
+        SteamArtworkSlot slot,
+        ReadOnlyMemory<byte> image,
+        SteamArtworkFormat format,
+        CancellationToken cancellationToken = default)
+    {
+        if (image.IsEmpty)
+        {
+            throw new ArgumentException("The image is empty.", nameof(image));
+        }
+
+        var extension = format switch
+        {
+            SteamArtworkFormat.Jpeg => "\"jpg\"",
+            SteamArtworkFormat.Webp => "\"webp\"",
+            SteamArtworkFormat.Png => "\"png\"",
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unknown artwork format.")
+        };
+        var slotLiteral = SlotLiteral(slot);
+        string base64;
+        try
+        {
+            base64 = await Task.Run(() => Convert.ToBase64String(image.Span), cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return new SteamClientWriteResult(
+                SteamClientWriteOutcome.NotSent, "The request was cancelled before it was sent.");
+        }
+
+        return await WriteAsync(SteamClientScript.Write(
+            "const app=" + SteamClientScript.AppId(appId) + ",type=" + slotLiteral + ";" +
+            "await SteamClient.Apps.ClearCustomArtworkForApp(app,type);" +
+            SteamClientScript.Settle(ArtworkClearSettleMs) +
+            "await SteamClient.Apps.SetCustomArtworkForApp(app,\"" + base64 + "\"," + extension + ",type);"),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Resets one artwork slot to Steam's official art.</summary>
+    /// <param name="appId">The Steam app id, or a shortcut's generated id.</param>
+    /// <param name="slot">The slot.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>What became of the reset.</returns>
+    public Task<SteamClientWriteResult> ClearCustomArtworkAsync(
+        uint appId,
+        SteamArtworkSlot slot,
+        CancellationToken cancellationToken = default)
+    {
+        return WriteAsync(SteamClientScript.Write(
+            "await SteamClient.Apps.ClearCustomArtworkForApp(" + SteamClientScript.AppId(appId) + "," +
+            SlotLiteral(slot) + ");"), cancellationToken);
+    }
+
+    /// <summary>Points a non-Steam shortcut at a local icon file through Steam's own API.</summary>
+    /// <param name="appId">The shortcut's generated id.</param>
+    /// <param name="path">The icon file, as Steam should store it.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>What became of the change.</returns>
+    public Task<SteamClientWriteResult> SetShortcutIconAsync(
+        uint appId, string path, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        return WriteAsync(SteamClientScript.Write(
+            "await SteamClient.Apps.SetShortcutIcon(" + SteamClientScript.AppId(appId) + "," +
+            SteamCef.JsString(path) + ");"), cancellationToken);
+    }
+
+    /// <summary>Clears a non-Steam shortcut's custom icon through Steam's own API.</summary>
+    /// <param name="appId">The shortcut's generated id.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>What became of the change.</returns>
+    public Task<SteamClientWriteResult> ClearShortcutIconAsync(
+        uint appId, CancellationToken cancellationToken = default)
+    {
+        return WriteAsync(SteamClientScript.Write(
+            "await SteamClient.Apps.SetShortcutIcon(" + SteamClientScript.AppId(appId) + ",'');"), cancellationToken);
+    }
+
+    /// <summary>Asks Steam to refresh cached icon data for a store app.</summary>
+    /// <param name="appId">The Steam app id.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>What became of the request.</returns>
+    public Task<SteamClientWriteResult> RefreshIconAsync(
+        uint appId, CancellationToken cancellationToken = default)
+    {
+        return WriteAsync(SteamClientScript.Write(
+            "await SteamClient.Apps.RequestIconDataForApp(" + SteamClientScript.AppId(appId) + ");"),
+            cancellationToken);
+    }
+
+    /// <summary>Reads Steam's official icon URL for an app.</summary>
+    /// <param name="appId">The Steam app id.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The URL; a failed read when Steam has none for the app or could not be asked.</returns>
+    public async Task<SteamReadResult<string>> ReadOfficialIconUrlAsync(
+        uint appId, CancellationToken cancellationToken = default)
+    {
         var expression = SteamClientScript.Read(
+            "const a=window.appStore?.GetAppOverviewByAppID?.(" + SteamClientScript.AppId(appId) + ");" +
+            "const u=a?window.appStore?.GetIconURLForApp?.(a):null;" +
+            "if(typeof u!=='string'||!u.length)return JSON.stringify({ok:false,err:'Steam has no icon for this app.'});" +
+            "return JSON.stringify({ok:true,value:u});");
+        var result = await _client.ReadAsync(expression, Budget, cancellationToken).ConfigureAwait(false);
+        return SteamClientScript.ParseRead(result, "icon", static root => SteamClientScript.StringOf(root, "value"));
+    }
+
+    /// <summary>Reads the active Steam account id used for the userdata directory.</summary>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The 32-bit account id; a failed read when no user is signed in or Steam could not be asked.</returns>
+    public async Task<SteamReadResult<uint>> ReadAccountIdAsync(CancellationToken cancellationToken = default)
+    {
+        var expression = SteamClientScript.Read(
+            "const s=window.App?.m_CurrentUser?.strSteamID||'';" +
+            "if(!/^\\d{17}$/.test(s))return JSON.stringify({ok:false,err:'No Steam user is signed in.'});" +
+            "return JSON.stringify({ok:true,value:String(BigInt(s)&0xffffffffn)});");
+        var result = await _client.ReadAsync(expression, Budget, cancellationToken).ConfigureAwait(false);
+        return SteamClientScript.ParseRead(result, "account", static root =>
+            uint.TryParse(SteamClientScript.StringOf(root, "value"), NumberStyles.None,
+                CultureInfo.InvariantCulture, out var accountId)
+                ? accountId
+                : throw new FormatException("The account id is not a number."));
+    }
+
+    /// <summary>Saves a custom logo position through Steam's app-details store.</summary>
+    /// <param name="appId">The Steam app id, or a shortcut's generated id.</param>
+    /// <param name="position">The placement, with both dimensions from 5 to 100 percent.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>What became of the change.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">A dimension is outside 5 to 100 percent.</exception>
+    public Task<SteamClientWriteResult> SaveLogoPositionAsync(
+        uint appId, SteamLogoPosition position, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(position);
+        if (position.WidthPercent is < 5 or > 100 || position.HeightPercent is < 5 or > 100)
+        {
+            throw new ArgumentOutOfRangeException(nameof(position));
+        }
+
+        return WriteAsync(SteamClientScript.Write(
+            "const a=window.appStore?.GetAppOverviewByAppID?.(" + SteamClientScript.AppId(appId) + ");" +
+            "if(!a||!window.appDetailsStore?.SaveCustomLogoPosition)throw new Error('logo position unavailable');" +
+            "await window.appDetailsStore.SaveCustomLogoPosition(a,{pinnedPosition:" +
+            SteamCef.JsString(position.Anchor) + ",nWidthPct:" +
+            position.WidthPercent.ToString(CultureInfo.InvariantCulture) + ",nHeightPct:" +
+            position.HeightPercent.ToString(CultureInfo.InvariantCulture) + "});"), cancellationToken);
+    }
+
+    /// <summary>Clears a custom logo position through Steam's app-details store.</summary>
+    /// <param name="appId">The Steam app id, or a shortcut's generated id.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>What became of the change.</returns>
+    public Task<SteamClientWriteResult> ClearLogoPositionAsync(
+        uint appId, CancellationToken cancellationToken = default)
+    {
+        return WriteAsync(SteamClientScript.Write(
+            "const a=window.appStore?.GetAppOverviewByAppID?.(" + SteamClientScript.AppId(appId) + ");" +
+            "if(!a||!window.appDetailsStore?.ClearCustomLogoPosition)throw new Error('logo position unavailable');" +
+            "await window.appDetailsStore.ClearCustomLogoPosition(a);"), cancellationToken);
+    }
+
+    /// <summary>Reads the current custom logo position.</summary>
+    /// <param name="appId">The Steam app id, or a shortcut's generated id.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>
+    ///     The position, or a successful read with a null value when Steam has none, including when the
+    ///     stored dimensions are outside the 5 to 100 percent range <see cref="SaveLogoPositionAsync" />
+    ///     accepts. A failed read means Steam could not be asked or answered with an error.
+    /// </returns>
+    public async Task<SteamReadResult<SteamLogoPosition>> ReadLogoPositionAsync(
+        uint appId, CancellationToken cancellationToken = default)
+    {
+        var expression = SteamClientScript.Read(
+            "const a=window.appStore?.GetAppOverviewByAppID?.(" + SteamClientScript.AppId(appId) + ");" +
+            "const p=a&&window.appDetailsStore?.GetCustomLogoPosition?" +
+            "window.appDetailsStore.GetCustomLogoPosition(a):null;" +
+            "return JSON.stringify({ok:true,anchor:p?.pinnedPosition||'',width:p?.nWidthPct||0,height:p?.nHeightPct||0});");
+        var result = await _client.ReadAsync(expression, Budget, cancellationToken).ConfigureAwait(false);
+        return ParseLogoPosition(result);
+    }
+
+    /// <summary>Maps a logo-position reply to a read. Pure, for tests.</summary>
+    /// <param name="result">The evaluation outcome.</param>
+    internal static SteamReadResult<SteamLogoPosition> ParseLogoPosition(SteamUiEvaluationResult result)
+    {
+        return SteamClientScript.ParseRead<SteamLogoPosition>(result, "logo position", static root =>
+        {
+            var anchor = SteamClientScript.StringOf(root, "anchor");
+            if (anchor.Length == 0
+                || !root.TryGetProperty("width", out var width) || !width.TryGetInt32(out var widthValue)
+                || !root.TryGetProperty("height", out var height) || !height.TryGetInt32(out var heightValue))
+            {
+                return null;
+            }
+
+            // Steam reports 0 for an app that has no stored position, and the save path accepts
+            // only 5 through 100. Anything outside that is not a position this library can hand
+            // straight back to SaveLogoPositionAsync, so it reads as none rather than as a value.
+            return widthValue is >= 5 and <= 100 && heightValue is >= 5 and <= 100
+                ? new SteamLogoPosition(anchor, widthValue, heightValue)
+                : null;
+        });
+    }
+
+    /// <summary>Reads one app's details with a caller's deadline.</summary>
+    /// <param name="appId">The app id.</param>
+    /// <param name="timeout">The evaluation deadline.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    internal async Task<SteamReadResult<SteamAppDetails>> ReadDetailsAsync(
+        uint appId,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        var expression = SteamClientScript.Read(
+            "const d=await " + SteamClientScript.AppDetailsPromise(appId, DetailsTimeoutMs) + ";" +
+            "if(!d){return JSON.stringify({ok:false,err:'Steam has no details for this app.'});}" +
+            "return JSON.stringify({ok:true,launch:d.strLaunchOptions||'',exe:d.strShortcutExe||''," +
+            "args:d.strShortcutLaunchOptions||'',dir:d.strShortcutStartDir||'',install:d.strInstallFolder||''});");
+        var result = await _client.ReadAsync(expression, timeout, cancellationToken).ConfigureAwait(false);
+        return ParseDetails(result);
+    }
+
+    /// <summary>Maps a details reply to a read. Pure, for tests.</summary>
+    /// <param name="result">The evaluation outcome.</param>
+    internal static SteamReadResult<SteamAppDetails> ParseDetails(SteamUiEvaluationResult result)
+    {
+        return SteamClientScript.ParseRead(result, "app details", static root =>
+            new SteamAppDetails(
+                SteamClientScript.StringOf(root, "launch"),
+                SteamClientScript.StringOf(root, "exe"),
+                SteamClientScript.StringOf(root, "args"),
+                SteamClientScript.StringOf(root, "dir"),
+                SteamClientScript.StringOf(root, "install")));
+    }
+
+    /// <summary>The script <see cref="AddShortcutAsync" /> runs. Pure, for tests.</summary>
+    internal static string AddShortcutScript(string name, string target, string startDirectory, string launchArguments)
+    {
+        return SteamClientScript.Read(
             "const A=SteamClient?.Apps;" +
             "if(typeof A?.AddShortcut!=='function')" +
             "return JSON.stringify({ok:false,err:'This Steam client does not expose AddShortcut.'});" +
@@ -355,12 +638,21 @@ public static class SteamApps
             "shortcut could not be confirmed. Nothing was created.'});" +
             "const name=" + SteamCef.JsString(name) + ",exe=" + SteamCef.JsString(target) +
             ",dir=" + SteamCef.JsString(startDirectory) + ",args=" + SteamCef.JsString(launchArguments) + ";" +
+            "const details=" + SteamClientScript.AppDetailsFunction(DetailsTimeoutMs) + ";" +
             "const raw=await A.AddShortcut(name,exe,dir,args);" +
             "const returned=Number(raw)>>>0;" +
             "let gained=[];" +
             "for(let waited=0;waited<=" + AddAppearMs.ToString(CultureInfo.InvariantCulture) + ";waited+=100){" +
             "const now=shortcutIds();gained=now?[...now].filter(x=>!before.has(x)):[];" +
             "if(gained.length)break;await new Promise(r=>setTimeout(r,100));}" +
+            // Without a returned id the one new entry is only ours when it holds what was asked for. One
+            // somebody else added inside the same window is left exactly as it is.
+            "if(!returned&&gained.length===1){" +
+            "const g=gained[0],d=await details(g);" +
+            "const gn=(shortcutApps()||[]).find(a=>a.id===g)?.name||'';" +
+            "if(!d||String(d.strShortcutExe||'').toLowerCase()!==exe.toLowerCase()||gn!==name)" +
+            "return JSON.stringify({ok:false,unconfirmed:true,err:'Steam returned no id, and the one new " +
+            "shortcut in the library is not the one asked for, so it was left alone.'});}" +
             "if(gained.length!==1||(returned&&gained[0]!==returned)){" +
             "const id=gained.length===1?gained[0]:returned;" +
             "const err=gained.length===0?'Steam reported no new entry after creating this shortcut.'" +
@@ -372,7 +664,6 @@ public static class SteamApps
             "if(typeof A.SetShortcutExe==='function')await A.SetShortcutExe(id,exe);" +
             "if(typeof A.SetShortcutStartDir==='function')await A.SetShortcutStartDir(id,dir);" +
             "if(typeof A.SetShortcutLaunchOptions==='function')await A.SetShortcutLaunchOptions(id,args);" +
-            "const details=" + SteamClientScript.AppDetailsFunction(DetailsTimeoutMs) + ";" +
             "const until=Date.now()+" + ReadBackMs.ToString(CultureInfo.InvariantCulture) + ";" +
             "let wrong=[];" +
             "for(;;){" +
@@ -388,307 +679,6 @@ public static class SteamApps
             "await new Promise(r=>setTimeout(r,100));}" +
             "return JSON.stringify({ok:true,value:String(id),confirmed:true," +
             "mismatch:wrong.length?'Steam holds a different '+wrong.join(', ')+' than was written.':''});");
-
-        cancellationToken.ThrowIfCancellationRequested();
-        await Writes.WaitAsync(cancellationToken).ConfigureAwait(false);
-        CefEvalResult result;
-        try
-        {
-            result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, CancellationToken.None)
-                .ConfigureAwait(false);
-        }
-        finally
-        {
-            Writes.Release();
-        }
-
-        var outcome = ParseAddShortcut(result);
-        if (outcome is { Reachable: true, Confirmed: false })
-        {
-            SteamUiLog.Warn($"Steam did not confirm a new shortcut: {outcome.Error}");
-        }
-        else if (outcome.Mismatch is { } mismatch)
-        {
-            SteamUiLog.Warn($"A new shortcut did not read back as written: {mismatch}");
-        }
-
-        return outcome;
-    }
-
-    /// <summary>Deletes a non-Steam shortcut from the running client's library.</summary>
-    /// <param name="appId">The shortcut's generated id.</param>
-    /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns>Whether Steam accepted the removal.</returns>
-    /// <exception cref="ArgumentOutOfRangeException">
-    ///     <paramref name="appId" /> is not in the generated-shortcut range. A store title has no
-    ///     shortcut entry to delete, and removing one is not something this call can undo.
-    /// </exception>
-    public static async Task<SteamClientWriteResult> RemoveShortcutAsync(
-        uint appId,
-        CancellationToken cancellationToken = default)
-    {
-        if (!IsShortcutAppId(appId))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(appId), appId, "Only a non-Steam shortcut id can be removed.");
-        }
-
-        var expression = SteamClientScript.Write(
-            "if(typeof SteamClient?.Apps?.RemoveShortcut!=='function')" +
-            "throw new Error('This Steam client does not expose RemoveShortcut.');" +
-            "await SteamClient.Apps.RemoveShortcut(" + SteamClientScript.AppId(appId) + ");");
-        return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>Replaces one custom artwork slot. Steam persists and renders it without a restart.</summary>
-    /// <param name="appId">The Steam app id, or a shortcut's generated id.</param>
-    /// <param name="slot">The slot.</param>
-    /// <param name="image">The encoded image.</param>
-    /// <param name="format">The image encoding.</param>
-    /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns>Whether Steam accepted the image.</returns>
-    /// <exception cref="ArgumentException">The image is empty.</exception>
-    public static async Task<SteamClientWriteResult> SetCustomArtworkAsync(
-        uint appId,
-        SteamArtworkSlot slot,
-        ReadOnlyMemory<byte> image,
-        SteamArtworkFormat format,
-        CancellationToken cancellationToken = default)
-    {
-        if (image.IsEmpty)
-        {
-            throw new ArgumentException("The image is empty.", nameof(image));
-        }
-
-        var base64 = await Task.Run(() => Convert.ToBase64String(image.Span), cancellationToken)
-            .ConfigureAwait(false);
-        var extension = format switch
-        {
-            SteamArtworkFormat.Jpeg => "\"jpg\"",
-            SteamArtworkFormat.Webp => "\"webp\"",
-            SteamArtworkFormat.Png => "\"png\"",
-            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unknown artwork format.")
-        };
-        var expression = SteamClientScript.Write(
-            "const app=" + SteamClientScript.AppId(appId) + ",type=" + SlotLiteral(slot) + ";" +
-            "await SteamClient.Apps.ClearCustomArtworkForApp(app,type);" +
-            SteamClientScript.Settle(ArtworkClearSettleMs) +
-            "await SteamClient.Apps.SetCustomArtworkForApp(app,\"" + base64 + "\"," + extension + ",type);");
-        return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>Resets one artwork slot to Steam's official art.</summary>
-    /// <param name="appId">The Steam app id, or a shortcut's generated id.</param>
-    /// <param name="slot">The slot.</param>
-    /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns>Whether Steam accepted the reset.</returns>
-    public static async Task<SteamClientWriteResult> ClearCustomArtworkAsync(
-        uint appId,
-        SteamArtworkSlot slot,
-        CancellationToken cancellationToken = default)
-    {
-        var expression = SteamClientScript.Write(
-            "await SteamClient.Apps.ClearCustomArtworkForApp(" + SteamClientScript.AppId(appId) + "," +
-            SlotLiteral(slot) + ");");
-        return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>Points a non-Steam shortcut at a local icon file through Steam's own API.</summary>
-    public static async Task<SteamClientWriteResult> SetShortcutIconAsync(
-        uint appId, string path, CancellationToken cancellationToken = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        var expression = SteamClientScript.Write(
-            "await SteamClient.Apps.SetShortcutIcon(" + SteamClientScript.AppId(appId) + "," +
-            SteamCef.JsString(path) + ");");
-        return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>Clears a non-Steam shortcut's custom icon through Steam's own API.</summary>
-    public static async Task<SteamClientWriteResult> ClearShortcutIconAsync(
-        uint appId, CancellationToken cancellationToken = default)
-    {
-        var expression = SteamClientScript.Write(
-            "await SteamClient.Apps.SetShortcutIcon(" + SteamClientScript.AppId(appId) + ",'');");
-        return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>Asks Steam to refresh cached icon data for a store app.</summary>
-    public static async Task<SteamClientWriteResult> RefreshIconAsync(
-        uint appId, CancellationToken cancellationToken = default)
-    {
-        var expression = SteamClientScript.Write(
-            "await SteamClient.Apps.RequestIconDataForApp(" + SteamClientScript.AppId(appId) + ");");
-        return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>Reads Steam's official icon URL for an app.</summary>
-    public static async Task<string?> ReadOfficialIconUrlAsync(
-        uint appId, CancellationToken cancellationToken = default)
-    {
-        var expression = SteamClientScript.Read(
-            "const a=window.appStore?.GetAppOverviewByAppID?.(" + SteamClientScript.AppId(appId) + ");" +
-            "const u=a?window.appStore?.GetIconURLForApp?.(a):null;" +
-            "return JSON.stringify({ok:typeof u==='string'&&u.length>0,value:u||''});");
-        return await ReadStringAsync(expression, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>Reads the active Steam account id used for the userdata directory.</summary>
-    public static async Task<uint?> ReadAccountIdAsync(CancellationToken cancellationToken = default)
-    {
-        var expression = SteamClientScript.Read(
-            "const s=window.App?.m_CurrentUser?.strSteamID||'';" +
-            "if(!/^\\d{17}$/.test(s))return JSON.stringify({ok:false});" +
-            "return JSON.stringify({ok:true,value:String(BigInt(s)&0xffffffffn)});");
-        var value = await ReadStringAsync(expression, cancellationToken).ConfigureAwait(false);
-        return uint.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var accountId)
-            ? accountId
-            : null;
-    }
-
-    /// <summary>Saves a custom logo position through Steam's app-details store.</summary>
-    public static async Task<SteamClientWriteResult> SaveLogoPositionAsync(
-        uint appId, SteamLogoPosition position, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(position);
-        if (position.WidthPercent is < 5 or > 100 || position.HeightPercent is < 5 or > 100)
-        {
-            throw new ArgumentOutOfRangeException(nameof(position));
-        }
-
-        var expression = SteamClientScript.Write(
-            "const a=window.appStore?.GetAppOverviewByAppID?.(" + SteamClientScript.AppId(appId) + ");" +
-            "if(!a||!window.appDetailsStore?.SaveCustomLogoPosition)throw new Error('logo position unavailable');" +
-            "await window.appDetailsStore.SaveCustomLogoPosition(a,{pinnedPosition:" +
-            SteamCef.JsString(position.Anchor) + ",nWidthPct:" +
-            position.WidthPercent.ToString(CultureInfo.InvariantCulture) + ",nHeightPct:" +
-            position.HeightPercent.ToString(CultureInfo.InvariantCulture) + "});");
-        return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>Clears a custom logo position through Steam's app-details store.</summary>
-    public static async Task<SteamClientWriteResult> ClearLogoPositionAsync(
-        uint appId, CancellationToken cancellationToken = default)
-    {
-        var expression = SteamClientScript.Write(
-            "const a=window.appStore?.GetAppOverviewByAppID?.(" + SteamClientScript.AppId(appId) + ");" +
-            "if(!a||!window.appDetailsStore?.ClearCustomLogoPosition)throw new Error('logo position unavailable');" +
-            "await window.appDetailsStore.ClearCustomLogoPosition(a);");
-        return await WriteAsync(expression, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    ///     Reads the current custom logo position, or null when Steam has none and when the stored
-    ///     dimensions are outside the 5 to 100 percent range <see cref="SaveLogoPositionAsync" /> accepts.
-    /// </summary>
-    public static async Task<SteamLogoPosition?> ReadLogoPositionAsync(
-        uint appId, CancellationToken cancellationToken = default)
-    {
-        var expression = SteamClientScript.Read(
-            "const a=window.appStore?.GetAppOverviewByAppID?.(" + SteamClientScript.AppId(appId) + ");" +
-            "const p=a&&window.appDetailsStore?.GetCustomLogoPosition?" +
-            "window.appDetailsStore.GetCustomLogoPosition(a):null;" +
-            "return JSON.stringify({ok:true,anchor:p?.pinnedPosition||'',width:p?.nWidthPct||0,height:p?.nHeightPct||0});");
-        var result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
-            .ConfigureAwait(false);
-        if (!result.Reachable || result.Value is null)
-        {
-            return null;
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(result.Value);
-            var root = document.RootElement;
-            var anchor = SteamClientScript.StringOf(root, "anchor");
-            if (!SteamClientScript.IsOk(root) || anchor.Length == 0
-                                                || !root.TryGetProperty("width", out var width)
-                                                || !width.TryGetInt32(out var widthValue)
-                                                || !root.TryGetProperty("height", out var height)
-                                                || !height.TryGetInt32(out var heightValue))
-            {
-                return null;
-            }
-
-            // Steam reports 0 for an app that has no stored position, and the save path accepts
-            // only 5 through 100. Anything outside that is not a position this library can hand
-            // straight back to SaveLogoPositionAsync, so it reads as none rather than as a value.
-            return widthValue is >= 5 and <= 100 && heightValue is >= 5 and <= 100
-                ? new SteamLogoPosition(anchor, widthValue, heightValue)
-                : null;
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
-
-    /// <summary>Reads one app's details through a specific transport, or the session's.</summary>
-    /// <param name="transport">The transport, or null for the session's.</param>
-    /// <param name="appId">The app id.</param>
-    /// <param name="timeout">The evaluation deadline.</param>
-    /// <param name="cancellationToken">Cancels the read.</param>
-    internal static async Task<SteamAppDetailsResult> ReadDetailsAsync(
-        ISteamUiTransport? transport,
-        uint appId,
-        TimeSpan timeout,
-        CancellationToken cancellationToken)
-    {
-        var expression = SteamClientScript.Read(
-            "const d=await " + SteamClientScript.AppDetailsPromise(appId, DetailsTimeoutMs) + ";" +
-            "if(!d){return JSON.stringify({ok:false,err:'Steam has no details for this app.'});}" +
-            "return JSON.stringify({ok:true,launch:d.strLaunchOptions||'',exe:d.strShortcutExe||''," +
-            "args:d.strShortcutLaunchOptions||'',dir:d.strShortcutStartDir||'',install:d.strInstallFolder||''});");
-        var result = await SteamClientScript.EvaluateAsync(
-                transport,
-                SteamUiTargetRole.SharedJsContext,
-                expression,
-                timeout,
-                cancellationToken)
-            .ConfigureAwait(false);
-        return ParseDetails(result);
-    }
-
-    /// <summary>Maps a details reply to a result. Pure, for tests.</summary>
-    /// <param name="result">The evaluation outcome.</param>
-    internal static SteamAppDetailsResult ParseDetails(CefEvalResult result)
-    {
-        if (!result.Reachable)
-        {
-            return new SteamAppDetailsResult(false, null, result.Error);
-        }
-
-        if (result.Value is null)
-        {
-            return new SteamAppDetailsResult(true, null, "No response from Steam.");
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(result.Value);
-            var root = document.RootElement;
-            if (!SteamClientScript.IsOk(root))
-            {
-                return new SteamAppDetailsResult(
-                    true,
-                    null,
-                    SteamClientScript.ErrorOf(root) ?? "Steam returned no app details.");
-            }
-
-            return new SteamAppDetailsResult(
-                true,
-                new SteamAppDetails(
-                    SteamClientScript.StringOf(root, "launch"),
-                    SteamClientScript.StringOf(root, "exe"),
-                    SteamClientScript.StringOf(root, "args"),
-                    SteamClientScript.StringOf(root, "dir"),
-                    SteamClientScript.StringOf(root, "install")),
-                null);
-        }
-        catch (JsonException ex)
-        {
-            return new SteamAppDetailsResult(true, null, $"Steam app details were invalid: {ex.Message}");
-        }
     }
 
     /// <summary>Maps an add-shortcut reply to a result. Pure, for tests.</summary>
@@ -697,18 +687,24 @@ public static class SteamApps
     ///     The id arrives as a decimal string because Steam's shortcut ids occupy the top half of the
     ///     unsigned 32-bit range, where a JSON number reads back signed. Anything that is not a
     ///     shortcut id is refused rather than returned: a store id here would mean the reply did not
-    ///     describe the entry that was just created.
+    ///     describe the entry that was just created, so whether one was created is unknown.
     /// </remarks>
-    internal static SteamShortcutAddResult ParseAddShortcut(CefEvalResult result)
+    internal static SteamShortcutAddResult ParseAddShortcut(SteamUiEvaluationResult result)
     {
-        if (!result.Reachable)
+        if (result.Dispatch != SteamUiDispatch.Answered)
         {
-            return new SteamShortcutAddResult(false, 0, false, result.Error);
+            return new SteamShortcutAddResult(
+                SteamClientScript.Unread(result.Dispatch), 0, false, result.Error ?? "Steam did not answer.");
+        }
+
+        if (result.Error is not null)
+        {
+            return new SteamShortcutAddResult(SteamClientWriteOutcome.Rejected, 0, false, result.Error);
         }
 
         if (result.Value is null)
         {
-            return new SteamShortcutAddResult(true, 0, false, "No response from Steam.");
+            return new SteamShortcutAddResult(SteamClientWriteOutcome.Unknown, 0, false, "No response from Steam.");
         }
 
         try
@@ -717,63 +713,58 @@ public static class SteamApps
             var root = document.RootElement;
             if (!SteamClientScript.IsOk(root))
             {
+                var unconfirmed = root.ValueKind == JsonValueKind.Object
+                                  && root.TryGetProperty("unconfirmed", out var flag)
+                                  && flag.ValueKind == JsonValueKind.True;
                 return new SteamShortcutAddResult(
-                    true, 0, false, SteamClientScript.ErrorOf(root) ?? "Steam refused to create the shortcut.");
+                    unconfirmed ? SteamClientWriteOutcome.Unknown : SteamClientWriteOutcome.Rejected,
+                    0,
+                    false,
+                    SteamClientScript.RefusalOf(root) ?? "Steam refused to create the shortcut.");
             }
 
             var value = SteamClientScript.StringOf(root, "value");
             if (!uint.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var appId))
             {
-                return new SteamShortcutAddResult(true, 0, false, "Steam reported an unreadable shortcut id.");
+                return new SteamShortcutAddResult(
+                    SteamClientWriteOutcome.Unknown, 0, false, "Steam reported an unreadable shortcut id.");
             }
 
             if (!IsShortcutAppId(appId))
             {
                 return new SteamShortcutAddResult(
-                    true, 0, false, $"Steam reported {appId}, which is not a non-Steam shortcut id.");
+                    SteamClientWriteOutcome.Unknown, 0, false,
+                    $"Steam reported {appId}, which is not a non-Steam shortcut id.");
             }
 
-            var confirmed = root.TryGetProperty("confirmed", out var flag) && flag.ValueKind == JsonValueKind.True;
+            var confirmed = root.TryGetProperty("confirmed", out var confirmedFlag)
+                            && confirmedFlag.ValueKind == JsonValueKind.True;
             var mismatch = SteamClientScript.StringOf(root, "mismatch");
             return new SteamShortcutAddResult(
-                true,
+                SteamClientWriteOutcome.Applied,
                 appId,
                 confirmed,
                 confirmed
                     ? null
-                    : SteamClientScript.ErrorOf(root) ?? "The library did not confirm the new shortcut.",
+                    : SteamClientScript.RefusalOf(root) ?? "The library did not confirm the new shortcut.",
                 mismatch.Length > 0 ? mismatch : null);
         }
         catch (JsonException ex)
         {
-            return new SteamShortcutAddResult(true, 0, false, $"Steam's shortcut reply was invalid: {ex.Message}");
+            return new SteamShortcutAddResult(
+                SteamClientWriteOutcome.Unknown, 0, false, $"Steam's shortcut reply was unreadable: {ex.Message}");
         }
     }
 
-    /// <summary>Maps a shortcut-list reply to a result. Pure, for tests.</summary>
+    /// <summary>Maps a shortcut-list reply to a read. Pure, for tests.</summary>
     /// <param name="result">The evaluation outcome.</param>
-    internal static SteamShortcutListResult ParseShortcuts(CefEvalResult result)
+    internal static SteamReadResult<IReadOnlyList<SteamShortcut>> ParseShortcuts(SteamUiEvaluationResult result)
     {
-        if (!result.Reachable)
+        return SteamClientScript.ParseRead<IReadOnlyList<SteamShortcut>>(result, "shortcut list", static root =>
         {
-            return new SteamShortcutListResult(false, null, result.Error);
-        }
-
-        if (result.Value is null)
-        {
-            return new SteamShortcutListResult(true, null, "No response from Steam.");
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(result.Value);
-            var root = document.RootElement;
-            if (!SteamClientScript.IsOk(root)
-                || !root.TryGetProperty("shortcuts", out var items)
-                || items.ValueKind != JsonValueKind.Array)
+            if (!root.TryGetProperty("shortcuts", out var items) || items.ValueKind != JsonValueKind.Array)
             {
-                return new SteamShortcutListResult(
-                    true, null, SteamClientScript.ErrorOf(root) ?? "Steam returned no shortcut list.");
+                throw new FormatException("Steam returned no shortcut list.");
             }
 
             List<SteamShortcut> shortcuts = [];
@@ -783,7 +774,7 @@ public static class SteamApps
                         CultureInfo.InvariantCulture, out var appId)
                     || !IsShortcutAppId(appId))
                 {
-                    return new SteamShortcutListResult(true, null, "Steam listed a shortcut with an unreadable id.");
+                    throw new FormatException("Steam listed a shortcut with an unreadable id.");
                 }
 
                 shortcuts.Add(new SteamShortcut(
@@ -794,12 +785,8 @@ public static class SteamApps
                     SteamClientScript.StringOf(item, "args")));
             }
 
-            return new SteamShortcutListResult(true, shortcuts, null);
-        }
-        catch (JsonException ex)
-        {
-            return new SteamShortcutListResult(true, null, $"Steam's shortcut list was invalid: {ex.Message}");
-        }
+            return shortcuts;
+        });
     }
 
     private static string SlotLiteral(SteamArtworkSlot slot)
@@ -812,50 +799,15 @@ public static class SteamApps
         return ((int)slot).ToString(CultureInfo.InvariantCulture);
     }
 
-    private static async Task<SteamClientWriteResult> WriteAsync(
-        string expression,
-        CancellationToken cancellationToken)
+    private async Task<SteamClientWriteResult> WriteAsync(string expression, CancellationToken cancellationToken)
     {
-        await Writes.WaitAsync(cancellationToken).ConfigureAwait(false);
-        CefEvalResult result;
-        try
-        {
-            result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        finally
-        {
-            Writes.Release();
-        }
-
+        var result = await _client.WriteAsync(expression, Budget, cancellationToken).ConfigureAwait(false);
         var outcome = SteamClientScript.ParseWrite(result);
-        if (outcome is { Reachable: true, Accepted: false })
+        if (outcome.Outcome is SteamClientWriteOutcome.Rejected or SteamClientWriteOutcome.Unknown)
         {
-            SteamUiLog.Warn($"Steam rejected an app change: {outcome.Error}.");
+            SteamUiLog.Warn($"Steam app change {outcome.Outcome}: {outcome.Error}");
         }
 
         return outcome;
-    }
-
-    private static async Task<string?> ReadStringAsync(
-        string expression, CancellationToken cancellationToken)
-    {
-        var result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
-            .ConfigureAwait(false);
-        if (!result.Reachable || result.Value is null)
-        {
-            return null;
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(result.Value);
-            var root = document.RootElement;
-            return SteamClientScript.IsOk(root) ? SteamClientScript.StringOf(root, "value") : null;
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
     }
 }

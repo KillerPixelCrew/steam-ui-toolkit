@@ -2,9 +2,9 @@
 
 `SteamSoundOverrideSurface.Module` publishes `SteamSoundOverrideState` through the shared runtime.
 The host supplies exact filenames from its current Steam resource discovery and audio data URLs,
-up to 128 resources and 16 variants per resource. Each encoded asset is limited to 1,400,000
-characters and the entire asset set to 24,000,000 characters. Only WAV, MP3, M4A and Ogg resource
-names are admitted. Pack installation, licensing, selection and persistent state belong to the
+any number of resources and variants per resource. Only WAV, MP3, M4A and Ogg resource names and
+`data:audio/...;base64,` URLs are admitted; an entry that fails either check is skipped and named in
+the gate's `lastError` as `Rejected sound: <name>`, and the valid entries still load. Pack installation, licensing, selection and persistent state belong to the
 host.
 
 The `soundOverrides` gate resolves one Gamepad UI store by the conjunction

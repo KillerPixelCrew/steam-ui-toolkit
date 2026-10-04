@@ -316,14 +316,17 @@ function createStorageService() {
 
     const remove = () => {
         if (!installed) return {ok: true, absent: true};
-        installed = false;
-        unsubscribe = endSubscription(unsubscribe);
 
+        // Released before the gate forgets it: the wrapper sits on the transport every service call
+        // takes, so a failed release must stay installed and be retried by the next remove.
         const released = releaseMember(transport, "SendMsg", claimKeys);
         if (!released.ok) {
             lastError = released.error ?? "storage transport release failed";
             return {ok: false, error: lastError};
         }
+
+        installed = false;
+        unsubscribe = endSubscription(unsubscribe);
 
         // Leaving the answers cached would leave Steam's pages offering Eject and Format against a
         // service that is no longer claimed, and the first press would reach a transport with nothing

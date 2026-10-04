@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace SteamUiToolkit;
@@ -46,14 +48,24 @@ public sealed record SteamFilePlaces(IReadOnlyList<SteamFilePlace> Places);
 ///         chose. Hidden and system entries are left out, as Explorer leaves them out by default.
 ///     </para>
 ///     <para>
+///         Both commands run on a worker, so a drive that stops answering never holds up the bridge.
+///         A request the page gave up on (its request timeout sends a cancel) returns at once and is
+///         not answered; the worker's late result is dropped. The page drops a listing that answers
+///         after it asked for another one, so the folder on screen is always the one it asked for
+///         last. A listing is answered whole, however many entries the folder holds.
+///     </para>
+///     <para>
 ///         A Windows dialog is no substitute: it opens behind Big Picture and cannot be driven with a
 ///         controller.
 ///     </para>
 /// </remarks>
-public static class SteamFilePickerSurface
+public static partial class SteamFilePickerSurface
 {
     /// <summary>The patch id the picker's commands are addressed to. No patch is installed for it.</summary>
     public const string PatchId = "steam-ui.file-picker";
+
+    /// <summary>FOLDERID_Downloads, the user's Downloads folder wherever it was redirected.</summary>
+    private static readonly Guid DownloadsFolderId = new("374DE290-123F-4565-9164-39C4925E467B");
 
     /// <summary>The exact command vocabulary the picker sends.</summary>
     public static IReadOnlyList<string> Commands { get; } = ["listPlaces", "listFolder"];
@@ -85,12 +97,11 @@ public static class SteamFilePickerSurface
             }
         }
 
-        var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         foreach (var (name, path) in new[]
                  {
                      ("Desktop", Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)),
                      ("Documents", Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)),
-                     ("Downloads", profile.Length > 0 ? Path.Combine(profile, "Downloads") : string.Empty)
+                     ("Downloads", DownloadsFolder())
                  })
         {
             if (path.Length > 0 && Directory.Exists(path))
@@ -103,16 +114,26 @@ public static class SteamFilePickerSurface
     }
 
     /// <summary>Lists one folder's subfolders and the files that match.</summary>
+    /// <remarks>
+    ///     A path in the <c>\\?\X:\</c> or <c>\\?\UNC\server\share\</c> form is listed as its ordinary
+    ///     form, so the listing and every path in it read the way the user knows them.
+    /// </remarks>
     /// <param name="path">The folder.</param>
     /// <param name="extensions">The file types to include, each with its dot; empty for folders only.</param>
+    /// <param name="cancellationToken">Stops the enumeration once the request was given up on.</param>
     /// <returns>The listing, with an error when the folder cannot be read.</returns>
-    public static SteamFileListing ListFolder(string path, IReadOnlyCollection<string> extensions)
+    /// <exception cref="OperationCanceledException">The request was cancelled while the folder was listed.</exception>
+    public static SteamFileListing ListFolder(
+        string path,
+        IReadOnlyCollection<string> extensions,
+        CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(path);
         ArgumentNullException.ThrowIfNull(extensions);
         string full;
         try
         {
-            full = Path.GetFullPath(path);
+            full = Path.GetFullPath(PlainPath(path));
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
@@ -140,13 +161,21 @@ public static class SteamFilePickerSurface
             }
 
             var folders = directory.EnumerateDirectories("*", options)
-                .Select(entry => new SteamFileEntry(entry.Name, entry.FullName, true))
+                .Select(entry =>
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return new SteamFileEntry(entry.Name, entry.FullName, true);
+                })
                 .OrderBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase)
                 .ToList();
             var files = extensions.Count == 0
                 ? []
                 : directory.EnumerateFiles("*", options)
-                    .Where(entry => extensions.Contains(entry.Extension, StringComparer.OrdinalIgnoreCase))
+                    .Where(entry =>
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        return extensions.Contains(entry.Extension, StringComparer.OrdinalIgnoreCase);
+                    })
                     .Select(entry => new SteamFileEntry(entry.Name, entry.FullName, false))
                     .OrderBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase)
                     .ToList();
@@ -204,23 +233,87 @@ public static class SteamFilePickerSurface
             id,
             commands:
             [
-                SteamUiModuleBuilder.Command(PatchId, "listPlaces", _ => Task.FromResult(!enabled()
-                    ? SteamUiCommandResult.Refused
-                    : new SteamUiCommandResult(true, null, JsonSerializer.SerializeToElement(
-                        ListPlaces(), SteamSurfaceJsonContext.Default.SteamFilePlaces)))),
+                // Off the bridge pump: enumerating drives blocks on a disconnected network share, and
+                // the pump would hold every later request and cancel behind it.
+                SteamUiModuleBuilder.Command(PatchId, "listPlaces", cancellationToken => !enabled()
+                    ? Task.FromResult(SteamUiCommandResult.Refused)
+                    : OnWorker(
+                        () => new SteamUiCommandResult(true, null, JsonSerializer.SerializeToElement(
+                            ListPlaces(), SteamSurfaceJsonContext.Default.SteamFilePlaces)),
+                        cancellationToken)),
                 SteamUiModuleBuilder.Command<(string Path, IReadOnlyList<string> Extensions)>(
                     PatchId,
                     "listFolder",
                     TryReadListFolder,
                     (request, cancellationToken) => !enabled()
                         ? Task.FromResult(SteamUiCommandResult.Refused)
-                        : Task.Run(() => new SteamUiCommandResult(true, null, JsonSerializer.SerializeToElement(
-                                ListFolder(request.Path, request.Extensions),
+                        : OnWorker(
+                            () => new SteamUiCommandResult(true, null, JsonSerializer.SerializeToElement(
+                                ListFolder(request.Path, request.Extensions, cancellationToken),
                                 SteamSurfaceJsonContext.Default.SteamFileListing)),
                             cancellationToken),
                     "The folder request is invalid.")
             ]);
     }
+
+    // Runs a listing on a worker and stops waiting the moment the request is cancelled: a drive that
+    // stops answering can hold its worker, never the caller. What the worker answers after that goes
+    // nowhere.
+    private static Task<SteamUiCommandResult> OnWorker(
+        Func<SteamUiCommandResult> list,
+        CancellationToken cancellationToken)
+    {
+        return Task.Run(list, cancellationToken).WaitAsync(cancellationToken);
+    }
+
+    // The ordinary form of a \\?\ path: \\?\D:\Games is D:\Games and \\?\UNC\server\share is
+    // \\server\share. Anything else is returned as it is.
+    private static string PlainPath(string path)
+    {
+        const string extended = @"\\?\";
+        const string extendedUnc = @"\\?\UNC\";
+        if (path.StartsWith(extendedUnc, StringComparison.OrdinalIgnoreCase))
+        {
+            return @"\\" + path[extendedUnc.Length..];
+        }
+
+        return path.StartsWith(extended, StringComparison.Ordinal)
+               && path.Length >= extended.Length + 2
+               && char.IsAsciiLetter(path[extended.Length])
+               && path[extended.Length + 1] == ':'
+            ? path[extended.Length..]
+            : path;
+    }
+
+    // The user's Downloads folder where Windows keeps it, which a redirected folder moves away from
+    // the profile; the profile's own Downloads only when Windows cannot say.
+    private static string DownloadsFolder()
+    {
+        var result = SHGetKnownFolderPath(DownloadsFolderId, 0, IntPtr.Zero, out var buffer);
+        try
+        {
+            var path = result == 0 ? Marshal.PtrToStringUni(buffer) : null;
+            if (!string.IsNullOrEmpty(path))
+            {
+                return path;
+            }
+        }
+        finally
+        {
+            // The buffer is the caller's to free whether or not the call succeeded.
+            Marshal.FreeCoTaskMem(buffer);
+        }
+
+        var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return profile.Length > 0 ? Path.Combine(profile, "Downloads") : string.Empty;
+    }
+
+    [LibraryImport("shell32.dll")]
+    private static partial int SHGetKnownFolderPath(
+        in Guid folderId,
+        uint flags,
+        IntPtr token,
+        out IntPtr path);
 
     private static string Kind(DriveType type)
     {

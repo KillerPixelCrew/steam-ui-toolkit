@@ -9,8 +9,8 @@
 // invalidated. Live-verified 2026-08-30 that the stub's methods are writable and configurable and
 // that the query client's invalidateQueries is reachable.
 //
-// The stub was module 60517, export RF, when verified. The September 2026 beta renumbered the
-// module, so it is found by its service method name and by its shape.
+// Client builds renumber the stub's module (the September 2026 beta did), so it is found by its
+// service method name and by its shape.
 function createBluetoothService() {
     const patchId = "steam-ui.bluetooth";
     const queryKey = ["BluetoothManagerService", "State"];
@@ -152,18 +152,20 @@ function createBluetoothService() {
 
     const remove = () => {
         if (!installed) return {ok: true, absent: true};
-        installed = false;
-        unsubscribe = endSubscription(unsubscribe);
 
+        // Every method is released before the gate forgets it is installed, so a failed release is
+        // retried by the next remove rather than left in Steam behind an "absent" answer.
         for (const name of replaced) {
             const released = releaseMember(stub, name, methodKeys);
             if (!released.ok) {
                 lastError = released.error ?? "Bluetooth service method release failed";
                 return {ok: false, error: lastError};
             }
+            replaced.delete(name);
         }
 
-        replaced.clear();
+        installed = false;
+        unsubscribe = endSubscription(unsubscribe);
         latest = {is_service_available: false, adapters: [], devices: []};
         invalidate();
         return {ok: true, removed: true};

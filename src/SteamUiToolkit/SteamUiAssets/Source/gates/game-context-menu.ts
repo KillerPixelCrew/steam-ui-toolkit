@@ -160,6 +160,8 @@ function createGameContextMenu() {
 
   // SharedJSContext owns React but has no visible DOM. Observe the existing shared JSX claim:
   // the private class passes through it before its first render, so that same opening gets rows.
+  // Every element Steam creates passes through that claim, so the transform is withdrawn as soon as
+  // the class is held: from then on the render claim does the work.
   const captureMenu = (_create, candidate) => {
     if (menuComponent || typeof candidate !== "function") return;
     const prototype = candidate.prototype;
@@ -169,6 +171,10 @@ function createGameContextMenu() {
       MenuTokens.every((name) => typeof prototype[name] === "function")
     ) {
       claimMenuRender(candidate);
+      if (menuComponent) {
+        const released = releaseElements(jsxRuntime, patchId);
+        if (!released.ok) lastError = released.error ?? "Game context menu JSX release failed";
+      }
     }
   };
 
@@ -222,7 +228,11 @@ function createGameContextMenu() {
     ok: true,
     installed,
     resolved: !!runtime && !!react,
-    observing: installed && elementsIntercepted(jsxRuntime, patchId),
+    // Watching for the menu class, or holding it once it was seen.
+    observing:
+      installed &&
+      (memberClaimed(menuComponent?.prototype, "render", renderClaimKeys) ||
+        elementsIntercepted(jsxRuntime, patchId)),
     menuClaimed: memberClaimed(menuComponent?.prototype, "render", renderClaimKeys),
     items: desired.items.length,
     revision: desired.revision,

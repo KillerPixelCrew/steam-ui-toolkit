@@ -1,10 +1,11 @@
-// What the emitted-asset checks share: loading the asset, cutting fragments out of it by the markers
-// the emitter leaves, instantiating a gate over inert fixtures, and a React stand-in small enough to
-// read beside the gate it drives.
+// What the emitted-asset checks share: loading the asset, cutting fragments out of it by the
+// `// @fragment <label>` markers steam-ui-fragments.mjs leaves, instantiating a gate over inert
+// fixtures, and a React stand-in small enough to read beside the gate it drives.
 //
-// Every check runs the SHIPPED bytes rather than the TypeScript source, and the markers here are
-// statement starts that survive both compositions: the prelude as tsc emits it and a consumer's
-// asset after Prettier. Node built-ins only, so a check runs in an offline build with no packages.
+// Every check runs the SHIPPED bytes rather than the TypeScript source. The fragment markers survive
+// both compositions, the prelude as tsc emits it and a consumer's asset after Prettier, so a check
+// names the fragments it needs instead of slicing between whatever happens to sit next to them.
+// Node built-ins only, so a check runs in an offline build with no packages.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -27,24 +28,43 @@ export const slice = (asset, from, to) => {
   return asset.slice(start, end);
 };
 
-/** The text from one marker up to the first gate after it, at whatever indentation was emitted. */
-export const sliceToGate = (asset, from) => {
-  const start = asset.indexOf(from);
-  const gate = start < 0 ? -1 : asset.slice(start).search(/\n[ \t]*function create/u);
-  assert.ok(start >= 0 && gate > 0, `the emitted asset must contain ${from} before a gate`);
-  return asset.slice(start, start + gate);
+const fragmentMarkers = (asset) => [...asset.matchAll(/^[ \t]*\/\/ @fragment (\S+)[ \t]*$/gmu)];
+
+/** The labels of the asset's fragments in emitted order, such as "ownership.ts" or "gates/audio.ts". */
+export const fragmentLabels = (asset) => fragmentMarkers(asset).map((marker) => marker[1]);
+
+/** One whole fragment by its label, from its marker to the next, at whatever indentation was emitted. */
+export const fragment = (asset, label) => {
+  const markers = fragmentMarkers(asset);
+  const at = markers.findIndex((marker) => marker[1] === label);
+  assert.ok(at >= 0, `the emitted asset must contain the ${label} fragment`);
+  const end = at + 1 < markers.length ? markers[at + 1].index : asset.length;
+  return asset.slice(markers[at].index, end);
 };
+
+/** Several whole fragments, joined in the order given. */
+export const fragments = (asset, labels) => labels.map((label) => fragment(asset, label)).join("\n");
+
+/**
+ * The labels of the toolkit's top-level helper fragments in emitted order: everything after the
+ * bridge that is not a gate, the component host, the epilogue or a consumer's fragment.
+ */
+export const helperLabels = (asset) =>
+  fragmentLabels(asset).filter(
+    (label) => !label.includes("/") && label !== "components.ts" && label !== "epilogue.ts",
+  );
 
 /** One gate's factory, from its declaration to its registration. */
 export const gateSource = (asset, factory, gateName) =>
   slice(asset, `function ${factory}()`, `registerGate("${gateName}"`);
 
 /**
- * The ownership primitives, the RPC replies and the shared gate helpers, in emitted order. Gates are
+ * The ownership primitives, the RPC replies, the file picker and the shared gate helpers. Gates are
  * instantiated over these real definitions rather than stand-ins, so a check exercises the claims the
  * asset actually makes.
  */
-export const sharedFragments = (asset) => slice(asset, "const defineHidden", "const SteamUiIconShapes =");
+export const sharedFragments = (asset) =>
+  fragments(asset, ["ownership.ts", "rpc.ts", "file-picker.ts", "gate-helpers.ts"]);
 
 /**
  * Evaluates emitted code with named globals in scope and returns an expression over it. A global must
@@ -144,4 +164,52 @@ export const createHooks = () => {
       cursor = 0;
     },
   };
+};
+
+/**
+ * A host whose next property definition or deletion throws once `failNext()` has been called. A
+ * check builds the object a gate claims on with it, so the gate's release can be made to fail.
+ */
+export const failingHost = (target = {}) => {
+  let fail = false;
+  const refuse = () => {
+    fail = false;
+    throw new TypeError("release refused by the fixture");
+  };
+  const host = new Proxy(target, {
+    defineProperty(object, key, descriptor) {
+      if (fail) refuse();
+      return Reflect.defineProperty(object, key, descriptor);
+    },
+    deleteProperty(object, key) {
+      if (fail) refuse();
+      return Reflect.deleteProperty(object, key);
+    },
+  });
+  return {
+    host,
+    failNext() {
+      fail = true;
+    },
+  };
+};
+
+/**
+ * Removal must be retryable: `failOnce` makes the gate's next release fail, so the first `remove()`
+ * has to report the failure and stay installed rather than forget what it still holds, and the
+ * second has to release what is left and succeed.
+ */
+export const assertRemoveRetries = (gate, failOnce, name = "gate") => {
+  failOnce();
+  const first = gate.remove();
+  assert.equal(first.ok, false, `${name}: a failed release must be reported`);
+  if (typeof gate.status === "function" && "installed" in gate.status()) {
+    assert.equal(gate.status().installed, true, `${name}: a failed release must leave the gate installed`);
+  }
+  const second = gate.remove();
+  assert.equal(second.ok, true, `${name}: the next remove must retry the release`);
+  assert.notEqual(second.absent, true, `${name}: the retry must not answer absent`);
+  if (typeof gate.status === "function" && "installed" in gate.status()) {
+    assert.equal(gate.status().installed, false, `${name}: a successful retry must uninstall`);
+  }
 };

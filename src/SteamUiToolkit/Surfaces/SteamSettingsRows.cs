@@ -82,9 +82,9 @@ public sealed record SteamSettingsConfirmation(
 /// <param name="Disabled">Whether the field is shown but cannot be changed.</param>
 /// <param name="Confirm">A confirmation to ask first, or null.</param>
 /// <param name="ButtonLabel">An action row's button label.</param>
-/// <param name="Override">
-///     Whether the running game's profile supplies the value. The description then reads "Game
-///     override" in Steam's accent blue, as every WSGM Quick Access row marks one.
+/// <param name="Accent">
+///     Whether the row is marked: its <paramref name="Description" />, which the host writes, is drawn
+///     in Steam's accent colour.
 /// </param>
 public sealed record SteamSettingsRow(
     string Key,
@@ -105,7 +105,7 @@ public sealed record SteamSettingsRow(
     SteamSettingsConfirmation? Confirm = null,
     string? ButtonLabel = null,
     IReadOnlyList<string>? Labels = null,
-    bool Override = false);
+    bool Accent = false);
 
 /// <summary>A titled group of rows: one of Steam's settings sections.</summary>
 /// <param name="Title">The section heading, or null for an untitled section.</param>

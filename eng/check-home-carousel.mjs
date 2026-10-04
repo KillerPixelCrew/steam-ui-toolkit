@@ -28,6 +28,10 @@ const react = createReact({
     subscriptions.push(subscribe);
     return snapshot();
   },
+  // Effects run as soon as the render that declared them returns, which is when React commits them.
+  useEffect: (effect) => {
+    effect();
+  },
 });
 
 // Steam's data. Timestamps are small numbers; only their order matters.

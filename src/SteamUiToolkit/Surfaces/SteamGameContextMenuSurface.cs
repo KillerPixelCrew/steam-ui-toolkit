@@ -47,7 +47,6 @@ public static class SteamGameContextMenuSurface
     /// <summary>The game context menu patch.</summary>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
-        "steam-ui.jsx-runtime",
         "gameContextMenu",
         "steam-game-context-menu-v5:unique-library-menu-module+jsx-class-claim",
         $$"""
@@ -90,7 +89,7 @@ public static class SteamGameContextMenuSurface
         string id = "game-context-menu")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return SteamSurfaceModule.Declare(
+        return SteamUiModuleBuilder.Module(
             id,
             PatchId,
             enabled,
@@ -98,7 +97,7 @@ public static class SteamGameContextMenuSurface
             SteamSurfaceJsonContext.Default.SteamGameContextMenuState,
             [Patch],
             [
-                SteamSurfaceModule.Command<(uint AppId, string Id)>(
+                SteamUiModuleBuilder.Command<(uint AppId, string Id)>(
                     PatchId,
                     "activate",
                     TryReadActivation,

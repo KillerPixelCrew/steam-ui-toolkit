@@ -18,7 +18,7 @@ public sealed class PersistentSteamUiTransportTests
             "'ready'",
             TimeSpan.FromSeconds(2));
 
-        Assert.True(result.Reachable);
+        Assert.True(result.Answered);
         Assert.Equal(
             ["Runtime.enable", "Page.enable", "DOM.enable", "Runtime.evaluate"],
             factory.Wires.Single().Methods);
@@ -47,7 +47,7 @@ public sealed class PersistentSteamUiTransportTests
                         && snapshot.Health == SteamUiTransportHealth.Ready);
 
         factory.ReleasePageEnable.TrySetResult();
-        Assert.True((await evaluation).Reachable);
+        Assert.True((await evaluation).Answered);
         await generationRaised.Task.WaitAsync(TimeSpan.FromSeconds(1));
     }
 
@@ -96,8 +96,8 @@ public sealed class PersistentSteamUiTransportTests
             "'second'",
             TimeSpan.FromSeconds(2));
 
-        Assert.True(first.Reachable);
-        Assert.True(second.Reachable);
+        Assert.True(first.Answered);
+        Assert.True(second.Answered);
         Assert.Equal(2, factory.Wires.Count);
     }
 
@@ -121,7 +121,7 @@ public sealed class PersistentSteamUiTransportTests
             "'replacement'",
             TimeSpan.FromSeconds(2));
 
-        Assert.True(result.Reachable);
+        Assert.True(result.Answered);
         Assert.Equal(2, factory.Wires.Count);
         await factory.Wires[0].Disposed.Task.WaitAsync(TimeSpan.FromSeconds(1));
     }
@@ -146,8 +146,8 @@ public sealed class PersistentSteamUiTransportTests
             "'enabled'",
             TimeSpan.FromSeconds(2));
 
-        Assert.False(disabled.Reachable);
-        Assert.True(enabled.Reachable);
+        Assert.Equal(SteamUiDispatch.Closed, disabled.Dispatch);
+        Assert.True(enabled.Answered);
         Assert.Single(factory.Wires);
     }
 
@@ -172,14 +172,16 @@ public sealed class PersistentSteamUiTransportTests
             "'second'",
             TimeSpan.FromSeconds(2));
 
-        Assert.True(first.Reachable);
-        Assert.True(second.Reachable);
+        Assert.True(first.Answered);
+        Assert.True(second.Answered);
         Assert.Equal(2, factory.Wires.Count);
     }
 
     [Fact]
-    public async Task SuccessfulEvaluationRestoresHealthAfterTransientJavascriptFailure()
+    public async Task AnsweredJavascriptExceptionKeepsTheChannelReady()
     {
+        // An exception the page threw is still an answer: it proves the renderer is alive, so the
+        // shared channel stays Ready instead of turning Incompatible for every other caller.
         var factory = new ResponsiveWireFactory { FailFirstEvaluation = true };
         await using var transport = new PersistentSteamUiTransport(
             new FixtureDiscovery(), factory);
@@ -191,7 +193,7 @@ public sealed class PersistentSteamUiTransportTests
             "'first'",
             TimeSpan.FromSeconds(2));
         Assert.Equal(
-            SteamUiTransportHealth.Incompatible,
+            SteamUiTransportHealth.Ready,
             transport.GetSnapshots().Single(snapshot => snapshot.Role == SteamUiTargetRole.SharedJsContext).Health);
 
         var recovered = await transport.EvaluateAsync(
@@ -199,9 +201,9 @@ public sealed class PersistentSteamUiTransportTests
             "'second'",
             TimeSpan.FromSeconds(2));
 
-        Assert.True(failed.Reachable);
+        Assert.True(failed.Answered);
         Assert.NotNull(failed.Error);
-        Assert.True(recovered.Reachable);
+        Assert.True(recovered.Answered);
         Assert.Equal(
             SteamUiTransportHealth.Ready,
             transport.GetSnapshots().Single(snapshot => snapshot.Role == SteamUiTargetRole.SharedJsContext).Health);
@@ -226,7 +228,7 @@ public sealed class PersistentSteamUiTransportTests
                 SteamUiTargetRole.SharedJsContext,
                 "'wedged'",
                 TimeSpan.FromMilliseconds(200));
-            Assert.False(result.Reachable);
+            Assert.Equal(SteamUiDispatch.Unanswered, result.Dispatch);
         }
 
         // The rebuild waits out the first reconnect delay, which is longer than the default wait.
@@ -252,7 +254,7 @@ public sealed class PersistentSteamUiTransportTests
         Assert.True((await transport.EvaluateAsync(
             SteamUiTargetRole.MainWindow,
             "'ready'",
-            TimeSpan.FromSeconds(2))).Reachable);
+            TimeSpan.FromSeconds(2))).Answered);
         var observed = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
         transport.GenerationChanged += (_, _) => throw new InvalidOperationException("fixture");
@@ -271,7 +273,7 @@ public sealed class PersistentSteamUiTransportTests
         Assert.True((await transport.EvaluateAsync(
             SteamUiTargetRole.MainWindow,
             "'still-ready'",
-            TimeSpan.FromSeconds(2))).Reachable);
+            TimeSpan.FromSeconds(2))).Answered);
     }
 
     [Fact]
@@ -297,7 +299,7 @@ public sealed class PersistentSteamUiTransportTests
         await handlerStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
         try
         {
-            Assert.True((await evaluation.WaitAsync(TimeSpan.FromSeconds(1))).Reachable);
+            Assert.True((await evaluation.WaitAsync(TimeSpan.FromSeconds(1))).Answered);
         }
         finally
         {
@@ -316,13 +318,13 @@ public sealed class PersistentSteamUiTransportTests
         Assert.True((await transport.EvaluateAsync(
             SteamUiTargetRole.MainWindow,
             "'ready'",
-            TimeSpan.FromSeconds(2))).Reachable);
+            TimeSpan.FromSeconds(2))).Answered);
 
         await first.DisposeAsync();
         Assert.True((await transport.EvaluateAsync(
             SteamUiTargetRole.MainWindow,
             "'still-ready'",
-            TimeSpan.FromSeconds(2))).Reachable);
+            TimeSpan.FromSeconds(2))).Answered);
         Assert.Single(factory.Wires);
 
         await second.DisposeAsync();
@@ -339,34 +341,7 @@ public sealed class PersistentSteamUiTransportTests
     public void RetryBackoffProgressesAndCaps(int attempt, int expectedSeconds)
     {
         Assert.Equal(TimeSpan.FromSeconds(expectedSeconds),
-            PersistentSteamUiTransport.RetryDelay(attempt));
-    }
-
-    [Fact]
-    public async Task FailedAttachDoesNotPublishTheCandidateIntoTheSession()
-    {
-        var factory = new ResponsiveWireFactory();
-        await using var active = new PersistentSteamUiTransport(
-            new FixtureDiscovery(), factory);
-        var disposed = new PersistentSteamUiTransport(
-            new FixtureDiscovery(), new ResponsiveWireFactory());
-        await disposed.DisposeAsync();
-        SteamUiTransportSession.SetEnabled(true);
-        try
-        {
-            Assert.Throws<ObjectDisposedException>(() => SteamUiTransportSession.Attach(disposed));
-            SteamUiTransportSession.Attach(active);
-
-            var result = await SteamUiTransportSession.EvaluateAsync(
-                "'active'",
-                TimeSpan.FromSeconds(2));
-
-            Assert.True(result.Reachable);
-        }
-        finally
-        {
-            SteamUiTransportSession.Detach(active);
-        }
+            PersistentSteamUiTransport.RetryDelay(PersistentSteamUiTransport.DefaultRetryDelays, attempt));
     }
 
     [Fact]

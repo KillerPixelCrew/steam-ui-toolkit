@@ -80,23 +80,44 @@ public sealed record SteamUiTransportSnapshot(
     int OutstandingRequests,
     int Subscribers);
 
+/// <summary>How far one evaluation got, which is what a writer needs to know about a failure.</summary>
+public enum SteamUiDispatch
+{
+    /// <summary>
+    ///     The expression never left the host: no target, a failed connection, or a caller that stopped
+    ///     before the send began. Nothing ran.
+    /// </summary>
+    NotSent,
+
+    /// <summary>The host closed the transport (<see cref="PersistentSteamUiTransport.SetEnabled" />). Nothing ran.</summary>
+    Closed,
+
+    /// <summary>
+    ///     The expression was sent, but no answer was read: the caller stopped waiting, the deadline
+    ///     passed, the connection dropped or the reply could not be framed. It may have run.
+    /// </summary>
+    Unanswered,
+
+    /// <summary>The page answered, with a value or with the exception the expression threw.</summary>
+    Answered
+}
+
 /// <summary>Result of one bounded evaluation on a persistent Steam UI target.</summary>
-/// <param name="Reachable">Whether a validated target accepted the request.</param>
+/// <param name="Dispatch">How far the request got.</param>
 /// <param name="Value">The by-value string result returned by JavaScript.</param>
-/// <param name="Error">A bounded transport or JavaScript failure.</param>
+/// <param name="Error">
+///     Why the request was not sent or not answered, or the bounded JavaScript exception the page
+///     answered with.
+/// </param>
 /// <param name="Generations">The generations under which the result was produced.</param>
 public readonly record struct SteamUiEvaluationResult(
-    bool Reachable,
+    SteamUiDispatch Dispatch,
     string? Value,
     string? Error,
     SteamUiGenerations Generations)
 {
-    /// <summary>Creates an unavailable result without a JavaScript value.</summary>
-    public static SteamUiEvaluationResult Unavailable(
-        string error, SteamUiGenerations generations)
-    {
-        return new SteamUiEvaluationResult(false, null, error, generations);
-    }
+    /// <summary>Whether the page answered, with a value or with an exception.</summary>
+    public bool Answered => Dispatch == SteamUiDispatch.Answered;
 }
 
 /// <summary>A bounded CDP notification emitted by a validated Steam UI channel.</summary>
@@ -131,6 +152,10 @@ public interface ISteamUiTransport : IAsyncDisposable
     /// <param name="expression">The repository-owned JavaScript expression.</param>
     /// <param name="timeout">The complete request deadline.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>
+    ///     The outcome. A closed or absent target, a timeout and a cancellation come back as results whose
+    ///     <see cref="SteamUiEvaluationResult.Dispatch" /> says whether the expression may have run.
+    /// </returns>
     Task<SteamUiEvaluationResult> EvaluateAsync(
         SteamUiTargetRole role,
         string expression,
@@ -143,6 +168,15 @@ public interface ISteamUiTransport : IAsyncDisposable
     /// <param name="installed">Whether the binding should exist.</param>
     /// <param name="timeout">The complete request deadline.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>A task that completes once the target confirmed the change.</returns>
+    /// <remarks>
+    ///     Unlike <see cref="EvaluateAsync" />, this throws: its one caller, the bridge, treats every
+    ///     failure as "binding not installed" and retries on its own schedule.
+    /// </remarks>
+    /// <exception cref="ObjectDisposedException">The transport was disposed.</exception>
+    /// <exception cref="InvalidOperationException">The transport is closed; the message is its closed reason.</exception>
+    /// <exception cref="System.IO.IOException">The target is absent.</exception>
+    /// <exception cref="OperationCanceledException">The caller cancelled or the deadline passed.</exception>
     Task SetRuntimeBindingAsync(
         SteamUiTargetRole role,
         string bindingName,

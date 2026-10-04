@@ -17,8 +17,10 @@
 // transform leaves.
 import assert from "node:assert/strict";
 import {
+  assertRemoveRetries,
   createReact,
   element,
+  failingHost,
   find as findIn,
   Fragment,
   gateSource,
@@ -79,7 +81,11 @@ const shared = sharedFragments(asset);
       ],
     });
   }
-  const memo = { $$typeof: Symbol.for("react.memo"), type: Tile, compare: null };
+  const { host: memo, failNext } = failingHost({
+    $$typeof: Symbol.for("react.memo"),
+    type: Tile,
+    compare: null,
+  });
   const exports = { TK: memo, Kt: SteamInputBadge, aT: 1 };
   const settings = { clientSettings: { library_home_big_art: false } };
   // The tile stylesheet's class map, as css-loader emits it: Valve's names to this build's hashes.
@@ -158,11 +164,11 @@ const shared = sharedFragments(asset);
   assert.ok(gate.status().classesResolved, "the tile class map must resolve");
   assert.deepEqual(requests, ["homeLayout false"], "the layout must be reported once on install");
 
-  // Nothing published yet: an installed game is on the internal library and says so.
+  // Nothing published yet: the host names every library, so there is nothing to name.
   assert.deepEqual(
     describe(render(installedGame)),
-    ["copies", ["Internal:green", "valve"]],
-    "an installed game with no published library is internal",
+    ["copies", "valve"],
+    "a game no published library holds gets no badge",
   );
 
   // The published libraries decide the name; Steam's installed flag decides the colour.
@@ -170,8 +176,8 @@ const shared = sharedFragments(asset);
     libraries: [
       { name: "Blue card", connected: false, appIds: [70] },
       { name: "Games", connected: true, appIds: [71] },
+      { name: "D:", connected: true, appIds: [72] },
     ],
-    internalLabel: "Claw",
   });
   assert.deepEqual(
     describe(render({ appid: 70, installed: false })),
@@ -185,8 +191,8 @@ const shared = sharedFragments(asset);
   );
   assert.deepEqual(
     describe(render({ appid: 72, installed: true })),
-    ["copies", ["Claw:green", "valve"]],
-    "the internal label is the host's",
+    ["copies", ["D::green", "valve"]],
+    "two internal libraries draw their own names",
   );
   assert.deepEqual(
     describe(render({ appid: 73, installed: false })),
@@ -238,10 +244,10 @@ const shared = sharedFragments(asset);
   assert.ok(gate.install().ok, "the gate must be reinstallable");
   assert.deepEqual(
     describe(render(installedGame)),
-    ["copies", ["Internal:green", "valve"]],
-    "a reinstall starts from no libraries and the default label",
+    ["copies", "valve"],
+    "a reinstall starts from no libraries",
   );
-  assert.ok(gate.remove().ok);
+  assertRemoveRetries(gate, failNext, "library badge");
   assert.equal(memo.type, Tile);
 
   console.log("library badge gate: ok");
@@ -340,29 +346,29 @@ const shared = sharedFragments(asset);
   assert.ok(details.status().claimed && details.status().resolved && details.status().localized);
   assert.equal(runtime.jsxs.name, "SteamUiElement", "the runtime must be claimed");
 
-  // Nothing published: an installed game is on the internal library.
-  assert.deepEqual(describe(statOf(row({ appid: 70, installed: true }))), {
-    stat: "stat-hash last-hash",
-    right: "right-hash",
-    label: "label-hash:Bibliothek",
-    value: "detail-hash info-hash:Internal",
-    dimmed: false,
-  });
+  // Nothing published: no library to name, so no stat.
+  assert.equal(statOf(row({ appid: 70, installed: true })), undefined, "no stat before a publication");
 
   publish({
     libraries: [
       { name: "Blue card", connected: false, appIds: [70] },
       { name: "Games", connected: true, appIds: [71] },
+      { name: "D:", connected: true, appIds: [72] },
     ],
-    internalLabel: "Claw",
   });
-  assert.equal(describe(statOf(row({ appid: 70, installed: false }))).value, "detail-hash info-hash:Blue card");
+  assert.deepEqual(describe(statOf(row({ appid: 70, installed: false }))), {
+    stat: "stat-hash last-hash",
+    right: "right-hash",
+    label: "label-hash:Bibliothek",
+    value: "detail-hash info-hash:Blue card",
+    dimmed: true,
+  });
   assert.equal(describe(statOf(row({ appid: 70, installed: false }))).dimmed, true, "not installed is dimmed");
   assert.equal(describe(statOf(row({ appid: 71, installed: true }))).value, "detail-hash info-hash:Games");
-  assert.equal(describe(statOf(row({ appid: 72, installed: true }))).value, "detail-hash info-hash:Claw");
+  assert.equal(describe(statOf(row({ appid: 72, installed: true }))).value, "detail-hash info-hash:D:");
   const nowhere = row({ appid: 73, installed: false });
   assert.equal(nowhere.props.children.length, 3, "a game installed nowhere gets no stat");
-  assert.match(details.status().lastOutcome, /without=1/);
+  assert.match(details.status().lastOutcome, /without=2/, "the unpublished and the uninstalled game draw no stat");
 
   // Only the stats row, and only once.
   const other = runtime.jsxs("div", { className: "other", children: [runtime.jsx(LastPlayed, { overview: { appid: 71, installed: true } })] });
@@ -403,7 +409,7 @@ const shared = sharedFragments(asset);
   assert.equal(gate.registered("wsgm.download-sort"), false);
 
   assert.ok(details.install().ok, "the stat must be reinstallable");
-  assert.equal(describe(statOf(row({ appid: 74, installed: true }))).value, "detail-hash info-hash:Internal");
+  assert.equal(statOf(row({ appid: 74, installed: true })), undefined, "a reinstall starts from no libraries");
   assert.ok(details.remove().ok);
   assert.equal(runtime.jsx, jsxProduction);
 

@@ -5,42 +5,37 @@ using System.Threading.Tasks;
 namespace SteamUiToolkit;
 
 /// <summary>
-///     Probes the live native performance/QAM structure and installs only the narrow bridge.
-///     It deliberately does not alter a Windows, SteamOS, device, capability, or component gate.
+///     Installs only the narrow bridge every gate and row lives in. It deliberately does not alter a
+///     Windows, SteamOS, device, capability, or component gate.
 /// </summary>
 /// <remarks>
-///     Register this in the same manager as every dependent gate and row patch. The manager orders
-///     synchronization by stable patch id and retries unmet conditions, so consumers must not rely on
+///     Register this in the same manager as every dependent gate and row patch. The manager applies
+///     the bridge before every other patch and removes it after them, so consumers must not rely on
 ///     registration call order. A consumer's kill-switch policy usually keeps the bridge enabled for
-///     as long as any surface is wanted. Its fingerprint requires the Quick Access performance
-///     structure to be present and unique, which is the structure the surfaces in this library were
-///     verified against.
+///     as long as any surface is wanted. Its probe asks only what the bridge itself needs, webpack and
+///     React; each surface probes its own modules, so a Steam build that moves one Quick Access module
+///     takes only the rows that use it.
 /// </remarks>
 public sealed class SteamUiBridgePatch : ISteamUiPatch
 {
     /// <summary>The bootstrap's stable patch id.</summary>
     public const string PatchId = "steam-ui.bridge";
 
-    private const string StructuralFingerprint =
-        "qam-v1:tdp-availability+tdp-component+perf-actions+profile-readonly";
+    private const string StructuralFingerprint = "steam-ui-bridge-v1:webpack+react";
 
-    private const string VerifyExpression =
+    private static readonly string VerifyExpression =
         "(()=>{const b=window." + SteamUiBridgeIdentity.Namespace + ";"
-        + "return JSON.stringify({ok:!!b&&b.version===1,version:b&&b.version});})()";
+        + "return JSON.stringify({ok:!!b&&b.version===" + SteamUiBridgeHost.SchemaVersion
+        + ",version:b&&b.version});})()";
 
     private const string RemoveExpression =
         "JSON.stringify({ok:!window." + SteamUiBridgeIdentity.Namespace + "})";
 
-    // Live-probed 2026-08-28 against the current Windows Steam SharedJSContext:
-    // each conjunction identifies exactly one module. Module ids are intentionally
-    // not retained because they are build output, not compatibility evidence.
+    // The preamble resolves webpack; a throw there answers {error} through Close.
     private static readonly string ProbeExpression = $$"""
                                                        {{SteamUiProbeJs.Preamble("steam_ui_bridge_probe_")}}
                                                          return JSON.stringify({
-                                                           tdpAvailability:count(['is_tdp_limit_available','steamos_tdp_limit_enabled','tdp_limit_min','tdp_limit_max']),
-                                                           tdpComponent:count({{SteamUiProbeJs.Tokens(SteamUiProbeJs.TdpPresentationTokens)}}),
-                                                           performanceActions:count({{SteamUiProbeJs.Tokens(SteamUiProbeJs.PerformanceActionTokens)}}),
-                                                           profileProjection:count(['#PlatformPerformanceProfile_Label','steamos_platform_performance_profile','rgOptions'])
+                                                           react:count({{SteamUiProbeJs.ReactTokens}})
                                                          });
                                                        {{SteamUiProbeJs.Close}}
                                                        """;
@@ -58,29 +53,19 @@ public sealed class SteamUiBridgePatch : ISteamUiPatch
     public string Id => PatchId;
 
     /// <inheritdoc />
-    public int Version => 1;
-
-    /// <inheritdoc />
     public SteamUiTargetRole TargetRole => SteamUiTargetRole.SharedJsContext;
-
-    /// <inheritdoc />
-    public string ResourceKey => "steam-ui.bridge-binding";
-
-    /// <inheritdoc />
-    public SteamUiPatchBounds Bounds { get; } = SteamUiPatchBounds.Default;
 
     /// <inheritdoc />
     public Task<SteamUiPatchProbeResult> ProbeAsync(
         SteamUiPatchContext context, CancellationToken cancellationToken)
     {
-        return SteamGatePatch.ProbeAsync(
+        return SteamUiPatchEvaluation.EvaluateProbeAsync(
             context,
+            TargetRole,
             ProbeExpression,
-            static root => SteamUiPatchEvaluation.IsOne(root, "tdpAvailability")
-                           && SteamUiPatchEvaluation.IsOne(root, "tdpComponent")
-                           && SteamUiPatchEvaluation.IsOne(root, "performanceActions")
-                           && SteamUiPatchEvaluation.IsOne(root, "profileProjection"),
+            static root => SteamUiPatchEvaluation.IsOne(root, "react"),
             StructuralFingerprint,
+            "SharedJSContext is unavailable.",
             cancellationToken);
     }
 
@@ -88,9 +73,10 @@ public sealed class SteamUiBridgePatch : ISteamUiPatch
     public async Task<SteamUiPatchOperationResult> ApplyAsync(
         SteamUiPatchContext context, CancellationToken cancellationToken)
     {
-        return await _bridge.BootstrapAsync(cancellationToken).ConfigureAwait(false)
+        var (ready, error) = await _bridge.BootstrapWithReasonAsync(cancellationToken).ConfigureAwait(false);
+        return ready
             ? new SteamUiPatchOperationResult(true, null)
-            : new SteamUiPatchOperationResult(false, "Native-QAM bridge handshake failed.");
+            : new SteamUiPatchOperationResult(false, "Steam UI bridge handshake failed: " + error);
     }
 
     /// <inheritdoc />
@@ -105,7 +91,7 @@ public sealed class SteamUiBridgePatch : ISteamUiPatch
                 "Bridge verification failed.",
                 cancellationToken)
             : Task.FromResult(
-                new SteamUiPatchOperationResult(false, "Native-QAM bridge is not ready."));
+                new SteamUiPatchOperationResult(false, "Steam UI bridge is not ready."));
     }
 
     /// <inheritdoc />

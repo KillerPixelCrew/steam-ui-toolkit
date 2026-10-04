@@ -143,9 +143,11 @@ public sealed class SteamUiModuleTests
             Asset,
             modules.AllowedCommands);
         Assert.True(await bridge.BootstrapAsync());
+        await using var patches = new SteamUiPatchManager(transport);
         await using var runtime = new SteamUiModuleRuntime(
             bridge,
             modules,
+            patches,
             () => true,
             () => true);
         ConcurrentQueue<SteamUiModuleFailure> failures = [];
@@ -209,9 +211,11 @@ public sealed class SteamUiModuleTests
             Asset,
             modules.AllowedCommands);
         Assert.True(await bridge.BootstrapAsync());
+        await using var patches = new SteamUiPatchManager(transport);
         await using var runtime = new SteamUiModuleRuntime(
             bridge,
             modules,
+            patches,
             () => true,
             () => true);
         ConcurrentQueue<SteamUiModuleFailure> failures = [];
@@ -264,9 +268,11 @@ public sealed class SteamUiModuleTests
             Asset,
             modules.AllowedCommands);
         Assert.True(await bridge.BootstrapAsync());
+        await using var patches = new SteamUiPatchManager(transport);
         await using var runtime = new SteamUiModuleRuntime(
             bridge,
             modules,
+            patches,
             () => true,
             () => true);
 
@@ -308,9 +314,11 @@ public sealed class SteamUiModuleTests
             Asset,
             modules.AllowedCommands);
         Assert.True(await bridge.BootstrapAsync());
+        await using var patches = new SteamUiPatchManager(transport);
         await using var runtime = new SteamUiModuleRuntime(
             bridge,
             modules,
+            patches,
             () => true,
             () => true);
 
@@ -336,7 +344,7 @@ public sealed class SteamUiModuleTests
 
     private static ISteamUiPatch Patch(string id)
     {
-        return new FakePatch(id, id);
+        return new FakePatch(id);
     }
 
     private static SteamUiStatePublication Publication(string patchId)

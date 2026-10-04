@@ -9,7 +9,7 @@ namespace SteamUiToolkit;
 /// <summary>The display-resolution row's state.</summary>
 /// <param name="Available">Whether the row can be drawn at all.</param>
 /// <param name="Options">
-///     Resolutions to offer, as <c>WIDTHxHEIGHT</c>, at most 64. Fewer than two
+///     Resolutions to offer, as <c>WIDTHxHEIGHT</c>. Fewer than two
 ///     hides the row: a picker with nothing to pick is worse than no picker.
 /// </param>
 /// <param name="Current">
@@ -52,7 +52,7 @@ public static class SteamResolutionRow
     public static SteamQuickAccessRowPatch Patch { get; } = new(
         PatchId,
         "resolution",
-        "native-qam-resolution-v1:performance-actions+performance-root+valve-dropdown",
+        "steam-ui-resolution-v1:performance-actions+performance-root+valve-dropdown",
         "steam_ui_resolution_probe_");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
@@ -76,7 +76,7 @@ public static class SteamResolutionRow
         string id = "resolution")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return SteamSurfaceModule.Declare(
+        return SteamUiModuleBuilder.Module(
             id,
             PatchId,
             enabled,
@@ -84,7 +84,7 @@ public static class SteamResolutionRow
             SteamSurfaceJsonContext.Default.SteamResolutionState,
             [Patch],
             [
-                SteamSurfaceModule.Command<string>(
+                SteamUiModuleBuilder.Command<string>(
                     PatchId,
                     "setResolution",
                     SteamUiPayload.TryReadTarget,

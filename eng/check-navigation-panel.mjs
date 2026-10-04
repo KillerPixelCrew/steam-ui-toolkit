@@ -6,8 +6,10 @@
 // entries against Valve's anchors, hide by route and by key, and hand the panel back on removal.
 import assert from "node:assert/strict";
 import {
+  assertRemoveRetries,
   createReact,
   element,
+  failingHost,
   gateSource,
   instantiate,
   loadAsset,
@@ -51,7 +53,11 @@ Object.defineProperty(PanelRoot, "toString", {
 const Middle = () => element("div", { children: [element(PanelRoot, {})] });
 const Outer = () => element(Middle, {});
 
-const memo = { $$typeof: Symbol.for("react.memo"), type: Outer, compare: null };
+const { host: memo, failNext } = failingHost({
+  $$typeof: Symbol.for("react.memo"),
+  type: Outer,
+  compare: null,
+});
 const exports = { v_: memo };
 Object.defineProperty(Outer, "toString", { value: () => 'function(){ "MainNavMenuContainer"; }' });
 
@@ -219,7 +225,18 @@ assert.deepEqual(labels(), ["Home", "Library", "Store", "Power"], "removal must 
 
 // Reinstalling after a removal must work, because a settings toggle does exactly that.
 assert.ok(gate.install().ok, "the gate must be reinstallable");
-assert.ok(gate.remove().ok);
+assertRemoveRetries(gate, failNext, "navigation panel");
 assert.equal(memo.type, Outer);
+
+// A route the host answers with is followed only when it is a path below the root with no control
+// characters. Its length is not limited.
+{
+  const isNavigableRoute = instantiate(globals, sharedFragments(asset), "isNavigableRoute");
+  assert.equal(isNavigableRoute("/a\nb"), false, "a control character is refused");
+  assert.equal(isNavigableRoute("/a\u007fb"), false);
+  assert.equal(isNavigableRoute("/"), false);
+  assert.equal(isNavigableRoute("relative"), false);
+  assert.equal(isNavigableRoute("/" + "x".repeat(10000)), true, "a long route is accepted");
+}
 
 console.log("Navigation panel: descent, anchoring, hiding, activation and restoration passed.");

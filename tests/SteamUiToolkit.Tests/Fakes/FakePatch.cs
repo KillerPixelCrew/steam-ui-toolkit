@@ -1,8 +1,7 @@
 namespace SteamUiToolkit.Tests.Fakes;
 
 /// <summary>A patch whose phases are scripted, with no Steam and no evaluation.</summary>
-internal sealed class FakePatch(string id = "fixture.patch", string resourceKey = "fixture.resource")
-    : ISteamUiPatch
+internal sealed class FakePatch(string id = "fixture.patch") : ISteamUiPatch
 {
     private int _applyCalls;
     private int _removeCalls;
@@ -42,13 +41,9 @@ internal sealed class FakePatch(string id = "fixture.patch", string resourceKey 
 
     public string Id => id;
 
-    public int Version => 1;
-
     public SteamUiTargetRole TargetRole => SteamUiTargetRole.SharedJsContext;
 
-    public string ResourceKey => resourceKey;
-
-    public SteamUiPatchBounds Bounds { get; init; } = SteamUiPatchBounds.Default;
+    public TimeSpan OperationTimeout { get; init; } = SteamUiPatchManager.DefaultOperationTimeout;
 
     public async Task<SteamUiPatchProbeResult> ProbeAsync(
         SteamUiPatchContext context,
@@ -58,7 +53,6 @@ internal sealed class FakePatch(string id = "fixture.patch", string resourceKey 
         await DelayAsync(cancellationToken);
         return new SteamUiPatchProbeResult(
             TargetPresent,
-            Compatible,
             Compatible,
             Compatible ? "fixture-fingerprint" : null,
             Compatible ? null : "fixture incompatible");

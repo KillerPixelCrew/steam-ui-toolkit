@@ -18,7 +18,6 @@ function createPowerMenu() {
     const PowerTokens = new Set(["#Sleep", "#Quit_Sleep", "#Shutdown", "#Quit_Shutdown"]);
     const LabelToken = "#SwitchToDesktop";
     const EntryKey = "steam-ui-power-menu-desktop";
-    const MaximumChildren = 48;
     const MaximumDepth = 4;
 
     let runtime;
@@ -90,7 +89,7 @@ function createPowerMenu() {
 
     // Recognises the power menu the first time it renders and remembers what it drew with.
     const learn = (type, children) => {
-        if (children.length > MaximumChildren || !children.some(isPowerEntry)) return false;
+        if (!children.some(isPowerEntry)) return false;
         const item = findItemType(children);
         if (!item) {
             lastOutcome = "menu item type absent";

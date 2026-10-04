@@ -1,4 +1,5 @@
 {
+  "name": "steam-ui-toolkit",
   "private": true,
   "scripts": {
     "prelude:build": "node eng/build-prelude.mjs",

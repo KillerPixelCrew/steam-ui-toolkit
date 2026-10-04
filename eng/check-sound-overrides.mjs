@@ -1,6 +1,13 @@
 // Offline fixtures over the emitted gate and the real member-ownership primitives.
 import assert from "node:assert/strict";
-import { gateSource, instantiate, loadAsset, slice } from "./check-harness.mjs";
+import {
+  assertRemoveRetries,
+  failingHost,
+  gateSource,
+  instantiate,
+  loadAsset,
+  slice,
+} from "./check-harness.mjs";
 
 const asset = loadAsset();
 const ownership = slice(asset, "const defineHidden", "const supplyNamespace");
@@ -9,7 +16,7 @@ const original = function (url, ...args) {
   return [this, url, ...args];
 };
 const prototype = { PlayAudioURLWithRepeats: original };
-const manager = Object.create(prototype);
+const { host: manager, failNext } = failingHost(Object.create(prototype));
 let publish;
 let decoded;
 const instantiateGate = (failContext = false) =>
@@ -64,10 +71,24 @@ assert.equal(
   manager.PlayAudioURLWithRepeats("/sounds/navigation.wav")[1],
   "/sounds/navigation.wav",
 );
-assert.equal(gate.remove().ok, true);
+assert.equal(gate.install().alreadyInstalled, true, "a second install answers alreadyInstalled");
+
+// Any number of resources and variants loads; an entry with an invalid name or a malformed URL is
+// rejected on its own and says so, and the valid entries still load.
+const many = {};
+for (let index = 0; index < 200; index++) many[`sound${index}.wav`] = Array(20).fill(data);
+many["bad name.wav"] = [data];
+many["malformed.wav"] = ["data:text/plain;base64,AQ=="];
+await publishAndDecode(many);
+assert.equal(gate.status().resources, 200, "every valid resource loads, however many there are");
+assert.equal(manager.PlayAudioURLWithRepeats("/sounds/sound199.wav")[1], data);
+assert.match(gate.status().lastError, /^Rejected sound: /u);
+await publishAndDecode({});
+
+assertRemoveRetries(gate, failNext, "sound overrides");
 assert.equal(manager.PlayAudioURLWithRepeats, original);
 assert.equal(Object.hasOwn(manager, "PlayAudioURLWithRepeats"), false);
-assert.equal(gate.remove().ok, true);
+assert.equal(gate.remove().absent, true);
 
 // A fresh injection reclaims the owned member rather than wrapping an orphaned closure.
 const first = instantiateGate();

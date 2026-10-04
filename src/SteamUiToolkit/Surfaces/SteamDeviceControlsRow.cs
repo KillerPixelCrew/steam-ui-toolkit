@@ -18,9 +18,9 @@ namespace SteamUiToolkit;
 ///     <c>replacing</c>.
 /// </param>
 /// <param name="StatusText">One line of detail, or empty.</param>
-/// <param name="OverrideId">
-///     The host's setting id while the running game's own profile supplies this value, so the row marks
-///     it in Steam's accent colour; null otherwise.
+/// <param name="Accent">
+///     Whether the row is marked: its description is drawn in Steam's accent colour after the host's
+///     <see cref="SteamQuickAccessLayout.AccentLabel" />.
 /// </param>
 public sealed record SteamDeviceRangeState(
     bool Available,
@@ -31,19 +31,19 @@ public sealed record SteamDeviceRangeState(
     int? Observed,
     string Progress,
     string StatusText,
-    string? OverrideId = null);
+    bool Accent = false);
 
 /// <summary>One independently writable lighting zone.</summary>
-/// <param name="Id">Zone identifier, 1-64 characters, unique within the state.</param>
+/// <param name="Id">Zone identifier, non-empty and unique within the state.</param>
 /// <param name="Label">What the zone dropdown shows.</param>
 /// <param name="Available">Whether the zone may be written. Unavailable zones are not offered.</param>
 /// <param name="DesiredColor">The colour asked for as 0xRRGGBB, or null.</param>
 /// <param name="ObservedColor">The colour the device reports as 0xRRGGBB, or null.</param>
 /// <param name="Progress">Command progress; the colour sliders disable themselves while busy.</param>
 /// <param name="StatusText">One line of detail, or empty.</param>
-/// <param name="OverrideId">
-///     The host's setting id while the running game's own profile supplies this value, so the row marks
-///     it in Steam's accent colour; null otherwise.
+/// <param name="Accent">
+///     Whether the row is marked: its description is drawn in Steam's accent colour after the host's
+///     <see cref="SteamQuickAccessLayout.AccentLabel" />.
 /// </param>
 public sealed record SteamLightingZoneState(
     string Id,
@@ -53,14 +53,14 @@ public sealed record SteamLightingZoneState(
     int? ObservedColor,
     string Progress,
     string StatusText,
-    string? OverrideId = null);
+    bool Accent = false);
 
 /// <summary>Device charging and lighting controls shown in Steam Quick Settings.</summary>
 /// <param name="ChargeLimit">The battery charge-limit slider, or null to omit it.</param>
 /// <param name="LightingBrightness">The lighting-brightness slider, or null to omit it.</param>
 /// <param name="LightingZones">
-///     At most 16 zones. With at least one available zone the row draws a
-///     zone dropdown, a colour preview and hue, saturation and value sliders.
+///     The zones. With at least one available zone the row draws a zone dropdown, a colour preview
+///     and hue, saturation and value sliders.
 /// </param>
 public sealed record SteamDeviceControlsState(
     SteamDeviceRangeState? ChargeLimit,
@@ -114,7 +114,7 @@ public static class SteamDeviceControlsRow
     public static SteamQuickAccessRowPatch Patch { get; } = new(
         PatchId,
         "deviceControls",
-        "native-qam-device-controls-v1:performance-root+valve-slider+valve-dropdown",
+        "steam-ui-device-controls-v1:performance-root+valve-slider+valve-dropdown",
         "steam_ui_device_controls_probe_");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
@@ -139,7 +139,7 @@ public static class SteamDeviceControlsRow
         string id = "device-controls")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return SteamSurfaceModule.Declare(
+        return SteamUiModuleBuilder.Module(
             id,
             PatchId,
             enabled,
@@ -147,19 +147,19 @@ public static class SteamDeviceControlsRow
             SteamSurfaceJsonContext.Default.SteamDeviceControlsState,
             [Patch],
             [
-                SteamSurfaceModule.Command<int>(
+                SteamUiModuleBuilder.Command<int>(
                     PatchId,
                     "setChargeLimit",
                     TryReadPercent,
                     backend.SetChargeLimitAsync,
                     "The charge-limit payload is invalid."),
-                SteamSurfaceModule.Command<int>(
+                SteamUiModuleBuilder.Command<int>(
                     PatchId,
                     "setLightingBrightness",
                     TryReadPercent,
                     backend.SetLightingBrightnessAsync,
                     "The lighting-brightness payload is invalid."),
-                SteamSurfaceModule.Command<(string Zone, int Color)>(
+                SteamUiModuleBuilder.Command<(string Zone, int Color)>(
                     PatchId,
                     "setLightingColor",
                     TryReadColor,

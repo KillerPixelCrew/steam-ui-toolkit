@@ -62,7 +62,7 @@ public static class SteamAutoTdpRow
     public static SteamQuickAccessRowPatch Patch { get; } = new(
         PatchId,
         "autoTdp",
-        "native-qam-auto-tdp-v1:presentation+performance-root+valve-toggle",
+        "steam-ui-auto-tdp-v1:presentation+performance-root+valve-toggle",
         "steam_ui_auto_tdp_probe_",
         "tdpPresentation",
         SteamUiProbeJs.TdpPresentationTokens);
@@ -88,7 +88,7 @@ public static class SteamAutoTdpRow
         string id = "auto-tdp")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        return SteamSurfaceModule.Declare(
+        return SteamUiModuleBuilder.Module(
             id,
             PatchId,
             enabled,
@@ -96,7 +96,7 @@ public static class SteamAutoTdpRow
             SteamSurfaceJsonContext.Default.SteamAutoTdpState,
             [Patch],
             [
-                SteamSurfaceModule.Command<bool>(
+                SteamUiModuleBuilder.Command<bool>(
                     PatchId,
                     "setAutoTdp",
                     SteamUiPayload.TryReadEnabled,

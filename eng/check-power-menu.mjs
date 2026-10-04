@@ -8,8 +8,10 @@
 // sends the one empty command; and removal hands the runtime back.
 import assert from "node:assert/strict";
 import {
+  assertRemoveRetries,
   createReact,
   element,
+  failingHost,
   Fragment,
   gateSource,
   instantiate,
@@ -22,7 +24,7 @@ const react = createReact({ singleChild: true });
 function jsxProduction(type, props, key) {
   return element(type, props, key ?? null);
 }
-const runtime = { jsx: jsxProduction, jsxs: jsxProduction };
+const { host: runtime, failNext } = failingHost({ jsx: jsxProduction, jsxs: jsxProduction });
 const originalJsx = runtime.jsx;
 const localize = (token) => (token === "#SwitchToDesktop" ? "Zum Desktop wechseln" : token);
 Object.defineProperty(localize, "toString", {
@@ -135,4 +137,21 @@ assert.equal(powerMenu().props.children.filter((child) => child?.key === "steam-
 assert.equal(gate.remove().ok, true);
 assert.equal(runtime.jsx, originalJsx, "the runtime is handed back");
 assert.equal(gate.remove().absent, true);
+
+// However many entries the menu has, it is still the power menu.
+assert.equal(gate.install().ok, true);
+publish({ visible: true });
+const long = runtime.jsxs(Menu, {
+  label: "Power",
+  onCancel() {},
+  children: [
+    runtime.jsx(Confirmed, { strDisplayNameLocToken: "#Quit_Sleep", onSelected() {} }),
+    ...Array.from({ length: 59 }, (_, index) =>
+      runtime.jsx(Item, { onSelected() {}, children: `Item ${index}` }, `item-${index}`),
+    ),
+  ],
+});
+assert.ok(entryOf(long), "a menu with 60 children is recognised and gets the entry");
+assertRemoveRetries(gate, failNext, "power menu");
+assert.equal(runtime.jsx, originalJsx, "a retried removal hands the runtime back");
 console.log("Power menu emitted checks passed.");

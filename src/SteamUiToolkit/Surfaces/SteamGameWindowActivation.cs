@@ -4,7 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace SteamUiToolkit.Surfaces;
+namespace SteamUiToolkit;
 
 /// <summary>Requests Steam game activation for an existing overlay process.</summary>
 public static class SteamGameWindowActivation
@@ -33,7 +33,7 @@ public static class SteamGameWindowActivation
         var result = await transport.EvaluateAsync(SteamUiTargetRole.SharedJsContext,
             CreateExpression(processId, DateTimeOffset.UtcNow.AddSeconds(1).ToUnixTimeMilliseconds()),
             TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
-        return !cancellationToken.IsCancellationRequested && result.Reachable && result.Value == "true"
+        return !cancellationToken.IsCancellationRequested && result.Answered && result.Value == "true"
                && result.Generations == before.Generations
                && SteamSharedContext.IsReadyAt(transport, before.Generations);
     }
@@ -47,7 +47,7 @@ public static class SteamGameWindowActivation
                      const pid={{processId.ToString(CultureInfo.InvariantCulture)}};
                      const windows=window.SteamUIStore?.WindowStore?.OverlayWindows;
                      const apps=window.SteamClient?.Apps;
-                     if(!pid||!Array.isArray(windows)||windows.length>32||typeof apps?.RaiseWindowForGame!=='function')return false;
+                     if(!pid||!Array.isArray(windows)||typeof apps?.RaiseWindowForGame!=='function')return false;
                      const matches=windows.filter(w=>w.params?.browserInfo?.m_unPID===pid);
                      if(matches.length!==1||matches[0].IsGamepadUIOverlayWindow?.()!==true)return false;
                      const info=matches[0].params.browserInfo,appid=info.m_unAppID,gameid=info.m_gameID;

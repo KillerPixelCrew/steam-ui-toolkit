@@ -17,7 +17,7 @@ public readonly record struct SteamDownloadOverview(
     bool Active,
     string State,
     bool Paused,
-    int AppId,
+    uint AppId,
     long NetworkBytesPerSecond);
 
 /// <summary>Reads the running client's download overview.</summary>
@@ -27,7 +27,7 @@ public readonly record struct SteamDownloadOverview(
 ///     <c>None</c>), so a one-shot subscribe and release is a clean read that leaves no resident script to
 ///     heal across Steam restarts.
 /// </remarks>
-public static class SteamDownloadActivity
+public sealed class SteamDownloadActivity
 {
     private const string OverviewExpression =
         """
@@ -44,7 +44,7 @@ public static class SteamDownloadActivity
             reg = SteamClient.Downloads.RegisterForDownloadOverview((o) => finish(JSON.stringify({
               state: String(o.update_state ?? ''),
               paused: !!o.paused,
-              appid: o.update_appid | 0,
+              appid: (o.update_appid >>> 0),
               bps: Math.max(0, Math.round(o.update_network_bytes_per_second || 0)),
             })));
           } catch (e) { finish(JSON.stringify({ err: String(e) })); }
@@ -53,6 +53,13 @@ public static class SteamDownloadActivity
 
     private static readonly TimeSpan EvalTimeout = TimeSpan.FromSeconds(10);
 
+    private readonly SteamClient _client;
+
+    internal SteamDownloadActivity(SteamClient client)
+    {
+        _client = client;
+    }
+
     /// <summary>Reads the current download overview.</summary>
     /// <param name="cancellationToken">Cancels the exchange.</param>
     /// <returns>
@@ -60,11 +67,11 @@ public static class SteamDownloadActivity
     ///     unexpected payload. A caller must never read null as an active download, and should debounce
     ///     it before treating it as idle, because a transient failure is not a finished transfer.
     /// </returns>
-    public static async Task<SteamDownloadOverview?> QueryAsync(CancellationToken cancellationToken = default)
+    public async Task<SteamDownloadOverview?> QueryAsync(CancellationToken cancellationToken = default)
     {
-        var result = await SteamUiTransportSession.EvaluateAsync(OverviewExpression, EvalTimeout, cancellationToken)
+        var result = await _client.ReadAsync(OverviewExpression, EvalTimeout, cancellationToken)
             .ConfigureAwait(false);
-        return result.Reachable ? Parse(result.Value) : null;
+        return result.Dispatch == SteamUiDispatch.Answered && result.Error is null ? Parse(result.Value) : null;
     }
 
     /// <summary>
@@ -103,7 +110,7 @@ public static class SteamDownloadActivity
                 : "";
             var paused = root.TryGetProperty("paused", out var p) && p.GetBoolean();
             var appId = root.TryGetProperty("appid", out var a) && a.ValueKind == JsonValueKind.Number
-                ? a.GetInt32()
+                ? a.GetUInt32()
                 : 0;
             var bps = root.TryGetProperty("bps", out var b) && b.ValueKind == JsonValueKind.Number
                 ? b.GetInt64()

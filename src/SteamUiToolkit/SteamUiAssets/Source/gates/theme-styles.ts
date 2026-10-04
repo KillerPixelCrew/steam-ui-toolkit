@@ -24,7 +24,7 @@
 // which it announces through the popup manager's created callback. CSSLoader looks at every target
 // every three seconds from outside Steam; doing the same from in here meant walking Steam's whole
 // React tree on its own thread every two seconds, and with a large library that slowed every image
-// Big Picture loads (2026-09-29, an Ally with 33 themes on). Nothing here reads the CSS: a theme is
+// Big Picture loads (2026-09-29, a handheld with 33 themes on). Nothing here reads the CSS: a theme is
 // the host's to load, translate and order, and this gate installs what it is given.
 function createThemeStyles() {
   const patchId = "steam-ui.theme-styles";
@@ -51,7 +51,8 @@ function createThemeStyles() {
   let windowsSeen = 0;
   let documentsStyled = 0;
   let nodesInstalled = 0;
-  // Compiled title patterns, once each: a pattern that does not compile matches nothing.
+  // Compiled title patterns, once each: a pattern that does not compile matches nothing. Held for
+  // the current publication only, so a theme the host turned off leaves nothing behind.
   const patterns = new Map<string, RegExp | null>();
 
   // Types only, and an id a node can carry. However many themes are on and however large their CSS,
@@ -169,7 +170,8 @@ function createThemeStyles() {
   // order published, each exactly once. A head already holding that list, block for block and hash
   // for hash, is left alone; anything else is rebuilt, because order is part of what a theme means.
   // What a document wants is a function of the publication and the document's facts, both of
-  // which rarely change between the 2 s passes, so the match is kept per document until either does.
+  // which rarely change between reconciliations (a publication, a new window, a window's load), so
+  // the match is kept per document until either does.
   const wantedByDocument = new WeakMap();
   const wantedFor = (facts) => {
     const key = `${desired.signature}\u0000${facts.name}\u0000${facts.title}\u0000${facts.url}\u0000${facts.classes.join(" ")}`;
@@ -266,6 +268,7 @@ function createThemeStyles() {
       const revision = Number.isSafeInteger(state?.revision) ? state.revision : 0;
       const signature = signatureOf(styles);
       if (signature === desired.signature && revision === desired.revision) return;
+      if (signature !== desired.signature) patterns.clear();
       desired = { styles, signature, revision };
       reconcile();
     });
@@ -303,6 +306,7 @@ function createThemeStyles() {
     unsubscribe = endSubscription(unsubscribe);
     const removed = clearAll();
     desired = { styles: [], signature: "", revision: 0 };
+    patterns.clear();
     installed = false;
     lastOutcome = `removed ${removed}`;
     return { ok: true, removed: true, nodes: removed };

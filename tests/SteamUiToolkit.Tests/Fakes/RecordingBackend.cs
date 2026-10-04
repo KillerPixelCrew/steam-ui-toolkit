@@ -132,10 +132,10 @@ internal sealed class RecordingBackend :
         return Record($"configure {id} {key} {value} {expectedRevision}", cancellationToken);
     }
 
-    public Task<SteamUiCommandResult> SetFrameLimitAsync(int fps, SteamSettingPersistence persistence,
-        string correlationId, CancellationToken cancellationToken)
+    public Task<SteamUiCommandResult> SetFrameLimitAsync(int fps, string correlationId,
+        CancellationToken cancellationToken)
     {
-        return Record($"frame {fps} {persistence} {correlationId}", cancellationToken);
+        return Record($"frame {fps} {correlationId}", cancellationToken);
     }
 
     public Task<SteamUiCommandResult> SetRefreshRateAsync(int hz, CancellationToken cancellationToken)

@@ -31,8 +31,19 @@ function createNetworkGate() {
         const instance = store();
         if (instance) {
             for (const key of syntheticKeys) instance.m_mapNetworkAccessPoints?.delete(key);
-            instance.m_bIsConnectedToANetwork = instance.IsAnyDeviceConnected();
-            instance.m_bIsConnectingToANetwork = instance.IsAnyDeviceConnecting();
+            // Recomputed only through the store's own methods. A client without them, or one that
+            // throws, keeps the flags as they are and reports it; it never blocks the rest.
+            if (
+                typeof instance.IsAnyDeviceConnected === "function"
+                && typeof instance.IsAnyDeviceConnecting === "function"
+            ) {
+                try {
+                    instance.m_bIsConnectedToANetwork = instance.IsAnyDeviceConnected();
+                    instance.m_bIsConnectingToANetwork = instance.IsAnyDeviceConnecting();
+                } catch (error) {
+                    lastError = "network store refresh failed: " + String(error);
+                }
+            }
         }
         syntheticKeys = [];
         if (refresh) {
@@ -159,26 +170,33 @@ function createNetworkGate() {
         scanWrapped = started || stopped;
     };
 
-    const unwrapScanning = () => {
-        const net = window.SteamClient?.System?.Network;
-        if (!net || !scanWrapped) return;
-        releaseMember(net, "StartScanningForNetworks", scan);
-        releaseMember(net, "StopScanningForNetworks", scan);
-        scanWrapped = false;
-    };
-
     const remove = () => {
-        unwrapScanning();
-        unsubscribe = endSubscription(unsubscribe);
-        removeNetworkState(true);
-        if (!target) return {ok: true, absent: true};
-        const released = releaseAccessor(target, property, availability);
-        if (!released.ok) {
-            lastError = released.error ?? "network availability release failed";
-            return {ok: false, error: lastError};
+        if (!target && !scanWrapped) return {ok: true, absent: true};
+
+        // Every claim goes back before anything is forgotten, so a failed release leaves the gate as
+        // it was and the next remove retries what is left (a released claim answers ok again).
+        if (scanWrapped) {
+            const net = window.SteamClient?.System?.Network ?? null;
+            for (const name of ["StartScanningForNetworks", "StopScanningForNetworks"]) {
+                const released = releaseMember(net, name, scan);
+                if (!released.ok) {
+                    lastError = released.error ?? "network scan release failed";
+                    return {ok: false, error: lastError};
+                }
+            }
+        }
+        if (target) {
+            const released = releaseAccessor(target, property, availability);
+            if (!released.ok) {
+                lastError = released.error ?? "network availability release failed";
+                return {ok: false, error: lastError};
+            }
         }
 
+        scanWrapped = false;
         target = null;
+        unsubscribe = endSubscription(unsubscribe);
+        removeNetworkState(true);
         return {ok: true, removed: true};
     };
 

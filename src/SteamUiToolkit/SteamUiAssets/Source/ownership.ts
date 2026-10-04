@@ -36,6 +36,17 @@
 // the original it displaced. Callers supply their own key names so no existing marker changes
 // meaning; a renamed key would orphan the marker a previous build left on a running client.
 
+const defineHidden = (host: object, key: string, value: unknown) => {
+    Object.defineProperty(host, key, {
+        value,
+        configurable: true,
+        enumerable: false,
+        writable: false,
+    });
+};
+
+// The claim vocabulary. Declared after the first runtime statement because TypeScript erases a
+// type together with the comments that lead it, and this file's header has to reach the asset.
 type ClaimKeys = {
     // Set to true on the claimed object. "Is this ours?"
     readonly marker: string;
@@ -51,15 +62,6 @@ type PropertySnapshot = Readonly<{
     descriptor?: PropertyDescriptor;
     value: unknown;
 }>;
-
-const defineHidden = (host: object, key: string, value: unknown) => {
-    Object.defineProperty(host, key, {
-        value,
-        configurable: true,
-        enumerable: false,
-        writable: false,
-    });
-};
 
 const claimed = (host: unknown, keys: ClaimKeys) =>
     !!host && (host as Record<string, unknown>)[keys.marker] === true;
@@ -209,7 +211,11 @@ const releaseValue = (
 ): { ok: boolean; error?: string } => {
     if (!host || !claimed(host, keys)) return {ok: true};
     try {
-        restoreProperty(host, field, storedOriginal(host, keys) as PropertySnapshot);
+        // A claim whose stored original is not a snapshot restores nothing; saying so keeps the
+        // caller from forgetting a claim that is still in place.
+        const original = storedOriginal(host, keys);
+        if (!isPropertySnapshot(original)) return {ok: false, error: "stored original invalid"};
+        restoreProperty(host, field, original);
         dropClaimKeys(host, keys);
         return {ok: true};
     } catch (error) {
@@ -385,9 +391,9 @@ const releaseAccessor = (
         const descriptor = Object.getOwnPropertyDescriptor(host, property);
         if (!claimed(descriptor?.get, keys)) return {ok: true};
         const original = storedOriginal(descriptor!.get, keys);
-        if (original) {
-            Object.defineProperty(host, property, original as PropertyDescriptor);
-        }
+        // Our getter with nothing to hand back is still installed: not a success.
+        if (!original) return {ok: false, error: "accessor original missing"};
+        Object.defineProperty(host, property, original as PropertyDescriptor);
         return {ok: true};
     } catch (error) {
         return {ok: false, error: String(error)};
@@ -399,14 +405,23 @@ const releaseAccessor = (
 // other's wrapper or the original from under it on removal. `wrap` builds the replacement around the
 // displaced original and reads the live transforms at call time. The claim's marker and original
 // live on the wrapper, so a bridge replaced in place reclaims rather than wraps its predecessor.
+//
+// The wrappers sit on paths Steam calls for every element and every memo, so they read the
+// transforms as a plain array kept in registration order, rebuilt only when one is added or
+// withdrawn, and loop over it by index: a Map iterator per call was garbage on every render.
 const createSharedClaim = <Transform>(
     keys: ClaimKeys,
     members: readonly string[],
     unavailable: string,
     uninstallable: string,
-    wrap: (original: any, transforms: Map<string, Transform>) => unknown,
+    wrap: (original: any, transforms: () => readonly Transform[]) => unknown,
 ) => {
     const transforms = new Map<string, Transform>();
+    let active: readonly Transform[] = Object.freeze([]);
+    const refresh = () => {
+        active = Object.freeze([...transforms.values()]);
+    };
+    const activeTransforms = () => active;
     let wrappers: Record<string, unknown> | null = null;
     const holds = (host: Record<string, unknown>) => {
         const current = wrappers;
@@ -422,13 +437,15 @@ const createSharedClaim = <Transform>(
             return {ok: false, error: unavailable};
         }
         transforms.set(name, transform);
+        refresh();
         if (holds(host)) return {ok: true};
         const installed: Record<string, unknown> = {};
         for (const member of members) {
-            const claim = claimMember(host, member, keys, (original) => wrap(original, transforms));
+            const claim = claimMember(host, member, keys, (original) => wrap(original, activeTransforms));
             if (!claim.ok || !memberClaimed(host, member, keys)) {
                 for (const done of Object.keys(installed)) releaseMember(host, done, keys);
                 transforms.delete(name);
+                refresh();
                 return {ok: false, error: claim.ok ? uninstallable : claim.error};
             }
             installed[member] = host[member];
@@ -437,13 +454,16 @@ const createSharedClaim = <Transform>(
         return {ok: true};
     };
 
-    // Withdraws one transform, and hands the members back once none is left.
+    // Withdraws one transform, and hands the members back once none is left. Without a host the
+    // wrappers stay installed, so that is reported and the caller releases again with one.
     const release = (
         host: Record<string, unknown> | null | undefined,
         name: string,
     ): { ok: boolean; error?: string } => {
         transforms.delete(name);
-        if (transforms.size || !host) return {ok: true};
+        refresh();
+        if (transforms.size) return {ok: true};
+        if (!host) return wrappers ? {ok: false, error: "host unavailable"} : {ok: true};
         for (const member of members) {
             const released = releaseMember(host, member, keys);
             if (!released.ok) return released;
@@ -470,9 +490,10 @@ const memoClaim = createSharedClaim<(value: unknown) => unknown>(
     (original, transforms) =>
         function SteamUiUseMemo(factory, dependencies) {
             let value = original(factory, dependencies);
-            for (const apply of transforms.values()) {
+            const list = transforms();
+            for (let index = 0; index < list.length; index++) {
                 try {
-                    value = apply(value);
+                    value = list[index](value);
                 } catch {
                     // A failing transform leaves what it was given.
                 }
@@ -507,9 +528,10 @@ const elementClaim = createSharedClaim<ElementTransform>(
     "JSX runtime wrapper could not be installed",
     (original, transforms) =>
         function SteamUiElement(this: unknown, type, props, key) {
-            for (const apply of transforms.values()) {
+            const list = transforms();
+            for (let index = 0; index < list.length; index++) {
                 try {
-                    const replaced = apply(original, type, props, key);
+                    const replaced = list[index](original, type, props, key);
                     if (replaced !== undefined) return replaced;
                 } catch {
                     // A failing transform leaves the element to the runtime.

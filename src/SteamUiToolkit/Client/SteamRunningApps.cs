@@ -8,7 +8,7 @@ namespace SteamUiToolkit;
 
 /// <summary>A reading of the apps Steam reports as running.</summary>
 /// <param name="Reachable">
-///     Whether Steam answered. A deliberately disabled transport counts as reachable with no apps, so a
+///     Whether Steam answered. A deliberately closed transport counts as reachable with no apps, so a
 ///     consumer's non-Steam fallback keeps working; only a failure is unreachable.
 /// </param>
 /// <param name="AppIds">The running app ids.</param>
@@ -38,10 +38,14 @@ public sealed record SteamRunningAppsObservation(
 ///         running.
 ///     </para>
 ///     <para>
+///         The observer is published on the page only after Steam accepted the registration, so a
+///         registration that throws leaves nothing behind and the next read installs again. One left by
+///         an earlier host that never cleaned up is a working observer of the same shape and is reused.
+///     </para>
+///     <para>
 ///         Disposing the subscription unregisters the observer. A replaced SharedJSContext loses it, and
-///         the next read installs a fresh one seeded from the app store again. Several readers may share
-///         one observer, since reading does not change it; disposing any reader's lease removes it, and
-///         the others' next read installs a fresh one.
+///         the next read installs a fresh one seeded from the app store again. The probe has one reader
+///         (see <see cref="SteamClient.RunningApps" />).
 ///     </para>
 /// </remarks>
 public sealed class SteamRunningAppsProbe
@@ -51,21 +55,26 @@ public sealed class SteamRunningAppsProbe
     private const string RemoveExpression =
         "(()=>{try{const R=window." + ObserverProperty + ";if(R){" +
         "R.dispose();delete window." + ObserverProperty + ";}" +
-        "return JSON.stringify({ok:true});}catch(e){return JSON.stringify({ok:false});}})()";
+        "return JSON.stringify({ok:true});}catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e)});}})()";
 
     private static readonly TimeSpan EvaluationBudget = TimeSpan.FromSeconds(4);
 
+    // Registers first and publishes the observer only once Steam returned a handle that can be
+    // released, so a throwing registration never leaves a frozen set that later reads trust.
     private const string InstallObserver =
         "if(!window." + ObserverProperty + "){" +
         "const ids=new Set((window.appStore&&appStore.allApps||[])" +
-        ".filter(a=>Number(a.display_status)===4).map(a=>Number(a.appid))" +
-        ".filter(a=>Number.isInteger(a)&&a>0&&a<=4294967295));" +
-        "const R={ids:ids,gen:1,dispose:()=>{}};window." + ObserverProperty + "=R;" +
+        ".filter(a=>Number(a.display_status)===4).map(a=>Number(a.appid)>>>0)" +
+        ".filter(a=>a>0));" +
+        "const R={ids:ids,gen:1,dispose:()=>{}};" +
         "const h=SteamClient.GameSessions.RegisterForAppLifetimeNotifications(e=>{" +
         "const id=Number(e&&e.unAppID);if(!Number.isInteger(id)||id<=0||id>4294967295)return;" +
         "const before=ids.size;if(e.bRunning)ids.add(id);else ids.delete(id);" +
         "if(ids.size!==before)R.gen++;});" +
-        "R.dispose=()=>{try{h.unregister();}catch(_){}};}";
+        "if(!h||typeof h.unregister!=='function')" +
+        "throw new Error('Steam returned no lifetime registration handle.');" +
+        "R.dispose=()=>{try{h.unregister();}catch(_){}};" +
+        "window." + ObserverProperty + "=R;}";
 
     /// <summary>Reads the running set, installing the observer first when it is missing.</summary>
     internal const string ObserveExpression =
@@ -74,13 +83,11 @@ public sealed class SteamRunningAppsProbe
         "return JSON.stringify({ok:true,ids:[...R.ids],generation:R.gen});" +
         "}catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e)});}})()";
 
-    private readonly ISteamUiTransport _transport;
+    private readonly SteamClient _client;
 
-    /// <summary>Creates a probe over the host's transport.</summary>
-    /// <param name="transport">The session's transport.</param>
-    public SteamRunningAppsProbe(ISteamUiTransport transport)
+    internal SteamRunningAppsProbe(SteamClient client)
     {
-        _transport = transport ?? throw new ArgumentNullException(nameof(transport));
+        _client = client;
     }
 
     /// <summary>Keeps SharedJSContext attached until the returned lease is disposed.</summary>
@@ -88,10 +95,10 @@ public sealed class SteamRunningAppsProbe
     /// <returns>A lease that also removes the in-page observer.</returns>
     public async ValueTask<IAsyncDisposable> SubscribeAsync(CancellationToken cancellationToken = default)
     {
-        var transportLease = await _transport.SubscribeAsync(
+        var transportLease = await _client.Transport.SubscribeAsync(
             SteamUiTargetRole.SharedJsContext,
             cancellationToken).ConfigureAwait(false);
-        return new ObserverLease(_transport, transportLease);
+        return new ObserverLease(_client, transportLease);
     }
 
     /// <summary>Reads the running set, installing the observer when it is missing.</summary>
@@ -99,40 +106,38 @@ public sealed class SteamRunningAppsProbe
     /// <returns>The reading.</returns>
     public async Task<SteamRunningAppsObservation> ObserveAsync(CancellationToken cancellationToken = default)
     {
-        var result = await SteamClientScript.EvaluateAsync(
-            _transport,
-            SteamUiTargetRole.SharedJsContext,
-            ObserveExpression,
-            EvaluationBudget,
-            cancellationToken).ConfigureAwait(false);
+        var result = await _client.ReadAsync(ObserveExpression, EvaluationBudget, cancellationToken)
+            .ConfigureAwait(false);
         return ParseObservation(result);
     }
 
-    /// <summary>Reads one app's details through this probe's transport.</summary>
+    /// <summary>Reads one app's details with this probe's short deadline.</summary>
     /// <param name="appId">The app id.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
     /// <returns>
-    ///     The outcome. A shortcut's details name its Target; a store title's name only its install
+    ///     The details. A shortcut's details name its Target; a store title's name only its install
     ///     folder.
     /// </returns>
-    public Task<SteamAppDetailsResult> ReadDetailsAsync(uint appId, CancellationToken cancellationToken = default)
+    public Task<SteamReadResult<SteamAppDetails>> ReadDetailsAsync(
+        uint appId,
+        CancellationToken cancellationToken = default)
     {
-        return SteamApps.ReadDetailsAsync(_transport, appId, EvaluationBudget, cancellationToken);
+        return _client.Apps.ReadDetailsAsync(appId, EvaluationBudget, cancellationToken);
     }
 
     /// <summary>Maps an observer reply to a reading. Pure, for tests.</summary>
     /// <param name="result">The evaluation outcome.</param>
-    internal static SteamRunningAppsObservation ParseObservation(CefEvalResult result)
+    internal static SteamRunningAppsObservation ParseObservation(SteamUiEvaluationResult result)
     {
-        if (!result.Reachable || result.Value is null)
+        // A deliberately closed transport means Steam names no app. Reporting it as a failure would
+        // suppress a consumer's fallback for games started outside Steam.
+        if (result.Dispatch == SteamUiDispatch.Closed)
         {
-            // A deliberate disable or hold means Steam names no app. Reporting it as a failure would
-            // suppress a consumer's fallback for games started outside Steam.
-            if (SteamUiTransportSession.IsClosedReason(result.Error))
-            {
-                return new SteamRunningAppsObservation(true, [], 0, null);
-            }
+            return new SteamRunningAppsObservation(true, [], 0, null);
+        }
 
+        if (result.Dispatch != SteamUiDispatch.Answered || result.Error is not null || result.Value is null)
+        {
             return new SteamRunningAppsObservation(
                 false,
                 [],
@@ -150,7 +155,7 @@ public sealed class SteamRunningAppsProbe
                     false,
                     [],
                     0,
-                    SteamClientScript.ErrorOf(root) ?? "Steam rejected the running-app observer.");
+                    SteamClientScript.RefusalOf(root) ?? "Steam rejected the running-app observer.");
             }
 
             List<uint> appIds = [];
@@ -196,7 +201,7 @@ public sealed class SteamRunningAppsProbe
     }
 
     private sealed class ObserverLease(
-        ISteamUiTransport transport,
+        SteamClient client,
         IAsyncDisposable transportLease) : IAsyncDisposable
     {
         private int _disposed;
@@ -210,19 +215,31 @@ public sealed class SteamRunningAppsProbe
 
             try
             {
-                await transport.EvaluateAsync(
-                    SteamUiTargetRole.SharedJsContext,
-                    RemoveExpression,
-                    EvaluationBudget,
-                    CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                SteamUiLog.Warn($"Steam running-app observer cleanup failed: {ex.Message}");
+                var result = await client.ReadAsync(RemoveExpression, EvaluationBudget, CancellationToken.None)
+                    .ConfigureAwait(false);
+                if (result.Dispatch == SteamUiDispatch.Answered
+                    && (result.Error is not null || result.Value is not { } value || !IsOk(value)))
+                {
+                    SteamUiLog.Warn(
+                        $"Steam running-app observer cleanup was refused: {result.Error ?? result.Value ?? "no reply"}");
+                }
             }
             finally
             {
                 await transportLease.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+
+        private static bool IsOk(string value)
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(value);
+                return SteamClientScript.IsOk(document.RootElement);
+            }
+            catch (JsonException)
+            {
+                return false;
             }
         }
     }

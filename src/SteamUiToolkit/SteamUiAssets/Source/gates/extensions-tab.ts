@@ -250,7 +250,13 @@ function createExtensionsTab() {
 
   function ExtensionsTabPanel() {
     const [, setRevision] = react.useState(0);
-    const [drafts, setDrafts] = react.useState({});
+    // The settings page's draft keeping. A draft belongs to the value its row was published with,
+    // so a newer configuration that changes the row replaces it, one that changes another row
+    // keeps it, and a refused save drops it and says why on the row.
+    const drafts = useSteamSettingDrafts(
+      react,
+      desired.items.map((item) => item.configurationRevision ?? 0).join(","),
+    );
     const redraw = () => setRevision((value) => value + 1);
     react.useEffect(() => subscribe(patchId, redraw), []);
     const h = react.createElement;
@@ -269,42 +275,27 @@ function createExtensionsTab() {
         },
       );
     };
-    // A typed draft belongs to the publication it was typed against. Dropping it when the host
-    // answers with a new configuration revision, and when the change is refused, is what stops the
-    // box from showing and resending a value the host has already replaced or rejected.
-    const dropDraft = (draftKey) =>
-      setDrafts((previous) => {
-        if (!(draftKey in previous)) return previous;
-        const next = { ...previous };
-        delete next[draftKey];
-        return next;
+    // The row renderer's change: a committed value is sent against the configuration it was made
+    // against. A value the setting cannot take is refused here rather than sent to be refused.
+    const change = (item, setting) =>
+      drafts.change((_row, value) => {
+        const sent = settingValue(setting, value);
+        if (sent === undefined) return Promise.reject(new Error("Not a value this setting can take"));
+        return request(patchId, "configure", {
+          id: item.id,
+          key: setting.key,
+          value: sent,
+          revision: item.configurationRevision ?? 0,
+        });
       });
-    // The row renderer's change: record the draft against this revision, and send it when the row
-    // commits. A value the setting cannot take is dropped rather than sent to be refused.
-    const change = (item, setting) => (row, value, commit = true) => {
-      const revision = item.configurationRevision ?? 0;
-      setDrafts((previous) => ({ ...previous, [row.key]: { value, revision } }));
-      if (!commit) return;
-      const sent = settingValue(setting, value);
-      if (sent === undefined) {
-        dropDraft(row.key);
-        return;
-      }
-      void request(patchId, "configure", {
-        id: item.id,
-        key: setting.key,
-        value: sent,
-        revision,
-      }).catch(() => dropDraft(row.key));
-    };
     const draftOf = (item, setting) => {
-      const draft = drafts[`${item.id}:${setting.key}`];
-      return draft && draft.revision === (item.configurationRevision ?? 0) ? draft.value : undefined;
+      const row = settingRow(item, setting);
+      return row ? drafts.draft(row) : undefined;
     };
     const settingControl = (item, setting) => {
       const row = settingRow(item, setting);
       if (!row) return null;
-      return renderSteamSettingRow(ui, row, draftOf(item, setting), change(item, setting), () => {});
+      return renderSteamSettingRow(ui, drafts.row(row), drafts.draft(row), change(item, setting), () => {});
     };
     // Whether a switch is on, as the user last set it or as the host published it.
     const switchOn = (item, setting) => {

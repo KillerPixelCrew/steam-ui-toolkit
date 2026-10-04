@@ -93,7 +93,6 @@ public sealed class SteamLibraryBadgeTests
         Assert.Contains("'.jsx','.jsxs'", probe, StringComparison.Ordinal);
         Assert.DoesNotContain("_1mDAVT4sTzFRwJtlKCw2Ws", probe, StringComparison.Ordinal);
         Assert.Equal(SteamLibraryBadgeSurface.DetailsPatchId, SteamLibraryBadgeSurface.DetailsPatch.Id);
-        Assert.Equal("steam-ui.jsx-runtime", SteamLibraryBadgeSurface.DetailsPatch.ResourceKey);
     }
 
     [Fact]
@@ -112,9 +111,7 @@ public sealed class SteamLibraryBadgeTests
     [Fact]
     public void LibrariesReachTheWireWithTheirNameConnectionAndAppIds()
     {
-        SteamLibraryBadgeState state = new(
-            [new SteamLibraryBadgeLibrary("Blue card", false, [70, 400])],
-            "Claw");
+        SteamLibraryBadgeState state = new([new SteamLibraryBadgeLibrary("Blue card", false, [70, 400])]);
 
         var wire = SteamLibraryBadgeSurface.Serialize(state);
         var library = wire.GetProperty("libraries")[0];
@@ -122,7 +119,7 @@ public sealed class SteamLibraryBadgeTests
         Assert.Equal("Blue card", library.GetProperty("name").GetString());
         Assert.False(library.GetProperty("connected").GetBoolean());
         Assert.Equal(400, library.GetProperty("appIds")[1].GetInt64());
-        Assert.Equal("Claw", wire.GetProperty("internalLabel").GetString());
+        Assert.False(wire.TryGetProperty("internalLabel", out _), "the toolkit holds no library name of its own");
     }
 
     [Theory]

@@ -1,5 +1,3 @@
-using SteamUiToolkit.Surfaces;
-
 namespace SteamUiToolkit.Tests;
 
 /// <summary>
@@ -229,8 +227,10 @@ public sealed class SteamWindowSurfaceTests
                                 callbacks[0](42,123,false);assert.equal(second.events.size,0);
                                 callbacks[1](42,123,true);assert.equal(second.events.get('42:123'),true);
                                 callbacks[1](42,123,false);assert.equal(second.events.get('42:123'),false);
-                                callbacks[1](42,123,'false');assert.equal(second.overflow,true);
-                                assert.equal(second.events.size,0);
+                                callbacks[1](43,123,true);
+                                callbacks[1](42,123,'false');assert.equal(second.events.has('42:123'),false);
+                                assert.equal(second.events.get('43:123'),true);
+                                callbacks[1](0,123,true);assert.equal(second.events.size,1);
                                 second.stop();assert.equal(removed,2);assert.equal(second.live,false);
                                 callbacks[1](42,123,true);assert.equal(second.events.size,0);
                               });

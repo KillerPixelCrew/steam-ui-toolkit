@@ -33,17 +33,15 @@ public sealed class SteamGatePatch : ISteamUiPatch
 
     /// <summary>Declares one gate.</summary>
     /// <param name="id">Stable patch id.</param>
-    /// <param name="resourceKey">The owned client resource, serialized against conflicts.</param>
     /// <param name="gateName">The name the injected bridge registers this gate under.</param>
     /// <param name="fingerprint">Stable structural fingerprint reported on a positive probe.</param>
-    /// <param name="probeExpression">Read-only probe naming literal modules only.</param>
+    /// <param name="probeExpression">Read-only probe that resolves the modules it needs by their source tokens.</param>
     /// <param name="compatible">Reads the probe's JSON into a compatibility verdict.</param>
     /// <param name="verifyOk">JS predicate over the gate's <c>status</c> proving it holds.</param>
     /// <param name="removeOk">JS predicate over <c>status</c> proving removal left nothing.</param>
     /// <param name="subject">Diagnostic subject, e.g. "Audio namespace".</param>
     public SteamGatePatch(
         string id,
-        string resourceKey,
         string gateName,
         string fingerprint,
         string probeExpression,
@@ -53,7 +51,6 @@ public sealed class SteamGatePatch : ISteamUiPatch
         string subject)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
-        ArgumentException.ThrowIfNullOrWhiteSpace(resourceKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(gateName);
         ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
         ArgumentException.ThrowIfNullOrWhiteSpace(probeExpression);
@@ -62,7 +59,6 @@ public sealed class SteamGatePatch : ISteamUiPatch
         ArgumentException.ThrowIfNullOrWhiteSpace(removeOk);
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
         Id = id;
-        ResourceKey = resourceKey;
         _fingerprint = fingerprint;
         ProbeExpression = probeExpression;
         Compatible = compatible;
@@ -96,23 +92,21 @@ public sealed class SteamGatePatch : ISteamUiPatch
     public string Id { get; }
 
     /// <inheritdoc />
-    public int Version => 1;
-
-    /// <inheritdoc />
     public SteamUiTargetRole TargetRole => SteamUiTargetRole.SharedJsContext;
-
-    /// <inheritdoc />
-    public string ResourceKey { get; }
-
-    /// <inheritdoc />
-    public SteamUiPatchBounds Bounds { get; } = SteamUiPatchBounds.Default;
 
     /// <inheritdoc />
     public Task<SteamUiPatchProbeResult> ProbeAsync(
         SteamUiPatchContext context,
         CancellationToken cancellationToken)
     {
-        return ProbeAsync(context, ProbeExpression, Compatible, _fingerprint, cancellationToken);
+        return SteamUiPatchEvaluation.EvaluateProbeAsync(
+            context,
+            SteamUiTargetRole.SharedJsContext,
+            ProbeExpression,
+            Compatible,
+            _fingerprint,
+            "SharedJSContext is unavailable.",
+            cancellationToken);
     }
 
     /// <inheritdoc />
@@ -152,57 +146,6 @@ public sealed class SteamGatePatch : ISteamUiPatch
             _removeExpression,
             _subject + " removal failed.",
             cancellationToken);
-    }
-
-    /// <summary>Evaluates a SharedJSContext probe and reads it into a probe result.</summary>
-    /// <param name="context">The patch context to evaluate through.</param>
-    /// <param name="expression">The read-only probe.</param>
-    /// <param name="compatible">Reads the probe's JSON into a compatibility verdict.</param>
-    /// <param name="fingerprint">The fingerprint reported on a positive verdict.</param>
-    /// <param name="cancellationToken">Cancels the evaluation.</param>
-    /// <returns>A compatible and unique result, or the page's own answer as the diagnostic.</returns>
-    internal static async Task<SteamUiPatchProbeResult> ProbeAsync(
-        SteamUiPatchContext context,
-        string expression,
-        Func<JsonElement, bool> compatible,
-        string fingerprint,
-        CancellationToken cancellationToken)
-    {
-        var result = await context.EvaluateAsync(
-            SteamUiTargetRole.SharedJsContext,
-            expression,
-            cancellationToken).ConfigureAwait(false);
-        if (!result.Reachable || result.Value is null)
-        {
-            return new SteamUiPatchProbeResult(
-                false,
-                false,
-                false,
-                null,
-                result.Error ?? "SharedJSContext is unavailable.");
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(result.Value);
-            if (SteamUiPatchEvaluation.NotReady(document.RootElement))
-            {
-                return new SteamUiPatchProbeResult(
-                    false, false, false, null, "Steam has not finished loading: " + result.Value);
-            }
-
-            var matched = compatible(document.RootElement);
-            return new SteamUiPatchProbeResult(
-                true,
-                matched,
-                matched,
-                matched ? fingerprint : null,
-                matched ? null : result.Value);
-        }
-        catch (JsonException ex)
-        {
-            return new SteamUiPatchProbeResult(true, false, false, null, ex.Message);
-        }
     }
 
     /// <summary>Builds an expression bound to one registered injected gate.</summary>

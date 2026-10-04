@@ -10,7 +10,6 @@ function createSteamUiModuleResolver(scope) {
         },
     ]);
     if (!runtime?.m) throw new Error("Steam modules unavailable");
-    const failed = new Set();
     // A factory's source never changes once registered, and every fingerprint match reads all of them.
     const sources = new WeakMap();
     const sourceOf = (factory) => {
@@ -21,14 +20,16 @@ function createSteamUiModuleResolver(scope) {
         }
         return source;
     };
+    // No memory of a failure. Steam's loader records a module before running its factory and never
+    // re-runs one that threw, so a later call returns whatever exports that factory set, the object
+    // Steam's own code now uses, and the shape tests below accept or refuse it. Remembering the
+    // failure made a module that threw once during a cold start unusable for the bridge's life.
     const requirePresent = (id) => {
         if (typeof id !== "string" || typeof runtime.m[id] !== "function")
             throw new Error(`Steam module absent: ${id}`);
-        if (failed.has(id)) throw new Error(`Steam module resolution previously failed: ${id}`);
         try {
             return runtime(id);
         } catch (error) {
-            failed.add(id);
             throw new Error(`Steam module resolution failed: ${id}: ${String(error)}`);
         }
     };

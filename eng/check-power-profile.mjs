@@ -4,10 +4,10 @@
 import assert from "node:assert/strict";
 import {
   createHooks,
+  fragment,
   instantiate,
   loadAsset,
   slice,
-  sliceToGate,
   tick,
 } from "./check-harness.mjs";
 
@@ -17,34 +17,75 @@ const normalizeText = instantiate(
   `${slice(asset, "const normalizeText =", ";")};`,
   "normalizeText",
 );
-// The game-override helpers every row shares. Fixtures carry no override unless a check says so.
-const overrideHelpers = instantiate(
-  {},
-  slice(asset, "const normalizeOverrideId =", "const normalizeVrrState ="),
-  "{ normalizeOverrideId, overrideDescription }",
+// A host's Quick Access layout, as WSGM publishes it: the fixture every section check draws, so the
+// checks assert the rendering of host data rather than any layout of the toolkit's own.
+const hostLayout = {
+  performance: [
+    { id: "Profile scope", title: "Profile scope", icon: "profile", folds: false, kinds: ["valveProfileHeader"] },
+    {
+      id: "Power profiles",
+      title: "Power profiles",
+      icon: "sliders",
+      folds: true,
+      kinds: ["powerPreset", "powerProfile", "hybridCores", "cpuBoost"],
+    },
+    {
+      id: "Display and frame rate",
+      title: "Display and frame rate",
+      icon: "timer",
+      folds: true,
+      kinds: ["valveOverlayLevel", "frameLimit", "vrr"],
+    },
+    { id: "Power limits", title: "Power limits", icon: "gauge", folds: true, kinds: ["powerLimit", "autoTdp"] },
+    { id: "Controller", title: "Controller", icon: "controller", folds: true, kinds: ["controllerTarget"] },
+  ],
+  performanceEnd: [{ id: "Reset", title: "", icon: "reset", folds: false, kinds: ["valveReset"] }],
+  quickSettings: [
+    { id: "Display", title: "Display", icon: "display", folds: true, kinds: ["resolution", "valveRefreshRate"] },
+    { id: "Audio", title: "Audio", icon: "audio", folds: true, kinds: ["audioFormat"] },
+  ],
+  quickSettingsEnd: [
+    { id: "Charging", title: "Charging", icon: "batteryCharging", folds: true, kinds: ["charging"] },
+    { id: "RGB lighting", title: "RGB lighting", icon: "colors", folds: true, kinds: ["lighting"] },
+  ],
+  hideValveFpsRows: true,
+  accentLabel: "Game override",
+};
+// The states the host has accepted, holding the layout the marked rows read their label from.
+const acceptedStates = new Map([["quickAccessLayout", hostLayout]]);
+// The accent helper every row shares, over the shipped colour helper. Fixtures carry no accent unless
+// a check says so.
+const accentHelpers = instantiate(
+  {
+    normalizeText,
+    acceptedStates,
+    ...instantiate(
+      {},
+      slice(asset, "const SteamAccentColor =", "const keyed ="),
+      "{ steamAccentDescription }",
+    ),
+  },
+  slice(asset, "const accentDescription =", "const normalizeVrrState ="),
+  "{ accentDescription }",
 );
 {
-  // An overridden row's description is one span in Steam's accent colour, and a row without an
-  // override keeps its plain text. Nothing is drawn beside the control.
+  // A marked row's description is one span in Steam's accent colour, led by the host's label, and an
+  // unmarked row keeps its plain text. Nothing is drawn beside the control.
   const runtime = {
     react: { createElement: (type, props, ...children) => ({ type, props, children }) },
   };
-  const marked = overrideHelpers.overrideDescription(runtime, "FrameLimit", "Ready");
+  const marked = accentHelpers.accentDescription(runtime, true, "Ready");
   assert.equal(marked.type, "span");
   assert.equal(marked.props.style.color, "#1a9fff");
   assert.deepEqual(marked.children, ["Game override · Ready"]);
-  assert.deepEqual(overrideHelpers.overrideDescription(runtime, "FrameLimit", "").children, [
-    "Game override",
-  ]);
-  assert.equal(overrideHelpers.overrideDescription(runtime, null, "Ready"), "Ready");
-  assert.equal(overrideHelpers.overrideDescription(runtime, null, ""), undefined);
+  assert.deepEqual(accentHelpers.accentDescription(runtime, true, "").children, ["Game override"]);
+  assert.equal(accentHelpers.accentDescription(runtime, false, "Ready"), "Ready");
+  assert.equal(accentHelpers.accentDescription(runtime, false, ""), undefined);
+  // The label is the host's: without a layout a marked row is only coloured.
+  acceptedStates.delete("quickAccessLayout");
+  assert.deepEqual(accentHelpers.accentDescription(runtime, true, "Ready").children, ["Ready"]);
+  acceptedStates.set("quickAccessLayout", hostLayout);
 }
-// No length limit: a long id is still an id.
-assert.equal(overrideHelpers.normalizeOverrideId("x".repeat(201)), "x".repeat(201));
-assert.equal(overrideHelpers.normalizeOverrideId(42), null);
-assert.equal(overrideHelpers.normalizeOverrideId("   "), null);
-assert.equal(overrideHelpers.normalizeOverrideId("FrameLimit"), "FrameLimit");
-assert.ok(!asset.includes("useGlobal"), "no row may offer a Use global control");
 // The host's own command sender over a fixture request, so a row's write carries the action
 // generation exactly as the shipped host attaches it.
 const createSender = (request) =>
@@ -56,10 +97,12 @@ const createSender = (request) =>
 let state;
 const requests = [];
 const pending = [];
+// What the host refuses the next row write with, when a check sets it.
+let refusal = null;
 const api = instantiate(
   {
     normalizeText,
-    ...overrideHelpers,
+    ...accentHelpers,
     useSemanticState: (_runtime, _kind, normalize) => normalize(state),
     note: () => null,
     definitions: {
@@ -75,7 +118,7 @@ const api = instantiate(
     renderOutcomes: {},
     sendCommand: createSender((...args) => {
       requests.push(args);
-      return Promise.resolve();
+      return refusal ? Promise.reject(new Error(refusal)) : Promise.resolve();
     }),
     drew: () => {},
     summarize: () => {},
@@ -91,8 +134,9 @@ assert.equal(longLabel.options[0].label.length, 10000);
 state = { available: true, options, current: "a", statusText: "Ready" };
 // The icon fixture hands back the requested name, so an assertion can say which glyph a row asked
 // for without this file having to know how an svg element is built.
+// The row's pending flag is recorded; its refusal text, cleared as each write starts, is not.
 const control = api.createPowerProfileControl({ dropdown: "dropdown", icon: name => name, react: {
-  useState: () => [false, value => pending.push(value)],
+  useState: (initial) => [initial, value => typeof value === "boolean" && pending.push(value)],
   createElement: (_type, props) => props,
 } });
 const row = control();
@@ -106,6 +150,25 @@ row.onChange({ data: "b" });
 await tick();
 assert.deepEqual(requests[0], ["steam-ui.power-profile", "setPowerProfile", { target: "b" }, 1]);
 assert.deepEqual(pending, [true, false]);
+// A refused write shows why in the row's description, whole, and the next write clears it.
+{
+  const hooks = createHooks();
+  const refusing = api.createPowerProfileControl({ dropdown: "dropdown", icon: name => name, react: {
+    useState: hooks.useState, createElement: (_type, props) => props } });
+  const draw = () => {
+    hooks.reset();
+    return refusing();
+  };
+  refusal = "The profile is managed by the device";
+  draw().onChange({ data: "b" });
+  await tick();
+  assert.equal(draw().description, "The profile is managed by the device");
+  assert.equal(draw().disabled, false, "a refused write is no longer pending");
+  refusal = null;
+  draw().onChange({ data: "b" });
+  await tick();
+  assert.equal(draw().description, "Ready", "the next write clears the refusal");
+}
 state = { ...state, current: "missing" };
 assert.equal(control().selectedOption, undefined);
 state = { ...state, available: false, statusText: "Readback failed" };
@@ -122,14 +185,14 @@ assert.equal(control().description, "Readback failed");
   assert.equal(api.createHybridCoreControl(reactFixture)(), null);
   state = { ...previous, available: true };
   assert.equal(api.createHybridCoreControl(reactFixture)().label, "Processor cores");
-  // The boost row is the same dropdown with the per-game marker in its description.
+  // The boost row is the same dropdown with the host's mark in its description.
   assert.equal(api.createCpuBoostControl(reactFixture)().label, "CPU boost mode");
   assert.equal(api.createCpuBoostControl(reactFixture)().icon, "turbo");
   assert.equal(api.createCpuBoostControl(reactFixture)().description, state.statusText);
-  state = { ...state, overrideId: "CpuBoost" };
+  state = { ...state, accent: true };
   assert.deepEqual(api.createCpuBoostControl(reactFixture)().description,
-    overrideHelpers.overrideDescription(reactFixture, "CpuBoost", state.statusText));
-  assert.equal(api.normalizeCpuBoostState({ ...state, overrideId: 5 }).overrideId, null);
+    accentHelpers.accentDescription(reactFixture, true, state.statusText));
+  assert.equal(api.normalizeCpuBoostState({ ...state, accent: "yes" }).accent, false);
   state = { ...state, options: [] };
   assert.equal(api.createCpuBoostControl(reactFixture)(), null);
   state = previous;
@@ -143,6 +206,21 @@ assert.equal(api.normalizePowerProfileState({
   ...state,
   options: Array.from({ length: 65 }, (_, i) => ({ id: String(i), label: "x" })),
 }).options.length, 65);
+// An unselectable option is listed only while it is the current value, and never sent.
+{
+  const previous = state;
+  state = { available: true, options: [...options, { id: "x", label: "Unknown", selectable: false }],
+    current: "a", statusText: "" };
+  assert.ok(!control().rgOptions.some(option => option.data === "x"), "not listed while not current");
+  state = { ...state, current: "x" };
+  assert.equal(control().selectedOption, "x");
+  assert.ok(control().rgOptions.some(option => option.data === "x"), "listed while current");
+  state = { ...state, current: "a" };
+  const sent = requests.length;
+  control().onChange({ data: "x" });
+  assert.equal(requests.length, sent, "an unselectable option is never sent");
+  state = previous;
+}
 assert.match(asset, /\["powerProfile", "steam-ui-power-profile", powerProfileControl, "perf"\]/);
 const presetControl = api.createPowerPresetControl({ dropdown: "dropdown", labelField: "labelField",
   icon: name => name, react: {
@@ -204,8 +282,10 @@ rows[0].props.onChange({ data: "b" });
 assert.equal(requests.length, before);
 assert.equal(api.normalizePowerPresetState({ ...state, ac: "missing" }), null);
 assert.ok(api.normalizePowerPresetState({ ...state, options: [...options, { id: "none", label: "None" }] }));
+// An option the host marks unselectable is listed only in the dropdown whose current value it is, and
+// never sent.
 for (const ac of [true, false]) {
-  state = { ...state, available: true, options: [...options, { id: "custom", label: "Custom" }],
+  state = { ...state, available: true, options: [...options, { id: "custom", label: "Custom", selectable: false }],
     ac: ac ? "custom" : "a", battery: ac ? "b" : "custom" };
   rows = presetControl().children.filter(child => child?.type === "dropdown");
   assert.deepEqual(rows.map(row => row.props.selectedOption), ac ? ["custom", "b"] : ["a", "custom"]);
@@ -214,14 +294,20 @@ for (const ac of [true, false]) {
   rows[ac ? 0 : 1].props.onChange({ data: "custom" });
   assert.equal(requests.length, before);
 }
-assert.equal(api.normalizePowerPresetState({ ...state, ac: "a", battery: "b" }), null);
+// No assignment holding it is not a malformed state: the row still draws, and lists it nowhere.
+state = { ...state, ac: "a", battery: "b" };
+rows = presetControl().children.filter(child => child?.type === "dropdown");
+assert.equal(rows.length, 2);
+assert.ok(rows.every(row => !row.props.rgOptions.some(option => option.data === "custom")));
+assert.ok(!slice(asset, "const normalizePowerPresetState =", "const createControllerControl =").includes('"custom"'),
+  "the toolkit names no preset id of its own");
 state = { ...state, options: [], ac: "", battery: "" };
 assert.equal(presetControl(), null);
 assert.match(asset, /\["powerPreset", "steam-ui-power-preset", powerPresetControl, "perf"\]/);
 console.log("Power-profile and assignment emitted dropdown checks passed.");
 
-// The real section composer, so the device sections are checked against the titles, glyphs and
-// summaries the panel actually hands the kit rather than a stand-in. The kit's group is a fixture
+// The real section composer, so the sections are checked against the titles, glyphs and summaries
+// the panel hands the kit for the host's layout rather than a stand-in. The kit's group is a fixture
 // that keeps what it was given: the check is about the panel's decisions, not the kit's markup,
 // which check-ui-kit.mjs covers.
 const groupFixture = (_ui, props, ...children) => ({ type: "group", props, children });
@@ -234,33 +320,43 @@ const sectionFixtures = {
   isFolded: (_folds, id) => folded.has(id),
   setFolded: (id, fold) => foldRequests.push([id, fold]),
 };
-const hostSection = instantiate(
-  sectionFixtures,
-  slice(asset, "const SectionIcons =", "const appendControls ="),
-  "hostSection",
+const { hostSection, untitledSection, normalizeQuickAccessLayout } = instantiate(
+  { normalizeText, ...sectionFixtures },
+  slice(asset, "const normalizeQuickAccessSections =", "const appendControls ="),
+  "{ hostSection, untitledSection, normalizeQuickAccessLayout }",
 );
+const layoutState = normalizeQuickAccessLayout(hostLayout);
+assert.deepEqual(layoutState.performance.map(section => section.id),
+  ["Profile scope", "Power profiles", "Display and frame rate", "Power limits", "Controller"]);
+assert.equal(layoutState.hideValveFpsRows, true);
+assert.equal(layoutState.accentLabel, "Game override");
+// A section without an id or a kind list is skipped, not the whole layout.
+assert.deepEqual(
+  normalizeQuickAccessLayout({ ...hostLayout, quickSettings: [{ title: "No id", kinds: [] }, ...hostLayout.quickSettings] })
+    .quickSettings.map(section => section.id),
+  ["Display", "Audio"],
+);
+assert.equal(normalizeQuickAccessLayout(null), null);
 
 // Every placement gets its own glyph, and every glyph gets a placement. A shape that appears twice
 // tells a user scanning the panel that two different controls are the same one, which is worse than
 // leaving a row bare; a shape nothing places is dead weight that survives until somebody notices it
 // by eye, which is how `sun` outlived the two rows it used to sit on.
 //
-// The scan reads the emitted asset, so it is textual and has limits worth stating: it sees the
-// section table and every call site that spells its glyph out, and the four names the preset and
-// power-limit tables pass by variable are listed here by hand. A placement built from a computed
-// name would be invisible to it. The set comparison below is what makes that survivable — a new
-// placement that this cannot see also fails to account for one of the declared glyphs.
+// The scan reads the emitted asset, so it is textual and has limits worth stating: it sees every
+// call site that spells its glyph out, the section glyphs come from the host's layout fixture, and
+// the four names the preset and power-limit tables pass by variable are listed here by hand. A
+// placement built from a computed name would be invisible to it. The set comparison below is what
+// makes that survivable — a new placement that this cannot see also fails to account for one of the
+// declared glyphs.
 {
-  const drawings = sliceToGate(asset, "const SteamUiIconShapes =");
+  const drawings = fragment(asset, "icons.ts");
   // Comments are emitted verbatim, and a commented-out call site is not a placement.
   const code = asset.replace(/^[ \t]*\/\/.*$/gmu, "");
-  const sectionTable = code.slice(
-    code.indexOf("const SectionIcons ="),
-    code.indexOf("});", code.indexOf("const SectionIcons =")),
-  );
   const used = [
     ...[...code.matchAll(/\bicon\(\s*["']([A-Za-z]+)["']/gu)].map((match) => match[1]),
-    ...[...sectionTable.matchAll(/:\s*["']([A-Za-z]+)["']/gu)].map((match) => match[1]),
+    ...[...hostLayout.performance, ...hostLayout.performanceEnd, ...hostLayout.quickSettings,
+      ...hostLayout.quickSettingsEnd].map((section) => section.icon),
     "plug",
     "battery",
     "bolt",
@@ -288,9 +384,13 @@ const deviceState = {
   lightingBrightness: { available: true, observed: 100, minimum: 0, maximum: 100, step: 1 },
   lightingZones: [{ available: true, id: "buttons", label: "Buttons", observedColor: 0xffffff }],
 };
+const deviceSections = [...layoutState.quickSettings, ...layoutState.quickSettingsEnd];
 const createDeviceControl = instantiate(
   {
-    ...overrideHelpers,
+    normalizeText,
+    acceptedStates,
+    untitledSection,
+    ...accentHelpers,
     useSemanticState: () => deviceState,
     normalizeDeviceControlsState: (value) => value,
     normalizePanelFoldsState: (value) => value,
@@ -323,7 +423,7 @@ for (const toggle of [undefined, "toggle"]) {
           return { type, props, children };
         },
       } });
-    const tree = render();
+    const tree = render({ sections: deviceSections });
     assert.deepEqual(tree.children.map(section => section.props.title),
       ["Charging", "RGB lighting"]);
     assert.deepEqual(tree.children.map(section => section.props.icon.glyph),
@@ -347,7 +447,46 @@ for (const toggle of [undefined, "toggle"]) {
     assert.equal(new Set(glyphs).size, glyphs.length, `device glyphs repeat: ${glyphs.join(", ")}`);
     assert.equal(fields.some(field => field.props.label === "Edit color"), !!toggle);
     assert.equal(fields.some(field => field.props.label === "Lighting zone"), !!toggle && expanded);
+    // Without a layout each group is untitled; a layout that names neither kind draws neither.
+    const untitled = render({ sections: null });
+    assert.deepEqual(untitled.children.map(section => section.props.title), [undefined, undefined]);
+    assert.deepEqual(render({ sections: [] }).children, [null, null]);
+    if (toggle) {
+      // The Edit color toggle names the marked zones after the host's label, in plain text.
+      deviceState.lightingZones = [{ ...deviceState.lightingZones[0], accent: true }];
+      const edit = render({ sections: deviceSections }).children[1].children
+        .map(row => row.children[0])
+        .find(field => field.props.label === "Edit color");
+      assert.equal(edit.props.description, "Game override · Buttons");
+      deviceState.lightingZones = [{ ...deviceState.lightingZones[0], accent: false }];
+    }
   }
+}
+// A range with no reading still draws, at its minimum with its number hidden.
+{
+  const previous = deviceState.chargeLimit;
+  deviceState.chargeLimit = { ...previous, observed: null, desired: null };
+  const render = createDeviceControl({ row: "row", section: "section", slider: "slider", dropdown: "dropdown",
+    icon: (glyph, size) => ({ glyph, size }), react: {
+      Fragment: "fragment", useState: initial => [initial, () => {}],
+      createElement: (type, props, ...children) => ({ type, props, children }),
+    } });
+  const charge = render({ sections: deviceSections }).children[0].children[0].children[0].props;
+  assert.equal(charge.label, "Battery charge limit");
+  assert.equal(charge.value, 60);
+  assert.equal(charge.showValue, false);
+  deviceState.chargeLimit = previous;
+  // The normalizer keeps the slider for an off-step or out-of-range reading, clamped into the range.
+  const normalizeDeviceRange = instantiate(
+    { normalizeText },
+    slice(asset, "const clampReading =", "const normalizeDeviceControlsState ="),
+    "normalizeDeviceRange",
+  );
+  const range = { available: true, minimum: 60, maximum: 100, step: 5, desired: null, observed: 83 };
+  assert.equal(normalizeDeviceRange(range).observed, 83, "an off-step reading is shown as is");
+  assert.equal(normalizeDeviceRange({ ...range, observed: 120 }).observed, 100);
+  assert.equal(normalizeDeviceRange({ ...range, observed: null }).observed, null);
+  assert.equal(normalizeDeviceRange({ ...range, step: 0 }), null, "an invalid descriptor draws nothing");
 }
 console.log("Device controls retain charging and brightness without the optional color toggle.");
 
@@ -363,15 +502,16 @@ console.log("Device controls retain charging and brightness without the optional
   const drawnKinds = new Set();
   const { appendControls, useRows } = instantiate(
     {
+      normalizeText,
       ...sectionFixtures,
       registrations,
       drawnKinds,
       appendDiagnostics: {},
-      withNativeRowsHidden: (_runtime, tree) => tree,
+      withNativeRowsHidden: (_runtime, tree) => ({ filtered: tree }),
       steamUiKitStyle: () => ({ type: "style" }),
       deviceControlsControl: undefined,
     },
-    slice(asset, "const SectionIcons =", "const resolveControls ="),
+    slice(asset, "const normalizeQuickAccessSections =", "const resolveControls ="),
     "{ appendControls, useRows: (rows) => { controlRows = rows; } }",
   );
   // The row table resolveControls builds once the controls resolve, read from the asset with each
@@ -392,13 +532,14 @@ console.log("Device controls retain charging and brightness without the optional
     Fragment: "fragment", isValidElement: () => false,
     createElement: (type, props, ...children) => ({ type, props, children }) } };
   // The panel is the kit's stylesheet, then Valve's tree under the battery class, then the
-  // groups; Quick Settings leads with its Display group and wraps Valve's sections as blocks.
-  const groupsOf = (placement) => {
-    const tree = appendControls(runtime, "native", placement);
+  // groups, the host's settings sections and the closing groups; Quick Settings leads with its
+  // groups and wraps Valve's sections as blocks.
+  const groupsOf = (placement, layout = layoutState) => {
+    const tree = appendControls(runtime, "native", placement, null, layout);
     assert.equal(tree.children[0].type, "style");
     if (placement === "perf") {
       assert.equal(tree.children[1].props.className, "steam-ui-kit-battery");
-      return tree.children[2].children;
+      return [...tree.children[2].children, ...tree.children.slice(4)];
     }
     const valve = tree.children.findIndex(child => child?.props?.className === "steam-ui-kit-valve");
     assert.ok(valve > 0);
@@ -441,6 +582,22 @@ console.log("Device controls retain charging and brightness without the optional
   assert.deepEqual(foldRequests.pop(), ["Power profiles", false]);
   assert.equal(perf.Controller.collapsed, false);
   folded.clear();
+  // Steam's FPS rows are hidden only when the layout asks.
+  assert.deepEqual(appendControls(runtime, "native", "perf", null, layoutState).children[1].children,
+    [{ filtered: "native" }]);
+  assert.deepEqual(
+    appendControls(runtime, "native", "perf", null, { ...layoutState, hideValveFpsRows: false }).children[1].children,
+    ["native"]);
+  // Without a layout every row of a tab draws in one untitled group, and Valve's tree is untouched.
+  const bare = appendControls(runtime, "native", "perf", null, null);
+  assert.deepEqual(bare.children[1].children, ["native"]);
+  const [group] = bare.children[2].children;
+  assert.equal(group.props.title, undefined);
+  // Six registered Performance kinds, Valve's profile header drawing two rows.
+  assert.equal(group.children.length, 7, "every registered Performance row");
+  // A kind no section names is not drawn while a layout is published.
+  const narrow = { ...layoutState, performance: layoutState.performance.slice(0, 1), performanceEnd: [] };
+  assert.deepEqual(groupsOf("perf", narrow).map(section => section.props.key), ["Profile scope"]);
 }
 console.log("Host sections leave layout while every row under them draws nothing.");
 
@@ -473,7 +630,7 @@ console.log("Host sections leave layout while every row under them draws nothing
   const powerApi = instantiate(
     {
       normalizeText,
-      ...overrideHelpers,
+      ...accentHelpers,
       useSemanticState: (_runtime, _kind, normalize) => normalize(powerState),
       definitions: {
         powerLimit: {
@@ -492,6 +649,7 @@ console.log("Host sections leave layout while every row under them draws nothing
       summarize: () => {},
     },
     slice(asset, "const useEchoedValue =", "const useTrailingCommit =") +
+      slice(asset, "const clampReading =", "const normalizeDeviceRange =") +
       slice(asset, "const normalizePowerLimitRange =", "const createDeviceControlsControl ="),
     "{ createPowerLimitControl, normalizePowerLimitState }",
   );
@@ -557,10 +715,18 @@ console.log("Host sections leave layout while every row under them draws nothing
   assert.ok(render().every((slider) => slider.disabled));
   powerState.sustained = { ...range(23), available: false };
   assert.equal(render()[0].disabled, true);
+  // No range row is gated on a reading.
   powerState = { sustained: range(23), boost: { ...range(28), observedWatts: null } };
-  assert.equal(render().length, 1, "unknown boost readback cannot fabricate a value");
+  sliders = render();
+  assert.equal(sliders.length, 2, "an unknown boost reading keeps its slider");
+  assert.equal(sliders[1].value, 8, "with no reading the slider sits at its minimum");
+  assert.equal(sliders[1].showValue, false, "and shows no number");
   powerState.sustained = { ...range(23), stepWatts: 2 };
-  assert.equal(render().length, 0, "off-step observations are refused");
+  assert.equal(render().length, 2, "an off-step reading keeps the slider");
+  assert.equal(render()[0].value, 23, "and is shown as is");
+  // The device's range is the authority: the toolkit has no ceiling of its own.
+  powerState = { sustained: { ...range(230), maximumWatts: 250 }, boost: range(30) };
+  assert.equal(render()[0].value, 230);
   assert.ok(!asset.includes("steamos_tdp_limit"), "no saved Steam TDP setting can be replayed");
 }
 console.log(

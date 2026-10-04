@@ -11,39 +11,6 @@
 // The page component is the host's; the frame around it is this file's, so a page that could not
 // resolve says why instead of showing "Loading…" for ever.
 
-type SteamPageDefinition = {
-    // The renderer template the page host draws the page with.
-    template: string;
-    // The name the gate registers under.
-    gate: string;
-    // The bridge identity the page's state is published under.
-    patchId: string;
-    // Resolves the components the page draws with, from Steam's own; null when they are not there.
-    components: (runtime: any) => any;
-    // The components the page cannot draw without.
-    required: readonly string[];
-    // Resolves anything else the page needs once the components are in, answering why not when it
-    // cannot. Optional.
-    prepare?: (ui: any, runtime: any) => string | null;
-    // Releases what `prepare` resolved. Optional.
-    release?: () => void;
-    // Extra facts for the gate's status. Optional.
-    status?: () => Record<string, unknown>;
-    // The page itself: a component declared once, drawn inside the frame once the gate holds.
-    Page: (props: any) => any;
-};
-
-type SteamPageContext = {
-    // Steam's React, from the components or, before they resolve, from the page host.
-    react: () => any;
-    // The resolved components, or null while the gate is not installed.
-    ui: () => any;
-    // The latest state the host published for the page, or null.
-    state: () => any;
-    // Why the host's latest state could not be delivered, or null.
-    refusal: () => string | null;
-};
-
 function registerSteamPage(definition: SteamPageDefinition): SteamPageContext {
     let installed = false;
     let ui: any = null;
@@ -180,3 +147,38 @@ function registerSteamPage(definition: SteamPageDefinition): SteamPageContext {
     registerGate(definition.gate, {install, remove, status});
     return context;
 }
+
+// The page contract. Declared after the function because TypeScript erases a type together with
+// the comments that lead it, and this file's header has to reach the asset.
+type SteamPageDefinition = {
+    // The renderer template the page host draws the page with.
+    template: string;
+    // The name the gate registers under.
+    gate: string;
+    // The bridge identity the page's state is published under.
+    patchId: string;
+    // Resolves the components the page draws with, from Steam's own; null when they are not there.
+    components: (runtime: any) => any;
+    // The components the page cannot draw without.
+    required: readonly string[];
+    // Resolves anything else the page needs once the components are in, answering why not when it
+    // cannot. Optional.
+    prepare?: (ui: any, runtime: any) => string | null;
+    // Releases what `prepare` resolved. Optional.
+    release?: () => void;
+    // Extra facts for the gate's status. Optional.
+    status?: () => Record<string, unknown>;
+    // The page itself: a component declared once, drawn inside the frame once the gate holds.
+    Page: (props: any) => any;
+};
+
+type SteamPageContext = {
+    // Steam's React, from the components or, before they resolve, from the page host.
+    react: () => any;
+    // The resolved components, or null while the gate is not installed.
+    ui: () => any;
+    // The latest state the host published for the page, or null.
+    state: () => any;
+    // Why the host's latest state could not be delivered, or null.
+    refusal: () => string | null;
+};

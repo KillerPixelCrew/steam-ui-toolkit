@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,16 +15,25 @@ public enum SteamLibraryAddStatus
     /// <summary>The folder already carries a Steam library (nothing to do).</summary>
     AlreadyPresent,
 
+    /// <summary>
+    ///     Steam adopted the folder, but a stale registration could not be removed first or the label
+    ///     could not be applied; <c>Detail</c> names what did not happen.
+    /// </summary>
+    Partial,
+
     /// <summary>Steam actively refused the folder; <c>Detail</c> is its reason.</summary>
     Rejected,
 
-    /// <summary>The debug channel could not be reached, so no live add happened.</summary>
-    Unavailable
+    /// <summary>The request never reached Steam, so no live add happened.</summary>
+    NotSent,
+
+    /// <summary>The request was sent but its answer was lost or unreadable, so the add may have happened.</summary>
+    Unknown
 }
 
 /// <summary>Outcome of a live library add.</summary>
 /// <param name="Status">What Steam did.</param>
-/// <param name="Detail">Steam's reason code, when it gave one.</param>
+/// <param name="Detail">Steam's reason code, or what did not happen, when there is one.</param>
 public readonly record struct SteamLibraryAddResult(SteamLibraryAddStatus Status, string? Detail);
 
 /// <summary>Result of removing a live Steam library.</summary>
@@ -38,8 +48,11 @@ public enum SteamLibraryRemoveStatus
     /// <summary>Steam actively refused the removal; <c>Detail</c> is its reason.</summary>
     Rejected,
 
-    /// <summary>The debug channel could not be reached, so no live removal happened.</summary>
-    Unavailable
+    /// <summary>The request never reached Steam, so no live removal happened.</summary>
+    NotSent,
+
+    /// <summary>The request was sent but its answer was lost or unreadable, so the removal may have happened.</summary>
+    Unknown
 }
 
 /// <summary>Outcome of removing a live library.</summary>
@@ -59,8 +72,11 @@ public enum SteamLibraryLabelStatus
     /// <summary>Steam actively refused; <c>Detail</c> is its reason.</summary>
     Rejected,
 
-    /// <summary>The debug channel could not be reached, so nothing changed.</summary>
-    Unavailable
+    /// <summary>The request never reached Steam, so nothing changed.</summary>
+    NotSent,
+
+    /// <summary>The request was sent but its answer was lost or unreadable, so the label may have changed.</summary>
+    Unknown
 }
 
 /// <summary>Outcome of relabeling a live library.</summary>
@@ -87,8 +103,12 @@ public readonly record struct SteamLibraryLabelResult(SteamLibraryLabelStatus St
 ///         renumber the others (live-measured 2026-08-23), so several removals from one
 ///         <c>GetInstallFolders</c> snapshot are correct in order.
 ///     </para>
+///     <para>
+///         Each call reads the folder list and then changes it, so every one takes the client's write
+///         lane: two adds at one path would otherwise both read the list and both register.
+///     </para>
 /// </remarks>
-public static class SteamInstallFolders
+public sealed class SteamInstallFolders
 {
     // The script's twin of NormalizePath. The two must agree, or a stale registration survives the
     // purge and the duplicate-library defect returns.
@@ -96,10 +116,14 @@ public static class SteamInstallFolders
         @"const norm=p=>String(p||'').replace(/\//g,'\\')"
         + @".replace(/\\+$/,'').toLowerCase();";
 
-    private const string ErrorReply =
-        "catch(e){return JSON.stringify({ok:false,result:(e&&e.result),message:(e&&e.message)});}";
-
     private static readonly TimeSpan Budget = TimeSpan.FromSeconds(10);
+
+    private readonly SteamClient _client;
+
+    internal SteamInstallFolders(SteamClient client)
+    {
+        _client = client;
+    }
 
     /// <summary>
     ///     Normalizes a library path for comparison exactly as the injected scripts do: forward slashes
@@ -127,21 +151,19 @@ public static class SteamInstallFolders
     /// </param>
     /// <param name="cancellationToken">Cancels the exchange.</param>
     /// <returns>The live outcome.</returns>
-    public static async Task<SteamLibraryAddResult> AddAsync(
+    public async Task<SteamLibraryAddResult> AddAsync(
         string libraryPath,
         string? label = null,
         bool replaceExisting = false,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(libraryPath);
-        var result = await SteamUiTransportSession.EvaluateAsync(
+        var result = await _client.WriteAsync(
                 BuildAddExpression(libraryPath, label, replaceExisting),
                 Budget,
                 cancellationToken)
             .ConfigureAwait(false);
-        return !result.Reachable
-            ? new SteamLibraryAddResult(SteamLibraryAddStatus.Unavailable, result.Error)
-            : InterpretAdd(result.Value);
+        return InterpretAdd(result);
     }
 
     /// <summary>Removes every live registration at a path.</summary>
@@ -153,19 +175,14 @@ public static class SteamInstallFolders
     ///     identity (a volume's content id, say) must resolve it to a path, and refuse when that path is
     ///     ambiguous, before calling this.
     /// </remarks>
-    public static async Task<SteamLibraryRemoveResult> RemoveAllAtPathAsync(
+    public async Task<SteamLibraryRemoveResult> RemoveAllAtPathAsync(
         string libraryPath,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(libraryPath);
-        var result = await SteamUiTransportSession.EvaluateAsync(
-                BuildRemoveExpression(libraryPath),
-                Budget,
-                cancellationToken)
+        var result = await _client.WriteAsync(BuildRemoveExpression(libraryPath), Budget, cancellationToken)
             .ConfigureAwait(false);
-        return !result.Reachable
-            ? new SteamLibraryRemoveResult(SteamLibraryRemoveStatus.Unavailable, result.Error)
-            : InterpretRemove(result.Value);
+        return InterpretRemove(result);
     }
 
     /// <summary>
@@ -176,21 +193,16 @@ public static class SteamInstallFolders
     /// <param name="label">The new label.</param>
     /// <param name="cancellationToken">Cancels the exchange.</param>
     /// <returns>The live outcome.</returns>
-    public static async Task<SteamLibraryLabelResult> SetLabelAsync(
+    public async Task<SteamLibraryLabelResult> SetLabelAsync(
         string libraryPath,
         string label,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(libraryPath);
         ArgumentNullException.ThrowIfNull(label);
-        var result = await SteamUiTransportSession.EvaluateAsync(
-                BuildLabelExpression(libraryPath, label),
-                Budget,
-                cancellationToken)
+        var result = await _client.WriteAsync(BuildLabelExpression(libraryPath, label), Budget, cancellationToken)
             .ConfigureAwait(false);
-        return !result.Reachable
-            ? new SteamLibraryLabelResult(SteamLibraryLabelStatus.Unavailable, result.Error)
-            : InterpretLabel(result.Value);
+        return InterpretLabel(result);
     }
 
     /// <summary>Builds the add script. Path and label are JSON-encoded so backslashes survive.</summary>
@@ -201,19 +213,21 @@ public static class SteamInstallFolders
     {
         var pathLiteral = SteamCef.JsString(libraryPath);
         var labelLiteral = string.IsNullOrEmpty(label) ? "null" : SteamCef.JsString(label);
-        return "(async()=>{try{const path=" + pathLiteral + ";const l=" + labelLiteral + ";"
-               + NormalizePathJs
-               + "const target=norm(path);let purged=0;"
-               + "const folders=await SteamClient.InstallFolder.GetInstallFolders();"
-               + "const same=folders.filter(x=>norm(x.strFolderPath)===target);"
-               + (replaceExisting ? "const live=null;" : "const live=same.find(x=>x.bIsMounted);")
-               + "for(const f of same){if(f===live)continue;"
-               + "try{await SteamClient.InstallFolder.RemoveInstallFolder(f.nFolderIndex);purged++;}catch(e){}}"
-               + "const i=live?live.nFolderIndex:await SteamClient.InstallFolder.AddInstallFolder(path);"
-               + "if(l!==null&&typeof i==='number'&&i>=0){"
-               + "try{await SteamClient.InstallFolder.SetFolderLabel(i,l);}catch(e){}}"
-               + "return JSON.stringify({ok:true,index:i,purged:purged,existing:!!live});}"
-               + ErrorReply + "})()";
+        return SteamClientScript.Read(
+            "const path=" + pathLiteral + ";const l=" + labelLiteral + ";"
+            + NormalizePathJs
+            + "const target=norm(path);let purged=0,purgeFailed=0,labelError=null;"
+            + "const folders=await SteamClient.InstallFolder.GetInstallFolders();"
+            + "const same=folders.filter(x=>norm(x.strFolderPath)===target);"
+            + (replaceExisting ? "const live=null;" : "const live=same.find(x=>x.bIsMounted);")
+            + "for(const f of same){if(f===live)continue;"
+            + "try{await SteamClient.InstallFolder.RemoveInstallFolder(f.nFolderIndex);purged++;}"
+            + "catch(e){purgeFailed++;}}"
+            + "const i=live?live.nFolderIndex:await SteamClient.InstallFolder.AddInstallFolder(path);"
+            + "if(l!==null&&typeof i==='number'&&i>=0){"
+            + "try{await SteamClient.InstallFolder.SetFolderLabel(i,l);}"
+            + "catch(e){labelError=String((e&&e.message)||(e&&e.result)||e);}}"
+            + "return JSON.stringify({ok:true,index:i,purged,purgeFailed,labelError,existing:!!live});");
     }
 
     /// <summary>Builds the relabel script.</summary>
@@ -221,44 +235,52 @@ public static class SteamInstallFolders
     /// <param name="label">The new label.</param>
     internal static string BuildLabelExpression(string libraryPath, string label)
     {
-        return "(async()=>{try{const path=" + SteamCef.JsString(libraryPath) + ";" + NormalizePathJs
-               + "const folders=await SteamClient.InstallFolder.GetInstallFolders();"
-               + "const same=folders.filter(x=>norm(x.strFolderPath)===norm(path));"
-               + "const folder=same.find(x=>x.bIsMounted)||same[0];"
-               + "if(!folder)return JSON.stringify({ok:true,absent:true});"
-               + "await SteamClient.InstallFolder.SetFolderLabel(folder.nFolderIndex,"
-               + SteamCef.JsString(label) + ");"
-               + "return JSON.stringify({ok:true});}" + ErrorReply + "})()";
+        return SteamClientScript.Read(
+            "const path=" + SteamCef.JsString(libraryPath) + ";" + NormalizePathJs
+            + "const folders=await SteamClient.InstallFolder.GetInstallFolders();"
+            + "const same=folders.filter(x=>norm(x.strFolderPath)===norm(path));"
+            + "const folder=same.find(x=>x.bIsMounted)||same[0];"
+            + "if(!folder)return JSON.stringify({ok:true,absent:true});"
+            + "await SteamClient.InstallFolder.SetFolderLabel(folder.nFolderIndex,"
+            + SteamCef.JsString(label) + ");"
+            + "return JSON.stringify({ok:true});");
     }
 
     /// <summary>Builds the removal script.</summary>
     /// <param name="libraryPath">The library folder.</param>
     internal static string BuildRemoveExpression(string libraryPath)
     {
-        return "(async()=>{try{const path=" + SteamCef.JsString(libraryPath) + ";" + NormalizePathJs
-               + "const folders=await SteamClient.InstallFolder.GetInstallFolders();"
-               + "const same=folders.filter(x=>norm(x.strFolderPath)===norm(path));"
-               + "if(!same.length)return JSON.stringify({ok:true,absent:true});"
-               + "let removed=0;"
-               + "for(const f of same){await SteamClient.InstallFolder.RemoveInstallFolder(f.nFolderIndex);removed++;}"
-               + "return JSON.stringify({ok:true,removed:removed});}" + ErrorReply + "})()";
+        return SteamClientScript.Read(
+            "const path=" + SteamCef.JsString(libraryPath) + ";" + NormalizePathJs
+            + "const folders=await SteamClient.InstallFolder.GetInstallFolders();"
+            + "const same=folders.filter(x=>norm(x.strFolderPath)===norm(path));"
+            + "if(!same.length)return JSON.stringify({ok:true,absent:true});"
+            + "let removed=0;"
+            + "for(const f of same){await SteamClient.InstallFolder.RemoveInstallFolder(f.nFolderIndex);removed++;}"
+            + "return JSON.stringify({ok:true,removed:removed});");
     }
 
     /// <summary>
     ///     Maps the add reply to a result. <c>DriveAlreadyHasLibrary</c> counts as already present; any
     ///     other refusal carries Steam's own reason code.
     /// </summary>
-    /// <param name="jsonValue">The script's reply.</param>
-    internal static SteamLibraryAddResult InterpretAdd(string? jsonValue)
+    /// <param name="result">The evaluation outcome.</param>
+    internal static SteamLibraryAddResult InterpretAdd(SteamUiEvaluationResult result)
     {
-        if (jsonValue is null)
+        if (Unanswered(result) is { } unanswered)
         {
-            return new SteamLibraryAddResult(SteamLibraryAddStatus.Unavailable, "No response from Steam.");
+            return new SteamLibraryAddResult(
+                unanswered.Sent ? SteamLibraryAddStatus.Unknown : SteamLibraryAddStatus.NotSent, unanswered.Detail);
+        }
+
+        if (result.Error is not null)
+        {
+            return new SteamLibraryAddResult(SteamLibraryAddStatus.Rejected, result.Error);
         }
 
         try
         {
-            using var document = JsonDocument.Parse(jsonValue);
+            using var document = JsonDocument.Parse(result.Value!);
             var root = document.RootElement;
             if (SteamClientScript.IsOk(root))
             {
@@ -272,8 +294,15 @@ public static class SteamInstallFolders
                                     + "at the same path first.");
                 }
 
-                if (root.TryGetProperty("existing", out var existing)
-                    && existing.ValueKind == JsonValueKind.True)
+                var existing = root.TryGetProperty("existing", out var existingFlag)
+                               && existingFlag.ValueKind == JsonValueKind.True;
+                if (PartialDetail(root) is { } partial)
+                {
+                    SteamUiLog.Warn($"Steam library add finished partly: {partial}");
+                    return new SteamLibraryAddResult(SteamLibraryAddStatus.Partial, partial);
+                }
+
+                if (existing)
                 {
                     SteamUiLog.Info("Steam library already mounted at this path; adopted it.");
                     return new SteamLibraryAddResult(SteamLibraryAddStatus.AlreadyPresent, "AlreadyMounted");
@@ -283,7 +312,7 @@ public static class SteamInstallFolders
                 return new SteamLibraryAddResult(SteamLibraryAddStatus.Added, null);
             }
 
-            var message = RefusalOf(root);
+            var message = SteamClientScript.RefusalOf(root);
             if (string.Equals(message, "DriveAlreadyHasLibrary", StringComparison.Ordinal))
             {
                 return new SteamLibraryAddResult(SteamLibraryAddStatus.AlreadyPresent, message);
@@ -294,22 +323,29 @@ public static class SteamInstallFolders
         }
         catch (JsonException ex)
         {
-            return new SteamLibraryAddResult(SteamLibraryAddStatus.Unavailable, ex.Message);
+            return new SteamLibraryAddResult(SteamLibraryAddStatus.Unknown, $"Steam's reply was unreadable: {ex.Message}");
         }
     }
 
     /// <summary>Maps the relabel reply to a result.</summary>
-    /// <param name="jsonValue">The script's reply.</param>
-    internal static SteamLibraryLabelResult InterpretLabel(string? jsonValue)
+    /// <param name="result">The evaluation outcome.</param>
+    internal static SteamLibraryLabelResult InterpretLabel(SteamUiEvaluationResult result)
     {
-        if (jsonValue is null)
+        if (Unanswered(result) is { } unanswered)
         {
-            return new SteamLibraryLabelResult(SteamLibraryLabelStatus.Unavailable, "No response from Steam.");
+            return new SteamLibraryLabelResult(
+                unanswered.Sent ? SteamLibraryLabelStatus.Unknown : SteamLibraryLabelStatus.NotSent,
+                unanswered.Detail);
+        }
+
+        if (result.Error is not null)
+        {
+            return new SteamLibraryLabelResult(SteamLibraryLabelStatus.Rejected, result.Error);
         }
 
         try
         {
-            using var document = JsonDocument.Parse(jsonValue);
+            using var document = JsonDocument.Parse(result.Value!);
             var root = document.RootElement;
             if (SteamClientScript.IsOk(root))
             {
@@ -318,28 +354,36 @@ public static class SteamInstallFolders
                     null);
             }
 
-            var message = RefusalOf(root);
+            var message = SteamClientScript.RefusalOf(root);
             SteamUiLog.Warn($"Steam rejected the library relabel: {message ?? "unknown reason"}.");
             return new SteamLibraryLabelResult(SteamLibraryLabelStatus.Rejected, message);
         }
         catch (JsonException ex)
         {
-            return new SteamLibraryLabelResult(SteamLibraryLabelStatus.Unavailable, ex.Message);
+            return new SteamLibraryLabelResult(
+                SteamLibraryLabelStatus.Unknown, $"Steam's reply was unreadable: {ex.Message}");
         }
     }
 
     /// <summary>Maps the removal reply to a result.</summary>
-    /// <param name="jsonValue">The script's reply.</param>
-    internal static SteamLibraryRemoveResult InterpretRemove(string? jsonValue)
+    /// <param name="result">The evaluation outcome.</param>
+    internal static SteamLibraryRemoveResult InterpretRemove(SteamUiEvaluationResult result)
     {
-        if (jsonValue is null)
+        if (Unanswered(result) is { } unanswered)
         {
-            return new SteamLibraryRemoveResult(SteamLibraryRemoveStatus.Unavailable, "No response from Steam.");
+            return new SteamLibraryRemoveResult(
+                unanswered.Sent ? SteamLibraryRemoveStatus.Unknown : SteamLibraryRemoveStatus.NotSent,
+                unanswered.Detail);
+        }
+
+        if (result.Error is not null)
+        {
+            return new SteamLibraryRemoveResult(SteamLibraryRemoveStatus.Rejected, result.Error);
         }
 
         try
         {
-            using var document = JsonDocument.Parse(jsonValue);
+            using var document = JsonDocument.Parse(result.Value!);
             var root = document.RootElement;
             if (SteamClientScript.IsOk(root))
             {
@@ -348,35 +392,61 @@ public static class SteamInstallFolders
                     null);
             }
 
-            var message = RefusalOf(root);
+            var message = SteamClientScript.RefusalOf(root);
             SteamUiLog.Warn($"Steam rejected the library removal: {message ?? "unknown reason"}.");
             return new SteamLibraryRemoveResult(SteamLibraryRemoveStatus.Rejected, message);
         }
         catch (JsonException ex)
         {
-            return new SteamLibraryRemoveResult(SteamLibraryRemoveStatus.Unavailable, ex.Message);
+            return new SteamLibraryRemoveResult(
+                SteamLibraryRemoveStatus.Unknown, $"Steam's reply was unreadable: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    ///     The part of a reply that left no readable answer: never sent, or sent and unanswered (an
+    ///     answered null too, since the script ran). Null when there is an answer to read.
+    /// </summary>
+    private static (bool Sent, string Detail)? Unanswered(SteamUiEvaluationResult result)
+    {
+        if (result.Dispatch != SteamUiDispatch.Answered)
+        {
+            return (SteamClientScript.Unread(result.Dispatch) == SteamClientWriteOutcome.Unknown,
+                result.Error ?? "Steam did not answer.");
+        }
+
+        return result.Error is null && result.Value is null ? (true, "No response from Steam.") : null;
+    }
+
+    private static string? PartialDetail(JsonElement root)
+    {
+        var purgeFailed = root.TryGetProperty("purgeFailed", out var failed)
+                          && failed.ValueKind == JsonValueKind.Number
+                          && failed.TryGetInt32(out var count)
+            ? count
+            : 0;
+        var labelError = SteamClientScript.StringOf(root, "labelError");
+        if (purgeFailed == 0 && labelError.Length == 0)
+        {
+            return null;
+        }
+
+        var parts = new List<string>(2);
+        if (purgeFailed > 0)
+        {
+            parts.Add($"{purgeFailed} stale registration(s) at the same path could not be removed");
+        }
+
+        if (labelError.Length > 0)
+        {
+            parts.Add($"the label was not applied ({labelError})");
+        }
+
+        return string.Join("; ", parts) + ".";
     }
 
     private static bool IsAbsent(JsonElement root)
     {
         return root.TryGetProperty("absent", out var absent) && absent.ValueKind == JsonValueKind.True;
-    }
-
-    private static string? RefusalOf(JsonElement root)
-    {
-        if (root.ValueKind != JsonValueKind.Object)
-        {
-            return null;
-        }
-
-        if (root.TryGetProperty("message", out var reason) && reason.ValueKind == JsonValueKind.String)
-        {
-            return reason.GetString();
-        }
-
-        return root.TryGetProperty("result", out var resultCode)
-            ? $"EResult {resultCode.GetRawText()}"
-            : null;
     }
 }

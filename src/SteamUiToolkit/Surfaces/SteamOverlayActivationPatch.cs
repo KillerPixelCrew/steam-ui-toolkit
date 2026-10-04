@@ -2,9 +2,14 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace SteamUiToolkit.Surfaces;
+namespace SteamUiToolkit;
 
-/// <summary>Owns a bounded overlay activation subscription in the current Steam document.</summary>
+/// <summary>Owns an overlay activation subscription in the current Steam document.</summary>
+/// <remarks>
+///     One entry per game process seen in this document's life, never pruned: the document is replaced
+///     on a Steam restart. A callback whose identity is invalid is ignored, because it cannot be
+///     attributed; one whose state is not a boolean forgets that identity alone.
+/// </remarks>
 public sealed class SteamOverlayActivationPatch : ISteamUiPatch
 {
     internal const string StateKey = "__steamUiOverlayActivation";
@@ -25,16 +30,14 @@ public sealed class SteamOverlayActivationPatch : ISteamUiPatch
                                 if(previous.owner===owner)return JSON.stringify({ok:previous.live===true});
                                 previous.stop();
                               }
-                              const state={version:1,owner,live:false,events:new Map(),overflow:false,stop:null};
+                              const state={version:1,owner,live:false,events:new Map(),stop:null};
                               let handle;
                               state.stop=()=>{state.live=false;handle?.unregister();state.events.clear();};
                               handle=SteamClient.Overlay.RegisterForOverlayActivated((pid,appid,active)=>{
                                 if(!state.live)return;
-                                if(!Number.isInteger(pid)||pid<=0||!Number.isInteger(appid)||appid<0||typeof active!=='boolean'){
-                                  state.overflow=true;state.events.clear();return;
-                                }
+                                if(!Number.isInteger(pid)||pid<=0||!Number.isInteger(appid)||appid<0)return;
                                 const identity=`${pid}:${appid}`;
-                                if(!state.events.has(identity)&&state.events.size>=32){state.overflow=true;state.events.clear();return;}
+                                if(typeof active!=='boolean'){state.events.delete(identity);return;}
                                 state.events.set(identity,active);
                               });
                               if(typeof handle?.unregister!=='function')return JSON.stringify({ok:false});
@@ -57,16 +60,7 @@ public sealed class SteamOverlayActivationPatch : ISteamUiPatch
     public string Id => "steam-ui.overlay-activation";
 
     /// <inheritdoc />
-    public int Version => 1;
-
-    /// <inheritdoc />
     public SteamUiTargetRole TargetRole => SteamUiTargetRole.SharedJsContext;
-
-    /// <inheritdoc />
-    public string ResourceKey => Id;
-
-    /// <inheritdoc />
-    public SteamUiPatchBounds Bounds => SteamUiPatchBounds.Default;
 
     /// <inheritdoc />
     public async Task<SteamUiPatchProbeResult> ProbeAsync(SteamUiPatchContext context,
@@ -75,9 +69,9 @@ public sealed class SteamOverlayActivationPatch : ISteamUiPatch
         var result = await context.EvaluateAsync(TargetRole,
             "JSON.stringify({ok:typeof SteamClient?.Overlay?.RegisterForOverlayActivated==='function'})",
             cancellationToken).ConfigureAwait(false);
-        var supported = result.Reachable && result.Value is not null &&
+        var supported = result.Answered && result.Value is not null &&
                         SteamUiPatchEvaluation.IsSuccessful(result.Value);
-        return new SteamUiPatchProbeResult(result.Reachable, supported, supported,
+        return new SteamUiPatchProbeResult(result.Answered, supported,
             supported ? "overlay-activation-v1" : null, result.Error);
     }
 
