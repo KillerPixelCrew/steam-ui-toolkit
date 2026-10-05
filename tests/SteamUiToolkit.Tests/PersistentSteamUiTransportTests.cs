@@ -218,7 +218,7 @@ public sealed class PersistentSteamUiTransportTests
         // 2026-09-26, until Steam restarted its own helper.
         var factory = new ResponsiveWireFactory { SilenceEvaluations = true };
         await using var transport = new PersistentSteamUiTransport(
-            new FixtureDiscovery(), factory);
+            new FixtureDiscovery(), factory, [TimeSpan.FromMilliseconds(10)]);
         await using var subscription = await transport.SubscribeAsync(
             SteamUiTargetRole.SharedJsContext);
 
@@ -231,7 +231,6 @@ public sealed class PersistentSteamUiTransportTests
             Assert.Equal(SteamUiDispatch.Unanswered, result.Dispatch);
         }
 
-        // The rebuild waits out the first reconnect delay, which is longer than the default wait.
         await TestJson.WaitUntilAsync(
             () =>
             {
@@ -239,8 +238,7 @@ public sealed class PersistentSteamUiTransportTests
                 {
                     return factory.Wires.Count > 1;
                 }
-            },
-            TimeSpan.FromSeconds(10));
+            });
     }
 
     [Fact]

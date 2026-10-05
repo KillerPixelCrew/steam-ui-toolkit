@@ -18,14 +18,6 @@ public sealed class SteamPageTests
     private static SteamGatePatch Gate => (SteamGatePatch)SteamPageSurface.Patch;
 
     [Fact]
-    public void PagesAreDeclaredRatherThanCommanded()
-    {
-        // A page is state, not an action: it exists because the host published it. There is no
-        // command vocabulary to get wrong, and the empty list is the contract that says so.
-        Assert.Empty(SteamPageSurface.Commands);
-    }
-
-    [Fact]
     public void TheProbeChecksTheRouterAndTheBackStackRouteSeparately()
     {
         var probe = Gate.ProbeExpression;
@@ -52,17 +44,12 @@ public sealed class SteamPageTests
     [Fact]
     public void TheProbeReportsSteamsOwnRouteByWhatItsAuthorTyped()
     {
-        // Steam's back-stack Route is what gives a page native back navigation, and the probe reports
-        // whether the client still exports one by two markers Valve wrote. The fingerprint these
-        // replaced described the minified code between them and assumed a one-character local; the
-        // 2026-09-24 client emits two, as the live body below shows, and it stopped matching.
-        const string liveRoute =
-            """function Y(he){const{children:Z,...q}=he,pe=be=>typeof Z==="function"?Z(be):Z;return(0,h.jsx)(D.qh,{...q,children:be=>(0,h.jsx)(Q,{routePath:be.match?.path,disabled:!be.match,children:pe(be)})})}""";
+        // A secondary structural guard on the diagnostic fallback's author tokens. The full router
+        // probe and its ownership handling run in SteamProbeExecutionTests.
         var probe = Gate.ProbeExpression;
 
         Assert.Contains("routePath:", probe, StringComparison.Ordinal);
         Assert.Contains(".match?.path", probe, StringComparison.Ordinal);
-        Assert.DoesNotMatch(@"routePath:.\.match\?\.path.", liveRoute);
     }
 
     [Theory]

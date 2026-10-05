@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Runtime.CompilerServices;
 
 namespace SteamUiToolkit.Tests.Fakes;
 
@@ -13,12 +14,21 @@ internal static class TestJson
     }
 
     /// <summary>Polls until <paramref name="predicate" /> holds, failing after one second unless told otherwise.</summary>
-    internal static async Task WaitUntilAsync(Func<bool> predicate, TimeSpan? limit = null)
+    internal static async Task WaitUntilAsync(Func<bool> predicate, TimeSpan? limit = null,
+        [CallerArgumentExpression(nameof(predicate))] string? condition = null)
     {
-        using var timeout = new CancellationTokenSource(limit ?? TimeSpan.FromSeconds(1));
-        while (!predicate())
+        var budget = limit ?? TimeSpan.FromSeconds(1);
+        using var timeout = new CancellationTokenSource(budget);
+        try
         {
-            await Task.Delay(10, timeout.Token);
+            while (!predicate())
+            {
+                await Task.Delay(10, timeout.Token);
+            }
+        }
+        catch (OperationCanceledException error) when (timeout.IsCancellationRequested)
+        {
+            throw new TimeoutException($"Timed out after {budget} waiting for {condition}.", error);
         }
     }
 }

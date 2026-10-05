@@ -24,7 +24,7 @@ function createPerfNamespace() {
     const decodeSettingsUpdate = (payload) => {
         if (typeof payload !== "string") {
             const decoded = payload?.toObject?.() ?? payload;
-            if (decoded && typeof decoded === "object") return decoded;
+            if (decoded && typeof decoded === "object" && !Array.isArray(decoded)) return decoded;
             lastError = "settings update could not be decoded: not a message";
             return null;
         }
@@ -41,7 +41,10 @@ function createPerfNamespace() {
                 bytes[index] = binary.charCodeAt(index);
             }
 
-            return constructor.deserializeBinary(bytes).toObject();
+            const decoded = constructor.deserializeBinary(bytes).toObject();
+            if (decoded && typeof decoded === "object" && !Array.isArray(decoded)) return decoded;
+            lastError = "settings update could not be decoded: not a message";
+            return null;
         } catch (error) {
             lastError = "settings update could not be decoded: " + String(error);
             return null;
@@ -51,18 +54,22 @@ function createPerfNamespace() {
     // The four fields the gate writes, as Steam's store held them before the first publication:
     // presence and value, so removal hands back exactly that rather than an invented empty state.
     const DisplacedFields = ["limits", "settings", "current_game_id", "active_profile_game_id"];
-    let displaced: { field: string, present: boolean, value: unknown }[] | null = null;
+    let displaced: { field: string; present: boolean; value: unknown }[] | null = null;
+    let displacedTarget: any = null;
 
     const onState = (state) => {
         if (!installed || !state) return;
         const target = store();
         if (!target || !target.m_msgState) return;
         try {
-            displaced ??= DisplacedFields.map((field) => ({
-                field,
-                present: Object.hasOwn(target.m_msgState, field),
-                value: target.m_msgState[field],
-            }));
+            if (!displaced) {
+                displacedTarget = target.m_msgState;
+                displaced = DisplacedFields.map((field) => ({
+                    field,
+                    present: Object.hasOwn(displacedTarget, field),
+                    value: displacedTarget[field],
+                }));
+            }
             target.m_msgState.limits = state.limits ?? {};
             target.m_msgState.settings = {
                 global: state.global ?? {},
@@ -79,16 +86,16 @@ function createPerfNamespace() {
     };
 
     const install = () => {
-        if (installed) return {ok: true, alreadyInstalled: true};
+        if (installed) return { ok: true, alreadyInstalled: true };
         const system = window.SteamClient?.System;
         if (!system) {
             lastError = "SteamClient.System unavailable";
-            return {ok: false, error: lastError};
+            return { ok: false, error: lastError };
         }
 
         if (!store()) {
             lastError = "SystemPerfStore unavailable";
-            return {ok: false, error: lastError};
+            return { ok: false, error: lastError };
         }
 
         // Every setter builds a protobuf delta and hands it to UpdateSettings, so that one method is
@@ -106,15 +113,13 @@ function createPerfNamespace() {
             UpdateSettings: (payload) => {
                 const delta = decodeSettingsUpdate(payload);
                 if (delta === null) return Promise.reject(new Error(lastError));
-                return request(patchId, "updateSettings", {delta}, 0);
+                return request(patchId, "updateSettings", { delta }, 0);
             },
             RegisterForStateChanges: () => ({
-                unregister: () => {
-                }
+                unregister: () => {},
             }),
             RegisterForDiagnosticInfoChanges: () => ({
-                unregister: () => {
-                }
+                unregister: () => {},
             }),
         });
 
@@ -125,17 +130,17 @@ function createPerfNamespace() {
         const supplied = supplyNamespace(system, "Perf", ownedMarker, buildApi);
         if (!supplied.ok) {
             lastError = supplied.error;
-            return {ok: false, error: lastError};
+            return { ok: false, error: lastError };
         }
 
         installed = true;
         lastError = "";
         unsubscribe = subscribe(patchId, onState);
-        return {ok: true, installed: true};
+        return { ok: true, installed: true };
     };
 
     const remove = () => {
-        if (!installed) return {ok: true, absent: true};
+        if (!installed) return { ok: true, absent: true };
 
         // Marker-checked, which this path was not: it deleted whatever was at System.Perf, so a real
         // backend appearing under a still-installed gate would have been removed by the host's own
@@ -144,28 +149,28 @@ function createPerfNamespace() {
         const withdrawn = withdrawNamespace(window.SteamClient?.System, "Perf", ownedMarker);
         if (!withdrawn.ok) {
             lastError = withdrawn.error ?? "perf namespace withdrawal failed";
-            return {ok: false, error: lastError};
+            return { ok: false, error: lastError };
         }
-
-        installed = false;
-        unsubscribe = endSubscription(unsubscribe);
 
         // Back to what the store held before the first publication, so every control returns to
         // rendering what it did before the host answered rather than keeping the host's last answer.
-        const target = store();
-        if (target?.m_msgState && displaced) {
+        if (displacedTarget && displaced) {
             try {
-                for (const {field, present, value} of displaced) {
-                    if (present) target.m_msgState[field] = value;
-                    else delete target.m_msgState[field];
+                for (const { field, present, value } of displaced) {
+                    if (present) displacedTarget[field] = value;
+                    else delete displacedTarget[field];
                 }
             } catch (error) {
-                lastError = String(error);
+                lastError = "perf state restoration failed: " + String(error);
+                return { ok: false, error: lastError };
             }
         }
+        installed = false;
+        unsubscribe = endSubscription(unsubscribe);
         displaced = null;
+        displacedTarget = null;
 
-        return {ok: true, removed: true};
+        return { ok: true, removed: true };
     };
 
     const status = () => {
@@ -182,7 +187,7 @@ function createPerfNamespace() {
         };
     };
 
-    return {install, remove, status};
+    return { install, remove, status };
 }
 
 registerGate("perf", createPerfNamespace());

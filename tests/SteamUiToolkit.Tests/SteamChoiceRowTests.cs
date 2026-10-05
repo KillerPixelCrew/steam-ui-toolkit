@@ -134,7 +134,7 @@ public sealed class SteamChoiceRowTests
                     backend),
                 SteamCpuBoostRow.PatchId,
                 "setCpuBoost",
-                "boost",
+                "cpu boost",
                 "The processor boost payload is invalid."),
             _ => (
                 SteamHybridCoreRow.Module(

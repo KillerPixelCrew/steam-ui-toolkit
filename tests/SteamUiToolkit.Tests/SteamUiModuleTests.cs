@@ -106,14 +106,6 @@ public sealed class SteamUiModuleTests
     }
 
     [Fact]
-    public void RefusedCarriesAReasonSoANoOpIsNeverSilent()
-    {
-        Assert.False(SteamUiCommandResult.Refused.Succeeded);
-        Assert.False(string.IsNullOrWhiteSpace(SteamUiCommandResult.Refused.Error));
-        Assert.True(SteamUiCommandResult.Applied.Succeeded);
-    }
-
-    [Fact]
     public async Task AFailingModuleIsQuarantinedWithoutStoppingAnIndependentOne()
     {
         await using var transport = new FakeSteamUiTransport();

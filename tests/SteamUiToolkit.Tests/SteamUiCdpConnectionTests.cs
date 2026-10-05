@@ -1,7 +1,38 @@
+using System.Text.Json;
+
 namespace SteamUiToolkit.Tests;
 
 public sealed class SteamUiCdpConnectionTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task JavaScriptAndProtocolErrorsKeepTheFullDetail(bool protocol)
+    {
+        var detail = new string('x', 5000) + " the useful tail";
+        var wire = new QueueWire();
+        wire.Sent = request =>
+        {
+            var id = QueueWire.RequestId(request);
+            wire.Enqueue(protocol
+                ? JsonSerializer.Serialize(new { id, error = new { message = detail } })
+                : JsonSerializer.Serialize(new { id, result = new { exceptionDetails = new { text = detail } } }));
+        };
+        await using var connection = new SteamUiCdpConnection(wire, (_, _) => { }, (_, _) => { });
+        connection.Start();
+        if (protocol)
+        {
+            var error = await Assert.ThrowsAsync<InvalidDataException>(() =>
+                connection.EvaluateAsync("throw Error()", TimeSpan.FromSeconds(1), CancellationToken.None));
+            Assert.Contains(detail, error.Message, StringComparison.Ordinal);
+        }
+        else
+        {
+            var (_, error) = await connection.EvaluateAsync("throw Error()", TimeSpan.FromSeconds(1), CancellationToken.None);
+            Assert.Contains(detail, error, StringComparison.Ordinal);
+        }
+    }
+
     private const string ConsoleNotification =
         "{\"method\":\"Runtime.consoleAPICalled\",\"params\":{}}";
 

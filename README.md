@@ -8,6 +8,10 @@ Add, hide and revive elements in Steam's Big Picture front end, from .NET. This 
 orientation and the how-to. The contract, with every limit, state and log key, is in
 [`docs/reference.md`](docs/reference.md).
 
+Patch results retain full page diagnostics; log lines bound their diagnostic text separately. The
+reference's [script API](docs/reference.md#script-api-for-consumer-fragments) lists the helpers
+consumer fragments may use, including the shared settings drafts.
+
 > **Very early. Expect it to change under you.** This was extracted from one application and has one
 > consumer. Names, shapes and whole types are still moving, and the API will break without
 > deprecation cycles. Pin an exact version, read the commit log before bumping, and expect to fix
@@ -87,8 +91,8 @@ described by `SteamSettingsRowKind`; `docs/reference.md` lists what each kind dr
 of Valve's Steam Input badge in the tile's icon row: the name of the library holding the game, green
 when the game is installed and grey when it is not. Publish `SteamLibraryBadgeState` with every
 library and its app ids, each by the name the host gives it; a game in none of them gets no badge.
-The claim is on the tile memo's `type`, so Home's carousel and the library grid are
-covered by one claim, and the badge shows exactly when Valve shows the icon row. Implement
+The claim is on the tile memo's `type`, so Home's carousel and the library grid are covered by one
+claim, and the badge shows exactly when Valve shows the icon row. Implement
 `ISteamLibraryBadgeBackend` to hear `homeLayout`, which reports Steam's own Big Art Mode setting
 when the gate resolves it and whenever a tile render sees it change.
 
@@ -148,9 +152,9 @@ keeps one Windows implementation behind both Steam's pages and your own.
 stable ids, display labels and observed state through `SteamPowerProfileState`, and implement
 `ISteamPowerProfileBackend` to validate and apply selections. **`SteamPowerPresetRow.Module`** adds
 independent AC and battery assignments with `SteamPowerPresetState` and `ISteamPowerPresetBackend`.
-The active preset is read-only. An option published with `Selectable = false` is displayed only in
-a dropdown whose current value it is and never sent as a selection command. Empty preset options
-hide those controls. The toolkit does not change OS power settings itself.
+The active preset is read-only. An option published with `Selectable = false` is displayed only in a
+dropdown whose current value it is and never sent as a selection command. Empty preset options hide
+those controls. The toolkit does not change OS power settings itself.
 
 The host lays the rows out: `SteamQuickAccessLayoutSurface` publishes the sections of each Quick
 Access tab, their titles, glyphs and folds, which row kinds each holds, whether Steam's own FPS rows
@@ -160,13 +164,13 @@ draw in one untitled group.
 ## Reading and driving the client
 
 Beyond changing the front-end, the library reads and drives the running client through one
-`SteamClient` composed over your transport: app details, launch options and custom artwork
-(`Apps`), library folders (`InstallFolders`), the download queue (`Downloads`), collections
-(`Collections`), games and store tags (`Library`), the game page in view (`CurrentPage`), Steam's
-startup movie choice (`StartupMovie`) and the apps Steam is running (`RunningApps`). These are
-one-shot calls over the same transport. A write reports whether it was never sent, may have run
-(`Unknown`), was refused or was applied, and a read says whether Steam answered, because "Steam was
-never reached" and "Steam refused" call for different things.
+`SteamClient` composed over your transport: app details, launch options and custom artwork (`Apps`),
+library folders (`InstallFolders`), the download queue (`Downloads`), collections (`Collections`),
+games and store tags (`Library`), the game page in view (`CurrentPage`), Steam's startup movie
+choice (`StartupMovie`) and the apps Steam is running (`RunningApps`). These are one-shot calls over
+the same transport. A write reports whether it was never sent, may have run (`Unknown`), was refused
+or was applied, and a read says whether Steam answered, because "Steam was never reached" and "Steam
+refused" call for different things.
 
 **`SteamClient.RunningApps`** keeps the running set current from Steam's own lifetime notifications,
 so an application can tell which games Steam is running without watching processes.
@@ -344,8 +348,8 @@ A surface's patch id and command vocabulary are constants on it (`PatchId`, `Com
 module set derives the bridge's exact state and command vocabulary from every module you register,
 so pass `SteamUiModuleSet.AllowedCommands` to `SteamUiBridgeHost`. Modules that come and go while
 you run, such as a plugin's, go through `SteamUiModuleRuntime.ReplaceModulesAsync`, which keeps the
-bridge's vocabulary in step; set the added patches' switches and queue a synchronization after it.
-A surface you do not register installs nothing, and its Valve UI stays exactly as the client ships it.
+bridge's vocabulary in step; set the added patches' switches and queue a synchronization after it. A
+surface you do not register installs nothing, and its Valve UI stays exactly as the client ships it.
 
 A surface of your own is a fragment that calls `registerGate(name, gate)` plus a patch that reaches
 it through `window[namespace].gate(name)`, declared in a module like any other.

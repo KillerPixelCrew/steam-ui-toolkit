@@ -459,7 +459,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
                 return (false, ready
                     ? "Steam UI generation or command vocabulary changed during the bootstrap."
                     : "Steam UI bridge bootstrap was refused: "
-                      + (SteamUiPatchEvaluation.Bounded(result.Value) ?? "no answer"));
+                      + (result.Value ?? "no answer"));
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -732,7 +732,8 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             {
                 SteamUiLog.Warn(
                     "Steam UI bridge namespace removal was not confirmed: "
-                    + (SteamUiPatchEvaluation.Bounded(removed.Value) ?? removed.Error ?? "no answer"));
+                    + SteamUiShared.Bound(removed.Value ?? removed.Error ?? "no answer",
+                        SteamUiShared.MaximumDiagnosticLength));
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

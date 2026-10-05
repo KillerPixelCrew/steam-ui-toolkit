@@ -11,88 +11,105 @@ namespace SteamUiToolkit.Tests;
 public sealed class SteamSurfaceModuleTests
 {
     [Fact]
-    public void EverySurfaceDeclaresExactlyTheCommandsItsModuleAnswers()
+    public void EveryPublicSurfaceBuildsTogetherAndDeclaresItsRegisteredCommands()
     {
-        RecordingBackend backend = new();
-        SteamUiModuleSet set = new(
-        [
-            SteamAudioSurface.Module(Always, () => new ValueTask<SteamAudioState?>(null as SteamAudioState), backend),
-            SteamSettingsQuickAccessRow.Module(Always,
-                () => new ValueTask<SteamSettingsQuickAccessState?>(null as SteamSettingsQuickAccessState), backend),
-            SteamAudioFormatRow.Module(Always,
-                () => new ValueTask<SteamAudioFormatState?>(null as SteamAudioFormatState), backend),
-            SteamNetworkSurface.Module(Always, () => new ValueTask<SteamNetworkState?>(null as SteamNetworkState),
-                backend),
-            SteamBluetoothSurface.Module(Always, () => new ValueTask<SteamBluetoothState?>(null as SteamBluetoothState),
-                backend),
-            SteamBrightnessSurface.Module(Always,
-                () => new ValueTask<SteamBrightnessState?>(null as SteamBrightnessState), backend),
-            SteamPowerLimitSurface.Module(Always,
-                () => new ValueTask<SteamPowerLimitState?>(null as SteamPowerLimitState), backend),
-            SteamPerformanceSurface.Module(Always,
-                () => new ValueTask<SteamPerformanceState?>(null as SteamPerformanceState), backend),
-            SteamFrameLimitRow.Module(Always, () => new ValueTask<SteamFrameLimitState?>(null as SteamFrameLimitState),
-                backend),
-            SteamVariableRefreshRow.Module(Always,
-                () => new ValueTask<SteamVariableRefreshState?>(null as SteamVariableRefreshState), backend),
-            SteamResolutionRow.Module(Always, () => new ValueTask<SteamResolutionState?>(null as SteamResolutionState),
-                backend),
-            SteamAutoTdpRow.Module(Always, () => new ValueTask<SteamAutoTdpState?>(null as SteamAutoTdpState), backend),
-            SteamControllerTargetRow.Module(Always,
-                () => new ValueTask<SteamControllerTargetState?>(null as SteamControllerTargetState), backend),
-            SteamDeviceControlsRow.Module(Always,
-                () => new ValueTask<SteamDeviceControlsState?>(null as SteamDeviceControlsState), backend),
-            SteamNavigationPanelSurface.Module(Always,
-                () => new ValueTask<SteamNavigationPanelState?>(null as SteamNavigationPanelState), backend),
-            SteamLibraryBadgeSurface.Module(Always,
-                () => new ValueTask<SteamLibraryBadgeState?>(null as SteamLibraryBadgeState), backend),
-            SteamHomeCarouselSurface.Module(Always,
-                () => new ValueTask<SteamHomeCarouselState?>(null as SteamHomeCarouselState), backend),
-            SteamPowerProfileRow.Module(Always,
-                () => new ValueTask<SteamPowerProfileState?>(null as SteamPowerProfileState), backend),
-            SteamPowerPresetRow.Module(Always,
-                () => new ValueTask<SteamPowerPresetState?>(null as SteamPowerPresetState), backend),
-            SteamHybridCoreRow.Module(Always, () => new ValueTask<SteamHybridCoreState?>(null as SteamHybridCoreState),
-                backend),
-            SteamCpuBoostRow.Module(Always, () => new ValueTask<SteamCpuBoostState?>(null as SteamCpuBoostState),
-                backend)
-        ]);
+        var backend = new RecordingBackend();
+        var surfaces = BuildSurfaces(backend);
+        var set = new SteamUiModuleSet(surfaces.Select(surface => surface.Module).ToArray());
+        foreach (var (type, module) in surfaces)
+        {
+            var declared = type.GetProperty("Commands")?.GetValue(null) as IReadOnlyList<string>;
+            var handlers = module.Commands.Select(command => command.Command).ToArray();
+            if (handlers.Length > 0)
+            {
+                Assert.NotNull(declared);
+            }
 
-        Assert.Equal(SteamAudioSurface.Commands, set.AllowedCommands[SteamAudioSurface.PatchId]);
-        Assert.Equal(SteamSettingsQuickAccessRow.Commands, set.AllowedCommands[SteamSettingsQuickAccessRow.PatchId]);
-        Assert.Equal(SteamAudioFormatRow.Commands, set.AllowedCommands[SteamAudioFormatRow.PatchId]);
-        Assert.Equal(SteamNetworkSurface.Commands, set.AllowedCommands[SteamNetworkSurface.PatchId]);
-        Assert.Equal(SteamBluetoothSurface.Commands, set.AllowedCommands[SteamBluetoothSurface.PatchId]);
-        Assert.Equal(SteamBrightnessSurface.Commands, set.AllowedCommands[SteamBrightnessSurface.PatchId]);
-        Assert.Equal(SteamPowerLimitSurface.Commands, set.AllowedCommands[SteamPowerLimitSurface.PatchId]);
-        Assert.Equal(SteamPerformanceSurface.Commands, set.AllowedCommands[SteamPerformanceSurface.PatchId]);
-        Assert.Equal(SteamFrameLimitRow.Commands, set.AllowedCommands[SteamFrameLimitRow.PatchId]);
-        Assert.Equal(SteamVariableRefreshRow.Commands, set.AllowedCommands[SteamVariableRefreshRow.PatchId]);
-        Assert.Equal(SteamResolutionRow.Commands, set.AllowedCommands[SteamResolutionRow.PatchId]);
-        Assert.Equal(SteamAutoTdpRow.Commands, set.AllowedCommands[SteamAutoTdpRow.PatchId]);
-        Assert.Equal(SteamControllerTargetRow.Commands, set.AllowedCommands[SteamControllerTargetRow.PatchId]);
-        Assert.Equal(SteamDeviceControlsRow.Commands, set.AllowedCommands[SteamDeviceControlsRow.PatchId]);
-        Assert.Equal(
-            SteamNavigationPanelSurface.Commands,
-            set.AllowedCommands[SteamNavigationPanelSurface.PatchId]);
-        Assert.Equal(
-            SteamLibraryBadgeSurface.Commands,
-            set.AllowedCommands[SteamLibraryBadgeSurface.PatchId]);
-        Assert.Equal(
-            SteamHomeCarouselSurface.Commands,
-            set.AllowedCommands[SteamHomeCarouselSurface.PatchId]);
-        Assert.Equal(SteamPowerProfileRow.Commands, set.AllowedCommands[SteamPowerProfileRow.PatchId]);
-        Assert.Equal(SteamPowerPresetRow.Commands, set.AllowedCommands[SteamPowerPresetRow.PatchId]);
-        Assert.Equal(SteamHybridCoreRow.Commands, set.AllowedCommands[SteamHybridCoreRow.PatchId]);
-        Assert.Equal(SteamCpuBoostRow.Commands, set.AllowedCommands[SteamCpuBoostRow.PatchId]);
+            Assert.Equal(declared ?? [], handlers);
+            foreach (var handler in module.Commands)
+            {
+                Assert.True(set.TryGetCommand(handler.PatchId, handler.Command, out _), type.Name);
+            }
+        }
 
-        // The core-preference row owns one command, and it is not the power-profile row's.
-        Assert.NotEqual(SteamHybridCoreRow.PatchId, SteamPowerProfileRow.PatchId);
-        Assert.False(set.TryGetCommand(SteamHybridCoreRow.PatchId, "setPowerProfile", out _));
+        Assert.Empty(backend.Calls);
+    }
 
-        // The full set registers together without an identity collision, which is what a consumer
-        // declaring every surface at once relies on.
-        Assert.Equal(21, set.Modules.Count);
+    internal static (Type Type, ISteamUiModule Module)[] BuildSurfaces(RecordingBackend backend)
+    {
+        return typeof(SteamAudioSurface).Assembly.GetExportedTypes()
+            .Where(type => type.IsAbstract && type.IsSealed && type.GetField("PatchId") is not null)
+            .Select(type => (Type: type, Factory: type.GetMethod("Module", System.Reflection.BindingFlags.Public
+                | System.Reflection.BindingFlags.Static)))
+            .Where(surface => surface.Factory?.ReturnType == typeof(ISteamUiModule))
+            .OrderBy(surface => surface.Type.Name, StringComparer.Ordinal)
+            .Select(surface =>
+            {
+                var arguments = surface.Factory!.GetParameters().Select(parameter =>
+                {
+                    var type = parameter.ParameterType;
+                    if (type.IsInstanceOfType(backend))
+                    {
+                        return (object)backend;
+                    }
+
+                    if (parameter.HasDefaultValue)
+                    {
+                        return parameter.DefaultValue;
+                    }
+
+                    if (type == typeof(Func<bool>))
+                    {
+                        return (Func<bool>)Always;
+                    }
+
+                    Assert.True(typeof(Delegate).IsAssignableFrom(type),
+                        $"Supply {surface.Type.Name}.{parameter.Name} ({type}) to the surface fixture.");
+                    var result = type.GetMethod("Invoke")!.ReturnType;
+                    return System.Linq.Expressions.Expression.Lambda(type,
+                        System.Linq.Expressions.Expression.Default(result)).Compile();
+                }).ToArray();
+                return (surface.Type, (ISteamUiModule)surface.Factory.Invoke(null, arguments)!);
+            }).ToArray();
+    }
+
+    [Fact]
+    public void RegisteredHandlersControlAuthorizationWhenCommandsAreAddedOrRemoved()
+    {
+        var surfaces = BuildSurfaces(new RecordingBackend());
+        Assert.NotEmpty(surfaces);
+        var generations = new SteamUiGenerations(1, 2, 3, 4, 5, 6);
+        foreach (var (type, module) in surfaces)
+        {
+            var registered = new SteamUiModuleSet([module]);
+            foreach (var handler in module.Commands)
+            {
+                var request = new SteamUiBridgeRequest(SteamUiBridgeHost.SchemaVersion, "request",
+                    handler.PatchId, handler.Command, 1, 1, generations.ExecutionContext, generations.Document,
+                    TestJson.Parse("null"));
+                Assert.True(new SteamUiBridgeAuthorizer(generations, registered.AllowedCommands)
+                    .Authorize(request).Accepted, type.Name + "/" + handler.Command);
+
+                // Keep the surface's public Commands property unchanged. Removing a registered handler
+                // must revoke the command on the bridge regardless of that descriptive property.
+                var reduced = new SteamUiModuleSet([new SteamUiModule(module.Id, module.Patches,
+                    module.Publications, module.Commands.Where(command => command != handler).ToArray())]);
+                Assert.False(new SteamUiBridgeAuthorizer(generations, reduced.AllowedCommands)
+                    .Authorize(request).Accepted, type.Name + "/" + handler.Command);
+            }
+
+            var patchId = (string)type.GetField("PatchId")!.GetValue(null)!;
+            var added = new SteamUiCommandHandler(patchId, "fixtureCommand",
+                (_, _) => Task.FromResult(SteamUiCommandResult.Applied));
+            var expanded = new SteamUiModuleSet([new SteamUiModule(module.Id, module.Patches,
+                module.Publications, [.. module.Commands, added])]);
+            var extra = new SteamUiBridgeRequest(SteamUiBridgeHost.SchemaVersion, "request", patchId,
+                added.Command, 1, 1, generations.ExecutionContext, generations.Document, TestJson.Parse("null"));
+            Assert.False(new SteamUiBridgeAuthorizer(generations, registered.AllowedCommands)
+                .Authorize(extra).Accepted, type.Name);
+            Assert.True(new SteamUiBridgeAuthorizer(generations, expanded.AllowedCommands)
+                .Authorize(extra).Accepted, type.Name);
+        }
     }
 
     [Fact]
@@ -234,7 +251,7 @@ public sealed class SteamSurfaceModuleTests
         var boosted = await DispatchAsync(
             set, SteamPowerLimitSurface.PatchId, "setBoostLimit", """{"watts":30}""");
         Assert.True(boosted.Succeeded);
-        Assert.Equal(["limit 15", "boost 30"], backend.Calls);
+        Assert.Equal(["limit 15", "boost power 30"], backend.Calls);
     }
 
     [Theory]

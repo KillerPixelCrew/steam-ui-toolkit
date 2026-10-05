@@ -166,22 +166,26 @@ public static class SteamStorageSurface
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
         "storage",
-        "steam-ui-storage-v2:unique-service+unique-transport-module",
-        // Source text only. The probe runs on every synchronization and never calls an export of
-        // the transport module: invoking unidentified exports is what has restarted a machine and
-        // signed Steam out. Whether the transport can be claimed is the gate's install to answer,
-        // and it reports failure through its install result.
+        "steam-ui-storage-v3:unique-service+unique-singleton-accessor",
+        // Inspect the known module's exports with the gate's exact structural selector. The probe
+        // never calls the provider accessor or GetDefaultTransport. Claimability stays at install.
         $$"""
           {{SteamUiProbeJs.Preamble("steam_ui_storage_probe_")}}
+            const service=count(['StorageDeviceManager.IsServiceAvailable#1']);
+            const selection=service===1?req.storageProvider():{
+              transportModule:count(['GetDefaultTransport','m_transport']),provider:0
+            };
             return JSON.stringify({
-              service:count(['StorageDeviceManager.IsServiceAvailable#1']),
-              transportModule:count(['GetDefaultTransport','m_transport'])
+              service,
+              transportModule:selection.transportModule,
+              provider:selection.provider
             });
           {{SteamUiProbeJs.Close}}
           """,
         root =>
             SteamUiPatchEvaluation.IsOne(root, "service")
-            && SteamUiPatchEvaluation.IsOne(root, "transportModule"),
+            && SteamUiPatchEvaluation.IsOne(root, "transportModule")
+            && SteamUiPatchEvaluation.IsOne(root, "provider"),
         "status.installed&&status.resolved&&status.claimed",
         "!status.claimed",
         "Storage service gate");

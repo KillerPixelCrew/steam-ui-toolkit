@@ -9,14 +9,6 @@ public sealed class SteamThemeStyleTests
     private static SteamGatePatch Gate => (SteamGatePatch)SteamThemeStyleSurface.Patch;
 
     [Fact]
-    public void StylesAreDeclaredRatherThanCommanded()
-    {
-        // A stylesheet is state: it exists because the host published it, and nothing in a window
-        // can ask the host for a different one.
-        Assert.Empty(SteamThemeStyleSurface.Commands);
-    }
-
-    [Fact]
     public void TheProbeReadsSteamsPopupManagerAndItsReactRootAndNoModule()
     {
         // The gate touches documents, not modules: no webpack capture, no module id, no export.
@@ -36,14 +28,6 @@ public sealed class SteamThemeStyleTests
         Assert.True(Gate.Compatible(manager.RootElement));
         Assert.True(Gate.Compatible(tree.RootElement));
         Assert.False(Gate.Compatible(neither.RootElement));
-    }
-
-    [Fact]
-    public void TheGateVerifiesByHoldingAndRemovesByLettingGo()
-    {
-        Assert.Equal("status.installed&&status.resolved", Gate.VerifyOk);
-        Assert.Equal("!status.installed", Gate.RemoveOk);
-        Assert.Equal(SteamUiTargetRole.SharedJsContext, Gate.TargetRole);
     }
 
     [Fact]

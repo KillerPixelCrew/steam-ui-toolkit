@@ -108,6 +108,6 @@ public sealed class SteamNavigationPanelTests
 
         Assert.True(applied.Succeeded);
         Assert.Equal("The navigation activation payload is invalid.", refused.Error);
-        Assert.Equal(["activate wsgm-overlay"], backend.Calls);
+        Assert.Equal(["navigation wsgm-overlay"], backend.Calls);
     }
 }

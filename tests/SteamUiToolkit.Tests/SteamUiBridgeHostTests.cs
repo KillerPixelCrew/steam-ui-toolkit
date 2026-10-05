@@ -42,16 +42,25 @@ public sealed class SteamUiBridgeHostTests
     {
         await using var transport = new FakeSteamUiTransport();
         await using var host = new SteamUiBridgeHost(transport, TestAsset, TestVocabulary);
-        var received = 0;
-        host.RequestReceived += (_, _) => received++;
+        var received = new List<long>();
+        var sentinel = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        host.RequestReceived += (_, request) =>
+        {
+            received.Add(request.Sequence);
+            sentinel.TrySetResult();
+        };
         Assert.True(await host.BootstrapAsync());
 
         transport.EmitRawParameters("[");
+        transport.EmitRawParameters("[]");
+        transport.EmitRawParameters("{\"name\":123,\"payload\":\"{}\"}");
         transport.EmitBindingPayload("{");
         transport.EmitRawParameters("{\"name\":\"somebody-elses-binding\",\"payload\":\"{}\"}");
         transport.EmitRawParameters("{\"name\":\"__steamUiBridge_v1_7b24d11c\"}");
 
-        Assert.Equal(0, received);
+        transport.EmitBindingPayload(RequestJson(transport.Generations, 1, 1));
+        await sentinel.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.Equal([1L], received);
     }
 
     [Fact]

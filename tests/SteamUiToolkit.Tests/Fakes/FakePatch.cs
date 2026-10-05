@@ -13,6 +13,8 @@ internal sealed class FakePatch(string id = "fixture.patch") : ISteamUiPatch
 
     internal bool ThrowOnApply { get; init; }
 
+    internal bool Mutated { get; private set; }
+
     internal bool BlockVerification { get; init; }
 
     internal bool VerifySucceeds { get; init; } = true;
@@ -63,6 +65,7 @@ internal sealed class FakePatch(string id = "fixture.patch") : ISteamUiPatch
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        Mutated = true;
         if (ThrowOnApply)
         {
             throw new InvalidOperationException("fixture apply failure");
@@ -97,6 +100,11 @@ internal sealed class FakePatch(string id = "fixture.patch") : ISteamUiPatch
         Interlocked.Increment(ref _removeCalls);
         RemoveStarted.TrySetResult();
         await DelayAsync(cancellationToken);
+        if (RemoveSucceeds)
+        {
+            Mutated = false;
+        }
+
         return new SteamUiPatchOperationResult(
             RemoveSucceeds,
             RemoveSucceeds ? null : "removal unverified");

@@ -17,16 +17,6 @@ public sealed class SteamPanelFoldsTests
     }
 
     [Fact]
-    public void TheSurfaceMountsNothingAndAnswersOneCommand()
-    {
-        var module = SteamPanelFoldsSurface.Module(
-            Always, () => new ValueTask<SteamPanelFoldsState?>(null as SteamPanelFoldsState), new RecordingBackend());
-
-        Assert.Empty(module.Patches);
-        Assert.Equal(["setFolded"], SteamPanelFoldsSurface.Commands);
-    }
-
-    [Fact]
     public async Task AFoldCarriesTheSectionAndTheStateAndRejectsAnythingElse()
     {
         RecordingBackend backend = new();
@@ -62,14 +52,19 @@ public sealed class SteamPanelFoldsTests
             backend.Calls);
     }
 
-    private sealed class RecordingBackend : ISteamPanelFoldsBackend
+    [Fact]
+    public async Task ABackendRefusalReachesTheCallerWithItsDetail()
     {
-        public List<string> Calls { get; } = [];
+        var backend = new RecordingBackend();
+        var refusal = SteamUiCommandResult.Invalid("The fold could not be saved.");
+        backend.Results[nameof(backend.SetFoldedAsync)] = refusal;
+        var set = new SteamUiModuleSet([
+            SteamPanelFoldsSurface.Module(Always, () => new ValueTask<SteamPanelFoldsState?>(), backend)
+        ]);
+        var result = await DispatchAsync(set, SteamPanelFoldsSurface.PatchId, "setFolded",
+            """{"id":"Power profiles","folded":true}""");
 
-        public Task<SteamUiCommandResult> SetFoldedAsync(string id, bool folded, CancellationToken cancellationToken)
-        {
-            Calls.Add($"{id} {folded}");
-            return Task.FromResult(SteamUiCommandResult.Applied);
-        }
+        Assert.Equal(refusal, result);
+        Assert.Equal("Power profiles True", Assert.Single(backend.Calls));
     }
 }

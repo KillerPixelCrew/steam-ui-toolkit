@@ -70,7 +70,7 @@ public static class SteamUiPatchEvaluation
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
             {
-                return new SteamUiPatchOperationResult(false, Bounded(result.Value) ?? fallback);
+                return new SteamUiPatchOperationResult(false, result.Value);
             }
 
             var succeeded = root.TryGetProperty("ok", out var ok)
@@ -92,7 +92,7 @@ public static class SteamUiPatchEvaluation
 
             return new SteamUiPatchOperationResult(
                 false,
-                reported ?? Bounded(result.Value) ?? fallback);
+                reported ?? result.Value);
         }
         catch (JsonException ex)
         {
@@ -135,7 +135,7 @@ public static class SteamUiPatchEvaluation
             cancellationToken).ConfigureAwait(false);
         if (result.Answered && result.Error is not null)
         {
-            return new SteamUiPatchProbeResult(true, false, null, Bounded(result.Error));
+            return new SteamUiPatchProbeResult(true, false, null, result.Error);
         }
 
         if (!result.Answered || result.Value is null)
@@ -149,7 +149,7 @@ public static class SteamUiPatchEvaluation
             if (NotReady(document.RootElement))
             {
                 return new SteamUiPatchProbeResult(
-                    false, false, null, "Steam has not finished loading: " + Bounded(result.Value));
+                    false, false, null, "Steam has not finished loading: " + result.Value);
             }
 
             var matched = compatible(document.RootElement);
@@ -157,7 +157,7 @@ public static class SteamUiPatchEvaluation
                 true,
                 matched,
                 matched ? fingerprint : null,
-                matched ? null : Bounded(result.Value));
+                matched ? null : result.Value);
         }
         catch (JsonException ex)
         {
@@ -265,13 +265,4 @@ public static class SteamUiPatchEvaluation
         }
     }
 
-    /// <summary>Truncates a page-supplied diagnostic to a bounded length.</summary>
-    /// <param name="value">The raw diagnostic.</param>
-    /// <returns>The bounded diagnostic, or null when there was nothing to report.</returns>
-    public static string? Bounded(string? value)
-    {
-        return string.IsNullOrEmpty(value)
-            ? null
-            : SteamUiShared.Bound(value, SteamUiShared.MaximumDiagnosticLength);
-    }
 }

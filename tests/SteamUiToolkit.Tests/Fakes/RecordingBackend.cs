@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Runtime.CompilerServices;
 
 namespace SteamUiToolkit.Tests.Fakes;
 
@@ -29,12 +30,15 @@ internal sealed class RecordingBackend :
     ISteamCpuBoostBackend,
     ISteamExtensionsTabBackend,
     ISteamGameContextMenuBackend,
-    ISteamPowerMenuBackend
+    ISteamPowerMenuBackend,
+    ISteamPanelFoldsBackend
 {
     internal List<string> Calls { get; } = [];
 
     /// <summary>The cancellation token each call received, in call order.</summary>
     internal List<CancellationToken> Tokens { get; } = [];
+
+    internal Dictionary<string, SteamUiCommandResult> Results { get; } = new(StringComparer.Ordinal);
 
     public Task<SteamUiCommandResult> SetDefaultDeviceAsync(string deviceId, bool input,
         CancellationToken cancellationToken)
@@ -104,7 +108,7 @@ internal sealed class RecordingBackend :
 
     public Task<SteamUiCommandResult> SetCpuBoostAsync(string option, CancellationToken cancellationToken)
     {
-        return Record($"boost {option}", cancellationToken);
+        return Record($"cpu boost {option}", cancellationToken);
     }
 
     public Task<SteamUiCommandResult> SetChargeLimitAsync(int percent, CancellationToken cancellationToken)
@@ -145,12 +149,12 @@ internal sealed class RecordingBackend :
 
     public Task<SteamUiCommandResult> ActivateAsync(uint appId, string id, CancellationToken cancellationToken)
     {
-        return Record($"game-menu {appId} {id}", cancellationToken);
+        return Record($"game-menu {appId} {id}", cancellationToken, "gameContext.ActivateAsync");
     }
 
     public Task<SteamUiCommandResult> ReportAsync(SteamHomeCarouselReport report, CancellationToken cancellationToken)
     {
-        return Record($"home carousel {report.Items}", cancellationToken);
+        return Record($"home carousel {report.Items}", cancellationToken, "homeCarousel.ReportAsync");
     }
 
     public Task<SteamUiCommandResult> SetHybridCoresAsync(string option, CancellationToken cancellationToken)
@@ -163,9 +167,14 @@ internal sealed class RecordingBackend :
         return Record($"home layout {(bigArt ? "big art" : "normal")}", cancellationToken);
     }
 
-    public Task<SteamUiCommandResult> ActivateAsync(string id, CancellationToken cancellationToken)
+    Task<SteamUiCommandResult> ISteamNavigationPanelBackend.ActivateAsync(string id, CancellationToken cancellationToken)
     {
-        return Record($"activate {id}", cancellationToken);
+        return Record($"navigation {id}", cancellationToken, "navigation.ActivateAsync");
+    }
+
+    Task<SteamUiCommandResult> ISteamExtensionsTabBackend.ActivateAsync(string id, CancellationToken cancellationToken)
+    {
+        return Record($"extension {id}", cancellationToken, "extensions.ActivateAsync");
     }
 
     public Task<SteamUiCommandResult> StartScanAsync(CancellationToken cancellationToken)
@@ -193,7 +202,7 @@ internal sealed class RecordingBackend :
 
     public Task<SteamUiCommandResult> SetBoostLimitAsync(int watts, CancellationToken cancellationToken)
     {
-        return Record($"boost {watts}", cancellationToken);
+        return Record($"boost power {watts}", cancellationToken);
     }
 
     public Task<SteamUiCommandResult> SwitchToDesktopAsync(CancellationToken cancellationToken)
@@ -220,7 +229,7 @@ internal sealed class RecordingBackend :
     {
         return Record(
             $"screensaver report {report.PluggedInSeconds} {report.BatterySeconds?.ToString() ?? "-"} {report.Battery}",
-            cancellationToken);
+            cancellationToken, "screensaver.ReportAsync");
     }
 
     public Task<SteamUiCommandResult> SetTimeoutAsync(string row, int seconds, CancellationToken cancellationToken)
@@ -259,15 +268,16 @@ internal sealed class RecordingBackend :
         return Record($"vrr {enabled}", cancellationToken);
     }
 
-    public Task<SteamUiCommandResult> CollapseAsync(string id, bool collapsed, CancellationToken cancellationToken)
+    public Task<SteamUiCommandResult> SetFoldedAsync(string id, bool folded, CancellationToken cancellationToken)
     {
-        return Record($"collapse {id} {collapsed}", cancellationToken);
+        return Record($"{id} {folded}", cancellationToken);
     }
 
-    private Task<SteamUiCommandResult> Record(string call, CancellationToken cancellationToken)
+    private Task<SteamUiCommandResult> Record(string call, CancellationToken cancellationToken,
+        [CallerMemberName] string operation = "")
     {
         Calls.Add(call);
         Tokens.Add(cancellationToken);
-        return Task.FromResult(SteamUiCommandResult.Applied);
+        return Task.FromResult(Results.GetValueOrDefault(operation, SteamUiCommandResult.Applied));
     }
 }

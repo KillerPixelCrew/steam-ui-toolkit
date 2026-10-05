@@ -45,7 +45,7 @@ public enum SteamUiPatchState
 /// <param name="TargetPresent">Whether the target could be evaluated.</param>
 /// <param name="Compatible">Whether the expected structure was found exactly once.</param>
 /// <param name="Fingerprint">Stable semantic fingerprint, never a module id alone.</param>
-/// <param name="Diagnostic">Bounded probe details.</param>
+/// <param name="Diagnostic">Complete probe details. Log lines are bounded separately.</param>
 public sealed record SteamUiPatchProbeResult(
     bool TargetPresent,
     bool Compatible,
@@ -54,7 +54,7 @@ public sealed record SteamUiPatchProbeResult(
 
 /// <summary>Result of applying, verifying, or removing a Steam UI patch.</summary>
 /// <param name="Succeeded">Whether the phase completed positively.</param>
-/// <param name="Diagnostic">Bounded phase details.</param>
+/// <param name="Diagnostic">Complete phase details. Log lines are bounded separately.</param>
 public readonly record struct SteamUiPatchOperationResult(bool Succeeded, string? Diagnostic);
 
 /// <summary>Context that evaluates one patch's expressions under its phase timeout.</summary>
@@ -141,7 +141,7 @@ public interface ISteamUiPatch
 /// <param name="Fingerprint">Latest positive live fingerprint.</param>
 /// <param name="Generations">Generations under which health was assessed.</param>
 /// <param name="LastFailure">
-///     Latest bounded failure. For a patch whose module failed, the reason it was taken off.
+///     Latest complete failure. For a patch whose module failed, the reason it was taken off.
 /// </param>
 /// <param name="LastChangedUtc">Time of the latest state change.</param>
 public sealed record SteamUiPatchSnapshot(
@@ -163,6 +163,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
 {
     /// <summary>How many times an absent target is probed again within one generation: 1, 2, 4, 8 and 16 s after.</summary>
     private const int SettleRetryLimit = 5;
+    private readonly TimeSpan _settleRetryDelay;
 
     // The manager subscribes to transport events in its constructor, so a generation change can be
     // enumerating patches on the pump thread while the host is still registering them. Registration
@@ -183,7 +184,18 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
     /// <summary>Creates a registry over the single process-owned Steam UI transport.</summary>
     /// <param name="transport">Persistent Steam UI transport.</param>
     public SteamUiPatchManager(ISteamUiTransport transport)
+        : this(transport, TimeSpan.FromSeconds(1))
     {
+    }
+
+    internal SteamUiPatchManager(ISteamUiTransport transport, TimeSpan settleRetryDelay)
+    {
+        if (settleRetryDelay <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(settleRetryDelay));
+        }
+
+        _settleRetryDelay = settleRetryDelay;
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         _transport.GenerationChanged += OnGenerationChanged;
     }
@@ -1194,7 +1206,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
             attempt = ++entry.SettleAttempts;
         }
 
-        var delay = TimeSpan.FromSeconds(1 << (attempt - 1));
+        var delay = _settleRetryDelay * (1 << (attempt - 1));
         _ = Task.Run(async () =>
         {
             await Task.Delay(delay).ConfigureAwait(false);

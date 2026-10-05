@@ -38,13 +38,12 @@ public sealed class SteamPagePatchTests
     }
 
     [Fact]
-    public void ThePageGateVerifiesItsSubscriptionAndIsRemovedWhenUninstalled()
+    public void DuplicateAndInvalidProbeNamesAreRefusedAtConstruction()
     {
-        var gate = Page();
-
-        Assert.Equal("status.installed&&status.resolved&&status.subscribed", gate.VerifyOk);
-        Assert.Equal("!status.installed", gate.RemoveOk);
-        Assert.Equal("example.page", gate.Id);
+        Assert.Throws<ArgumentException>(() => SteamPagePatch.Create("example.page", "example", "v1", "Example",
+            [SteamPageProbe.React, SteamPageProbe.React]));
+        Assert.Throws<ArgumentException>(() => SteamPagePatch.Create("example.page", "example", "v1", "Example",
+            [new SteamPageProbe("invalid-name", SteamUiProbeJs.ReactTokens)]));
     }
 
     [Fact]

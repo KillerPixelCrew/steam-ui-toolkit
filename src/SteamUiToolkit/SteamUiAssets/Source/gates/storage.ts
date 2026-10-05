@@ -34,7 +34,6 @@ function createStorageService() {
     } as const;
 
     const ServicePrefix = "StorageDeviceManager.";
-    const TransportToken = "GetDefaultTransport";
     const ServiceToken = "StorageDeviceManager.IsServiceAvailable#1";
 
     // Claiming the transport is not enough, and this is the part that was wrong: Steam asks each of
@@ -61,7 +60,8 @@ function createStorageService() {
 
     let runtime;
     let transport = null;
-    let queryClient: { invalidateQueries: (options: { queryKey: unknown[] }) => void } | null = null;
+    let queryClient: { invalidateQueries: (options: { queryKey: unknown[] }) => void } | null =
+        null;
     let installed = false;
     let lastError = "";
     let unsubscribe: (() => void) | null = null;
@@ -107,10 +107,10 @@ function createStorageService() {
     const ResultOk = 1;
 
     const ok = (body) =>
-        Promise.resolve({BSuccess: () => true, Body: () => body, GetEResult: () => ResultOk});
+        Promise.resolve({ BSuccess: () => true, Body: () => body, GetEResult: () => ResultOk });
 
     const failed = (reason) =>
-        Promise.resolve({...transportFailure({}), GetErrorMessage: () => reason});
+        Promise.resolve({ ...transportFailure({}), GetErrorMessage: () => reason });
 
     // The request arrives already encoded. Steam's encoder yields a Message, which answers toObject(),
     // so the fields are readable without decoding bytes; anything that does not is treated as empty
@@ -136,9 +136,9 @@ function createStorageService() {
         const fields = readRequest(request);
         switch (method) {
             case "IsServiceAvailable":
-                return ok({is_available: () => true});
+                return ok({ is_available: () => true });
             case "GetState":
-                return ok({toObject: () => ({state})});
+                return ok({ toObject: () => ({ state }) });
             // Every action is the host's to perform: this half owns no storage operation, which is what
             // keeps Windows formatting and ejecting in one place rather than two.
             case "Adopt":
@@ -159,7 +159,7 @@ function createStorageService() {
                 };
                 lastPayload = JSON.stringify(payload);
                 request0(command, payload);
-                return ok({toObject: () => ({})});
+                return ok({ toObject: () => ({}) });
             }
             default:
                 return failed(`unhandled storage method ${method}`);
@@ -170,8 +170,7 @@ function createStorageService() {
     // to change. Reporting the outcome is the host's job through the next publication.
     const request0 = (command, payload) => {
         try {
-            request(patchId, command, payload).catch(() => {
-            });
+            request(patchId, command, payload).catch(() => {});
         } catch {
             // An unallowlisted command must not take the transport down with it.
         }
@@ -185,31 +184,30 @@ function createStorageService() {
             return false;
         }
 
-        // The transport provider: exactly one module exports a function returning an object with
-        // GetDefaultTransport.
-        const ids = runtime.findUnique([TransportToken, "m_transport"]);
-        if (!ids) {
-            lastError = "transport provider was not a unique match";
+        const selection = runtime.storageProvider();
+        if (selection.transportModule !== 1) {
+            lastError =
+                "transport provider module was not a unique match: " + selection.transportModule;
             return false;
         }
-
-        const exports = runtime(ids[0]);
-        const keys = Object.keys(exports).filter((name) => typeof exports[name] === "function");
-        for (const key of keys) {
-            try {
-                const provider = exports[key]();
-                const candidate = provider?.GetDefaultTransport?.();
-                if (candidate && typeof candidate.SendMsg === "function") {
-                    transport = candidate;
-                    return true;
-                }
-            } catch {
-                // Not the provider; keep looking.
-            }
+        if (selection.provider !== 1) {
+            lastError = "transport provider export not identified: " + selection.provider;
+            return false;
         }
-
-        lastError = "no export yielded a transport";
-        return false;
+        // Call only the uniquely identified singleton accessor, once. A changed return shape is
+        // a refusal, never a reason to try another export.
+        const provider = selection.accessor();
+        if (typeof provider?.GetDefaultTransport !== "function") {
+            lastError = "transport provider has no GetDefaultTransport";
+            return false;
+        }
+        const candidate = provider.GetDefaultTransport();
+        if (!candidate || typeof candidate.SendMsg !== "function") {
+            lastError = "transport provider yielded no SendMsg transport";
+            return false;
+        }
+        transport = candidate;
+        return true;
     };
 
     // Never fatal. A gate that answers Steam's questions is still strictly better than one that does
@@ -217,7 +215,7 @@ function createStorageService() {
     const invalidate = (queryKey: unknown[]) => {
         if (!queryClient) return;
         try {
-            queryClient.invalidateQueries({queryKey});
+            queryClient.invalidateQueries({ queryKey });
             invalidated++;
         } catch (error) {
             lastError = "invalidate failed: " + String(error);
@@ -225,11 +223,11 @@ function createStorageService() {
     };
 
     const install = () => {
-        if (installed) return {ok: true, alreadyInstalled: true};
+        if (installed) return { ok: true, alreadyInstalled: true };
         const resolved = attemptResolution(resolve, (error) => {
             lastError = "storage transport resolution failed: " + String(error);
         });
-        if (!resolved) return {ok: false, error: lastError};
+        if (!resolved) return { ok: false, error: lastError };
 
         const claim = claimMember(transport, "SendMsg", claimKeys, (original: any) => {
             if (typeof original !== "function") return original;
@@ -245,7 +243,7 @@ function createStorageService() {
         });
         if (!claim.ok) {
             lastError = claim.error;
-            return {ok: false, error: lastError};
+            return { ok: false, error: lastError };
         }
 
         installed = true;
@@ -291,7 +289,9 @@ function createStorageService() {
                     is_root_device: false,
                     content_type: 0,
                     filesystem_type: 0,
-                    mount_paths: Array.isArray(device?.mountPaths) ? device.mountPaths.map(String) : [],
+                    mount_paths: Array.isArray(device?.mountPaths)
+                        ? device.mountPaths.map(String)
+                        : [],
                     is_unmounting: false,
                     has_steam_library: device?.hasSteamLibrary === true,
                 })),
@@ -311,18 +311,18 @@ function createStorageService() {
         // the state key alone would drop the refetch on the floor.
         invalidate(AvailabilityQueryKey);
         invalidate(StateQueryKey);
-        return {ok: true, installed: true, reclaimed: claim.reclaimed};
+        return { ok: true, installed: true, reclaimed: claim.reclaimed };
     };
 
     const remove = () => {
-        if (!installed) return {ok: true, absent: true};
+        if (!installed) return { ok: true, absent: true };
 
         // Released before the gate forgets it: the wrapper sits on the transport every service call
         // takes, so a failed release must stay installed and be retried by the next remove.
         const released = releaseMember(transport, "SendMsg", claimKeys);
         if (!released.ok) {
             lastError = released.error ?? "storage transport release failed";
-            return {ok: false, error: lastError};
+            return { ok: false, error: lastError };
         }
 
         installed = false;
@@ -334,7 +334,7 @@ function createStorageService() {
         invalidate(AvailabilityQueryKey);
         invalidate(StateQueryKey);
         stateSignature = "";
-        return {ok: true, removed: true};
+        return { ok: true, removed: true };
     };
 
     const status = () => ({
@@ -359,7 +359,7 @@ function createStorageService() {
         lastError,
     });
 
-    return {install, remove, status};
+    return { install, remove, status };
 }
 
 registerGate("storage", createStorageService());

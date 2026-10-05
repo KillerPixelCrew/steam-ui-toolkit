@@ -70,7 +70,7 @@ public sealed class SteamExtensionsTabTests
 
         Assert.True(applied.Succeeded);
         Assert.Equal("The extension activation payload is invalid.", refused.Error);
-        Assert.Equal(["activate org.example.art"], backend.Calls);
+        Assert.Equal(["extension org.example.art"], backend.Calls);
     }
 
     [Theory]

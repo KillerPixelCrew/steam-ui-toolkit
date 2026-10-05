@@ -250,6 +250,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(expression);
         var sent = false;
+        var replied = false;
         JsonElement response;
         try
         {
@@ -264,9 +265,10 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
                 },
                 timeout,
                 cancellationToken,
-                () => sent = true).ConfigureAwait(false);
+                () => sent = true,
+                () => replied = true).ConfigureAwait(false);
         }
-        catch (Exception ex) when (sent)
+        catch (Exception ex) when (sent && !replied)
         {
             // A started frame is always finished, so Steam may run it even though this caller stopped
             // waiting or never read the reply.
@@ -276,7 +278,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
         if (response.TryGetProperty("exceptionDetails", out var exception))
         {
             return (null,
-                $"Steam UI JavaScript exception: {SteamUiShared.Bound(exception.GetRawText(), SteamUiShared.MaximumDiagnosticLength)}");
+                $"Steam UI JavaScript exception: {exception.GetRawText()}");
         }
 
         if (!response.TryGetProperty("result", out var result))
@@ -300,7 +302,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
         Action<Utf8JsonWriter>? writeParameters,
         TimeSpan timeout,
         CancellationToken cancellationToken,
-        Action? sendStarted = null)
+        Action? sendStarted = null, Action? replyReceived = null)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
@@ -352,7 +354,14 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
                 throw;
             }
 
-            return await completion.Task.WaitAsync(deadline.Token).ConfigureAwait(false);
+            var response = await completion.Task.WaitAsync(deadline.Token).ConfigureAwait(false);
+            replyReceived?.Invoke();
+            if (response.TryGetProperty("error", out var error))
+            {
+                throw new InvalidDataException($"Steam UI CDP error: {error.GetRawText()}");
+            }
+
+            return response.GetProperty("result");
         }
         finally
         {
@@ -515,21 +524,14 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
                 return;
             }
 
-            if (root.TryGetProperty("error", out var error))
-            {
-                completion.TrySetException(new InvalidDataException(
-                    $"Steam UI CDP error: {SteamUiShared.Bound(error.GetRawText(), SteamUiShared.MaximumDiagnosticLength)}"));
-                return;
-            }
-
-            if (!root.TryGetProperty("result", out var result))
+            if (!root.TryGetProperty("error", out _) && !root.TryGetProperty("result", out _))
             {
                 completion.TrySetException(new InvalidDataException(
                     "Steam UI CDP response lacked result and error."));
                 return;
             }
 
-            completion.TrySetResult(result.Clone());
+            completion.TrySetResult(root.Clone());
             return;
         }
 

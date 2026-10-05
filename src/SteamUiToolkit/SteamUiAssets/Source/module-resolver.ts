@@ -55,7 +55,9 @@ function createSteamUiModuleResolver(scope) {
     requirePresent.resolve = (tokens) => {
         const ids = matches(tokens);
         if (ids.length !== 1)
-            throw new Error(`Steam module ${ids.length ? "ambiguous" : "absent"}: ${tokens.join(", ")}`);
+            throw new Error(
+                `Steam module ${ids.length ? "ambiguous" : "absent"}: ${tokens.join(", ")}`,
+            );
         return requirePresent(ids[0]);
     };
     // One export of a uniquely fingerprinted module, chosen by what it is. Client builds renumber
@@ -75,8 +77,45 @@ function createSteamUiModuleResolver(scope) {
             }
         }
         if (fits.size !== 1)
-            throw new Error(`Steam export ${fits.size ? "ambiguous" : "absent"}: ${tokens.join(", ")}`);
+            throw new Error(
+                `Steam export ${fits.size ? "ambiguous" : "absent"}: ${tokens.join(", ")}`,
+            );
         return [...fits][0];
+    };
+    // Storage's installed transport module exports a zero-argument function whose entire body
+    // returns its closed-over singleton. It has no author tokens of its own. Keep this strict
+    // structural selection here so the standalone probe and the gate inspect the same shape.
+    // Only the already uniquely fingerprinted module is loaded; no provider accessor is called.
+    requirePresent.storageProvider = () => {
+        const ids = matches(["GetDefaultTransport", "m_transport"]);
+        if (ids.length !== 1) return { transportModule: ids.length, provider: 0, accessor: null };
+        const exports = requirePresent(ids[0]);
+        const fits = new Set();
+        const accessorSource =
+            /^function\s+[A-Za-z_$][\w$]*\s*\(\s*\)\s*\{\s*return[ \t]+[A-Za-z_$][\w$]*\s*;?\s*\}$/;
+        const bindingSource = /^\(\s*\)\s*=>\s*[A-Za-z_$][\w$]*\s*$/;
+        for (const descriptor of Object.values(Object.getOwnPropertyDescriptors(exports ?? {}))) {
+            let value;
+            if (Object.prototype.hasOwnProperty.call(descriptor, "value")) {
+                value = descriptor.value;
+            } else {
+                // Webpack's export bindings are getters. Read only the evidenced pure identifier
+                // return, never a getter that calls something or performs other work.
+                if (
+                    typeof descriptor.get !== "function" ||
+                    !bindingSource.test(sourceOf(descriptor.get))
+                )
+                    continue;
+                value = Reflect.apply(descriptor.get, exports, []);
+            }
+            if (typeof value === "function" && accessorSource.test(sourceOf(value)))
+                fits.add(value);
+        }
+        return {
+            transportModule: ids.length,
+            provider: fits.size,
+            accessor: fits.size === 1 ? [...fits][0] : null,
+        };
     };
     return requirePresent;
 }

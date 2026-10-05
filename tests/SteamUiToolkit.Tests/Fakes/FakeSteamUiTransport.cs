@@ -27,8 +27,25 @@ internal sealed class FakeSteamUiTransport : ISteamUiTransport
     private readonly List<string> _expressions = [];
     private readonly object _sync = new();
     private int _releasedSubscriptions;
+    private SteamUiGenerations _generations = new(1, 1, 1, 1, 1, 1);
 
-    internal SteamUiGenerations Generations { get; set; } = new(1, 1, 1, 1, 1, 1);
+    internal SteamUiGenerations Generations
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _generations;
+            }
+        }
+        set
+        {
+            lock (_sync)
+            {
+                _generations = value;
+            }
+        }
+    }
 
     internal SteamUiTransportHealth Health { get; set; } = SteamUiTransportHealth.Ready;
 
@@ -161,11 +178,14 @@ internal sealed class FakeSteamUiTransport : ISteamUiTransport
 
     internal void AdvanceGenerationWithoutEvent()
     {
-        Generations = Generations with
+        lock (_sync)
         {
-            ExecutionContext = Generations.ExecutionContext + 1,
-            Document = Generations.Document + 1
-        };
+            _generations = _generations with
+            {
+                ExecutionContext = _generations.ExecutionContext + 1,
+                Document = _generations.Document + 1
+            };
+        }
     }
 
     internal void EmitCurrentGeneration()

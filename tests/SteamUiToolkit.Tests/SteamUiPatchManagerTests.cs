@@ -109,7 +109,7 @@ public sealed class SteamUiPatchManagerTests
     public async Task ATargetNotReadyWhileSteamLoadsIsProbedAgainWithoutAnotherReload()
     {
         await using var transport = new FakeSteamUiTransport();
-        await using var manager = new SteamUiPatchManager(transport);
+        await using var manager = new SteamUiPatchManager(transport, TimeSpan.FromMilliseconds(10));
         var patch = new FakePatch { OperationTimeout = FixtureTimeout, TargetPresent = false };
         manager.Register(patch);
 
@@ -117,12 +117,7 @@ public sealed class SteamUiPatchManagerTests
         Assert.Equal(SteamUiPatchState.AbsentTarget, Assert.Single(manager.GetSnapshots()).State);
         patch.TargetPresent = true;
 
-        // The first retry is a second after the refusal, past the shared helper's one-second wait.
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        while (Assert.Single(manager.GetSnapshots()).State != SteamUiPatchState.Verified)
-        {
-            await Task.Delay(20, timeout.Token);
-        }
+        await TestJson.WaitUntilAsync(() => Assert.Single(manager.GetSnapshots()).State == SteamUiPatchState.Verified);
 
         Assert.Equal(1, patch.ApplyCalls);
     }
@@ -231,6 +226,8 @@ public sealed class SteamUiPatchManagerTests
 
         Assert.Equal(SteamUiPatchState.Degraded, snapshots["broken"].State);
         Assert.Equal(SteamUiPatchState.Verified, snapshots["healthy"].State);
+        Assert.Equal(1, broken.RemoveCalls);
+        Assert.False(broken.Mutated);
     }
 
     [Fact]
