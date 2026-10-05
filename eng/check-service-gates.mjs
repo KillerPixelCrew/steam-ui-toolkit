@@ -50,7 +50,7 @@ const shared = sharedFragments(asset);
         return () => {};
       },
     },
-    `${shared}\n${gateSource(asset, "createBluetoothService", "bluetooth")}`,
+    `${shared}\n${gateSource(asset, "gates/bluetooth.ts")}`,
     "createBluetoothService()",
   );
   assert.equal(gate.install().ok, true);
@@ -122,7 +122,7 @@ const shared = sharedFragments(asset);
         },
         request: (...args) => new Promise((resolve, reject) => requests.push({ args, resolve, reject })),
       },
-      `${shared}\n${gateSource(asset, "createBrightnessGate", "brightness")}`,
+      `${shared}\n${gateSource(asset, "gates/brightness.ts")}`,
       "createBrightnessGate",
     );
     const gate = create();
@@ -228,7 +228,7 @@ const shared = sharedFragments(asset);
         return () => {};
       },
     },
-    `${shared}\n${gateSource(asset, "createPerfNamespace", "perf")}`,
+    `${shared}\n${gateSource(asset, "gates/performance.ts")}`,
     "createPerfNamespace()",
   );
   assert.equal(gate.install().ok, true);
@@ -267,7 +267,7 @@ const shared = sharedFragments(asset);
       },
       subscribe: () => () => {},
     },
-    `${shared}\n${gateSource(asset, "createAudioNamespace", "audio")}`,
+    `${shared}\n${gateSource(asset, "gates/audio.ts")}`,
     "createAudioNamespace()",
   );
   assert.equal(gate.install().ok, true);
@@ -311,7 +311,7 @@ const shared = sharedFragments(asset);
       },
       subscribe: () => () => {},
     },
-    `${shared}\n${gateSource(asset, "createNetworkGate", "network")}`,
+    `${shared}\n${gateSource(asset, "gates/network.ts")}`,
     "createNetworkGate()",
   );
   assert.equal(gate.install().ok, true);

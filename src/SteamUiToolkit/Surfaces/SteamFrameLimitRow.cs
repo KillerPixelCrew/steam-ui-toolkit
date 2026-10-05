@@ -26,7 +26,7 @@ namespace SteamUiToolkit;
 ///     Lowest cap the slider offers, or null when unknown. A pair with <paramref name="MaximumFps" />
 ///     .
 /// </param>
-/// <param name="MaximumFps">Highest cap the slider offers, at most 1000.</param>
+/// <param name="MaximumFps">Highest cap the slider offers, or null when unknown.</param>
 /// <param name="DesiredFps">
 ///     The cap asked for, 0 for off, or null when none. It need not lie between the bookends: a cap
 ///     the limiter really holds stretches them rather than invalidating the row, because the row is

@@ -110,7 +110,7 @@ public static class SteamAudioSurface
           {{SteamUiProbeJs.Preamble("steam_ui_audio_probe_")}}
             let singleton=false;
             // The store by what it is, never by module id or export name: the September 2026 beta
-            // renumbered module 1409 and this probe refused audio until it stopped naming it.
+            // renumbered its module and this probe refused audio until it stopped naming it.
             try{singleton=!!req.exported(['SteamClient.System.Audio','RegisterForDeviceAdded','m_bAvailable'],
               v=>!!v&&typeof v==='object'&&'m_bAvailable' in v&&typeof v.RegisterOrUpdateDevice==='function');}catch{}
             return JSON.stringify({

@@ -98,7 +98,7 @@ const globals = {
 
 const gate = instantiate(
   globals,
-  `${sharedFragments(asset)}\n${gateSource(asset, "createNavigationPanel", "navigationPanel")}`,
+  `${sharedFragments(asset)}\n${gateSource(asset, "gates/navigation.ts")}`,
   "createNavigationPanel()",
 );
 

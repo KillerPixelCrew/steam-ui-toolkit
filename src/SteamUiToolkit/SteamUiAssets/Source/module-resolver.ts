@@ -37,13 +37,10 @@ function createSteamUiModuleResolver(scope) {
         if (
             !Array.isArray(tokens) ||
             tokens.length < 1 ||
-            tokens.length > 16 ||
-            !tokens.every((token) => typeof token === "string" && token.length > 0 && token.length <= 512)
+            !tokens.every((token) => typeof token === "string" && token.length > 0)
         )
             throw new Error("Steam module fingerprint invalid");
-        const ids = Object.keys(runtime.m);
-        if (ids.length > 32768) throw new Error("Steam module registry exceeds the discovery bound");
-        return ids.filter((id) => {
+        return Object.keys(runtime.m).filter((id) => {
             const factory = runtime.m[id];
             if (typeof factory !== "function") return false;
             const source = sourceOf(factory);

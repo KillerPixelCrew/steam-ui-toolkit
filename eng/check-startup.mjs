@@ -6,7 +6,6 @@ import {
   loadAsset,
   readSource,
   sharedFragments,
-  slice,
 } from "./check-harness.mjs";
 
 const asset = loadAsset();
@@ -112,7 +111,7 @@ for (const source of [
 }
 
 // Exercise the complete emitted host, including failures after React has resolved.
-const host = gateSource(asset, "createNativeComponentHost", "nativeComponents");
+const host = gateSource(asset, "components.ts");
 // The row glyphs, which the host builds a renderer from before it resolves anything else. Taken from
 // the asset rather than stubbed, so a fragment that stopped being emitted fails here instead of
 // silently leaving every row without an icon.
@@ -228,8 +227,10 @@ console.log(
   "Steam startup: missing factories stay uncached; network probe waits for Steam's singleton.",
 );
 
-// Exercise the shared bridge, so cached replay cannot interrupt any module's installation.
-const subscription = slice(asset, "const subscribe =", "const dispose =");
+// Exercise the shared bridge, so cached replay cannot interrupt any module's installation. The
+// whole bridge fragment runs over a fixture window and configuration, and the checks below drive the
+// bridge object it publishes.
+const bridgeSource = fragment(asset, "bridge.ts");
 // Every identity the asset names: a gate's own patch id, a publication it reads under another
 // gate's id, and each row definition's patch id.
 const ids = [
@@ -240,20 +241,12 @@ const ids = [
   ),
 ];
 assert.ok(ids.includes("steam-ui.power-limit") && ids.length >= 6);
-const bridgeConfig = { version: 1, contextGeneration: 1, documentGeneration: 1,
-  allowed: Object.fromEntries(ids.map(id => [id, []])) };
+const bridgeConfig = { namespace: "__steamUiBridgeFixture", binding: "__steamUiBindingFixture",
+  version: 1, assetHash: "fixture", vocabularyRevision: 1, contextGeneration: 1, documentGeneration: 1,
+  maximumPending: 64, timeoutMilliseconds: 1000, allowed: Object.fromEntries(ids.map(id => [id, []])) };
 const bridge = runInNewContext(
-  `${subscription} ({subscribe, subscribeRefusal, deliver, deliverPart});`,
-  {
-    config: bridgeConfig,
-    subscribers: new Map(),
-    latestStates: new Map(),
-    refusalSubscribers: new Map(),
-    latestRefusals: new Map(),
-    assembling: new Map(),
-    pending: new Map(),
-    disposed: false,
-  },
+  `${bridgeSource}\nreturn bridge;\n})()`,
+  { window: {}, __STEAM_UI_CONFIGURATION_JSON__: bridgeConfig },
   { timeout: 1000 },
 );
 for (const patchId of ids) {

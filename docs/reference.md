@@ -12,14 +12,13 @@ Big Picture, which surfaces it registers) is on the WSGM side in `docs/steam-cef
 
 `SteamRouteNavigation.NavigateAsync` is the one route change that starts on the host side: a host
 surface outside Steam, such as an overlay, handing the user to a page inside it. It borrows a ready
-SharedJSContext, applies the same bounds as the gates' `navigateSteamRoute` (absolute, not the root,
-at most 256 characters, no control characters), JSON-encodes the route into the expression and
-pushes it once on `window.tempNavStore.m_history`. A replaced generation, a missing router or an
-expired request reports false, and a push that may have happened is never retried. It is a one-shot
-evaluation on purpose rather than a request field on the pages publication: published state is
-replayed to every new subscriber and forgotten when the bridge restarts, so a request left in state
-would navigate again after a gate reinstall. It does not focus Steam's window; that is the host's
-job.
+SharedJSContext, applies the same rules as the gates' `navigateSteamRoute` (absolute, not the root,
+no control characters, any length), JSON-encodes the route into the expression and pushes it once on
+`window.tempNavStore.m_history`. A replaced generation, a missing router or an expired request
+reports false, and a push that may have happened is never retried. It is a one-shot evaluation on
+purpose rather than a request field on the pages publication: published state is replayed to every
+new subscriber and forgotten when the bridge restarts, so a request left in state would navigate
+again after a gate reinstall. It does not focus Steam's window; that is the host's job.
 
 `SteamGameWindowActivation.RaiseAsync` borrows an already subscribed transport and requires a ready
 SharedJSContext. It resolves exactly one `OverlayWindows` entry with the requested nonzero PID,
@@ -203,13 +202,14 @@ export the predicate accepts, counting aliases of a value once and throwing `Ste
 `Steam export ambiguous` otherwise; a getter or predicate that throws counts as no fit.
 `count(tokens)` and `findUnique(tokens)` inspect source without invoking factories. `findUnique`
 returns an id/source pair or null. Invalid fingerprints, absent/ambiguous resolution and load
-failures throw diagnostic errors. Fingerprints have 1 to 16 nonempty tokens of at most 512
-characters; discovery accepts at most 32,768 factories. A resolver reads each factory's source once
-and remembers it, and a gate that looks a module up after installation (a store singleton, the JSX
-runtime) keeps one resolver for its lifetime rather than pushing a new chunk on every publication. A
-resolver does not repeat a factory call that threw through that resolver. It exposes no raw registry
-or loader. This is not a sandbox for arbitrary page JavaScript, nor proof that a factory's
-dependencies have initialized; hosts must enforce startup readiness as well.
+failures throw diagnostic errors. A fingerprint is a nonempty array of nonempty string tokens, with
+no count or length limit, and discovery reads every registered factory. A resolver reads each
+factory's source once and remembers it, and a gate that looks a module up after installation (a
+store singleton, the JSX runtime) keeps one resolver for its lifetime rather than pushing a new
+chunk on every publication. A resolver does not repeat a factory call that threw through that
+resolver. It exposes no raw registry or loader. This is not a sandbox for arbitrary page JavaScript,
+nor proof that a factory's dependencies have initialized; hosts must enforce startup readiness as
+well.
 
 Probes and gates share this resolver. The network surface instead reads Steam's published
 `window.SystemNetworkStore`, so inspecting availability cannot construct the singleton early, and
@@ -516,8 +516,8 @@ next, and the injected side's `deliverPart` reassembles them before any subscrib
 It reassembles by delivery id, so a large response and a large state publication whose parts
 interleave both arrive. A set cut short by a failed or out-of-order part is dropped without touching
 another delivery, never delivered half, and parts never split a surrogate pair. The injected
-`request()` refuses a payload past the inbound cap itself, so the caller gets a reason instead of a
-timeout.
+`request()` refuses only a command outside the allow map and a request past `maximumPending`, each
+with a reason instead of a timeout; a request has no size limit.
 
 A publication may declare a revision (`SteamUiModuleBuilder.Publication(..., revision)`). A round
 whose revision the document already holds (`SteamUiBridgeHost.IsPublished`) skips the read and the
@@ -590,22 +590,23 @@ patch still verified.
 | `message type is not allowlisted`          | only `request` and `cancel`                     |
 | `patch command is not allowlisted`         | `(patchId, command)` must be in `allowed`       |
 | `sequence or action generation is invalid` | both must be positive                           |
-| `payload exceeded its limit`               | 16 KiB                                          |
+| `payload is missing`                       | a request or cancel must carry a payload        |
 | `stale bridge generation`                  | generations must match the current snapshot     |
 | `cancel references an unknown request`     | a `cancel` sequence above the last accepted one |
 | `request sequence was replayed`            | sequences are monotonic                         |
 | `action generation was replayed`           | action generations are monotonic                |
 
 The authorizer resets on every generation change. Only `Runtime.bindingCalled` notifications from
-`SharedJsContext` with matching generations, the binding name and a string payload of at most 16 KiB
-are accepted, deserialized with a camelCase source-generated context (PascalCase once rejected every
-command). Rejections log `Change("steam.ui.bridge.rejected", …)` with the first 200 characters of
-the payload.
+`SharedJsContext` with matching generations, the binding name and a string payload are accepted (the
+connection's 1 MiB notification bound is the only size limit), deserialized with a camelCase
+source-generated context (PascalCase once rejected every command). Rejections log
+`Change("steam.ui.bridge.rejected", …)` with the payload's shape, never its values, bounded to 2048
+characters like every diagnostic.
 
 `RespondAsync` and `PublishStateAsync` require readiness and matching generations, then evaluate
 `b.deliver(JSON.parse("..."))` and accept only a structured `{ok:true}`. Response envelopes carry
 `version`, `type: "response"`, `patchId`, `command`, `sequence`, both generations, `ok`, `payload`,
-`error` (bounded like every diagnostic, to 2048 characters); state envelopes carry `type: "state"`,
+`error` (whole: the page shows it, and delivery is chunked); state envelopes carry `type: "state"`,
 `patchId`, both generations and `payload`. A `SharedJsContext` generation change drops readiness and
 resets the authorizer. `RemoveAsync` removes the binding, evaluates
 `b.dispose('Steam UI removed'); delete window[k]`, and logs any incomplete step. Disposal waits 2 s
@@ -637,7 +638,7 @@ supplies the key names so a renamed key cannot orphan a marker a previous build 
 
 The accessor rule in `claimValue` comes from a MobX crash in the Quick Access Menu.
 
-`eng/check-ownership-claims.mjs` slices the ownership primitives out of the emitted prelude,
+`eng/check-ownership-claims.mjs` takes the ownership primitives out of the emitted prelude whole,
 evaluates them with `new Function`, and runs more than thirty claim, reclaim, release and
 stand-aside scenarios. It runs in CI; reintroducing the function-type defect fails four checks. The
 other emitted-asset checks share `eng/check-harness.mjs`, which takes whole fragments out of the
@@ -668,7 +669,7 @@ the transforms, rebuilt when one is added or withdrawn, so a call allocates noth
 
 A script outside the bundle cannot reach those functions from its own evaluation. The `elements`
 gate is their front door: `gate("elements").register(name, transform)`, `unregister(name)` and
-`registered(name)`, with names of at most 64 characters. WSGM's download sort registers there rather
+`registered(name)`, with any nonempty string as a name. WSGM's download sort registers there rather
 than wrapping the runtime itself, which would put a second wrapper on `jsx`.
 
 `rpc.ts` supplies `transportReply(body)` (the
@@ -780,10 +781,9 @@ evaluated and its place among the discovered fragments does not matter.
 | Reconnect backoff                                                                     | 1, 4, 16, 30 s                                                 |
 | Domain enable timeout                                                                 | 5 s each                                                       |
 | Transport event channels                                                              | 256 bindings (refused when full), latest generation per role   |
-| Patch bounds default                                                                  | 8 s, 96 KiB, 2048                                              |
-| Fingerprint bound                                                                     | 512                                                            |
+| Patch operation timeout default                                                       | 8 s                                                            |
 | Absent-target re-probes within one generation                                         | 1, 2, 4, 8, 16 s                                               |
-| Bridge schema, inbound payload cap, delivery cap, operation timeout, request channel  | 1, 16 KiB, 1 MiB, 5 s, 64                                      |
+| Bridge schema, delivery part, operation timeout, request channel                      | 1, 256 KiB, 5 s, 64                                            |
 | Injected `maximumPending`, `timeoutMilliseconds`                                      | 32, 5000                                                       |
 | Bridge namespace, binding                                                             | `__steamUi_v1_28d7c54a`, `__steamUiBridge_v1_7b24d11c`         |
 | Configuration placeholder, bundle marker                                              | `__STEAM_UI_CONFIGURATION_JSON__`, `// @steam-ui-bundle-start` |
@@ -799,7 +799,7 @@ evaluated and its place among the discovered fragments does not matter.
 | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `SteamUiCdpConnectionTests`, `PersistentSteamUiTransportTests`   | CDP connection (orphan ids, malformed frames, cancellation, slow and throwing handlers); persistent transport (domains before publication, generation advances, one-shot leases, discarded late connections, master switch, health restoration, backoff, invalid deadlines)                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `SteamUiPatchManagerTests`                                       | bounds, kill switches, retraction of an incompatible or unverified patch, removal failure, per-phase budgets, failure isolation between patches, re-verification without reapplying, generation epoch guards, required structural flags                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `SteamUiBridgeHostTests`, `SteamUiBridgeAuthorizerTests`         | replay, malformed and oversized notifications, the inbound payload cap, a long refusal reaching the page whole, generation replacement, structured acknowledgements, disposal; the authorizer's allowlist, replay, stale generation and cancel rules, and the real camelCase envelope captured from a live client                                                                                                                                                                                                                                                                                                                                                                                    |
+| `SteamUiBridgeHostTests`, `SteamUiBridgeAuthorizerTests`         | replay, malformed and non-binding notifications, a long refusal reaching the page whole, parted deliveries, generation replacement, structured acknowledgements, disposal; the authorizer's allowlist, replay, stale generation and cancel rules, and the real camelCase envelope captured from a live client                                                                                                                                                                                                                                                                                                                                                                                    |
 | `SteamUiExtensionHostTests`                                      | every rejection reason and conflict rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `SteamUiModuleTests`                                             | module set rules, publication isolation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `SteamUiEndpointDiscoveryTests`                                  | the two role matchers against real URLs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
@@ -811,7 +811,7 @@ evaluated and its place among the discovered fragments does not matter.
 | `SteamChoiceRowTests`, `SteamWindowSurfaceTests`                 | power-profile, preset and core-preference serialization and dispatch; side-menu observation, native button replay, game-window and overlay activation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `SteamNavigationPanelTests`                                      | the panel probe's separate structural facts, selection by what an export draws rather than by its minified name, already-claimed compatibility, the published wire shape                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `eng/check-navigation-panel.mjs`                                 | the emitted gate against an inert React fixture: descent to the panel root, anchoring by route and by descriptor key, orphan reporting, hiding before insertion, activation, exact restoration, reinstall                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `SteamPageTests`, `eng/check-pages.mjs`                          | the page probe's separate facts and its rendered-tree search; the emitted gate's route-list discovery by content, an addition losing to Steam's own route and an override winning, path validation, exact restoration, reinstall                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `SteamPageTests`, `eng/check-pages.mjs`                          | the page probe's separate facts and its rendered-tree search; the emitted gate's route-list discovery by content, an addition losing to Steam's own route and an override winning, path validation, exact restoration, reinstall, and a page declared with `registerSteamPage` refusing, following state and refusals, and removed                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `SteamStorageTests`, `eng/check-storage.mjs`                     | the storage probe's service and transport facts and every action having a command; the emitted gate's availability answer, Steam's own state field names, action forwarding, unrelated service traffic passing through with its arguments and receiver, and restoration putting Valve's method back                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `SteamHomeCarouselTests`, `eng/check-home-carousel.mjs`          | the Home probe's separate facts, finding Home by content rather than name, the mounted count, already-claimed compatibility, the published wire shape, the exact report payload; the emitted gate finding Home through the route list from the root's `current`, adopting a mounted Home on both fibers and asking the switch to render, replacing `games` for the carousel and the background, clearing the whole-list overscan, the documented order, disconnected games leaving, uninstalled games greyed, no rebuild or report without a change, the fallback to Steam's list, bounded publications, a mounted wrapper passing through after removal, exact restoration of the memo and the adopted fibers, reinstall adopting again |
 | `SteamScreensaverTests`, `eng/check-screensaver.mjs`             | the probe's separate facts and that it names no module id or export, the published wire shape, the exact report and choice payloads and their refusals; the emitted gate wrapping only the customization page and only its Screensaver section, appending the rows after Steam's own, reporting on first read, on change and on page open, sending a choice once and disabling the row while pending, refusing a malformed state whole, the bounded first-report retry, keeping the shared `useMemo` claim for another surface on removal and handing it back with the last                                                                                                                                                              |
@@ -939,8 +939,8 @@ against. No hash is written down anywhere. Without the map the box is plain and 
 
 The walk is over props alone: the tile's whole icon row is host elements and fragments below its
 Focusable root, so nothing has to be rendered to reach the anchor, and function components on the
-way keep every identity Valve's reconciler holds. It is bounded at twelve levels and sixty-four
-children per level. A tile whose tree has no anchor — a music album, a tile with compat icons hidden
+way keep every identity Valve's reconciler holds. It is bounded at twelve levels, with every child
+of a level visited. A tile whose tree has no anchor — a music album, a tile with compat icons hidden
 — renders exactly what Valve shipped and is counted in `lastOutcome` as unanchored.
 
 The badge text is the library's name alone, and its colour is Steam's own installed flag on the app
@@ -1080,10 +1080,9 @@ so in `status.lastOutcome`.
 The rows are Valve's `DropDownField`, controlled, one per published row: label, optional
 description, the host's options and the observed value. A choice sends `setTimeout { row, seconds }`
 once and disables the row until the response. The host decides which choices a row offers; the gate
-renders them and nothing else. A publication is validated whole: at most four rows with ids of a
-lowercase letter then up to 31 lowercase letters, digits or hyphens, unique, at most sixteen options
-each, every value 0 to 604,800 seconds and every option labelled. A state that fails keeps the last
-good rows.
+renders them and nothing else. A publication is validated whole: any number of rows with unique ids
+of a lowercase letter then lowercase letters, digits or hyphens, any number of options each, every
+value 0 to 604,800 seconds and every option labelled. A state that fails keeps the last good rows.
 
 The report is `{ acSeconds, batterySeconds, battery }`: the two client settings, the second null
 when unset, and whether Steam's power store has a battery. It is read inside Steam's own
@@ -1205,7 +1204,7 @@ hidden ones included, so hiding Power does not cost the action entry.
   carrying a `route` is followed after `closeSteamSideMenus()`, as the Extensions tab does.
 - An item whose component is not in the panel is not drawn, and `lastOutcome` counts it as
   `unrendered`.
-- An item whose `route` is not a route (relative, `/`, or longer than 256 characters) is refused
+- An item whose `route` is not a route (relative, `/`, or carrying a control character) is refused
   where it is published, and `status().rejectedRoutes` counts it.
 
 An item's icon is a toolkit glyph by name, or `glyph`: SVG path data on a 24x24 grid, drawn by
@@ -1387,16 +1386,15 @@ emitted echo hook with an inert React fixture.
 
 `SteamPowerProfileRow` adds a dropdown on Performance through patch `steam-ui.power-profile`, kind
 `powerProfile`, and command `setPowerProfile`. Payloads are exactly `{ target: "id" }`, validated
-with `TryReadTarget`. `SteamPowerProfileState` carries up to 64 unique id/label options, observed
-`Current`, `Available` and `StatusText`. Unknown current ids select nothing. Labels are bounded to
-240 characters by the shared text normalizer. Unavailable state with options stays visible but
-disabled; a state with no options hides the row and records its status text in `renderOutcomes`.
-Selection is also disabled while its request is pending, and a refused selection shows the host's
-reason as the row's description until the next selection. The host owns validation, OS writes,
-persistence and readback. `SteamChoiceRowTests` covers serialization and dispatch,
-`SteamSurfaceModuleTests` the module vocabulary; `eng/check-power-profile.mjs` checks the emitted
-dropdown, rejected choices, malformed states and Performance placement with inert React/bridge
-fixtures.
+with `TryReadTarget`. `SteamPowerProfileState` carries any number of unique id/label options,
+observed `Current`, `Available` and `StatusText`. Unknown current ids select nothing. Labels arrive
+whole. Unavailable state with options stays visible but disabled; a state with no options hides the
+row and records its status text in `renderOutcomes`. Selection is also disabled while its request is
+pending, and a refused selection shows the host's reason as the row's description until the next
+selection. The host owns validation, OS writes, persistence and readback. `SteamChoiceRowTests`
+covers serialization and dispatch, `SteamSurfaceModuleTests` the module vocabulary;
+`eng/check-power-profile.mjs` checks the emitted dropdown, rejected choices, malformed states and
+Performance placement with inert React/bridge fixtures.
 
 `SteamHybridCoreRow` adds a second dropdown on Performance through patch `steam-ui.hybrid-cores`,
 kind `hybridCores`, and command `setHybridCores`. `SteamHybridCoreState` is the same shape as the
@@ -1420,7 +1418,7 @@ draws `cores`, its own glyph.
 `SteamPowerPresetRow` publishes `SteamPowerPresetState`: preset options, observed label, independent
 AC/battery assignment IDs, scope, unset label and status. `ISteamPowerPresetBackend` owns assignment
 policy. Its patch `steam-ui.power-preset` and kind `powerPreset` accept only `setAcPowerPreset` and
-`setBatteryPowerPreset`. Each payload has exactly one `target`: a bounded ID or null to clear the
+`setBatteryPowerPreset`. Each payload has exactly one `target`: a target ID or null to clear the
 local assignment. An option published with `Selectable = false` names a state the user cannot pick,
 such as a saved assignment that matches no preset: it is listed only in a dropdown whose current
 value it is, and the page never sends it. The row does not check selectability itself; the host's
@@ -1505,10 +1503,10 @@ Extensions tab, the game context menu and the navigation panel follow. A payload
 read with `SteamUiPayload.TryReadOnlyString`, `TryReadOnlyOptionalString`, `TryReadOnlyChoice` or
 `TryReadOnlyBoolean`.
 
-Every gate's payload is read with `SteamUiPayload` (exact object shape, bounded strings, ranges),
+Every gate's payload is read with `SteamUiPayload` (exact object shape, string kinds, ranges),
 and a malformed one is refused with a fixed reason before the backend runs. Its readers cover a
 non-blank string, a string that may be empty (`TryReadString`), one that may be null for "clear"
-(`TryReadNullableString`), a bounded array of strings (`TryReadStrings`), booleans and integers.
+(`TryReadNullableString`), an array of strings (`TryReadStrings`), booleans and integers.
 `SteamUiBridgePatch` installs the bridge; register it in the same manager as dependent surfaces, but
 do not rely on call order: the manager applies the bridge before every other patch and removes it
 after them. Its probe asks only for webpack and React (`steam-ui-bridge-v1:webpack+react`); every
@@ -1527,12 +1525,12 @@ observed values in the TDP description. Default state retains the existing split
 ### Host-owned plugin surfaces
 
 `SteamExtensionsTabSurface` publishes `SteamExtensionsTabState` under `steam-ui.extensions-tab`.
-Each plugin item carries `Id`, `Name`, `Version`, `Status`, optional `Detail`, bounded actions,
-primitive settings and the configuration revision; the gate renders at most 64 items. A revision
-that is not a non-negative safe integer refuses the item at the publication boundary, since the
-configure command would reject every change it offered. Activation sends `activate {id}`. A setting
-sends exact `configure {id,key,value,revision}` to `ISteamExtensionsTabBackend`; booleans, finite
-numbers and bounded text are the only values accepted.
+Each plugin item carries `Id`, `Name`, `Version`, `Status`, optional `Detail`, its actions,
+primitive settings and the configuration revision; the gate renders every item. A revision that is
+not a non-negative safe integer refuses the item at the publication boundary, since the configure
+command would reject every change it offered. Activation sends `activate {id}`. A setting sends
+exact `configure {id,key,value,revision}` to `ISteamExtensionsTabBackend`; booleans, finite numbers
+and text are the only values accepted.
 
 Each item is drawn as Steam's own `PanelSection`, titled with the item's name, with its detail,
 actions and settings in `PanelSectionRow` rows. An action is Steam's `DialogButton`, and a setting
@@ -1581,8 +1579,8 @@ something unusable navigates nowhere rather than handing it to Steam's router. A
 route, and a refusal, both navigate nowhere and leave the panel open.
 
 `SteamGameContextMenuSurface` publishes `SteamGameContextMenuState` under
-`steam-ui.game-context-menu`. It renders at most 32 `Id`/`Label` commands and accepts exactly
-`activate {appId,id}`, where the app ID is a positive uint32 and the ID is at most 96 characters.
+`steam-ui.game-context-menu`. It renders every `Id`/`Label` command and accepts exactly
+`activate {appId,id}`, where the app ID is a positive uint32 and the ID is a non-blank string.
 `ISteamGameContextMenuBackend` receives the selected game's ID, not a later current-page lookup. The
 gate shares the `steam-ui.jsx-runtime` resource and intercepts creation of the private menu class
 before its first render. It does not scan the visible DOM. Removal releases both the named element

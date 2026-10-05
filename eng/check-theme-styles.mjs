@@ -101,7 +101,7 @@ const globals = {
     throw new Error("the gate must not poll");
   },
 };
-const code = sharedFragments(asset) + gateSource(asset, "createThemeStyles", "themeStyles");
+const code = sharedFragments(asset) + gateSource(asset, "gates/theme-styles.ts");
 const { gate, createThemeStyles } = instantiate(
   globals,
   code,

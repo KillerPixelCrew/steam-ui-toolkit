@@ -9,7 +9,7 @@ namespace SteamUiToolkit;
 
 /// <summary>One choice a timeout row offers.</summary>
 /// <param name="Seconds">The timeout in seconds; zero means never.</param>
-/// <param name="Label">The choice as the row shows it. Bounded by the gate.</param>
+/// <param name="Label">The choice as the row shows it; the gate refuses an empty one.</param>
 public sealed record SteamTimeoutOption(int Seconds, string Label);
 
 /// <summary>One host-owned row in Steam's Screensaver settings.</summary>

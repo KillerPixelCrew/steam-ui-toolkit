@@ -27,7 +27,6 @@ import {
   instantiate,
   loadAsset,
   sharedFragments,
-  slice,
 } from "./check-harness.mjs";
 
 const asset = loadAsset();
@@ -131,7 +130,7 @@ const shared = sharedFragments(asset);
 
   const gate = instantiate(
     globals,
-    `${shared}\n${slice(asset, "const readLibraryBadgeState", 'registerGate("libraryBadge"')}`,
+    `${shared}\n${gateSource(asset, "gates/library-badge.ts")}`,
     "createLibraryBadge()",
   );
 
@@ -255,8 +254,8 @@ const shared = sharedFragments(asset);
 
 // --- library details stat and the shared JSX claim -------------------------------------------------
 {
-  const libraries = slice(asset, "const readLibraryBadgeState", 'registerGate("libraryDetails"');
-  const elements = gateSource(asset, "createElementsGate", "elements");
+  const libraries = gateSource(asset, "gates/library-badge.ts");
+  const elements = gateSource(asset, "gates/elements.ts");
 
   const react = createReact({ singleChild: true });
   function jsxProduction(type, props, key) {
@@ -309,7 +308,6 @@ const shared = sharedFragments(asset);
       };
     },
     request: () => Promise.resolve(),
-    registerGate: () => {},
   };
   const built = instantiate(
     globals,

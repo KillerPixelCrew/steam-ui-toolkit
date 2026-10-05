@@ -562,7 +562,7 @@ public static class SteamPerformanceSurface
         // The store is counted by the source tokens that make it the perf store, never by module
         // id; the singleton is reached through the one exported class with a Get() whose body
         // declares the state, because the state is written into a client that is already running.
-        // Naming module 74514 is what refused this gate on the September 2026 beta.
+        // Naming its module id is what refused this gate on the September 2026 beta.
         $$"""
           {{SteamUiProbeJs.Preamble("steam_ui_performance_probe_")}}
             let singleton=false;

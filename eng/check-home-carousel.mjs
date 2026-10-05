@@ -215,7 +215,7 @@ const globals = {
 
 const gate = instantiate(
   globals,
-  `${sharedFragments(asset)}\n${gateSource(asset, "createHomeCarousel", "homeCarousel")}`,
+  `${sharedFragments(asset)}\n${gateSource(asset, "gates/home-carousel.ts")}`,
   "createHomeCarousel()",
 );
 

@@ -30,9 +30,8 @@ const transportFailure = (body: object) => ({
 // UI keeps rendering the refusal until the query that cached it is invalidated.
 //
 // The client has one query client, built by the module that provides it with its default options
-// and mounts the devtools beside it. It was module 21371, export L, when first verified; the
-// September 2026 beta renumbered the module, so it is found by that provider's source and by the
-// shape of the client instead.
+// and mounts the devtools beside it. Client builds renumber modules and rename exports, so it is
+// found by that provider's source and by the shape of the client.
 //
 // Failure is swallowed on purpose. A client whose query layer moved keeps the stale answer and the
 // row simply does not update — which is a degraded surface, not a broken one, and never a reason to

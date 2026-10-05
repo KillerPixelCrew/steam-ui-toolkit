@@ -4,19 +4,18 @@
 import assert from "node:assert/strict";
 import {
   createHooks,
+  declarations,
   fragment,
   instantiate,
   loadAsset,
-  slice,
+  statement,
   tick,
 } from "./check-harness.mjs";
 
 const asset = loadAsset();
-const normalizeText = instantiate(
-  {},
-  `${slice(asset, "const normalizeText =", ";")};`,
-  "normalizeText",
-);
+// Declarations taken whole, by name, from the component host's whole fragment.
+const host = (...names) => declarations(asset, "components.ts", names);
+const normalizeText = instantiate({}, host("normalizeText"), "normalizeText");
 // A host's Quick Access layout, as WSGM publishes it: the fixture every section check draws, so the
 // checks assert the rendering of host data rather than any layout of the toolkit's own.
 const hostLayout = {
@@ -61,11 +60,11 @@ const accentHelpers = instantiate(
     acceptedStates,
     ...instantiate(
       {},
-      slice(asset, "const SteamAccentColor =", "const keyed ="),
+      declarations(asset, "gate-helpers.ts", ["SteamAccentColor", "steamAccentDescription"]),
       "{ steamAccentDescription }",
     ),
   },
-  slice(asset, "const accentDescription =", "const normalizeVrrState ="),
+  host("accentDescription"),
   "{ accentDescription }",
 );
 {
@@ -91,7 +90,7 @@ const accentHelpers = instantiate(
 const createSender = (request) =>
   instantiate(
     { request, nextActionGeneration: () => 1 },
-    slice(asset, "const sendCommand =", "const toggleCommand ="),
+    host("sendCommand"),
     "sendCommand",
   );
 let state;
@@ -123,7 +122,18 @@ const api = instantiate(
     drew: () => {},
     summarize: () => {},
   },
-  slice(asset, "const normalizePowerProfileState =", "const createControllerControl ="),
+  host(
+    "normalizePowerProfileState",
+    "refusalText",
+    "sendPending",
+    "createChoiceControl",
+    "createPowerProfileControl",
+    "createHybridCoreControl",
+    "normalizeCpuBoostState",
+    "createCpuBoostControl",
+    "normalizePowerPresetState",
+    "createPowerPresetControl",
+  ),
   "{ normalizePowerProfileState, createPowerProfileControl, createHybridCoreControl, normalizeCpuBoostState, createCpuBoostControl, normalizePowerPresetState, createPowerPresetControl }",
 );
 const options = [{ id: "a", label: "Balanced" }, { id: "b", label: "Balanced" }];
@@ -299,7 +309,7 @@ state = { ...state, ac: "a", battery: "b" };
 rows = presetControl().children.filter(child => child?.type === "dropdown");
 assert.equal(rows.length, 2);
 assert.ok(rows.every(row => !row.props.rgOptions.some(option => option.data === "custom")));
-assert.ok(!slice(asset, "const normalizePowerPresetState =", "const createControllerControl =").includes('"custom"'),
+assert.ok(!host("normalizePowerPresetState", "createPowerPresetControl").includes('"custom"'),
   "the toolkit names no preset id of its own");
 state = { ...state, options: [], ac: "", battery: "" };
 assert.equal(presetControl(), null);
@@ -322,7 +332,16 @@ const sectionFixtures = {
 };
 const { hostSection, untitledSection, normalizeQuickAccessLayout } = instantiate(
   { normalizeText, ...sectionFixtures },
-  slice(asset, "const normalizeQuickAccessSections =", "const appendControls ="),
+  host(
+    "normalizeQuickAccessSections",
+    "normalizeQuickAccessLayout",
+    "untitledSection",
+    "sectionIcon",
+    "sectionSummary",
+    "hostSection",
+    "controlRows",
+    "describe",
+  ),
   "{ hostSection, untitledSection, normalizeQuickAccessLayout }",
 );
 const layoutState = normalizeQuickAccessLayout(hostLayout);
@@ -410,7 +429,15 @@ const createDeviceControl = instantiate(
       summaries[kind] = text;
     },
   },
-  slice(asset, "const rgbToHsv =", "// Steam's own FPS counter rows"),
+  host(
+    "rgbToHsv",
+    "hsvToRgb",
+    "rgbCss",
+    "normalizePowerLimitRange",
+    "normalizePowerLimitState",
+    "createPowerLimitControl",
+    "createDeviceControlsControl",
+  ),
   "createDeviceControlsControl",
 );
 for (const toggle of [undefined, "toggle"]) {
@@ -479,7 +506,7 @@ for (const toggle of [undefined, "toggle"]) {
   // The normalizer keeps the slider for an off-step or out-of-range reading, clamped into the range.
   const normalizeDeviceRange = instantiate(
     { normalizeText },
-    slice(asset, "const clampReading =", "const normalizeDeviceControlsState ="),
+    host("clampReading", "normalizeDeviceRange"),
     "normalizeDeviceRange",
   );
   const range = { available: true, minimum: 60, maximum: 100, step: 5, desired: null, observed: 83 };
@@ -511,21 +538,27 @@ console.log("Device controls retain charging and brightness without the optional
       steamUiKitStyle: () => ({ type: "style" }),
       deviceControlsControl: undefined,
     },
-    slice(asset, "const normalizeQuickAccessSections =", "const resolveControls ="),
+    host(
+      "normalizeQuickAccessSections",
+      "normalizeQuickAccessLayout",
+      "untitledSection",
+      "sectionIcon",
+      "sectionSummary",
+      "hostSection",
+      "controlRows",
+      "describe",
+      "appendControls",
+    ),
     "{ appendControls, useRows: (rows) => { controlRows = rows; } }",
   );
-  // The row table resolveControls builds once the controls resolve, read from the asset with each
-  // control standing in as its own name.
-  const table = slice(
-    slice(asset, "const resolveControls =", "const install ="),
-    "controlRows = [",
-    "];",
-  );
+  // The row table resolveControls builds once the controls resolve: its whole assignment, read from
+  // the asset with each control standing in as its own name.
+  const table = statement(host("resolveControls"), "controlRows = [");
   useRows(
     instantiate(
       Object.fromEntries(controlNames.map((name) => [name, name])),
       "",
-      `${table.slice("controlRows = ".length)}]`,
+      table.slice("controlRows = ".length, -1),
     ),
   );
   const runtime = { section: "section", row: "row", icon: () => null, react: {
@@ -648,9 +681,13 @@ console.log("Host sections leave layout while every row under them draws nothing
       drew: () => {},
       summarize: () => {},
     },
-    slice(asset, "const useEchoedValue =", "const useTrailingCommit =") +
-      slice(asset, "const clampReading =", "const normalizeDeviceRange =") +
-      slice(asset, "const normalizePowerLimitRange =", "const createDeviceControlsControl ="),
+    host(
+      "useEchoedValue",
+      "clampReading",
+      "normalizePowerLimitRange",
+      "normalizePowerLimitState",
+      "createPowerLimitControl",
+    ),
     "{ createPowerLimitControl, normalizePowerLimitState }",
   );
   const control = powerApi.createPowerLimitControl(runtime);
@@ -738,7 +775,7 @@ console.log(
   const hooks = createHooks();
   const useEcho = instantiate(
     {},
-    slice(asset, "const useEchoedValue =", "const useTrailingCommit ="),
+    host("useEchoedValue"),
     "useEchoedValue",
   );
   const runtime = { react: { useState: hooks.useState } };

@@ -59,7 +59,7 @@ const globals = {
 // shipped release rather than a stand-in's.
 const gate = instantiate(
   globals,
-  `${sharedFragments(asset)}\n${gateSource(asset, "createStorageService", "storage")}`,
+  `${sharedFragments(asset)}\n${gateSource(asset, "gates/storage.ts")}`,
   "createStorageService()",
 );
 

@@ -92,7 +92,7 @@ internal sealed class SteamUiBridgeAuthorizer
         }
     }
 
-    /// <summary>Validates schema, vocabulary, generation, ordering, replay, and payload bounds.</summary>
+    /// <summary>Validates schema, vocabulary, generation, ordering, replay, and payload presence.</summary>
     /// <param name="request">The decoded bridge request.</param>
     /// <returns>An explicit accept or rejection.</returns>
     public SteamUiBridgeAuthorizationResult Authorize(SteamUiBridgeRequest request)
@@ -222,7 +222,6 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
     ///     surface publishes one state however large it is.
     /// </remarks>
     public const int DeliveryPartCharacters = 256 * 1024;
-
 
     private const string Namespace = SteamUiBridgeIdentity.Namespace;
     private const string BindingName = SteamUiBridgeIdentity.BindingName;

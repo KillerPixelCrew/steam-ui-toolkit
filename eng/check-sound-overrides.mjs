@@ -3,15 +3,15 @@ import assert from "node:assert/strict";
 import {
   assertRemoveRetries,
   failingHost,
+  fragment,
   gateSource,
   instantiate,
   loadAsset,
-  slice,
 } from "./check-harness.mjs";
 
 const asset = loadAsset();
-const ownership = slice(asset, "const defineHidden", "const supplyNamespace");
-const code = gateSource(asset, "createSoundOverrides", "soundOverrides");
+const ownership = fragment(asset, "ownership.ts");
+const code = gateSource(asset, "gates/sound-overrides.ts");
 const original = function (url, ...args) {
   return [this, url, ...args];
 };

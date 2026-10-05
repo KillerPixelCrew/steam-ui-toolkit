@@ -11,12 +11,12 @@
 // Node built-ins only, so it runs in an offline release build with no node_modules.
 //
 //   node eng/check-ownership-claims.mjs [asset path]
+import assert from "node:assert/strict";
 import { loadAsset, sharedFragments } from "./check-harness.mjs";
 
-// The primitives with the RPC replies and gate helpers that follow them, up to the row glyphs. The
-// upper bound matters when this is pointed at a consumer's composed asset rather than the prelude:
-// gates register themselves with a top-level call, and evaluating one here would fail on a
-// `registerGate` that only exists inside the real bridge.
+// The primitives with the RPC replies and gate helpers, as whole fragments and no gate: gates
+// register themselves with a top-level call, and evaluating one here would fail on a `registerGate`
+// that only exists inside the real bridge.
 const primitives = sharedFragments(loadAsset());
 
 const harness = `
@@ -24,47 +24,38 @@ ${primitives}
 return { claimValue, releaseValue, claimMember, releaseMember, memberClaimed, claimAccessor, releaseAccessor, supplyNamespace, withdrawNamespace, claimed };
 `;
 const api = new Function(harness)();
-let failures = 0;
-const check = (name, condition) => {
-  if (!condition) {
-    console.log(`  FAIL  ${name}`);
-    failures++;
-  } else {
-    console.log(`  ok    ${name}`);
-  }
-};
 
 // --- value claim: the brightness availability flag -------------------------------------------
 const keys = { marker: "__mark", original: "__orig" };
 {
   const host = { flag: false };
   const first = api.claimValue(host, "flag", keys, true);
-  check("value: claims a hidden flag", first.ok && host.flag === true);
-  check("value: marker is not enumerable", !Object.keys(host).includes("__mark"));
+  assert.ok(first.ok && host.flag === true, "value: claims a hidden flag");
+  assert.ok(!Object.keys(host).includes("__mark"), "value: marker is not enumerable");
 
   // The teardown trap: a second bridge sees its predecessor's work and must reclaim, not refuse.
   const second = api.claimValue(host, "flag", keys, true);
-  check("value: reclaims its own work rather than refusing", second.ok && second.reclaimed);
+  assert.ok(second.ok && second.reclaimed, "value: reclaims its own work rather than refusing");
 
   api.releaseValue(host, "flag", keys);
-  check("value: restores the original", host.flag === false);
-  check("value: removes its markers", !("__mark" in host) && !("__orig" in host));
+  assert.ok(host.flag === false, "value: restores the original");
+  assert.ok(!("__mark" in host) && !("__orig" in host), "value: removes its markers");
 }
 {
   // A client that already reports available needs nothing; claiming would invent an original.
   const host = { flag: true };
   const outcome = api.claimValue(host, "flag", keys, true);
-  check("value: stands aside when the client already set it", !outcome.ok);
+  assert.ok(!outcome.ok, "value: stands aside when the client already set it");
 }
 {
   const proto = { flag: false };
   const host = Object.create(proto);
   const outcome = api.claimValue(host, "flag", keys, true);
-  check("value: claims an inherited field", outcome.ok && host.flag === true);
+  assert.ok(outcome.ok && host.flag === true, "value: claims an inherited field");
   api.releaseValue(host, "flag", keys);
-  check(
-    "value: release reveals the inherited field without leaving a shadow",
+  assert.ok(
     host.flag === false && !Object.hasOwn(host, "flag"),
+    "value: release reveals the inherited field without leaving a shadow",
   );
 }
 {
@@ -79,13 +70,13 @@ const keys = { marker: "__mark", original: "__orig" };
   api.claimValue(host, "flag", keys, true);
   api.releaseValue(host, "flag", keys);
   const after = Object.getOwnPropertyDescriptor(host, "flag");
-  check(
-    "value: restores an own undefined field and its exact descriptor",
+  assert.ok(
     Object.hasOwn(host, "flag") &&
       after.value === undefined &&
       after.enumerable === before.enumerable &&
       after.configurable === before.configurable &&
       after.writable === before.writable,
+    "value: restores an own undefined field and its exact descriptor",
   );
 }
 {
@@ -108,14 +99,14 @@ const keys = { marker: "__mark", original: "__orig" };
   });
   const before = Object.getOwnPropertyDescriptor(host, "flag");
   const claim = api.claimValue(host, "flag", keys, true);
-  check(
-    "value: claims an accessor-backed field through its setter",
+  assert.ok(
     claim.ok && host.flag === true,
+    "value: claims an accessor-backed field through its setter",
   );
   const during = Object.getOwnPropertyDescriptor(host, "flag");
-  check(
-    "value: the accessor survives the claim",
+  assert.ok(
     during.get === before.get && during.set === before.set,
+    "value: the accessor survives the claim",
   );
   api.releaseValue(host, "flag", keys);
   const after = Object.getOwnPropertyDescriptor(host, "flag");
@@ -125,12 +116,12 @@ const keys = { marker: "__mark", original: "__orig" };
   } catch {
     readable = false;
   }
-  check(
-    "value: release hands the value back and leaves the accessor readable",
+  assert.ok(
     readable &&
       after.get === before.get &&
       after.set === before.set &&
       values.get("flag") === false,
+    "value: release hands the value back and leaves the accessor readable",
   );
 }
 {
@@ -139,9 +130,9 @@ const keys = { marker: "__mark", original: "__orig" };
   Object.defineProperty(host, "flag", { get: () => false, configurable: true });
   const outcome = api.claimValue(host, "flag", keys, true);
   const after = Object.getOwnPropertyDescriptor(host, "flag");
-  check(
-    "value: refuses a read-only accessor without touching it",
+  assert.ok(
     !outcome.ok && typeof after.get === "function" && host.flag === false && !("__mark" in host),
+    "value: refuses a read-only accessor without touching it",
   );
 }
 
@@ -159,15 +150,15 @@ const keys = { marker: "__mark", original: "__orig" };
     called = v * 2;
     return "ours";
   });
-  check("member: claims a function", claim.ok);
-  check("member: marks the replacement", api.memberClaimed(host, "Set", keys));
+  assert.ok(claim.ok, "member: claims a function");
+  assert.ok(api.memberClaimed(host, "Set", keys), "member: marks the replacement");
   host.Set(5);
-  check("member: the overlay runs", called === 10);
+  assert.ok(called === 10, "member: the overlay runs");
 
   api.releaseMember(host, "Set", keys);
-  check("member: restores the native method", host.Set === native);
+  assert.ok(host.Set === native, "member: restores the native method");
   host.Set(5);
-  check("member: the native method runs after release", called === 5);
+  assert.ok(called === 5, "member: the native method runs after release");
 }
 {
   // A wrap that calls through, reclaimed by a second bridge: must not stack.
@@ -180,16 +171,16 @@ const keys = { marker: "__mark", original: "__orig" };
   api.claimMember(host, "Go", keys, wrapOnce);
   api.claimMember(host, "Go", keys, wrapOnce);
   host.Go();
-  check("member: reclaim replaces rather than stacking", order.join(",") === "wrap,native");
+  assert.ok(order.join(",") === "wrap,native", "member: reclaim replaces rather than stacking");
 }
 {
   const proto = { Go: () => "native" };
   const host = Object.create(proto);
   api.claimMember(host, "Go", keys, () => () => "ours");
   api.releaseMember(host, "Go", keys);
-  check(
-    "member: release reveals an inherited method without leaving a shadow",
+  assert.ok(
     host.Go() === "native" && !Object.hasOwn(host, "Go"),
+    "member: release reveals an inherited method without leaving a shadow",
   );
 }
 {
@@ -203,11 +194,11 @@ const keys = { marker: "__mark", original: "__orig" };
   api.claimMember(host, "Maybe", keys, () => () => "ours");
   api.releaseMember(host, "Maybe", keys);
   const descriptor = Object.getOwnPropertyDescriptor(host, "Maybe");
-  check(
-    "member: restores an own undefined member instead of deleting it",
+  assert.ok(
     Object.hasOwn(host, "Maybe") &&
       descriptor.value === undefined &&
       descriptor.enumerable === false,
+    "member: restores an own undefined member instead of deleting it",
   );
 }
 
@@ -216,26 +207,26 @@ const keys = { marker: "__mark", original: "__orig" };
   const marker = "__ns";
   const system = {};
   const supplied = api.supplyNamespace(system, "Audio", marker, () => ({ GetDevices: () => 1 }));
-  check("namespace: supplies one where the client has none", supplied.ok && !!system.Audio);
-  check("namespace: marker is not enumerable", !Object.keys(system.Audio).includes(marker));
+  assert.ok(supplied.ok && !!system.Audio, "namespace: supplies one where the client has none");
+  assert.ok(!Object.keys(system.Audio).includes(marker), "namespace: marker is not enumerable");
 
   // The trap this one paid for: an orphaned namespace outlives the bridge behind it, because the
   // bridge dies with the JS context and SteamClient does not. Refusing here stranded the client.
   const second = api.supplyNamespace(system, "Audio", marker, () => ({ GetDevices: () => 2 }));
-  check("namespace: reclaims its own orphan rather than refusing", second.ok && second.reclaimed);
-  check("namespace: the reclaim actually replaced it", system.Audio.GetDevices() === 2);
+  assert.ok(second.ok && second.reclaimed, "namespace: reclaims its own orphan rather than refusing");
+  assert.ok(system.Audio.GetDevices() === 2, "namespace: the reclaim actually replaced it");
 
   api.withdrawNamespace(system, "Audio", marker);
-  check("namespace: withdrawal deletes it", !("Audio" in system));
+  assert.ok(!("Audio" in system), "namespace: withdrawal deletes it");
 }
 {
   // A client that grows a real backend must not be shadowed, nor deleted by our cleanup.
   const real = { GetDevices: () => "real" };
   const system = { Audio: real };
   const outcome = api.supplyNamespace(system, "Audio", "__ns", () => ({}));
-  check("namespace: stands aside for a real backend", !outcome.ok);
+  assert.ok(!outcome.ok, "namespace: stands aside for a real backend");
   api.withdrawNamespace(system, "Audio", "__ns");
-  check("namespace: withdrawal leaves a real backend alone", system.Audio === real);
+  assert.ok(system.Audio === real, "namespace: withdrawal leaves a real backend alone");
 }
 {
   // Reclaim against a previous bridge's non-writable definition. Assignment would throw here under
@@ -244,12 +235,12 @@ const keys = { marker: "__mark", original: "__orig" };
   const system = {};
   api.supplyNamespace(system, "Perf", marker, () => ({ n: 1 }));
   const descriptor = Object.getOwnPropertyDescriptor(system, "Perf");
-  check(
-    "namespace: defined non-writable, as a previous bridge would leave it",
+  assert.ok(
     !descriptor.writable,
+    "namespace: defined non-writable, as a previous bridge would leave it",
   );
   const again = api.supplyNamespace(system, "Perf", marker, () => ({ n: 2 }));
-  check("namespace: reclaims a non-writable definition", again.ok && system.Perf.n === 2);
+  assert.ok(again.ok && system.Perf.n === 2, "namespace: reclaims a non-writable definition");
 }
 
 // --- accessor claim: the network availability getter -------------------------------------------
@@ -257,20 +248,19 @@ const keys = { marker: "__mark", original: "__orig" };
   const proto = {};
   Object.defineProperty(proto, "avail", { get: () => false, configurable: true });
   const claim = api.claimAccessor(proto, "avail", keys, () => true);
-  check("accessor: claims a prototype getter", claim.ok && proto.avail === true);
+  assert.ok(claim.ok && proto.avail === true, "accessor: claims a prototype getter");
 
   const second = api.claimAccessor(proto, "avail", keys, () => true);
-  check("accessor: reclaims its own work", second.ok && second.reclaimed);
+  assert.ok(second.ok && second.reclaimed, "accessor: reclaims its own work");
 
   api.releaseAccessor(proto, "avail", keys);
-  check("accessor: restores the original getter", proto.avail === false);
+  assert.ok(proto.avail === false, "accessor: restores the original getter");
 }
 {
   const locked = {};
   Object.defineProperty(locked, "avail", { get: () => false, configurable: false });
   const outcome = api.claimAccessor(locked, "avail", keys, () => true);
-  check("accessor: stands aside on a non-configurable property", !outcome.ok);
+  assert.ok(!outcome.ok, "accessor: stands aside on a non-configurable property");
 }
 
-console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
-process.exit(failures === 0 ? 0 : 1);
+console.log("Ownership claims: every claim, reclaim, release and stand-aside scenario passed.");

@@ -133,7 +133,7 @@ const globals = {
 // The shared useMemo claim is the asset's own, so another surface on it is exercised for real.
 const gate = instantiate(
   globals,
-  `${sharedFragments(asset)}\n${gateSource(asset, "createScreensaverSettings", "screensaver")}`,
+  `${sharedFragments(asset)}\n${gateSource(asset, "gates/screensaver.ts")}`,
   "{ gate: createScreensaverSettings(), interceptMemo, releaseMemo }",
 );
 const { interceptMemo, releaseMemo } = gate;

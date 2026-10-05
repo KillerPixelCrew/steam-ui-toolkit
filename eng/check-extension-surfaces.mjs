@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import {
   createReact,
+  declarations,
   element,
-  fragment,
   fragments,
   gateSource,
   helperLabels,
@@ -10,7 +10,6 @@ import {
   loadAsset,
   readSource,
   sharedFragments,
-  slice,
   tick,
   withSource,
 } from "./check-harness.mjs";
@@ -148,18 +147,16 @@ const globals = {
   window,
 };
 // The settings renderer and the kit sit after the icons, outside the shared fragments; the tab
-// draws its settings with them. The icon renderer is the fixture's own, so the icons fragment joins
-// from its glyph helpers.
-const icons = fragment(asset, "icons.ts");
-const glyphs = icons.indexOf("const SteamGlyphPattern");
-assert.ok(glyphs >= 0, "the icons fragment must define the glyph helpers");
+// draws its settings with them. The icon renderer is the fixture's own, so only the glyph helpers
+// are taken from the icons fragment.
 const helpers = helperLabels(asset);
 const code =
   sharedFragments(asset) +
-  icons.slice(glyphs) +
+  declarations(asset, "icons.ts", ["SteamGlyphPattern", "steamGlyphCaches", "renderSteamGlyph"]) +
+  "\n" +
   fragments(asset, helpers.slice(helpers.indexOf("icons.ts") + 1)) +
-  gateSource(asset, "createExtensionsTab", "extensionsTab") +
-  gateSource(asset, "createGameContextMenu", "gameContextMenu");
+  gateSource(asset, "gates/extensions-tab.ts") +
+  gateSource(asset, "gates/game-context-menu.ts");
 const { extensions, menu, createExtensions, unclaimedValue } = instantiate(
   globals,
   code,

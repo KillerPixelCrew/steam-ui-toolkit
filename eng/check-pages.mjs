@@ -11,10 +11,10 @@ import {
   createReact,
   element,
   failingHost,
+  fragment,
   gateSource,
   instantiate,
   loadAsset,
-  slice,
   sharedFragments,
 } from "./check-harness.mjs";
 
@@ -100,7 +100,7 @@ const globals = {
 
 const gate = instantiate(
   globals,
-  `${sharedFragments(asset)}\n${slice(asset, "const steamPageRenderers", "function createPageHost()")}\n${gateSource(asset, "createPageHost", "pages")}`,
+  `${sharedFragments(asset)}\n${gateSource(asset, "gates/pages.ts")}`,
   "createPageHost()",
 );
 
@@ -205,7 +205,88 @@ assertRemoveRetries(gate, failNext, "pages");
 assert.equal(memo.type, Router);
 assert.equal(gate.status().routeSource, "none", "removal must drop the borrowed Route");
 
+// A host page declared with registerSteamPage: its gate refuses until Steam's components resolve and
+// says which are missing, follows the host's state and refusals while installed, and its frame stops
+// drawing the page once the gate is removed.
+{
+  const registered = new Map();
+  let published = null;
+  let refused = null;
+  let components = null;
+  let released = 0;
+  const pageReact = createReact({ useState: (initial) => [initial, () => {}], useEffect: () => {} });
+  const { registerSteamPage, steamPageRenderers } = instantiate(
+    {
+      getWebpackRuntime: () => () => null,
+      createIconRenderer: () => () => null,
+      request: () => Promise.resolve(),
+      subscribe: (_patchId, listener) => {
+        published = listener;
+        return () => {
+          published = null;
+        };
+      },
+      subscribeRefusal: (_patchId, listener) => {
+        refused = listener;
+        return () => {
+          refused = null;
+        };
+      },
+      registerGate: (name, value) => registered.set(name, value),
+    },
+    `${sharedFragments(asset)}\n${fragment(asset, "page-gate.ts")}\n${gateSource(asset, "gates/pages.ts")}`,
+    "{ registerSteamPage, steamPageRenderers }",
+  );
+  const Page = () => null;
+  const definition = {
+    template: "fixture-page",
+    gate: "fixturePage",
+    patchId: "fixture.page",
+    components: () => components,
+    required: ["react", "field"],
+    release: () => {
+      released++;
+    },
+    Page,
+  };
+  const context = registerSteamPage(definition);
+  const pageGate = registered.get("fixturePage");
+  assert.ok(pageGate, "a declared page must register its gate under its name");
+  const render = steamPageRenderers.get("fixture-page");
+  assert.equal(typeof render, "function", "a declared page must register its renderer");
+  assert.throws(() => registerSteamPage(definition), /already registered/u);
+
+  const frame = render(pageReact, { id: "fixture" });
+  components = { react: pageReact };
+  const refusedInstall = pageGate.install();
+  assert.equal(refusedInstall.ok, false);
+  assert.equal(refusedInstall.error, "Native Steam components unavailable: field");
+  const waiting = frame.type(frame.props);
+  assert.equal(waiting.props.role, "status", "a page that cannot resolve says why");
+  assert.deepEqual(waiting.props.children, ["Native Steam components unavailable: field"]);
+
+  components = { react: pageReact, field: () => null };
+  assert.deepEqual(pageGate.install(), { ok: true, installed: true });
+  assert.equal(pageGate.status().subscribed, true);
+  published({ value: 1 });
+  refused("too large");
+  assert.deepEqual(context.state(), { value: 1 });
+  assert.equal(context.refusal(), "too large");
+  const drawn = frame.type(frame.props);
+  assert.equal(drawn.type, Page, "an installed page draws the host's component");
+  assert.equal(drawn.props.context, context);
+  assert.deepEqual(drawn.props.page, { id: "fixture" });
+
+  assert.deepEqual(pageGate.remove(), { ok: true, removed: true });
+  assert.equal(released, 1, "removal releases what the page prepared");
+  assert.equal(published, null, "removal ends the state subscription");
+  assert.equal(refused, null, "removal ends the refusal subscription");
+  assert.equal(context.state(), null);
+  assert.equal(context.refusal(), null);
+  assert.equal(frame.type(frame.props).props.role, "status", "a removed page draws nothing of its own");
+}
+
 console.log(
-  "Custom pages: borrowed Route, route-list discovery, override vs addition, validation and " +
-    "restoration passed.",
+  "Custom pages: borrowed Route, route-list discovery, override vs addition, validation, " +
+    "restoration and the registerSteamPage lifecycle passed.",
 );

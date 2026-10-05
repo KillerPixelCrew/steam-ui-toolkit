@@ -54,7 +54,7 @@ public static class SteamBrightnessSurface
         $$"""
           {{SteamUiProbeJs.Preamble("steam_ui_brightness_probe_")}}
             // By what it is, never by module id or export name: the September 2026 beta renumbered
-            // module 59547 and this probe refused brightness until it stopped naming it.
+            // its module and this probe refused brightness until it stopped naming it.
             let store=null;
             try{store=req.exported(['m_flDisplayBrightness','is_display_brightness_available'],
               v=>typeof v==='function'&&typeof v.Get==='function'&&String(v).includes('m_flDisplayBrightness')).Get();}catch{}

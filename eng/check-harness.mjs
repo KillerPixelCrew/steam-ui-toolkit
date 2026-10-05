@@ -20,26 +20,76 @@ export const readSource = (path) => readFileSync(join(repositoryRoot, path), "ut
 export const loadAsset = (path = process.argv[2]) =>
   readFileSync(path ?? join(repositoryRoot, "dist", "prelude.js"), "utf8");
 
-/** The text from one marker up to the next occurrence of another, asserting both exist. */
-export const slice = (asset, from, to) => {
-  const start = asset.indexOf(from);
-  const end = start < 0 ? -1 : asset.indexOf(to, start);
-  assert.ok(start >= 0 && end > start, `the emitted asset must contain ${from} … ${to}`);
-  return asset.slice(start, end);
-};
-
 const fragmentMarkers = (asset) => [...asset.matchAll(/^[ \t]*\/\/ @fragment (\S+)[ \t]*$/gmu)];
 
 /** The labels of the asset's fragments in emitted order, such as "ownership.ts" or "gates/audio.ts". */
 export const fragmentLabels = (asset) => fragmentMarkers(asset).map((marker) => marker[1]);
 
-/** One whole fragment by its label, from its marker to the next, at whatever indentation was emitted. */
+/**
+ * One whole fragment by its label, from its marker to the next, at whatever indentation was emitted.
+ * "bridge.ts" opens the asset and carries no marker, so it is the text before the first one: the
+ * IIFE it opens is left open.
+ */
 export const fragment = (asset, label) => {
   const markers = fragmentMarkers(asset);
+  if (label === "bridge.ts") {
+    assert.ok(markers.length > 0, "the emitted asset must contain fragments after the bridge");
+    return asset.slice(0, markers[0].index);
+  }
   const at = markers.findIndex((marker) => marker[1] === label);
   assert.ok(at >= 0, `the emitted asset must contain the ${label} fragment`);
   const end = at + 1 < markers.length ? markers[at + 1].index : asset.length;
   return asset.slice(markers[at].index, end);
+};
+
+const parses = (code) => {
+  try {
+    new Function(code);
+    return true;
+  } catch (error) {
+    if (error instanceof SyntaxError) return false;
+    throw error;
+  }
+};
+
+/**
+ * The whole statement that opens with `from` in `source`. It ends at the first line-ending `;` or
+ * `}` after which the parser accepts it, so it is complete whatever follows it: an inner line end
+ * leaves a bracket, string or comment open and does not parse.
+ */
+export const statement = (source, from) => {
+  const start = source.indexOf(from);
+  assert.ok(start >= 0, `the emitted asset must contain ${from}`);
+  for (const end of source.slice(start).matchAll(/[;}](?=[ \t]*(?:\r?\n|$))/gu)) {
+    const text = source.slice(start, start + end.index + 1);
+    if (parses(text)) return text;
+  }
+  assert.fail(`${from} must open a complete statement`);
+};
+
+/**
+ * The whole declaration of `name` in `source`, a `const`, `let` or `function` at the shallowest
+ * depth that declares it, which must be unique there.
+ */
+export const declaration = (source, name) => {
+  const found = [
+    ...source.matchAll(new RegExp(`^([ \\t]*)(?:(?:const|let) ${name} =|function ${name}\\()`, "gmu")),
+  ];
+  assert.ok(found.length > 0, `the emitted asset must declare ${name}`);
+  const depth = Math.min(...found.map((match) => match[1].length));
+  const outermost = found.filter((match) => match[1].length === depth);
+  assert.equal(outermost.length, 1, `${name} must be declared once at its depth`);
+  return statement(source.slice(outermost[0].index + depth), outermost[0][0].slice(depth));
+};
+
+/**
+ * Named declarations taken whole from one whole fragment, joined in the order given. A check names
+ * what it instantiates, so a declaration added, moved or renamed beside them changes nothing it
+ * reads, and one it names that is gone fails by name.
+ */
+export const declarations = (asset, label, names) => {
+  const source = fragment(asset, label);
+  return names.map((name) => declaration(source, name)).join("\n");
 };
 
 /** Several whole fragments, joined in the order given. */
@@ -54,9 +104,16 @@ export const helperLabels = (asset) =>
     (label) => !label.includes("/") && label !== "components.ts" && label !== "epilogue.ts",
   );
 
-/** One gate's factory, from its declaration to its registration. */
-export const gateSource = (asset, factory, gateName) =>
-  slice(asset, `function ${factory}()`, `registerGate("${gateName}"`);
+/**
+ * One gate fragment, whole, without its top-level registrations, so a check constructs each gate
+ * itself over its own fixtures.
+ */
+export const gateSource = (asset, label) => {
+  const source = fragment(asset, label);
+  const gates = source.replace(/^[ \t]*registerGate\("[^"]+", [A-Za-z]+\(\)\);[ \t]*\r?$/gmu, "");
+  assert.notEqual(gates, source, `the ${label} fragment must register its gate`);
+  return gates;
+};
 
 /**
  * The ownership primitives, the RPC replies, the file picker and the shared gate helpers. Gates are

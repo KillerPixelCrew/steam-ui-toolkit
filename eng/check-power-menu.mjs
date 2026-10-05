@@ -68,7 +68,7 @@ const globals = {
 };
 const gate = instantiate(
   globals,
-  `${sharedFragments(asset)}\n${gateSource(asset, "createPowerMenu", "powerMenu")}`,
+  `${sharedFragments(asset)}\n${gateSource(asset, "gates/power-menu.ts")}`,
   "createPowerMenu()",
 );
 
