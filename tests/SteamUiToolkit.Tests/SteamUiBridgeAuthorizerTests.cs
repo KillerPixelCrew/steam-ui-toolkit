@@ -10,7 +10,7 @@ namespace SteamUiToolkit.Tests;
 ///     The bootstrap serialises its envelope in camelCase. The host's source-generated context matched
 ///     PascalCase with case-insensitivity explicitly disabled, so every property took its default:
 ///     Version arrived as 0 and the request was refused as a schema version mismatch with an empty
-///     patch id. Every native-QAM command had been rejected since the bridge was written, and it stayed
+///     patch id. Every Quick Access command had been rejected since the bridge was written, and it stayed
 ///     invisible because no row rendered to send one until the panel was fixed.
 ///     <para>
 ///         The captured envelope below is a real one from the live Runtime binding on the reference Claw,

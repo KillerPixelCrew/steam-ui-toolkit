@@ -342,8 +342,10 @@ ISteamUiModule audio = SteamAudioSurface.Module(
 
 A surface's patch id and command vocabulary are constants on it (`PatchId`, `Commands`), and the
 module set derives the bridge's exact state and command vocabulary from every module you register,
-so pass `SteamUiModuleSet.AllowedCommands` to `SteamUiBridgeHost`. A surface you do not register
-installs nothing, and its Valve UI stays exactly as the client ships it.
+so pass `SteamUiModuleSet.AllowedCommands` to `SteamUiBridgeHost`. Modules that come and go while
+you run, such as a plugin's, go through `SteamUiModuleRuntime.ReplaceModulesAsync`, which keeps the
+bridge's vocabulary in step; set the added patches' switches and queue a synchronization after it.
+A surface you do not register installs nothing, and its Valve UI stays exactly as the client ships it.
 
 A surface of your own is a fragment that calls `registerGate(name, gate)` plus a patch that reaches
 it through `window[namespace].gate(name)`, declared in a module like any other.

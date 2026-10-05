@@ -3,6 +3,7 @@ using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -37,11 +38,11 @@ public sealed record SteamUiBridgeRequest(
     /// <returns>The generations and sequence that authorized the request, joined.</returns>
     /// <remarks>
     ///     A method rather than a property so the source-generated serializer never treats it as a
-    ///     wire field. The prefix is the established one from the logs this format was diagnosed in.
+    ///     wire field. The text is for logs only; nothing parses it.
     /// </remarks>
     public string ToCorrelationId()
     {
-        return $"native-qam:{ContextGeneration}:{DocumentGeneration}:{Sequence}:{ActionGeneration}";
+        return $"steam-ui:{ContextGeneration}:{DocumentGeneration}:{Sequence}:{ActionGeneration}";
     }
 }
 
@@ -53,12 +54,11 @@ internal readonly record struct SteamUiBridgeAuthorizationResult(bool Accepted, 
 /// <summary>Authorizes consumer-declared commands without exposing generic evaluation or host APIs.</summary>
 internal sealed class SteamUiBridgeAuthorizer
 {
-    private readonly IReadOnlyDictionary<string, IReadOnlyList<string>> _commands;
-
     private readonly Dictionary<string, (long Sequence, long ActionGeneration)> _last =
         new(StringComparer.Ordinal);
 
     private readonly object _sync = new();
+    private volatile IReadOnlyDictionary<string, IReadOnlyList<string>> _commands;
     private SteamUiGenerations _generations;
     private long _lastRequestSequence;
 
@@ -71,6 +71,13 @@ internal sealed class SteamUiBridgeAuthorizer
     {
         _generations = generations;
         _commands = CopyVocabulary(allowedCommands);
+    }
+
+    /// <summary>Authorizes against another vocabulary from now on.</summary>
+    /// <param name="commands">A vocabulary already copied by <see cref="CopyVocabulary" />.</param>
+    public void SetCommands(IReadOnlyDictionary<string, IReadOnlyList<string>> commands)
+    {
+        _commands = commands;
     }
 
     /// <summary>Replaces the bridge generation and clears replay state.</summary>
@@ -201,7 +208,7 @@ internal sealed class SteamUiBridgeAuthorizer
     }
 }
 
-/// <summary>Installs and owns the versioned Runtime-binding bridge for native-QAM patches.</summary>
+/// <summary>Installs and owns the versioned Runtime-binding bridge every Steam UI patch lives in.</summary>
 public sealed class SteamUiBridgeHost : IAsyncDisposable
 {
     /// <summary>Current bridge schema version.</summary>
@@ -225,7 +232,6 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
     private const int MaximumPendingRequests = 32;
     private const int RequestTimeoutMilliseconds = 5000;
     private static readonly TimeSpan OperationTimeout = TimeSpan.FromSeconds(5);
-    private readonly IReadOnlyDictionary<string, IReadOnlyList<string>> _allowedCommands;
     private readonly SteamUiInjectedAsset _asset;
     private readonly SteamUiBridgeAuthorizer _authorizer;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -262,6 +268,9 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
     private SteamUiGenerations _generations;
     private volatile bool _ready;
 
+    // Replaced whole, so a reader takes one reference and sees one consistent vocabulary.
+    private volatile BridgeVocabulary _vocabulary;
+
     /// <summary>Creates a bridge over the process-owned persistent transport.</summary>
     /// <param name="transport">The single Steam UI transport owner.</param>
     /// <param name="asset">
@@ -270,7 +279,8 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
     /// </param>
     /// <param name="allowedCommands">
     ///     The exact state identities and semantic commands declared by
-    ///     the consumer's modules. The bridge copies this vocabulary at construction.
+    ///     the consumer's modules. The bridge copies this vocabulary; <see cref="SetAllowedCommands" />
+    ///     replaces it later.
     /// </param>
     public SteamUiBridgeHost(
         ISteamUiTransport transport,
@@ -281,8 +291,8 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         ArgumentException.ThrowIfNullOrWhiteSpace(asset.Source);
         ArgumentException.ThrowIfNullOrWhiteSpace(asset.Sha256);
-        _allowedCommands = SteamUiBridgeAuthorizer.CopyVocabulary(allowedCommands);
-        _authorizer = new SteamUiBridgeAuthorizer(default, _allowedCommands);
+        _vocabulary = BridgeVocabulary.Create(allowedCommands);
+        _authorizer = new SteamUiBridgeAuthorizer(default, _vocabulary.Commands);
         _transport.NotificationReceived += OnNotificationReceived;
         _transport.GenerationChanged += OnGenerationChanged;
         _requestPump = DispatchRequestsAsync();
@@ -290,6 +300,37 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
 
     /// <summary>Whether the bootstrap handshake is healthy for the current generation.</summary>
     public bool IsReady => _ready;
+
+    /// <summary>Replaces the state identities and semantic commands the bridge allows.</summary>
+    /// <param name="allowedCommands">
+    ///     The complete vocabulary from now on, such as <see cref="SteamUiModuleSet.AllowedCommands" />
+    ///     of the set the modules were just replaced with. The bridge copies it.
+    /// </param>
+    /// <remarks>
+    ///     Requests are authorized against the new vocabulary at once. The installed bridge still holds
+    ///     the old one, so a change also makes this host not ready: the vocabulary's revision is part of
+    ///     the bootstrap configuration and of the injected reuse check, and the bridge patch's next
+    ///     synchronization installs the bridge again with the new vocabulary. A bootstrap still running
+    ///     when the vocabulary changes does not report ready. An unchanged vocabulary changes nothing.
+    /// </remarks>
+    public void SetAllowedCommands(IReadOnlyDictionary<string, IReadOnlyList<string>> allowedCommands)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        var next = BridgeVocabulary.Create(allowedCommands);
+        lock (_stateSync)
+        {
+            if (string.Equals(next.Revision, _vocabulary.Revision, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _vocabulary = next;
+            _authorizer.SetCommands(next.Commands);
+            _generationEpoch++;
+        }
+
+        MarkNotReady();
+    }
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
@@ -371,12 +412,14 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
 
             var snapshot = FindSharedSnapshot();
             long bootstrapEpoch;
+            BridgeVocabulary vocabulary;
             lock (_stateSync)
             {
                 bootstrapEpoch = _generationEpoch;
+                vocabulary = _vocabulary;
             }
 
-            var configuration = BuildConfiguration(snapshot.Generations);
+            var configuration = BuildConfiguration(snapshot.Generations, vocabulary);
             var expression = _asset.Source.Replace(
                 "__STEAM_UI_CONFIGURATION_JSON__", configuration, StringComparison.Ordinal);
             var result = await _transport.EvaluateAsync(
@@ -415,7 +458,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
 
                 _ready = false;
                 return (false, ready
-                    ? "Steam UI generation changed during the bootstrap."
+                    ? "Steam UI generation or command vocabulary changed during the bootstrap."
                     : "Steam UI bridge bootstrap was refused: "
                       + (SteamUiPatchEvaluation.Bounded(result.Value) ?? "no answer"));
             }
@@ -450,7 +493,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             || request.Version != SchemaVersion
             || request.ContextGeneration != generations.ExecutionContext
             || request.DocumentGeneration != generations.Document
-            || !_allowedCommands.TryGetValue(request.PatchId, out var commands)
+            || !_vocabulary.Commands.TryGetValue(request.PatchId, out var commands)
             || !SteamUiBridgeAuthorizer.Contains(commands, request.Command))
         {
             return false;
@@ -511,7 +554,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         long? revision,
         CancellationToken cancellationToken)
     {
-        if (!TryGetReadyGenerations(out var generations) || !_allowedCommands.ContainsKey(patchId))
+        if (!TryGetReadyGenerations(out var generations) || !_vocabulary.Commands.ContainsKey(patchId))
         {
             return false;
         }
@@ -974,9 +1017,9 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         return Encoding.UTF8.GetString(buffer.WrittenSpan);
     }
 
-    private string BuildConfiguration(SteamUiGenerations generations)
+    private string BuildConfiguration(SteamUiGenerations generations, BridgeVocabulary vocabulary)
     {
-        return WriteJson((Host: this, Generations: generations), static (writer, state) =>
+        return WriteJson((Host: this, Generations: generations, Vocabulary: vocabulary), static (writer, state) =>
         {
             writer.WriteString("namespace", Namespace);
             writer.WriteString("binding", BindingName);
@@ -993,20 +1036,49 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             writer.WriteNumber("documentGeneration", state.Generations.Document);
             writer.WriteNumber("maximumPending", MaximumPendingRequests);
             writer.WriteNumber("timeoutMilliseconds", RequestTimeoutMilliseconds);
-            writer.WriteStartObject("allowed");
-            foreach (var pair in state.Host._allowedCommands)
+            // The asset hash's reasoning holds for the vocabulary as well: a bridge reused with an older
+            // allow map refuses every command a module added since, so a changed vocabulary replaces it.
+            writer.WriteString("vocabularyRevision", state.Vocabulary.Revision);
+            writer.WritePropertyName("allowed");
+            writer.WriteRawValue(state.Vocabulary.Json, skipInputValidation: true);
+        });
+    }
+
+    /// <summary>One copied vocabulary, the <c>allowed</c> object it is handed over as, and its revision.</summary>
+    /// <param name="Commands">Patch id to its allowed commands.</param>
+    /// <param name="Json">The <c>allowed</c> object of the bootstrap configuration.</param>
+    /// <param name="Revision">The SHA-256 of <paramref name="Json" />, so equal vocabularies share one.</param>
+    private sealed record BridgeVocabulary(
+        IReadOnlyDictionary<string, IReadOnlyList<string>> Commands,
+        string Json,
+        string Revision)
+    {
+        internal static BridgeVocabulary Create(IReadOnlyDictionary<string, IReadOnlyList<string>> allowedCommands)
+        {
+            var commands = SteamUiBridgeAuthorizer.CopyVocabulary(allowedCommands);
+            var buffer = new ArrayBufferWriter<byte>();
+            using (var writer = new Utf8JsonWriter(buffer))
             {
-                writer.WriteStartArray(pair.Key);
-                foreach (var command in pair.Value)
+                writer.WriteStartObject();
+                foreach (var pair in commands)
                 {
-                    writer.WriteStringValue(command);
+                    writer.WriteStartArray(pair.Key);
+                    foreach (var command in pair.Value)
+                    {
+                        writer.WriteStringValue(command);
+                    }
+
+                    writer.WriteEndArray();
                 }
 
-                writer.WriteEndArray();
+                writer.WriteEndObject();
             }
 
-            writer.WriteEndObject();
-        });
+            return new BridgeVocabulary(
+                commands,
+                Encoding.UTF8.GetString(buffer.WrittenSpan),
+                Convert.ToHexString(SHA256.HashData(buffer.WrittenSpan)));
+        }
     }
 
     private static string BuildResponse(
@@ -1059,7 +1131,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
 // CamelCase because that is what the bootstrap sends and what this file's own response writers
 // emit. Without it the source generator matched PascalCase, and with case-insensitivity explicitly
 // off NOTHING bound: every property took its default, so Version arrived as 0 and each request was
-// refused as a "schema version mismatch" with an empty patch id. Every native-QAM command had been
+// refused as a "schema version mismatch" with an empty patch id. Every bridge command had been
 // rejected since the bridge was written — invisible only because no row rendered to send one.
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

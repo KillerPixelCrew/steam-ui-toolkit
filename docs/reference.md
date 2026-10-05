@@ -472,7 +472,7 @@ answers. It is not a Steam webpack module.
 | `SteamUiStatePublication(PatchId, Read, Enabled)`                        | `Read` returning null publishes nothing that round, keeping "momentarily unavailable" distinct from zero.                                                                                                                                                                                                             |
 | `SteamUiCommandHandler(PatchId, Command, Handle)`                        | `Handle` returns `SteamUiCommandResult(Succeeded, Error, Payload)`; a failure without an `Error` is answered with `no reason reported`. It runs on the bridge's request pump in arrival order and must return its task promptly: a blocking read goes on `Task.Run` inside the handler, a write keeps its order through its backend. The builders refuse a blank patch id or command. |
 | `SteamUiModuleSet(modules)`                                              | Flattens once, in any declaration order. Throws on a duplicate module id, a patch registered by two modules, state published for one patch id by two modules, or a `(patchId, command)` answered twice, naming both modules. `AllowedCommands` maps every patch id to its commands; a publication-only patch appears with an empty list because subscriptions are guarded by the same vocabulary. |
-| `SteamUiModuleRuntime(bridge, modules, patches, commandsEnabled, publishEnabled)` | Runs both directions. `ReplaceModulesAsync(next)` swaps the set while running: a removed module's requests are cancelled and its patches unregistered, an added one's patches registered; a patch is kept only when the same instance is in both sets. `ShutdownAsync(token)` waits for the publication round and in-flight requests no longer than the token allows. |
+| `SteamUiModuleRuntime(bridge, modules, patches, commandsEnabled, publishEnabled)` | Runs both directions. `ReplaceModulesAsync(next)` swaps the set while running: an added module's patches are registered, the bridge vocabulary and the set are swapped, then a removed module's requests are cancelled and its patches retracted and unregistered; a patch is kept only when the same instance is in both sets. Added patches start switched on and nothing is applied until the consumer sets their switches and queues a synchronization, which also reinstalls the bridge when the vocabulary changed. `ShutdownAsync(token)` waits for the publication round and in-flight requests no longer than the token allows. |
 
 Runtime behaviour: a `cancel` request cancels the in-flight source by sequence; duplicate sequences
 are ignored. A refused command says why: `Refused` (`The requested semantic service is not active.`)
@@ -530,16 +530,22 @@ by it is the baseline, substitutes the configuration JSON for the literal
 `ok: true`, the reply's generations equal the snapshot's, and no generation epoch changed meanwhile.
 
 Configuration fields: `version`, `namespace`, `binding`, `assetHash`, `contextGeneration`,
-`documentGeneration`, `maximumPending` (32), `timeoutMilliseconds` (5000), `allowed` (patch id to
-commands). `assetHash` is load-bearing: neither context nor document generation changes on a
-consumer update, so without it a new build kept running the previous build's script until Steam
-restarted.
+`documentGeneration`, `maximumPending` (32), `timeoutMilliseconds` (5000), `vocabularyRevision` (the
+SHA-256 of the `allowed` text), `allowed` (patch id to commands). `assetHash` is load-bearing:
+neither context nor document generation changes on a consumer update, so without it a new build kept
+running the previous build's script until Steam restarted. `vocabularyRevision` does the same for the
+allow map, which the injected side fixes at install.
+
+`SetAllowedCommands(vocabulary)` replaces the vocabulary while the host runs. Requests are authorized
+against the new one at once; a changed vocabulary also makes the host not ready and invalidates a
+bootstrap in progress, so the bridge patch's next synchronization installs the bridge again with the
+new `allowed` map. An equal vocabulary changes nothing.
 
 ### The injected side (`bridge.ts`)
 
 | Member                                                  | Behaviour                                                                                                                                                                                                                                                                                                                                                                                |
 | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| reuse check                                             | If `window[namespace]` exists with equal `version`, `assetHash`, `contextGeneration`, `documentGeneration` and a `gate` function, return `{ok:true, reused:true}` before any fragment runs. Otherwise the prior bridge is disposed with `dispose("generation replaced")`, and the gates it names go into the install result as `priorDisposeFailures`, which the host logs.              |
+| reuse check                                             | If `window[namespace]` exists with equal `version`, `assetHash`, `vocabularyRevision`, `contextGeneration`, `documentGeneration` and a `gate` function, return `{ok:true, reused:true}` before any fragment runs. Otherwise the prior bridge is disposed with `dispose("generation replaced")`, and the gates it names go into the install result as `priorDisposeFailures`, which the host logs.              |
 | `request(patchId, command, payload, actionGeneration?)` | Rejects `command not allowlisted` and `bridge busy` (≥ `maximumPending`). Allocates a positive action generation when the caller passes none or zero, because the host rejects zero and several gates once passed exactly that. Sends the envelope through `window[binding](JSON.stringify(...))`; on timeout sends a `cancel` envelope and rejects `Steam UI bridge request timed out`. |
 | `subscribe(patchId, callback)`                          | Throws `subscription not allowlisted` unless the patch id is a key of `allowed`; replays the latest state. After dispose it registers nothing and returns a no-op unsubscribe, like `subscribeRefusal`.                                                                                                                                                                                  |
 | `deliver(envelope)`                                     | Accepts only `response` and `state` envelopes whose version and generations match, and nothing after dispose; a response resolves or rejects the pending promise by sequence and patch/command; a state is stored and fanned out.                                                                                                                                                        |

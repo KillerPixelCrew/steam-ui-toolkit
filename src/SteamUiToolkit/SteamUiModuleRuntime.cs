@@ -189,14 +189,20 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
     ///     removed.
     /// </param>
     /// <param name="cancellationToken">Cancels the removal of patches that left.</param>
-    /// <returns>A task that completes once removed patches were retracted and added ones registered.</returns>
+    /// <returns>A task that completes once added patches were registered and removed ones retracted.</returns>
     /// <remarks>
     ///     For modules that come and go while the host runs, such as a plugin's when it becomes ready or
     ///     stops. A patch is kept only when the same instance is in both sets; a module declared again by
     ///     a restarted plugin is new, so its patches are removed and registered again and it starts
-    ///     unfaulted. A removed module's in-flight requests are cancelled and its commands are answered
-    ///     as unhandled from the moment the set is swapped. The bridge's command vocabulary is the
-    ///     consumer's to keep in step with <see cref="SteamUiModuleSet.AllowedCommands" />.
+    ///     unfaulted. Added patches are registered first, then the bridge's vocabulary and the set are
+    ///     swapped (<see cref="SteamUiBridgeHost.SetAllowedCommands" />), then removed patches are
+    ///     retracted and unregistered. A removed module's in-flight requests are cancelled and its
+    ///     commands are refused from the moment the set is swapped.
+    ///     <para>
+    ///         Registered patches start with their switch on, and when to apply them is the consumer's
+    ///         policy: set the added patches' switches, then queue a synchronization. That pass applies
+    ///         them and, when the vocabulary changed, installs the bridge again with the new one.
+    ///     </para>
     /// </remarks>
     public async Task ReplaceModulesAsync(SteamUiModuleSet next, CancellationToken cancellationToken = default)
     {
@@ -212,6 +218,17 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
             var removed = current.Patches.Where(patch => !nextPatches.Contains(patch)).ToArray();
             var added = next.Patches.Where(patch => !currentPatches.Contains(patch)).ToArray();
 
+            // A patch removed and declared again by a new instance keeps its id, so the old entry has
+            // to leave the manager before the new one can join it.
+            var readded = new HashSet<string>(
+                removed.Select(patch => patch.Id).Intersect(added.Select(patch => patch.Id), StringComparer.Ordinal),
+                StringComparer.Ordinal);
+            foreach (var patch in added.Where(patch => !readded.Contains(patch.Id)))
+            {
+                _patches.Register(patch);
+            }
+
+            _bridge.SetAllowedCommands(next.AllowedCommands);
             _modules = next;
             lock (_moduleGate)
             {
@@ -240,14 +257,9 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
                 await _patches.UnregisterAsync(patch.Id, cancellationToken).ConfigureAwait(false);
             }
 
-            foreach (var patch in added)
+            foreach (var patch in added.Where(patch => readded.Contains(patch.Id)))
             {
                 _patches.Register(patch);
-            }
-
-            if (added.Length > 0)
-            {
-                _patches.QueueSynchronization();
             }
 
             QueuePublication();

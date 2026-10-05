@@ -287,7 +287,7 @@ public sealed class SteamSurfaceModuleTests
         Assert.Equal("The frame-limit payload is invalid.", extra.Error);
         Assert.True(refresh.Succeeded);
         Assert.Equal(
-            ["frame 60 native-qam:3:4:1:2", "refresh 75"],
+            ["frame 60 steam-ui:3:4:1:2", "refresh 75"],
             backend.Calls);
     }
 

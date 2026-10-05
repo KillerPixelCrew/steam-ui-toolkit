@@ -3,6 +3,7 @@ type BridgeConfiguration = Readonly<{
     namespace: string;
     binding: string;
     assetHash: string;
+    vocabularyRevision: string;
     contextGeneration: number;
     documentGeneration: number;
     maximumPending: number;
