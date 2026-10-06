@@ -1846,26 +1846,33 @@ The gate resolves the native descriptor factory by the four authored localizatio
 `#Settings_Page_Controller`. The native Settings root's provider is unique on `#Settings_Title`,
 `SettingsModal` and `SettingsTitleBar`; its function is selected by `#Settings_Title`, `show-icon`
 and the string `Settings`. No module id or export name is named. The shared `useMemo` transform
-copies only the selected native descriptors, retaining Steam's original label, route, glyph and
-content, and appends sections drawn by the shared native renderer. Only the Power descriptor's
-battery condition is revealed, and only while it has host rows and the Display, Audio and Controller
-descriptors confirm Steam's services are ready. No platform or battery value is changed.
+copies the four native descriptors, retaining Steam's original label, route, glyph and content, and
+appends one subscribed host slot to each. An empty slot returns null but stays mounted, so
+Controller capability arrival or removal updates the existing slot without navigating or remounting
+the page. Only the Power descriptor's battery condition is revealed, and only while it has host rows
+and the Display, Audio and Controller descriptors confirm Steam's services are ready. No platform or
+battery value is changed.
 
 The shared JSX transform reaches future Settings mounts. Mounted root fibers are adopted without
-adding hooks and retain a durable original marker for bridge replacement. Topology changes request a
-native ancestor render; ordinary value publications update only subscribed host sections. Remove
-withdraws both shared transforms, retracts sections and restores exactly the native root functions.
-`status.claimed` requires both transforms; `claimsRemaining` reports either lingering claim for
-removal verification. `ownedRoots`, `pages`, `renderedPages`, `lastOutcome` and `lastError`
-distinguish installation from a page actually rendering.
+adding hooks and retain a durable original marker for bridge replacement. Discovery includes
+SharedJSContext and the documents of known `g_PopupManager.GetPopups()` handles, deduplicating roots
+before one traversal with a total 60,000-node budget and examining at most 256 popup handles. Host
+Power presence changes request a native ancestor render to update the filtered sidebar; other
+capability and value publications update only subscribed host slots. Remove withdraws both shared
+transforms, retracts sections and restores exactly the native root functions. `status.claimed`
+requires both transforms; `claimsRemaining` reports either lingering claim for removal verification.
+`ownedRoots`, `pages`, `renderedPages`, `lastOutcome` and `lastError` distinguish installation from
+a page actually rendering. `ownedRoots = 0` alone is inconclusive: future JSX mounts are not
+recorded until a root discovery pass.
 
 Offline inspection of the installed Windows Steam bundle on 2026-10-06 found one descriptor factory
 among 2,835 module factories. Big Picture's native page ordering contains all four pages; Power is
 hidden when Steam does not report a battery. This establishes shipped source structure, not live
 mounting, navigation, focus or device writes. `SteamNativeSettingsSurfaceTests` covers
 serialization, primitive command bounds and unique probe facts; `eng/check-native-settings.mjs`
-covers native content retention, mounted adoption, state retraction, Power visibility and
-shared-claim restoration. The opaque color path is covered by `eng/check-settings-fields.mjs`.
+covers native content retention, popup-document adoption, duplicate-document handling, an empty
+Controller slot gaining rows, state retraction, dynamic Power visibility and shared-claim
+restoration. The opaque color path is covered by `eng/check-settings-fields.mjs`.
 
 ### Host settings sections in native Quick Access
 
@@ -1879,6 +1886,11 @@ with `{key,value}`; arrays, objects, blank keys and extra fields are refused.
 `FormatOptions`/`CurrentFormat` alongside Spatial choices. Both playback selectors send the offered
 complete format id to `setFormat`; the host supplies supported combinations and preserves encoding
 where possible. Quick Settings groups those fields under Audio, separately from Display.
+
+The audio row's `setFormat` and `setSpatial` commands accept exactly one nonblank `target` string,
+bounded to 256 characters. Format IDs may contain colons, as the Windows host's complete format
+identity does; they are not controller target identifiers. The backend still checks the current
+endpoint and its offered choices before a write.
 
 ### Truthful library reads
 

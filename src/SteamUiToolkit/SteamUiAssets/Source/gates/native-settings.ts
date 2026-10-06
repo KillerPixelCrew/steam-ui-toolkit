@@ -154,32 +154,32 @@ function createNativeSettings() {
       return value;
     const cached = mapCache.get(value);
     if (cached) return cached;
-    let next = value;
-    for (const page of state.pages) {
-      const key = NativePages[page.id];
+    const next = { ...value };
+    const hostPower = state.pages.some((page) => page.id === "power");
+    for (const [id, key] of Object.entries(NativePages)) {
       const original = value[key];
-      if (next === value) next = { ...value };
       next[key] = {
         ...original,
         // The peers share Power's native services-initialized gate. Reveal only the battery
         // condition, never a page whose native services are still unavailable.
         visible:
-          page.id === "power"
-            ? value.Display.visible && value.Audio.visible && value.Controller.visible
+          id === "power" && hostPower
+            ? original.visible ||
+              (value.Display.visible && value.Audio.visible && value.Controller.visible)
             : original.visible,
         content: react.createElement(
           react.Fragment,
           null,
           original.content,
           react.createElement(SteamUiNativeSettingsSections, {
-            id: page.id,
-            key: `steam-ui-native-${page.id}`,
+            id,
+            key: `steam-ui-native-${id}`,
           }),
         ),
       };
     }
     mapCache.set(value, next);
-    lastOutcome = `augmented ${state.pages.length} native page(s)`;
+    lastOutcome = `mounted four native slots; ${state.pages.length} page(s) published`;
     return next;
   };
 
@@ -188,15 +188,43 @@ function createNativeSettings() {
     return nativeRoot(props);
   }
 
-  // Only settings topology changes need the native root to render. Values update inside the
+  // Only host Power presence needs the native root to render. Other capability changes update the
+  // always-mounted slots, including a Controller slot that was previously empty. Values update inside the
   // separate subscribed sections. A root already mounted when the gate installs is adopted, and
   // the shared JSX transform covers future mounts. Durable original markers reclaim a previous
   // bridge's adopted roots without stacking wrappers.
+  const nativeReactRoots = () => {
+    const documents = new Set<any>();
+    if (typeof document !== "undefined") documents.add(document);
+    // The same known popup handles the theme gate reads. A navigating popup may refuse its document.
+    try {
+      const manager = window.g_PopupManager;
+      if (typeof manager?.GetPopups === "function") {
+        let visited = 0;
+        for (const popup of manager.GetPopups() ?? []) {
+          if (visited++ >= 256) break;
+          try {
+            const doc = popup?.m_popup?.document;
+            if (doc) documents.add(doc);
+          } catch {}
+        }
+      }
+    } catch {}
+    const found = new Set<any>();
+    for (const doc of documents) {
+      try {
+        for (const fiber of reactRootFibers(doc)) found.add(fiber);
+      } catch {}
+    }
+    return [...found];
+  };
+
   const refreshRoots = (remove = false) => {
     for (const [fiber, hadParent] of roots) {
       if (hadParent && !fiberAttached(fiber)) roots.delete(fiber);
     }
-    walkFibers(reactRootFibers(), MaximumMountedNodes, (fiber) => {
+    // One traversal and one total node budget across every deduplicated document root.
+    walkFibers(nativeReactRoots(), MaximumMountedNodes, (fiber) => {
       const type = fiber.type;
       if (
         type !== nativeRoot &&
@@ -287,21 +315,24 @@ function createNativeSettings() {
       const next = normalize(published);
       if (!next) {
         lastError = "native Settings publication is invalid";
+        const hadPower = state.pages.some((page) => page.id === "power");
         state = { pages: [], revision: state.revision };
-        mapCache = new WeakMap<object, any>();
         rendered.clear();
-        refreshRoots();
+        if (hadPower) {
+          mapCache = new WeakMap<object, any>();
+          refreshRoots();
+        }
         local.changed();
         lastOutcome = "invalid publication retracted native additions";
         return;
       }
       lastError = "";
       if (!publicationChanged(state, next)) return;
-      const topologyChanged =
-        JSON.stringify(state.pages.map((page) => page.id)) !==
-        JSON.stringify(next.pages.map((page) => page.id));
+      const powerPresenceChanged =
+        state.pages.some((page) => page.id === "power") !==
+        next.pages.some((page) => page.id === "power");
       state = next;
-      if (topologyChanged) {
+      if (powerPresenceChanged) {
         mapCache = new WeakMap<object, any>();
         rendered.clear();
         refreshRoots();

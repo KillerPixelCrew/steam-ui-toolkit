@@ -45,6 +45,9 @@ let renderRequests = 0;
 const parent = { stateNode: { isReactComponent: true, forceUpdate: () => renderRequests++ } };
 const fiber = { type: NativeRoot, elementType: NativeRoot, memoizedProps: {}, return: parent };
 const rootHost = { __reactContainer$fixture: fiber };
+const popupDocument = { getElementById: () => rootHost, body: { children: [] } };
+const popup = { m_popup: { document: popupDocument } };
+const sharedRootHost = { __reactContainer$fixture: { type: () => null } };
 const ui = Object.fromEntries(
   [
     "settingsSection",
@@ -70,8 +73,8 @@ const runtime = {
 };
 const exposed = instantiate(
   {
-    window: {},
-    document: { getElementById: () => rootHost, body: { children: [] } },
+    window: { g_PopupManager: { GetPopups: () => [popup, popup] } },
+    document: { getElementById: () => sharedRootHost, body: { children: [] } },
     getWebpackRuntime: () => runtime,
     resolveSteamSettingsComponents: () => ui,
     useSteamSettingDrafts: () => ({
@@ -101,9 +104,13 @@ const state = (pages, revision = 1) => ({ pages, revision });
 const page = (id, rows = [row]) => ({ id, sections: [{ id: "device", title: "Device", rows }] });
 
 assert.equal(gate.install().ok, true);
-assert.notEqual(fiber.type, NativeRoot, "an already mounted native root is adopted");
-assert.ok(renderRequests > 0, "adoption asks Steam's own ancestor to render");
-publication(state([page("power"), page("controller", [{ ...row, key: "device/controller" }])]));
+assert.notEqual(fiber.type, NativeRoot, "an already mounted popup-native root is adopted");
+assert.equal(
+  renderRequests,
+  1,
+  "duplicate popup documents produce only one native ancestor render",
+);
+publication(state([page("power")]));
 let result = fiber.type({});
 assert.equal(result.Power.visible, true, "only the native Power descriptor is revealed");
 assert.equal(map.Power.visible, false, "Steam's original descriptor is untouched");
@@ -113,7 +120,16 @@ assert.equal(
   false,
   "host rows cannot reveal Power before Steam's native services are ready",
 );
-assert.equal(result.Display, map.Display, "unaugmented pages retain their identities");
+assert.equal(
+  result.Display.route,
+  map.Display.route,
+  "an empty slot retains the native page route",
+);
+assert.equal(
+  result.Display.content.props.children[0],
+  nativeContent,
+  "an empty slot retains native content",
+);
 assert.equal(result.Internet, map.Internet);
 assert.equal(result.Power.route, map.Power.route, "Steam retains route and navigation ownership");
 assert.equal(
@@ -122,6 +138,28 @@ assert.equal(
   "native fields are retained before host sections",
 );
 const host = result.Power.content.props.children[1];
+const controllerSlot = result.Controller.content.props.children[1];
+assert.equal(
+  controllerSlot.type(controllerSlot.props),
+  null,
+  "the Controller slot mounts while it has no rows",
+);
+const beforeControllerPublication = renderRequests;
+publication(state([page("power"), page("controller", [{ ...row, key: "device/controller" }])], 2));
+assert.equal(
+  renderRequests,
+  beforeControllerPublication,
+  "Controller capability arrival requires no outer root render",
+);
+assert.equal(
+  fiber.type({}).Controller.content.props.children[1],
+  controllerSlot,
+  "Controller retains its already mounted slot",
+);
+assert.ok(
+  controllerSlot.type(controllerSlot.props),
+  "Controller's existing empty slot renders the new capability rows",
+);
 const sectionTree = host.type(host.props);
 const field = sectionTree.props.children.find((child) => child?.type === Section).props.children[0];
 field.props.change(row, false);
@@ -131,19 +169,45 @@ assert.deepEqual(requests[0][2], { key: "device/charge", value: false });
 
 // The same original map produces one stable decorated map until page availability changes.
 assert.equal(fiber.type({}), result);
-publication(state([page("controller", [{ ...row, key: "device/controller" }])], 2));
+const beforePowerRetraction = renderRequests;
+publication(state([page("controller", [{ ...row, key: "device/controller" }])], 3));
 result = fiber.type({});
-assert.equal(result.Power, map.Power, "retracting host Power sections restores native visibility");
+assert.ok(
+  renderRequests > beforePowerRetraction,
+  "Power retraction refreshes the popup-native root",
+);
+assert.equal(
+  result.Power.visible,
+  map.Power.visible,
+  "retracting host Power sections restores native visibility",
+);
 assert.equal(host.type(host.props), null, "a mounted section retracts after capability loss");
-publication(state([page("controller"), page("controller")], 3));
+const beforePowerReturn = renderRequests;
+publication(state([page("power")], 4));
+assert.ok(renderRequests > beforePowerReturn, "Power reappearance refreshes the popup-native root");
+assert.equal(
+  fiber.type({}).Power.visible,
+  true,
+  "Power reappears without navigating or remounting the native root",
+);
+publication(state([page("controller"), page("controller")], 5));
 assert.match(
   gate.status().lastError,
   /publication is invalid/u,
   "duplicate pages are refused whole",
 );
-assert.equal(fiber.type({}), map, "an invalid publication retracts stale actionable rows");
+assert.equal(
+  fiber.type({}).Power.visible,
+  map.Power.visible,
+  "an invalid publication restores native Power visibility",
+);
+assert.equal(
+  controllerSlot.type(controllerSlot.props),
+  null,
+  "an invalid publication retracts stale actionable rows",
+);
 publication(null);
-assert.equal(fiber.type({}), map, "null state restores every original page descriptor");
+assert.equal(host.type(host.props), null, "null state empties every mounted host slot");
 
 // Shared claim removal leaves an unrelated surface's transform in place.
 assert.equal(exposed.interceptMemo(react, "fixture-other", (value) => value).ok, true);
@@ -153,6 +217,11 @@ assert.equal(jsxRuntime.jsx, originalJsx);
 assert.notEqual(react.useMemo, originalMemo);
 exposed.releaseMemo(react, "fixture-other");
 assert.equal(react.useMemo, originalMemo);
+assert.equal(
+  fiber.type({}),
+  map,
+  "removal restores the exact native descriptor map without host slots",
+);
 
 assert.equal(gate.install().ok, true);
 assertRemoveRetries(gate, failNext, "native Settings");

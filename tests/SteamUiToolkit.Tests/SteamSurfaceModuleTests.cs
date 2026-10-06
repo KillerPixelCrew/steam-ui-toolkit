@@ -1,3 +1,5 @@
+using System.Linq.Expressions;
+using System.Reflection;
 using System.Text.Json;
 using static SteamUiToolkit.Tests.Fakes.SurfaceDispatch;
 
@@ -39,8 +41,8 @@ public sealed class SteamSurfaceModuleTests
     {
         return typeof(SteamAudioSurface).Assembly.GetExportedTypes()
             .Where(type => type.IsAbstract && type.IsSealed && type.GetField("PatchId") is not null)
-            .Select(type => (Type: type, Factory: type.GetMethod("Module", System.Reflection.BindingFlags.Public
-                | System.Reflection.BindingFlags.Static)))
+            .Select(type => (Type: type, Factory: type.GetMethod("Module", BindingFlags.Public
+                                                                           | BindingFlags.Static)))
             .Where(surface => surface.Factory?.ReturnType == typeof(ISteamUiModule))
             .OrderBy(surface => surface.Type.Name, StringComparer.Ordinal)
             .Select(surface =>
@@ -50,7 +52,7 @@ public sealed class SteamSurfaceModuleTests
                     var type = parameter.ParameterType;
                     if (type.IsInstanceOfType(backend))
                     {
-                        return (object)backend;
+                        return backend;
                     }
 
                     if (parameter.HasDefaultValue)
@@ -66,8 +68,8 @@ public sealed class SteamSurfaceModuleTests
                     Assert.True(typeof(Delegate).IsAssignableFrom(type),
                         $"Supply {surface.Type.Name}.{parameter.Name} ({type}) to the surface fixture.");
                     var result = type.GetMethod("Invoke")!.ReturnType;
-                    return System.Linq.Expressions.Expression.Lambda(type,
-                        System.Linq.Expressions.Expression.Default(result)).Compile();
+                    return Expression.Lambda(type,
+                        Expression.Default(result)).Compile();
                 }).ToArray();
                 return (surface.Type, (ISteamUiModule)surface.Factory.Invoke(null, arguments)!);
             }).ToArray();
@@ -92,8 +94,10 @@ public sealed class SteamSurfaceModuleTests
 
                 // Keep the surface's public Commands property unchanged. Removing a registered handler
                 // must revoke the command on the bridge regardless of that descriptive property.
-                var reduced = new SteamUiModuleSet([new SteamUiModule(module.Id, module.Patches,
-                    module.Publications, module.Commands.Where(command => command != handler).ToArray())]);
+                var reduced = new SteamUiModuleSet([
+                    new SteamUiModule(module.Id, module.Patches,
+                        module.Publications, module.Commands.Where(command => command != handler).ToArray())
+                ]);
                 Assert.False(new SteamUiBridgeAuthorizer(generations, reduced.AllowedCommands)
                     .Authorize(request).Accepted, type.Name + "/" + handler.Command);
             }
@@ -101,8 +105,10 @@ public sealed class SteamSurfaceModuleTests
             var patchId = (string)type.GetField("PatchId")!.GetValue(null)!;
             var added = new SteamUiCommandHandler(patchId, "fixtureCommand",
                 (_, _) => Task.FromResult(SteamUiCommandResult.Applied));
-            var expanded = new SteamUiModuleSet([new SteamUiModule(module.Id, module.Patches,
-                module.Publications, [.. module.Commands, added])]);
+            var expanded = new SteamUiModuleSet([
+                new SteamUiModule(module.Id, module.Patches,
+                    module.Publications, [.. module.Commands, added])
+            ]);
             var extra = new SteamUiBridgeRequest(SteamUiBridgeHost.SchemaVersion, "request", patchId,
                 added.Command, 1, 1, generations.ExecutionContext, generations.Document, TestJson.Parse("null"));
             Assert.False(new SteamUiBridgeAuthorizer(generations, registered.AllowedCommands)
@@ -183,7 +189,7 @@ public sealed class SteamSurfaceModuleTests
         ]);
 
         var format = await DispatchAsync(
-            set, SteamAudioFormatRow.PatchId, "setFormat", """{"target":"8ch-24-48000"}""");
+            set, SteamAudioFormatRow.PatchId, "setFormat", """{"target":"2:48000:24:24:3:0"}""");
         var spatial = await DispatchAsync(
             set, SteamAudioFormatRow.PatchId, "setSpatial", """{"target":"dolby"}""");
         var refusedFormat = await DispatchAsync(
@@ -193,7 +199,7 @@ public sealed class SteamSurfaceModuleTests
 
         Assert.True(format.Succeeded);
         Assert.True(spatial.Succeeded);
-        Assert.Equal(["audio format 8ch-24-48000", "spatial audio dolby"], backend.Calls);
+        Assert.Equal(["audio format 2:48000:24:24:3:0", "spatial audio dolby"], backend.Calls);
         Assert.False(refusedFormat.Succeeded);
         Assert.Equal("The audio format payload is invalid.", refusedFormat.Error);
         Assert.False(refusedSpatial.Succeeded);

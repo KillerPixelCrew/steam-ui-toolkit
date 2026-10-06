@@ -602,14 +602,15 @@ const endSubscription = (unsubscribe: (() => void) | null) => {
 // other body child that carries a container key. SharedJSContext keeps a second, empty container
 // beside `#root` on the September 2026 client. Each container names the fiber root React created;
 // the root's `current` is the tree on screen, and after the first commit that is not always the
-// fiber the container key was written with.
-const reactRootFibers = () => {
+// fiber the container key was written with. A supplied document lets a gate read a known Steam
+// popup's roots without changing the default SharedJSContext lookup.
+const reactRootFibers = (doc = typeof document === "undefined" ? null : document) => {
     // A page always has a document; an emitted-asset check may not, and then nothing is mounted.
-    if (typeof document === "undefined") return [];
+    if (!doc) return [];
     const hosts: any[] = [];
-    const root = document.getElementById("root");
+    const root = doc.getElementById("root");
     if (root) hosts.push(root);
-    for (const child of Array.from(document.body?.children ?? [])) {
+    for (const child of Array.from(doc.body?.children ?? [])) {
         if (child !== root) hosts.push(child);
     }
     const roots: any[] = [];

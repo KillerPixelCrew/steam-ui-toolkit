@@ -94,15 +94,23 @@ public static class SteamAudioFormatRow
                 SteamUiModuleBuilder.Command<string>(
                     PatchId,
                     "setFormat",
-                    SteamUiPayload.TryReadTarget,
+                    TryReadChoice,
                     backend.SetFormatAsync,
                     "The audio format payload is invalid."),
                 SteamUiModuleBuilder.Command<string>(
                     PatchId,
                     "setSpatial",
-                    SteamUiPayload.TryReadTarget,
+                    TryReadChoice,
                     backend.SetSpatialAsync,
                     "The spatial audio payload is invalid.")
             ]);
+    }
+
+    private static bool TryReadChoice(JsonElement payload, out string choice)
+    {
+        choice = string.Empty;
+        return SteamUiPayload.HasExactly(payload, 1)
+               && SteamUiPayload.TryReadNonBlankString(payload, "target", out choice)
+               && choice.Length <= 256;
     }
 }
