@@ -17,6 +17,7 @@ const { host: react, failNext } = failingHost(
   createReact({
     useMemo: (factory) => factory(),
     useSyncExternalStore: (_subscribe, revision) => revision(),
+    useEffect: () => {},
   }),
 );
 const jsxRuntime = { jsx: element, jsxs: element };
