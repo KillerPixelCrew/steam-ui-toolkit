@@ -86,6 +86,7 @@ public sealed record SteamSettingsConfirmation(
 ///     Whether the row is marked: its <paramref name="Description" />, which the host writes, is drawn
 ///     in Steam's accent colour.
 /// </param>
+/// <param name="ColorAlpha">Whether the color editor offers opacity; false keeps the value opaque.</param>
 public sealed record SteamSettingsRow(
     string Key,
     string Kind,
@@ -105,7 +106,8 @@ public sealed record SteamSettingsRow(
     SteamSettingsConfirmation? Confirm = null,
     string? ButtonLabel = null,
     IReadOnlyList<string>? Labels = null,
-    bool Accent = false);
+    bool Accent = false,
+    bool ColorAlpha = true);
 
 /// <summary>A titled group of rows: one of Steam's settings sections.</summary>
 /// <param name="Title">The section heading, or null for an untitled section.</param>

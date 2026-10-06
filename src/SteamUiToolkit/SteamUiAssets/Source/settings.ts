@@ -170,11 +170,11 @@ const parseSteamColor = (text: string): SteamColor | null => {
 const formatSteamColor = (color) => `hsla(${color.h}, ${color.s}%, ${color.l}%, ${color.a})`;
 
 // Edits a colour in Steam's modal with Steam's sliders. Save sends it once; Cancel and B send nothing.
-const showSteamColorEditor = (ui, title: string, current: SteamColor, send: (value: string) => void) => {
+const showSteamColorEditor = (ui, title: string, current: SteamColor, send: (value: string) => void, alpha = true) => {
     const react = ui.react;
     const h = react.createElement;
     function SteamColorEditor(props: any) {
-        const [color, setColor] = react.useState(current);
+        const [color, setColor] = react.useState(alpha ? current : {...current, a: 1});
         const slider = (label, key, max, step = 1) =>
             h(ui.sliderField, {
                 key,
@@ -202,7 +202,7 @@ const showSteamColorEditor = (ui, title: string, current: SteamColor, send: (val
             slider("Hue", "h", 360),
             slider("Saturation", "s", 100),
             slider("Lightness", "l", 100),
-            slider("Opacity", "a", 1, 0.01),
+            alpha ? slider("Opacity", "a", 1, 0.01) : null,
             h(
                 ui.focusable,
                 {"flow-children": "row", style: {display: "flex", justifyContent: "flex-end", gap: "8px"}},
@@ -323,7 +323,7 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
                     h("span", null, current),
                     h(
                         ui.smallButton,
-                        {disabled: !!row.disabled, onClick: () => showSteamColorEditor(ui, row.label, parsed, send)},
+                        {disabled: !!row.disabled, onClick: () => showSteamColorEditor(ui, row.label, parsed, send, row.colorAlpha !== false)},
                         "Edit",
                     ),
                 ),

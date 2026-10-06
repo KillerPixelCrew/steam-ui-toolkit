@@ -87,6 +87,15 @@ Steam's own routed sidebar, settings sections, fields, small buttons and confirm
 Steam's Settings page looks and navigates. Publish `SteamSettingsPage`s of `SteamSettingsRow`s,
 described by `SteamSettingsRowKind`; `docs/reference.md` lists what each kind draws.
 
+**`SteamNativeSettingsSurface.Module`** appends those same native fields to Steam's existing
+Display, Power, Audio and Controller pages. Publish `SteamNativeSettingsState` with
+`SteamNativeSettingsPage`s identified by `SteamNativeSettingsPageId`, and implement
+`ISteamNativeSettingsBackend.SetAsync` to validate and apply the current row's primitive value.
+Steam retains its original controls, route, labels and navigation. An empty page or null state
+retracts its additions. The Power page is revealed only while host sections exist; Steam's platform
+identity stays untouched. Set a color row's `ColorAlpha` to false for hardware RGB: its editor
+stages three sliders and sends only on Save.
+
 **`SteamLibraryBadgeSurface.Module`** draws a library badge on every library tile, immediately left
 of Valve's Steam Input badge in the tile's icon row: the name of the library holding the game, green
 when the game is installed and grey when it is not. Publish `SteamLibraryBadgeState` with every

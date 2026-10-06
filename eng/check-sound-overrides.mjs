@@ -19,6 +19,7 @@ const prototype = { PlayAudioURLWithRepeats: original };
 const { host: manager, failNext } = failingHost(Object.create(prototype));
 let publish;
 let decoded;
+const reports = [];
 const instantiateGate = (failContext = false) =>
   instantiate(
     {
@@ -34,6 +35,12 @@ const instantiateGate = (failContext = false) =>
         value?.();
         return null;
       },
+      request: async (_, command, payload) => {
+        assert.equal(command, "status");
+        reports.push(payload);
+        if (!payload.loading) decoded?.();
+        return { ok: true };
+      },
       AudioContext: class {
         constructor() {
           if (failContext) throw new Error("Audio context unavailable");
@@ -41,9 +48,7 @@ const instantiateGate = (failContext = false) =>
         async decodeAudioData(bytes) {
           if (new Uint8Array(bytes)[0] === 0) throw new Error("corrupt");
         }
-        async close() {
-          decoded?.();
-        }
+        async close() {}
       },
       fetch: async (url) => ({
         arrayBuffer: async () => Uint8Array.from(Buffer.from(url.split(",")[1], "base64")).buffer,
@@ -57,8 +62,8 @@ const data = "data:audio/wav;base64,AQ==";
 const publishAndDecode = (sounds) =>
   new Promise((resolve) => {
     decoded = resolve;
-    publish({ sounds });
-  });
+    publish({ sounds, revision: 7 });
+  }).then(() => Promise.resolve());
 const gate = instantiateGate();
 assert.equal(gate.install().ok, true);
 await publishAndDecode({ "navigation.wav": [data], "broken.wav": ["data:audio/wav;base64,AA=="] });
@@ -66,6 +71,10 @@ assert.deepEqual(manager.PlayAudioURLWithRepeats("/sounds/navigation.wav", 3), [
 assert.equal(manager.PlayAudioURLWithRepeats("/sounds/unknown.wav")[1], "/sounds/unknown.wav");
 assert.equal(manager.PlayAudioURLWithRepeats("/sounds/broken.wav")[1], "/sounds/broken.wav");
 assert.equal(manager.PlayAudioURLWithRepeats("/voice/navigation.wav")[1], "/voice/navigation.wav");
+assert.equal(reports.at(-1).revision, 7);
+assert.equal(reports.at(-1).loading, false);
+assert.equal(reports.at(-1).resources, 1);
+assert.match(reports.at(-1).error, /Unreadable sound/u);
 await publishAndDecode({});
 assert.equal(
   manager.PlayAudioURLWithRepeats("/sounds/navigation.wav")[1],

@@ -9,6 +9,16 @@ function createSoundOverrides() {
   let sounds = new Map<string, string[]>();
   let generation = 0;
   let lastError = "";
+  let loading = false;
+  const report = (revision: number) => {
+    if (!installed) return;
+    void request(patchId, "status", {
+      revision,
+      loading,
+      resources: sounds.size,
+      error: lastError ? lastError.slice(0, 256) : null,
+    }).catch(() => {});
+  };
   const resolve = () => {
     try {
       const runtime = getWebpackRuntime("sound-overrides");
@@ -27,8 +37,20 @@ function createSoundOverrides() {
     // Retract before decoding: stale or corrupt assets never displace working stock audio.
     sounds = new Map();
     lastError = "";
-    if (!state?.sounds || typeof state.sounds !== "object") return;
+    loading = true;
+    const revision = Number(state?.revision ?? 0);
+    report(revision);
+    if (!state?.sounds || typeof state.sounds !== "object") {
+      loading = false;
+      report(revision);
+      return;
+    }
     const entries = Object.entries(state.sounds);
+    if (!entries.length) {
+      loading = false;
+      report(revision);
+      return;
+    }
     let context: AudioContext | null = null;
     const next = new Map<string, string[]>();
     // A refused entry leaves the others loading and says which one it was.
@@ -64,6 +86,10 @@ function createSoundOverrides() {
       if (current === generation && installed) lastError = String(error);
     } finally {
       if (context) await context.close().catch(() => {});
+      if (current === generation && installed) {
+        loading = false;
+        report(revision);
+      }
     }
   };
   const install = () => {
@@ -111,6 +137,7 @@ function createSoundOverrides() {
     }
     installed = false;
     ++generation;
+    loading = false;
     sounds.clear();
     unsubscribe = endSubscription(unsubscribe);
     return { ok: true, removed: true };
@@ -120,6 +147,7 @@ function createSoundOverrides() {
     installed,
     claimed: memberClaimed(manager, "PlayAudioURLWithRepeats", keys),
     resources: sounds.size,
+    loading,
     lastError,
   });
   return { install, remove, status };

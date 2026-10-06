@@ -336,6 +336,23 @@ editorTree.props.children.at(-1).props.children[1].props.onClick();
 assert.deepEqual(changes, [["tone", "hsla(120, 100%, 50%, 1)"]], "Save sends the colour once as hsla()");
 changes.length = 0;
 
+// Hardware RGB has no alpha channel. The shared modal offers three staged sliders and Save stays
+// the only write; hosts opt into this with colorAlpha:false.
+pages[0].sections[0].rows.find((candidate) => candidate.key === "tone").colorAlpha = false;
+shown.length = 0;
+edit.props.onClick();
+editorTree = renderModal();
+assert.deepEqual(
+  editorTree.props.children
+    .filter((child) => child?.type === Slider)
+    .map((slider) => slider.props.label),
+  ["Hue", "Saturation", "Lightness"],
+  "an opaque color offers no opacity control",
+);
+assert.deepEqual(changes, [], "opening an opaque color editor sends nothing");
+editorTree.props.children.at(-1).props.children[0].props.onClick();
+assert.deepEqual(changes, [], "cancelling an opaque color editor sends nothing");
+
 // A new publication replaces every draft with the host's own values.
 revision = 2;
 render(); // the effect clears the drafts, as React runs it after the commit

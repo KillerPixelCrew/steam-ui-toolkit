@@ -1427,7 +1427,8 @@ The toggle, dropdown, slider, text field, dialog button and `showModal` are the 
 - `color` is the value field showing the colour's swatch and text with a small Edit button, which
   opens Steam's modal of four sliders (hue, saturation, lightness, opacity) over the hex or hsl(a)
   the row holds. Save sends the colour once, as `hsla()`, the form CSSLoader's own picker writes;
-  Cancel and B send nothing. On a client without a modal the row is a text field.
+  Cancel and B send nothing. `ColorAlpha = false` hides opacity and keeps the saved color opaque,
+  for hardware RGB controls. On a client without a modal the row is a text field.
 - A kind the renderer does not know is shown as its label with nothing that sends.
 - A row with `confirm` asks first, in Steam's confirm modal, when the new value equals `when`.
   Cancelling sends nothing, so the row keeps what the host last published.
@@ -1821,6 +1822,50 @@ refuses is logged once.
 A transport the host closed (`Dispatch == Closed`) is reported as reachable with no apps rather than
 as a failure, so a consumer's own non-Steam detection keeps working while Steam integration is
 switched off.
+
+### Additions to native Settings pages
+
+`SteamNativeSettingsSurface` owns patch `steam-ui.native-settings` and gate `nativeSettings`.
+`SteamNativeSettingsState.Pages` contains unique `SteamNativeSettingsPage` identities `display`,
+`power`, `audio` and `controller`, each with existing `SteamSettingsSection` and `SteamSettingsRow`
+descriptors. `Revision` advances after observed values or descriptors change. Empty sections and
+pages are omitted; null or malformed publication retracts all additions. Supported rows are boolean,
+choice, range, text, color, action and note. Device availability and profile/GPU scope belong to the
+host.
+
+The only command is `set { key, value }`: exactly two properties, a nonblank key of at most 1,024
+characters and a boolean, number or string value. Strings are bounded to 4,096 characters; null,
+arrays, objects and extra fields are refused before `ISteamNativeSettingsBackend.SetAsync`. The
+owner validates the row against its current capabilities, selections and operation generation. An
+action sends true. Shared drafts display backend refusals under their row. Sliders send only on
+completion; color modal sliders stage changes and Save sends once. Hardware RGB rows publish
+`ColorAlpha = false` to hide opacity. Cancel and B send no color command.
+
+The gate resolves the native descriptor factory by the four authored localization tokens
+`#Settings_Page_Display`, `#Settings_Page_Power`, `#Settings_Page_Audio` and
+`#Settings_Page_Controller`. The native Settings root's provider is unique on `#Settings_Title`,
+`SettingsModal` and `SettingsTitleBar`; its function is selected by `#Settings_Title`, `show-icon`
+and the string `Settings`. No module id or export name is named. The shared `useMemo` transform
+copies only the selected native descriptors, retaining Steam's original label, route, glyph and
+content, and appends sections drawn by the shared native renderer. Only the Power descriptor's
+battery condition is revealed, and only while it has host rows and the Display, Audio and Controller
+descriptors confirm Steam's services are ready. No platform or battery value is changed.
+
+The shared JSX transform reaches future Settings mounts. Mounted root fibers are adopted without
+adding hooks and retain a durable original marker for bridge replacement. Topology changes request a
+native ancestor render; ordinary value publications update only subscribed host sections. Remove
+withdraws both shared transforms, retracts sections and restores exactly the native root functions.
+`status.claimed` requires both transforms; `claimsRemaining` reports either lingering claim for
+removal verification. `ownedRoots`, `pages`, `renderedPages`, `lastOutcome` and `lastError`
+distinguish installation from a page actually rendering.
+
+Offline inspection of the installed Windows Steam bundle on 2026-10-06 found one descriptor factory
+among 2,835 module factories. Big Picture's native page ordering contains all four pages; Power is
+hidden when Steam does not report a battery. This establishes shipped source structure, not live
+mounting, navigation, focus or device writes. `SteamNativeSettingsSurfaceTests` covers
+serialization, primitive command bounds and unique probe facts; `eng/check-native-settings.mjs`
+covers native content retention, mounted adoption, state retraction, Power visibility and
+shared-claim restoration. The opaque color path is covered by `eng/check-settings-fields.mjs`.
 
 ### Host settings sections in native Quick Access
 
