@@ -12,6 +12,14 @@ namespace SteamUiToolkit;
 /// <summary>Owns one persistent bounded CDP connection for each allowlisted Steam UI target.</summary>
 public sealed class PersistentSteamUiTransport : ISteamUiTransport
 {
+    // How many evaluations may run out their own deadline back to back before the connection is
+    // treated as dead. One is an overloaded renderer or a heavy expression; a run of them is a
+    // target that has stopped servicing CDP behind a websocket that is still open.
+    private const int UnansweredEvaluationsBeforeReconnect = 2;
+
+    /// <summary>The reason a closed transport reports when the host gave none.</summary>
+    public const string DefaultClosedReason = "Steam CEF integration disabled in settings.";
+
     internal static readonly IReadOnlyList<TimeSpan> DefaultRetryDelays =
     [
         TimeSpan.FromSeconds(1),
@@ -23,11 +31,6 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
     // As long as the longest retry delay, so a connection that outlives one full backoff step is
     // treated as healthy.
     private static readonly TimeSpan StableConnectionUptime = TimeSpan.FromSeconds(30);
-
-    // How many evaluations may run out their own deadline back to back before the connection is
-    // treated as dead. One is an overloaded renderer or a heavy expression; a run of them is a
-    // target that has stopped servicing CDP behind a websocket that is still open.
-    private const int UnansweredEvaluationsBeforeReconnect = 2;
 
     private readonly Task _bindingEventPump;
 
@@ -56,12 +59,9 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
     private readonly IReadOnlyList<TimeSpan> _retryDelays;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly ISteamUiCdpWireFactory _wireFactory;
-    private int _disposed;
     private volatile string _closedReason = DefaultClosedReason;
+    private int _disposed;
     private volatile bool _enabled = true;
-
-    /// <summary>The reason a closed transport reports when the host gave none.</summary>
-    public const string DefaultClosedReason = "Steam CEF integration disabled in settings.";
 
     /// <summary>Creates a production transport using Steam's validated loopback endpoint.</summary>
     public PersistentSteamUiTransport()
@@ -191,7 +191,7 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
             return new SteamUiEvaluationResult(SteamUiDispatch.Answered, value, error, GenerationsOf(channel));
         }
         catch (SteamUiUnansweredException ex) when (ex.InnerException is OperationCanceledException
-                                                     && cancellationToken.IsCancellationRequested)
+                                                    && cancellationToken.IsCancellationRequested)
         {
             // The caller stopped waiting after the send began. That says nothing about Steam's health,
             // but the expression may still run.
@@ -703,6 +703,11 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         CancellationToken cancellationToken)
     {
         var timeout = TimeSpan.FromSeconds(5);
+        await connection.InvokeAsync("Debugger.setPauseOnExceptions", writer => writer.WriteString("state", "none"),
+                timeout, cancellationToken)
+            .ConfigureAwait(false);
+        await connection.InvokeAsync("Debugger.disable", null, timeout, cancellationToken)
+            .ConfigureAwait(false);
         await connection.InvokeAsync("Runtime.enable", null, timeout, cancellationToken)
             .ConfigureAwait(false);
         await connection.InvokeAsync("Page.enable", null, timeout, cancellationToken)

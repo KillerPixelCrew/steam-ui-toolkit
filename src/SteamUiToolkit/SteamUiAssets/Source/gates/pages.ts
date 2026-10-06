@@ -22,10 +22,7 @@
 // the match with the back stack, so B and the back gesture pop the page the way they pop /settings.
 // Using react-router's Route renders the same content and silently loses that.
 const steamPageRenderers = new Map<string, (react: any, page: any) => any>();
-const registerSteamPageRenderer = (
-  template: string,
-  render: (react: any, page: any) => any,
-) => {
+const registerSteamPageRenderer = (template: string, render: (react: any, page: any) => any) => {
   if (!template || template === "default" || steamPageRenderers.has(template)) {
     throw new Error(`Steam page renderer '${template}' is invalid or already registered.`);
   }
@@ -65,6 +62,8 @@ function createPageHost() {
   let installed = false;
   let lastError = "";
   let unsubscribe: (() => void) | null = null;
+  let unsubscribePlugins: any = null;
+  let hostPages: any[] = [];
   const mounted = createMountedAdoption();
 
   let pages: { id: string; path: string; title: string; override?: boolean; template?: string }[] =
@@ -125,7 +124,6 @@ function createPageHost() {
     observedRoutes = steam
       .filter((route) => react.isValidElement(route) && typeof route.props?.path === "string")
       .map((route) => route.props.path);
-    if (own.length) return routes;
 
     // A host element would be a string type and cannot be built with; anything else is what Steam
     // renders that route with, verified against the Route's own markers for the status only.
@@ -297,23 +295,33 @@ function createPageHost() {
     lastError = "";
     unsubscribe = subscribe(patchId, (state) => {
       const declared = Array.isArray(state?.pages) ? state.pages : [];
-      const next = declared
-        .filter(
-          (page) =>
-            page &&
-            typeof page.id === "string" &&
-            typeof page.title === "string" &&
-            typeof page.path === "string" &&
-            // A path has to be absolute or Steam's matcher never sees it, and a page that claims
-            // every route would black out the client.
-            page.path.startsWith("/") &&
-            page.path !== "/",
-        );
+      const next = declared.filter(
+        (page) =>
+          page &&
+          typeof page.id === "string" &&
+          typeof page.title === "string" &&
+          typeof page.path === "string" &&
+          // A path has to be absolute or Steam's matcher never sees it, and a page that claims
+          // every route would black out the client.
+          page.path.startsWith("/") &&
+          page.path !== "/",
+      );
       // The wrappers read `pages` from their closure, so a publication changes nothing React can
       // see on its own. Only a changed list earns a render: the class above the router is the one
       // asked, and its render re-runs every route, the configurator's edit session included.
       if (!publicationChanged(pages, next)) return;
-      pages = next;
+      hostPages = next;
+      pages = [
+        ...hostPages,
+        ...pluginFrontendItems("page").map((slot) => ({ ...slot.value, template: slot.id })),
+      ];
+      mounted.rerender();
+    });
+    unsubscribePlugins = subscribePluginFrontends(() => {
+      pages = [
+        ...hostPages,
+        ...pluginFrontendItems("page").map((slot) => ({ ...slot.value, template: slot.id })),
+      ];
       mounted.rerender();
     });
     return { ok: true, installed: true, reclaimed: claim.reclaimed };
@@ -343,6 +351,8 @@ function createPageHost() {
 
     installed = false;
     unsubscribe = endSubscription(unsubscribe);
+    unsubscribePlugins = endSubscription(unsubscribePlugins);
+    hostPages = [];
     pages = [];
     // Borrowed from a render that is about to be undone, so it is not carried into the next install.
     borrowedRoute = null;

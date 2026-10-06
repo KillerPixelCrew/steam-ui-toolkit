@@ -174,7 +174,8 @@ function createLibraryBadge() {
     // against. Without the class map the box is plain and always visible, and status says so.
     const withBadge = (element) => {
         const ours = renderBadge(element.props?.overview);
-        if (!ours) return element;
+        const additions = pluginFrontendElements("library", react, { overview: element.props?.overview });
+        if (!ours && !additions.length) return element;
         const style: Record<string, unknown> = {
             display: "flex",
             alignItems: "center",
@@ -198,6 +199,7 @@ function createLibraryBadge() {
             "div",
             {key: "steam-ui-library-badge-row", className, style},
             ours,
+            ...additions,
             element,
         );
     };
@@ -444,14 +446,15 @@ function createLibraryDetails() {
         const children = Array.isArray(props.children) ? props.children : [props.children];
         if (children.some((child) => child?.key === StatKey)) return undefined;
         const library = libraryForOverview(overviewIn(children), reading);
+        const additions = pluginFrontendElements("gamePage", react, { overview: overviewIn(children) });
         if (!library) {
             without++;
         } else {
             placed++;
         }
         lastOutcome = `placed=${placed} without=${without} libraries=${reading.count} apps=${reading.libraries.size}`;
-        if (!library) return undefined;
-        return create(type, {...props, children: [...children, renderStat(library)]}, key);
+        if (!library && !additions.length) return undefined;
+        return create(type, {...props, children: [...children, ...(library ? [renderStat(library)] : []), ...additions]}, key);
     };
 
     const resolve = () => {

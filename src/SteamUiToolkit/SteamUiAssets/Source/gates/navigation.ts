@@ -53,6 +53,7 @@ function createNavigationPanel() {
     let installed = false;
     let lastError = "";
     let unsubscribe: (() => void) | null = null;
+    let unsubscribePlugins: any = null;
 
     // What the last render actually saw and did. Everything else can report success while the panel
     // shows exactly what Valve shipped, because insertion depends on the tree Steam rendered.
@@ -166,7 +167,7 @@ function createNavigationPanel() {
             });
         }
         if (!item.route && native.action) {
-            return react.createElement(native.action, {...common, action: () => activate(item.id)});
+            return react.createElement(native.action, {...common, action: item.frontendAction ?? (() => activate(item.id))});
         }
         return null;
     };
@@ -195,7 +196,7 @@ function createNavigationPanel() {
             kept.push(child);
         }
 
-        const pending = desired.items;
+        const pending = [...desired.items, ...pluginFrontendItems("menu").map((slot) => slot.value)];
         // From every child, hidden ones included: hiding Power must not cost the action entry.
         const native = nativeEntries(children);
         const placed = new Set<string>();
@@ -371,6 +372,7 @@ function createNavigationPanel() {
             desired = next;
             mounted.rerender();
         });
+        unsubscribePlugins = subscribePluginFrontends(() => mounted.rerender());
         return {ok: true, installed: true, reclaimed: claim.reclaimed};
     };
 
@@ -386,6 +388,7 @@ function createNavigationPanel() {
         }
         installed = false;
         unsubscribe = endSubscription(unsubscribe);
+        unsubscribePlugins = endSubscription(unsubscribePlugins);
 
         desired = {items: [], hidden: []};
         descendCache.clear();

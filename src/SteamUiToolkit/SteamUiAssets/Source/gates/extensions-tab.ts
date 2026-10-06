@@ -27,16 +27,17 @@ function createExtensionsTab() {
   const activeQuickAccessTab = () => {
     try {
       return (
-        (window as any).SteamUIStore?.ActiveWindowInstance?.MenuStore?.GetQuickAccessTab?.() ??
-        null
+        (window as any).SteamUIStore?.ActiveWindowInstance?.MenuStore?.GetQuickAccessTab?.() ?? null
       );
     } catch {
       return null;
     }
   };
   const withOurTabActive = (element) =>
-    activeQuickAccessTab() === ExtensionsTabId && element.props.activeTab !== ExtensionsTabId
-      ? react.cloneElement(element, { activeTab: ExtensionsTabId })
+    (activeQuickAccessTab() === ExtensionsTabId ||
+      pluginFrontendItems("tab").some((slot) => slot.tabKey === activeQuickAccessTab())) &&
+    element.props.activeTab !== activeQuickAccessTab()
+      ? react.cloneElement(element, { activeTab: activeQuickAccessTab() })
       : element;
   // Element depth within one render pass, reset at every wrapped component. Measured on the
   // 2026-09-24 client at nineteen component-typed levels from the component carrying
@@ -68,6 +69,9 @@ function createExtensionsTab() {
   let installed = false;
   let unsubscribe: (() => void) | null = null;
   let unsubscribeFolds: (() => void) | null = null;
+  let unsubscribePlugins: any = null;
+  let nextPluginTabKey = 1100;
+  const pluginTabLists = new Set<any[]>();
   let desired: { items: any[]; revision: number } = { items: [], revision: 0 };
   // The folds, shared with the Performance and Quick Settings groups: the host publishes the
   // sections the user opened, and every section and every switch's settings start folded.
@@ -85,8 +89,10 @@ function createExtensionsTab() {
   // only ever threw real content away. A theme set with 160 settings made the whole Themes section
   // vanish. Anything malformed drops alone, never the item it sits in.
   const text = (value) => typeof value === "string" && value.length > 0;
-  const optionalText = (value) => value === undefined || value === null || typeof value === "string";
-  const optionalFlag = (value) => value === undefined || value === null || typeof value === "boolean";
+  const optionalText = (value) =>
+    value === undefined || value === null || typeof value === "string";
+  const optionalFlag = (value) =>
+    value === undefined || value === null || typeof value === "boolean";
   const textList = (value) =>
     Array.isArray(value) && value.every((entry) => typeof entry === "string");
   const validAction = (action) => action && text(action.id) && text(action.label);
@@ -128,6 +134,22 @@ function createExtensionsTab() {
   const insertTab = (element, visible) => {
     const tabs = element.props?.tabs;
     if (!Array.isArray(tabs)) return null;
+    if (!tabs.some((tab) => tab?.steamUiExtensionsTab || [4, 5, 6].includes(tab?.key))) return null;
+    pluginTabLists.add(tabs);
+    for (let index = tabs.length - 1; index >= 0; index--)
+      if (tabs[index]?.steamUiPluginTab) tabs.splice(index, 1);
+    for (const slot of pluginFrontendItems("tab")) {
+      slot.tabKey ??= nextPluginTabKey++;
+      tabs.push({
+        key: slot.tabKey,
+        title: react.createElement("div", null, slot.value.title),
+        strTitle: slot.value.title,
+        tab: slot.value.icon ?? icon("extensions", 22),
+        steamUiPluginTab: slot.id,
+        initialVisibility: !!visible,
+        panel: slot.element(react, {}),
+      });
+    }
     const existing = tabs.filter((tab) => tab && tab.steamUiExtensionsTab === true);
     if (existing.length > 1) {
       lastOutcome = `tabs=${tabs.length} extensions=ambiguous`;
@@ -170,11 +192,20 @@ function createExtensionsTab() {
     // A choice is sent back by its value and shown by its label, when the host gave one.
     const labels = Array.isArray(setting.choiceLabels) ? setting.choiceLabels : setting.choices;
     const choices = Array.isArray(setting.choices)
-      ? setting.choices.map((choice, index) => ({ value: choice, label: labels?.[index] ?? choice }))
+      ? setting.choices.map((choice, index) => ({
+          value: choice,
+          label: labels?.[index] ?? choice,
+        }))
       : null;
     switch (setting.kind) {
       case "boolean":
-        return { key, label: setting.label, description, kind: "boolean", checked: !!setting.booleanValue };
+        return {
+          key,
+          label: setting.label,
+          description,
+          kind: "boolean",
+          checked: !!setting.booleanValue,
+        };
       case "order": {
         if (!choices) return null;
         const saved = String(setting.textValue ?? "")
@@ -214,12 +245,24 @@ function createExtensionsTab() {
               minimum: setting.minimum,
               maximum: setting.maximum,
             }
-          : { key, label: setting.label, description, kind: "text", text: String(setting.numberValue ?? "") };
+          : {
+              key,
+              label: setting.label,
+              description,
+              kind: "text",
+              text: String(setting.numberValue ?? ""),
+            };
       case "secret":
         // A secret's current value is never published, so its box starts empty.
         return { key, label: setting.label, description, kind: "secret" };
       case "color":
-        return { key, label: setting.label, description, kind: "color", text: setting.textValue ?? "" };
+        return {
+          key,
+          label: setting.label,
+          description,
+          kind: "color",
+          text: setting.textValue ?? "",
+        };
       default:
         return choices
           ? {
@@ -280,7 +323,8 @@ function createExtensionsTab() {
     const change = (item, setting) =>
       drafts.change((_row, value) => {
         const sent = settingValue(setting, value);
-        if (sent === undefined) return Promise.reject(new Error("Not a value this setting can take"));
+        if (sent === undefined)
+          return Promise.reject(new Error("Not a value this setting can take"));
         return request(patchId, "configure", {
           id: item.id,
           key: setting.key,
@@ -295,7 +339,13 @@ function createExtensionsTab() {
     const settingControl = (item, setting) => {
       const row = settingRow(item, setting);
       if (!row) return null;
-      return renderSteamSettingRow(ui, drafts.row(row), drafts.draft(row), change(item, setting), () => {});
+      return renderSteamSettingRow(
+        ui,
+        drafts.row(row),
+        drafts.draft(row),
+        change(item, setting),
+        () => {},
+      );
     };
     // Whether a switch is on, as the user last set it or as the host published it.
     const switchOn = (item, setting) => {
@@ -370,10 +420,17 @@ function createExtensionsTab() {
           h(
             "div",
             { className: "steam-ui-kit-nested" },
-            foldHeading(id, { title: under.length === 1 ? "1 setting" : `${under.length} settings`, sub: true }),
+            foldHeading(id, {
+              title: under.length === 1 ? "1 setting" : `${under.length} settings`,
+              sub: true,
+            }),
           ),
         );
-        return [line, heading, ...(isFolded(id) ? [] : under.map((child) => settingLine(item, child)))];
+        return [
+          line,
+          heading,
+          ...(isFolded(id) ? [] : under.map((child) => settingLine(item, child))),
+        ];
       });
     };
     // One PanelSection per extension, one PanelSectionRow per line in it, the way Valve's own tabs
@@ -497,6 +554,16 @@ function createExtensionsTab() {
       openSections = folds.normalize(state);
       mounted.rerender();
     });
+    unsubscribePlugins = subscribePluginFrontends(() => {
+      for (const tabs of pluginTabLists)
+        for (let index = tabs.length - 1; index >= 0; index--)
+          if (
+            tabs[index]?.steamUiPluginTab &&
+            !pluginFrontendItems("tab").some((slot) => slot.id === tabs[index].steamUiPluginTab)
+          )
+            tabs.splice(index, 1);
+      mounted.rerender();
+    });
     return { ok: true, installed: true, reclaimed: claim.reclaimed };
   };
 
@@ -519,6 +586,11 @@ function createExtensionsTab() {
     installed = false;
     unsubscribe = endSubscription(unsubscribe);
     unsubscribeFolds = endSubscription(unsubscribeFolds);
+    unsubscribePlugins = endSubscription(unsubscribePlugins);
+    for (const tabs of pluginTabLists)
+      for (let index = tabs.length - 1; index >= 0; index--)
+        if (tabs[index]?.steamUiPluginTab) tabs.splice(index, 1);
+    pluginTabLists.clear();
     desired = { items: [], revision: 0 };
     descenderCache.clear();
     lastOutcome = "removed";

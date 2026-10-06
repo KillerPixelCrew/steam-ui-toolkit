@@ -20,7 +20,10 @@ public sealed class PersistentSteamUiTransportTests
 
         Assert.True(result.Answered);
         Assert.Equal(
-            ["Runtime.enable", "Page.enable", "DOM.enable", "Runtime.evaluate"],
+            [
+                "Debugger.setPauseOnExceptions", "Debugger.disable", "Runtime.enable", "Page.enable", "DOM.enable",
+                "Runtime.evaluate"
+            ],
             factory.Wires.Single().Methods);
     }
 
@@ -231,14 +234,13 @@ public sealed class PersistentSteamUiTransportTests
             Assert.Equal(SteamUiDispatch.Unanswered, result.Dispatch);
         }
 
-        await TestJson.WaitUntilAsync(
-            () =>
+        await TestJson.WaitUntilAsync(() =>
+        {
+            lock (factory.Wires)
             {
-                lock (factory.Wires)
-                {
-                    return factory.Wires.Count > 1;
-                }
-            });
+                return factory.Wires.Count > 1;
+            }
+        });
     }
 
     [Fact]

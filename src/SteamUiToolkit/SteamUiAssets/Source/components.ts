@@ -1,4 +1,5 @@
 function createNativeComponentHost() {
+    let unsubscribePlugins: any = null;
     const registrations = new Map();
     const listeners = new Set<() => void>();
     let runtime;
@@ -2382,7 +2383,8 @@ function createNativeComponentHost() {
                       key: "steam-ui-settings-sections",
                   })
                 : null;
-        if (!rows.length && !deviceControls && !settingsSections) {
+        const pluginRows = pluginFrontendElements(placement, controlRuntime.react);
+        if (!rows.length && !deviceControls && !settingsSections && !pluginRows.length) {
             appendDiagnostics[placement] = { controls: 0, inserted: false, ownSection: false };
             return tree;
         }
@@ -2414,6 +2416,7 @@ function createNativeComponentHost() {
                 ),
                 ...sections(trailing),
                 deviceControls,
+                ...pluginRows,
             );
         }
 
@@ -2463,6 +2466,7 @@ function createNativeComponentHost() {
             native,
             own,
             settingsSections,
+            ...pluginRows,
             // The closing sections follow every other one, including dynamically published host
             // settings sections.
             ...sections(trailing),
@@ -2713,6 +2717,7 @@ function createNativeComponentHost() {
         return true;
     };
     const install = (kind) => {
+        unsubscribePlugins ??= subscribePluginFrontends(() => notify());
         if (disposedHost) return { ok: false, error: "component host disposed" };
         if (!Object.hasOwn(definitions, kind))
             return { ok: false, error: "component is not allowlisted" };
@@ -2751,6 +2756,7 @@ function createNativeComponentHost() {
         lastError: lastPatchError,
     });
     const disposeHostResources = () => {
+        unsubscribePlugins?.();
         disposedHost = true;
         registrations.clear();
         notify();

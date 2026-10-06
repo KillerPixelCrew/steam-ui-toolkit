@@ -4,6 +4,10 @@
 files. Hosts supply discovered sound resources and own pack policy. See
 [sound overrides](docs/sound-overrides.md) for the contract.
 
+`SteamPluginFrontendSurface` loads unrestricted JavaScript/CSS modules with page, menu, QAM, library
+and game-page registrations, an optional JSON backend and owner-wide error isolation. Hosts supply
+trust/enablement policy. See [plugin frontends](docs/plugin-frontends.md).
+
 Add, hide and revive elements in Steam's Big Picture front end, from .NET. This README is the
 orientation and the how-to. The contract, with every limit, state and log key, is in
 [`docs/reference.md`](docs/reference.md).
