@@ -10,6 +10,9 @@ namespace SteamUiToolkit;
 ///     exports. <c>count(tokens)</c> and <c>findUnique(tokens)</c> never execute factories. Missing,
 ///     ambiguous and failed resolutions throw diagnostic errors. Factory presence does not prove
 ///     dependency readiness; the host must also enforce its startup attachment policy.
+///     Standalone expressions share source and fingerprint caches with the injected bridge for the
+///     current document and runtime. Registry ids and factory identities are checked on every lookup,
+///     so a late chunk or replaced factory cannot preserve a stale unique match.
 /// </remarks>
 public static class SteamUiModuleResolver
 {

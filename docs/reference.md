@@ -206,11 +206,13 @@ export the predicate accepts, counting aliases of a value once and throwing `Ste
 `count(tokens)` and `findUnique(tokens)` inspect source without invoking factories. `findUnique`
 returns an id/source pair or null. Invalid fingerprints, absent/ambiguous resolution and load
 failures throw diagnostic errors. A fingerprint is a nonempty array of nonempty string tokens, with
-no count or length limit, and discovery reads every registered factory. A resolver reads each
-factory's source once and remembers it, and a gate that looks a module up after installation (a
-store singleton, the JSX runtime) keeps one resolver for its lifetime rather than pushing a new
-chunk on every publication. A resolver does not repeat a factory call that threw through that
-resolver. It exposes no raw registry or loader. This is not a sandbox for arbitrary page JavaScript,
+no count or length limit. Standalone probes and the bridge share factory source and fingerprint
+results within the current document and webpack runtime. Every lookup checks all registered ids and
+factory identities; additions, removals or replacements invalidate fingerprint results before
+checking uniqueness again. A gate that looks a module up after installation (a store singleton, the
+JSX runtime) keeps one resolver for its lifetime rather than pushing a new chunk on every
+publication. Factory failures are not cached: a later call can inspect the exports Steam retained.
+The resolver exposes no raw registry or loader. This is not a sandbox for arbitrary page JavaScript,
 nor proof that a factory's dependencies have initialized; hosts must enforce startup readiness as
 well.
 

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { runInNewContext } from "node:vm";
+import { createContext, runInContext, runInNewContext } from "node:vm";
 import { fragment, gateSource, loadAsset, sharedFragments } from "./check-harness.mjs";
 
 const asset = loadAsset();
@@ -22,11 +22,112 @@ function fixture() {
     }
     runtime.m = factories;
     return {
+        runtime,
         factories,
         cache,
         calls: () => calls,
         window: { webpackChunksteamui: { push: (chunk) => chunk[2](runtime) } },
     };
+}
+
+// Separate evaluations share fingerprint work, but each lookup still checks the live registry.
+{
+    const f = fixture();
+    const matching = () => {
+        /* cached-fingerprint */
+        throw new Error("fingerprint lookup executed a factory");
+    };
+    f.factories.match = matching;
+    f.factories.other = () => {};
+    const context = createContext({ window: f.window, runtime: f.runtime });
+    const counters = runInContext(
+        `(() => {
+            const originalIncludes = String.prototype.includes;
+            const originalKeys = Object.keys;
+            let searches = 0, registries = 0;
+            String.prototype.includes = function (...args) {
+                searches++;
+                return Reflect.apply(originalIncludes, this, args);
+            };
+            Object.keys = function (value) {
+                if (value === runtime.m) registries++;
+                return originalKeys(value);
+            };
+            return {
+                read: () => ({ searches, registries }),
+                restore: () => {
+                    String.prototype.includes = originalIncludes;
+                    Object.keys = originalKeys;
+                }
+            };
+        })()`,
+        context,
+        { timeout: 1000 },
+    );
+    const createResolver = () =>
+        runInContext(
+            `(()=>{${emittedResolver} return createSteamUiModuleResolver('cached');})()`,
+            context,
+            { timeout: 1000 },
+        );
+    const tokens = ["cached-fingerprint"];
+    try {
+        const first = createResolver();
+        assert.equal(first.count(tokens), 1);
+        const cold = counters.read();
+        assert.ok(cold.searches > 0, "the cold lookup searches factory sources");
+        const second = createResolver();
+        assert.equal(second.count(tokens), 1);
+        assert.equal(first.findUnique(tokens)[0], "match");
+        assert.equal(counters.read().searches, cold.searches, "warm evaluations share matches");
+        assert.equal(
+            counters.read().registries,
+            cold.registries + 2,
+            "warm lookups check the registry",
+        );
+
+        f.factories.duplicate = matching;
+        assert.equal(second.count(tokens), 2);
+        assert.equal(first.findUnique(tokens), null);
+        assert.throws(() => first.resolve(tokens), /module ambiguous/u);
+        delete f.factories.duplicate;
+        assert.equal(first.count(tokens), 1);
+        delete f.factories.match;
+        assert.equal(second.count(tokens), 0, "removing the unique factory invalidates the match");
+        assert.equal(first.findUnique(tokens), null);
+        assert.throws(() => second.resolve(tokens), /module absent/u);
+
+        f.factories.match = matching;
+        assert.equal(first.count(tokens), 1);
+        const ordered = counters.read().searches;
+        const unchanged = f.factories.other;
+        delete f.factories.other;
+        f.factories.other = unchanged;
+        assert.equal(second.count(tokens), 1);
+        assert.ok(counters.read().searches > ordered, "factory order changes invalidate matches");
+        const factoryCount = Object.keys(f.factories).length;
+        f.factories.match = () => {};
+        assert.equal(Object.keys(f.factories).length, factoryCount);
+        assert.equal(second.count(tokens), 0, "replacement at the same id invalidates the match");
+        const absent = counters.read().searches;
+        assert.equal(first.findUnique(tokens), null);
+        assert.equal(counters.read().searches, absent, "absent matches are cached too");
+
+        f.runtime.m = { match: matching };
+        assert.equal(first.count(tokens), 1, "a replacement registry is checked");
+        f.runtime.m = f.factories;
+        assert.equal(second.count(tokens), 0);
+        const other = fixture();
+        other.factories.match = matching;
+        f.window.webpackChunksteamui.push = (chunk) => chunk[2](other.runtime);
+        const third = createResolver();
+        assert.equal(third.count(tokens), 1, "a new runtime has its own matches");
+        assert.equal(first.count(tokens), 0, "the original runtime keeps its own matches");
+        assert.equal(f.calls(), 0, "count and findUnique never load factories");
+        assert.equal(other.calls(), 0);
+    } finally {
+        counters.restore();
+    }
 }
 
 for (const source of [`(()=>{${emittedResolver} return createSteamUiModuleResolver('test');})()`]) {
@@ -114,7 +215,11 @@ const createHost = (window) =>
      const getWebpackRuntime = scope => createSteamUiModuleResolver(scope);
      ${host}
      createNativeComponentHost();`,
-        { window },
+        {
+            window,
+            subscribePluginFrontends: () => () => {},
+            pluginFrontendElements: () => [],
+        },
         { timeout: 1000 },
     );
 function componentFixture() {
