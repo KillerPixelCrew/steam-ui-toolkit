@@ -703,6 +703,8 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         CancellationToken cancellationToken)
     {
         var timeout = TimeSpan.FromSeconds(5);
+        await connection.InvokeAsync("Debugger.enable", null, timeout, cancellationToken)
+            .ConfigureAwait(false);
         await connection.InvokeAsync("Debugger.setPauseOnExceptions", writer => writer.WriteString("state", "none"),
                 timeout, cancellationToken)
             .ConfigureAwait(false);

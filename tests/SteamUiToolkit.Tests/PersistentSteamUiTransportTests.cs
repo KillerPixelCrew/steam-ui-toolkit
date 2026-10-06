@@ -21,7 +21,7 @@ public sealed class PersistentSteamUiTransportTests
         Assert.True(result.Answered);
         Assert.Equal(
             [
-                "Debugger.setPauseOnExceptions", "Debugger.disable", "Runtime.enable", "Page.enable", "DOM.enable",
+                "Debugger.enable", "Debugger.setPauseOnExceptions", "Debugger.disable", "Runtime.enable", "Page.enable", "DOM.enable",
                 "Runtime.evaluate"
             ],
             factory.Wires.Single().Methods);
