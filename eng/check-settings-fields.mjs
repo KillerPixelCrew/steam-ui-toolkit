@@ -7,8 +7,7 @@
 import assert from "node:assert/strict";
 import {
   createReact,
-  fragments,
-  helperLabels,
+  helperFragments,
   instantiate,
   loadAsset,
   tick,
@@ -97,7 +96,7 @@ runtime.exported = (tokens, predicate) => {
 
 const api = instantiate(
   { window: {} },
-  fragments(asset, helperLabels(asset)),
+  helperFragments(asset),
   "{ resolveSteamSettingsComponents, SteamSettingsRequired, renderSteamSettings }",
 );
 

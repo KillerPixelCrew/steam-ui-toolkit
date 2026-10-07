@@ -511,6 +511,11 @@ assert.equal(normalizeQuickAccessLayout(null), null);
     const drawings = fragment(asset, "icons.ts");
     // Comments are emitted verbatim, and a commented-out call site is not a placement.
     const code = asset.replace(/^[ \t]*\/\/.*$/gmu, "");
+    // Plugin tabs share the Extensions symbol only as a default; a host-supplied icon wins.
+    // This is one generic fallback, not another fixed control in this host's layout.
+    const pluginFallback = /slot\.value\.icon\s*\?\?\s*icon\(\s*["']extensions["']\s*,\s*22\s*\)/gu;
+    assert.equal([...code.matchAll(pluginFallback)].length, 1, "one shared plugin-tab icon fallback");
+    const fixedCode = code.replace(pluginFallback, "");
     const used = [
         ...[...code.matchAll(/\bicon\(\s*["']([A-Za-z]+)["']/gu)].map((match) => match[1]),
         ...[
@@ -524,7 +529,11 @@ assert.equal(normalizeQuickAccessLayout(null), null);
         "bolt",
         "boost",
     ];
-    const repeated = [...new Set(used.filter((name, at) => used.indexOf(name) !== at))];
+    const fixed = [
+        ...[...fixedCode.matchAll(/\bicon\(\s*["']([A-Za-z]+)["']/gu)].map((match) => match[1]),
+        ...used.slice([...code.matchAll(/\bicon\(\s*["']([A-Za-z]+)["']/gu)].length),
+    ];
+    const repeated = [...new Set(fixed.filter((name, at) => fixed.indexOf(name) !== at))];
     assert.deepEqual(repeated, [], `glyphs used for more than one control: ${repeated.join(", ")}`);
     // Declared glyphs, read off the table's own keys rather than a number kept in step by hand.
     // Indentation differs between the two compositions - the prelude comes out of tsc as-is, a
@@ -757,7 +766,7 @@ console.log("Device controls retain charging and brightness without the optional
             steamUiKitStyle: () => ({ type: "style" }),
             deviceControlsControl: undefined,
         },
-        host(
+        declarations(asset, "plugin-frontends", ["pluginFrontendSlots", "pluginFrontendItems", "pluginFrontendElements"]) + "\n" + host(
             "normalizeQuickAccessSections",
             "normalizeQuickAccessLayout",
             "untitledSection",

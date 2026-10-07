@@ -123,7 +123,8 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
     /// <remarks>
     ///     Generation-changing notifications only advance generations and raise
     ///     <see cref="GenerationChanged" />. Other CDP notifications from the enabled domains have no
-    ///     consumer and are dropped as they arrive.
+    ///     consumer and are dropped as they arrive. The connection separately logs console,
+    ///     exception and browser diagnostics through <see cref="ISteamUiLog.Console" />.
     /// </remarks>
     public event EventHandler<SteamUiNotification>? NotificationReceived;
 
@@ -613,7 +614,8 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
                     (method, parameters) =>
                         OnNotification(channel, connection, method, parameters),
                     (closedConnection, failure) =>
-                        OnConnectionClosed(channel, closedConnection, failure));
+                        OnConnectionClosed(channel, closedConnection, failure),
+                    channel.Role);
                 connection.Start();
                 wireOwnedByConnection = true;
 
@@ -711,6 +713,8 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         await connection.InvokeAsync("Debugger.disable", null, timeout, cancellationToken)
             .ConfigureAwait(false);
         await connection.InvokeAsync("Runtime.enable", null, timeout, cancellationToken)
+            .ConfigureAwait(false);
+        await connection.InvokeAsync("Log.enable", null, timeout, cancellationToken)
             .ConfigureAwait(false);
         await connection.InvokeAsync("Page.enable", null, timeout, cancellationToken)
             .ConfigureAwait(false);

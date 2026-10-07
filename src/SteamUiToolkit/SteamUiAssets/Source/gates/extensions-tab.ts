@@ -442,7 +442,8 @@ function createExtensionsTab() {
         panel.section,
         { key: item.id },
         header(item),
-        ...(isFolded(`extensions:${item.id}`) ? [] : [actionsRow(item), ...settingLines(item)]),
+        actionsRow(item),
+        ...(isFolded(`extensions:${item.id}`) ? [] : settingLines(item)),
       ),
     );
     return h(

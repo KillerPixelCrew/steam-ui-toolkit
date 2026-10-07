@@ -33,11 +33,33 @@ const asset = loadAsset();
 // The ownership primitives and gate helpers, real, so the claims below are the shipped ones.
 const shared = sharedFragments(asset);
 
+// A publication changes only the subscribed app's visible badge, including a first publication.
+{
+    const local = instantiate({}, `${shared}\n${gateSource(asset, "gates/library-badge.ts")}`, "createLibraryBadgeReading()");
+    let first = 0;
+    let second = 0;
+    local.storeFor(70).subscribe(() => first++);
+    local.storeFor(71).subscribe(() => second++);
+    const state = { libraries: [{ name: "Blue card", connected: false, appIds: [70] }] };
+    local.publish(state);
+    assert.deepEqual([first, second], [1, 0], "the first answer refreshes only its app");
+    local.publish(state);
+    assert.deepEqual([first, second], [1, 0], "identical visible state refreshes nothing");
+    local.publish({ libraries: [{ name: "Blue card", connected: true, appIds: [70] }] });
+    assert.deepEqual([first, second], [2, 0], "a storage change leaves unrelated apps alone");
+    local.publish({ shortcuts: [{ appId: 71, available: false, location: "", reason: "Missing game" }] });
+    assert.deepEqual([first, second], [3, 1], "managed availability updates the right app");
+    assert.equal(local.read().shortcuts.get(71).reason, "Missing game");
+}
+
 // --- library badge ---------------------------------------------------------------------------------
 {
     // A React stand-in with exactly the APIs the gate uses. A clone given no children gets an empty child
     // list, which is what this fixture was written against.
-    const react = createReact({ cloneReplacesChildren: true });
+    const react = createReact({
+        cloneReplacesChildren: true,
+        useSyncExternalStore: (_subscribe, snapshot) => snapshot(),
+    });
 
     // Valve's module, reduced to what the gate resolves on: one memo export whose type draws the tile,
     // one function export drawing the controller-support icon, and the tree between them shaped like
@@ -139,7 +161,10 @@ const shared = sharedFragments(asset);
 
     // Renders one tile through the claimed memo and reports what the icon row holds: the row's
     // children in order, with our badge described by its text and colour and Valve's by identity.
-    const render = (app) => memo.type({ app });
+    const render = (app) => {
+        const tree = memo.type({ app });
+        return tree.type?.name === "LiveLibraryTile" ? tree.type(tree.props) : tree;
+    };
     const find = (node, predicate) => findIn(react, node, predicate);
     const iconRow = (tree) => find(tree, (node) => node.props?.className === "icons")[0];
     const describe = (tree) => {
@@ -276,7 +301,10 @@ const shared = sharedFragments(asset);
     const libraries = gateSource(asset, "gates/library-badge.ts");
     const elements = gateSource(asset, "gates/elements.ts");
 
-    const react = createReact({ singleChild: true });
+    const react = createReact({
+        singleChild: true,
+        useSyncExternalStore: (_subscribe, snapshot) => snapshot(),
+    });
     function jsxProduction(type, props, key) {
         return element(type, props, key ?? null);
     }
@@ -320,6 +348,7 @@ const shared = sharedFragments(asset);
         window: {},
         getWebpackRuntime: () => {
             const require = (id) => modules[id];
+            require.exported = () => null;
             require.findUnique = (tokens) => (moduleFor(tokens) ? [moduleFor(tokens), ""] : null);
             require.resolve = (tokens) => modules[moduleFor(tokens)];
             return require;
@@ -356,8 +385,10 @@ const shared = sharedFragments(asset);
                 runtime.jsx(Playtime, { overview }),
             ],
         });
-    const statOf = (tree) =>
-        tree.props.children.find((child) => child?.key === "steam-ui-library-details");
+    const statOf = (tree) => {
+        const stat = tree.props.children.find((child) => child?.key === "steam-ui-library-details");
+        return stat?.type?.name === "LiveLibraryStat" ? stat.type(stat.props) ?? undefined : stat;
+    };
     const describe = (stat) => {
         const right = stat.props.children;
         const [label, value] = right.props.children;
@@ -365,7 +396,7 @@ const shared = sharedFragments(asset);
             stat: stat.props.className,
             right: right.props.className,
             label: `${label.props.className}:${label.props.children}`,
-            value: `${value.props.className}:${value.props.children}`,
+            value: `${value.props.className}:${react.Children.toArray(value.props.children).filter((child) => typeof child === "string").join("")}`,
             dimmed: value.props.style?.opacity === 0.55,
         };
     };
@@ -412,7 +443,7 @@ const shared = sharedFragments(asset);
         "detail-hash info-hash:D:",
     );
     const nowhere = row({ appid: 73, installed: false });
-    assert.equal(nowhere.props.children.length, 3, "a game installed nowhere gets no stat");
+    assert.equal(statOf(nowhere), undefined, "a game installed nowhere gets no visible stat");
     assert.match(
         details.status().lastOutcome,
         /without=2/,

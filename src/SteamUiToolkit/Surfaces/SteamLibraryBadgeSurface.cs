@@ -15,6 +15,13 @@ namespace SteamUiToolkit;
 /// <param name="AppIds">The Steam app ids installed in this library.</param>
 public sealed record SteamLibraryBadgeLibrary(string Name, bool Connected, IReadOnlyList<long> AppIds);
 
+/// <summary>Authoritative availability of one host-managed non-Steam shortcut.</summary>
+/// <param name="AppId">The confirmed unsigned Steam shortcut id.</param>
+/// <param name="Available">Whether its backing content and launcher are currently usable.</param>
+/// <param name="Location">The logical library or storage name.</param>
+/// <param name="Reason">A readable explanation when the content cannot be launched.</param>
+public sealed record SteamShortcutAvailability(uint AppId, bool Available, string Location, string Reason);
+
 /// <summary>Everything the badge needs to name a game's library.</summary>
 /// <param name="Libraries">
 ///     Every library the badge names, each by the name the host gives it: a removable one attached
@@ -22,9 +29,11 @@ public sealed record SteamLibraryBadgeLibrary(string Name, bool Connected, IRead
 ///     badge; the toolkit has no name of its own for a library.
 /// </param>
 /// <param name="Revision">Monotonic host observation revision.</param>
+/// <param name="Shortcuts">Host-managed shortcut availability, independent of Steam's installed flag.</param>
 public sealed record SteamLibraryBadgeState(
     IReadOnlyList<SteamLibraryBadgeLibrary> Libraries,
-    long Revision = 0);
+    long Revision = 0,
+    IReadOnlyList<SteamShortcutAvailability>? Shortcuts = null);
 
 /// <summary>What the library badge tells its host.</summary>
 public interface ISteamLibraryBadgeBackend
@@ -38,6 +47,12 @@ public interface ISteamLibraryBadgeBackend
     /// <param name="cancellationToken">Cancels the handling.</param>
     /// <returns>The outcome. A refusal is reported rather than swallowed.</returns>
     Task<SteamUiCommandResult> HomeLayoutAsync(bool bigArt, CancellationToken cancellationToken);
+
+    /// <summary>Requests a fresh check of one managed shortcut's content.</summary>
+    /// <param name="appId">The confirmed unsigned Steam shortcut id.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>Whether the host accepted the check.</returns>
+    Task<SteamUiCommandResult> RecheckAsync(uint appId, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -73,7 +88,7 @@ public static class SteamLibraryBadgeSurface
     public const string DetailsPatchId = "steam-ui.library-details";
 
     /// <summary>The exact command vocabulary the injected gate sends.</summary>
-    public static IReadOnlyList<string> Commands { get; } = ["homeLayout"];
+    public static IReadOnlyList<string> Commands { get; } = ["homeLayout", "recheck"];
 
     /// <summary>The gate that adds the library as a stat beside Last Played and Play Time on a game's page.</summary>
     /// <remarks>
@@ -187,6 +202,15 @@ public static class SteamLibraryBadgeSurface
                && SteamUiPayload.TryReadBoolean(payload, "bigArt", out bigArt);
     }
 
+    private static bool TryReadRecheck(JsonElement payload, out uint appId)
+    {
+        appId = 0;
+        return SteamUiPayload.HasExactly(payload, 1)
+               && payload.TryGetProperty("appId", out var value) && value.ValueKind == JsonValueKind.Number
+               && value.TryGetUInt32(out appId)
+               && appId > 0;
+    }
+
     /// <summary>Declares the surface as one module: the gate, the libraries, and the layout report.</summary>
     /// <param name="enabled">Whether the libraries may be published right now.</param>
     /// <param name="read">The libraries to name, or null when there is nothing to say yet.</param>
@@ -213,7 +237,9 @@ public static class SteamLibraryBadgeSurface
                     "homeLayout",
                     TryReadHomeLayout,
                     backend.HomeLayoutAsync,
-                    "The home layout payload is invalid.")
+                    "The home layout payload is invalid."),
+                SteamUiModuleBuilder.Command<uint>(PatchId, "recheck", TryReadRecheck,
+                    backend.RecheckAsync, "The managed shortcut id is invalid.")
             ]);
     }
 }

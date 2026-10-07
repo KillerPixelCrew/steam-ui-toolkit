@@ -1,5 +1,9 @@
 # SteamUiToolkit
 
+Connected CEF targets log console warnings, errors, uncaught exceptions and available stacks through
+`ISteamUiLog.Console`. Plain rejected objects include bounded own-property details instead of only
+`#<Object>`. Set `ConsoleVerboseEnabled` on the sink to include informational console messages.
+
 `SteamSoundOverrideSurface` adds reversible Big Picture audio overrides without changing Steam
 files. Hosts supply discovered sound resources and own pack policy. See
 [sound overrides](docs/sound-overrides.md) for the contract.
@@ -406,3 +410,8 @@ selectors under Audio. See [the surface contract](docs/reference.md).
 For a game picker, use `SteamClient.Library.ReadGamesAsync` to distinguish an unavailable or invalid
 library from a confirmed empty one. `SteamLibraryReadResult` carries the error and the confirmed
 items; see the reference's library-read contract.
+
+Hosts can publish managed shortcut availability through `SteamLibraryBadgeState.Shortcuts` to keep
+missing content visible with a location and reason. The same card owner updates normal and Big Art
+layouts; the host's launcher performs the final content check. Explicit title edits use
+`SteamClient.Apps.SetShortcutNameAsync`, which writes the name while preserving AppId.

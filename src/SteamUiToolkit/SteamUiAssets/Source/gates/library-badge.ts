@@ -34,6 +34,10 @@
 // malformed entry is skipped rather than failing the whole reading.
 const readLibraryBadgeState = (state) => {
     const libraries = new Map<number, { name: string; connected: boolean }>();
+    const shortcuts = new Map<
+        number,
+        { appId: number; available: boolean; location: string; reason: string }
+    >();
     const published = Array.isArray(state?.libraries) ? state.libraries : [];
     let count = 0;
     for (const entry of published) {
@@ -48,7 +52,19 @@ const readLibraryBadgeState = (state) => {
             libraries.set(appid, library);
         }
     }
-    return {libraries, count};
+    for (const entry of Array.isArray(state?.shortcuts) ? state.shortcuts : []) {
+        if (
+            !Number.isInteger(entry?.appId) ||
+            entry.appId <= 0 ||
+            entry.appId > 0xffffffff ||
+            typeof entry.available !== "boolean" ||
+            typeof entry.location !== "string" ||
+            typeof entry.reason !== "string"
+        )
+            continue;
+        shortcuts.set(entry.appId, entry);
+    }
+    return { libraries, shortcuts, count };
 };
 
 // The library to name for one app overview, or null when there is none. Steam's own installed flag is
@@ -59,10 +75,58 @@ const libraryForOverview = (overview, reading: ReturnType<typeof readLibraryBadg
     const appid = typeof overview?.appid === "number" ? overview.appid : null;
     if (appid === null) return null;
     const library = reading.libraries.get(appid);
+    const shortcut = reading.shortcuts.get(appid);
     const installed =
-        typeof overview.installed === "boolean" ? overview.installed : (library?.connected ?? false);
-    if (!library) return null;
-    return {name: library.name, installed};
+        typeof overview.installed === "boolean"
+            ? overview.installed
+            : (library?.connected ?? false);
+    if (!library && !shortcut) return null;
+    return {
+        appId: appid,
+        name: shortcut?.location || library?.name || "Game storage",
+        installed: shortcut?.available ?? installed,
+        reason: shortcut?.available === false ? shortcut.reason : "",
+        managed: !!shortcut,
+    };
+};
+
+// A mounted tile or stat subscribes to its app alone. Publications update only the apps whose
+// visible badge changed, without walking Steam's fibers or repainting the rest of the library.
+const createLibraryBadgeReading = () => {
+    let current = readLibraryBadgeState(null);
+    const stores = new Map<number, ReturnType<typeof createLocalStore>>();
+    const storeFor = (appId: number) => {
+        let store = stores.get(appId);
+        if (!store) {
+            store = createLocalStore();
+            stores.set(appId, store);
+        }
+        return store;
+    };
+    return {
+        read: () => current,
+        storeFor,
+        publish: (state) => {
+            const previous = current;
+            current = readLibraryBadgeState(state);
+            for (const [appId, store] of stores) {
+                const before = libraryForOverview({ appid: appId }, previous);
+                const after = libraryForOverview({ appid: appId }, current);
+                if (
+                    before?.name !== after?.name ||
+                    before?.installed !== after?.installed ||
+                    before?.reason !== after?.reason ||
+                    before?.managed !== after?.managed
+                ) {
+                    store.changed();
+                }
+            }
+            return current;
+        },
+        changed: () => {
+            for (const store of stores.values()) store.changed();
+        },
+    };
 };
 
 function createLibraryBadge() {
@@ -97,7 +161,9 @@ function createLibraryBadge() {
     let reportedBigArt: boolean | null = null;
 
     // The host's published libraries, replaced whole on each publication and indexed by app id.
-    let reading = readLibraryBadgeState(null);
+    const local = createLibraryBadgeReading();
+    let reading = local.read();
+    const mounted = createMountedAdoption();
 
     // What the last tile render actually did, because a claimed tile can render exactly what Valve
     // shipped when the badge anchor is not in its tree. Kept as counts and the reading that render
@@ -124,8 +190,7 @@ function createLibraryBadge() {
         const current = readBigArt();
         if (current === null || current === reportedBigArt) return;
         reportedBigArt = current;
-        request(patchId, "homeLayout", {bigArt: current}).catch(() => {
-        });
+        request(patchId, "homeLayout", { bigArt: current }).catch(() => {});
     };
 
     const badgeStyle = (installedNow) => ({
@@ -155,6 +220,7 @@ function createLibraryBadge() {
                 key: "steam-ui-library-badge",
                 className: "steam-ui-library-badge",
                 style: badgeStyle(library.installed),
+                title: library.reason || library.name,
                 "aria-label": library.name,
             },
             library.name,
@@ -174,7 +240,9 @@ function createLibraryBadge() {
     // against. Without the class map the box is plain and always visible, and status says so.
     const withBadge = (element) => {
         const ours = renderBadge(element.props?.overview);
-        const additions = pluginFrontendElements("library", react, { overview: element.props?.overview });
+        const additions = pluginFrontendElements("library", react, {
+            overview: element.props?.overview,
+        });
         if (!ours && !additions.length) return element;
         const style: Record<string, unknown> = {
             display: "flex",
@@ -197,7 +265,7 @@ function createLibraryBadge() {
         }
         return react.createElement(
             "div",
-            {key: "steam-ui-library-badge-row", className, style},
+            { key: "steam-ui-library-badge-row", className, style },
             ours,
             ...additions,
             element,
@@ -224,16 +292,37 @@ function createLibraryBadge() {
         wrapped = function SteamUiLibraryTile(this: unknown, props, secondArgument) {
             const tree = original.call(this, props, secondArgument);
             reportBigArt();
-            const before = placed;
-            const result = decorate(tree, 0);
-            if (placed === before) unanchored++;
-            outcome = "rendered";
-            renderedReading = reading;
-            return result;
+            return installed
+                ? react.createElement(LiveLibraryTile, {
+                      tree,
+                      overview: props?.app ?? props?.overview,
+                  })
+                : tree;
         };
         tileCache.set(original, wrapped);
         return wrapped;
     };
+
+    function LiveLibraryTile(props) {
+        const appId = props.overview?.appid ?? 0;
+        const store = local.storeFor(appId);
+        react.useSyncExternalStore(store.subscribe, store.revision, store.revision);
+        if (!installed) return props.tree;
+        reading = local.read();
+        const before = placed;
+        let result = decorate(props.tree, 0);
+        const library = libraryForOverview(props.overview, reading);
+        if (library?.managed && !library.installed && react.isValidElement(result)) {
+            result = react.cloneElement(result, {
+                style: { ...result.props.style, filter: "grayscale(1)", opacity: 0.58 },
+                title: library.reason || library.name,
+            });
+        }
+        if (placed === before) unanchored++;
+        outcome = "rendered";
+        renderedReading = reading;
+        return result;
+    }
 
     const resolve = () => {
         runtime = getWebpackRuntime("library-badge");
@@ -243,6 +332,10 @@ function createLibraryBadge() {
             return false;
         }
         react = resolvedReact;
+        if (typeof react.useSyncExternalStore !== "function") {
+            lastError = "React runtime lacks useSyncExternalStore";
+            return false;
+        }
 
         const tileFactory = runtime.findUnique([...TileTokens]);
         if (!tileFactory) {
@@ -283,7 +376,7 @@ function createLibraryBadge() {
             const row = map?.LibraryItemIcons;
             const icon = map?.ControllerSupportIcon;
             if (typeof row === "string" && row && typeof icon === "string" && icon) {
-                classes = {row, icon};
+                classes = { row, icon };
             }
         }
 
@@ -295,7 +388,9 @@ function createLibraryBadge() {
             const stores = runtime(settingsFactory[0]);
             const candidates = Object.keys(stores).filter((name) => {
                 const value = stores[name];
-                return value && typeof value === "object" && typeof value.clientSettings === "object";
+                return (
+                    value && typeof value === "object" && typeof value.clientSettings === "object"
+                );
             });
             if (candidates.length === 1) settings = stores[candidates[0]];
         }
@@ -303,11 +398,11 @@ function createLibraryBadge() {
     };
 
     const install = () => {
-        if (installed) return {ok: true, alreadyInstalled: true};
+        if (installed) return { ok: true, alreadyInstalled: true };
         const resolved = attemptResolution(resolve, (error) => {
             lastError = "library badge resolution failed: " + String(error);
         });
-        if (!resolved) return {ok: false, error: lastError};
+        if (!resolved) return { ok: false, error: lastError };
 
         // Every caller draws the tile through the same memo, so claiming its `type` reaches the
         // carousel and the grid without patching a single caller.
@@ -317,36 +412,47 @@ function createLibraryBadge() {
         });
         if (!claim.ok) {
             lastError = claim.error;
-            return {ok: false, error: lastError};
+            return { ok: false, error: lastError };
         }
 
         installed = true;
+        mounted.adopt(tile, tile.type);
         lastError = "";
         reportedBigArt = null;
         reportBigArt();
         unsubscribe = subscribe(patchId, (state) => {
-            // Nothing re-renders the tiles on its own: the claim is on the type, so the next render of
-            // each tile — focus moving, the grid scrolling, Home rebuilding — draws the new map.
-            reading = readLibraryBadgeState(state);
+            reading = local.publish(state);
         });
-        return {ok: true, installed: true, reclaimed: claim.reclaimed};
+        return { ok: true, installed: true, reclaimed: claim.reclaimed };
     };
 
     const remove = () => {
-        if (!installed) return {ok: true, absent: true};
+        if (!installed) return { ok: true, absent: true };
         // Released before anything is forgotten, so a failed release stays installed and the next
         // remove retries it.
+        const replacement = tile.type;
+        const original = unclaimedValue(replacement, claimKeys);
         const released = releaseMember(tile, "type", claimKeys);
         if (!released.ok) {
             lastError = released.error ?? "library badge release failed";
-            return {ok: false, error: lastError};
+            return { ok: false, error: lastError };
         }
         installed = false;
+        mounted.release(original);
+        // New mounts inherit the claimed memo without adoption. Restore those owned fibers once,
+        // on removal; ordinary publications never traverse Steam's component tree.
+        for (const fiber of mountedFibersOf(reactRootFibers(), tile, MaximumMountedNodes)) {
+            if (fiber.type !== replacement) continue;
+            retargetFiber(fiber, original);
+            invalidateFiberProps(fiber);
+            requestRender(fiber);
+        }
         unsubscribe = endSubscription(unsubscribe);
-        reading = readLibraryBadgeState(null);
+        reading = local.publish(null);
+        local.changed();
         tileCache.clear();
         outcome = "removed";
-        return {ok: true, removed: true};
+        return { ok: true, removed: true };
     };
 
     const status = () => ({
@@ -366,7 +472,7 @@ function createLibraryBadge() {
         lastError,
     });
 
-    return {install, remove, status};
+    return { install, remove, status };
 }
 
 registerGate("libraryBadge", createLibraryBadge());
@@ -396,24 +502,50 @@ registerGate("libraryBadge", createLibraryBadge());
 function createLibraryDetails() {
     const publicationId = "steam-ui.library-badge";
     const TransformName = "libraryDetails";
-    const ClassMapTokens = ['GameStatsSection:"', 'PlayBarDetailLabel:"', 'LastPlayedInfo:"'] as const;
-    const RequiredClasses = ["GameStatsSection", "GameStat", "GameStatRight", "PlayBarLabel", "PlayBarDetailLabel"];
+    const ClassMapTokens = [
+        'GameStatsSection:"',
+        'PlayBarDetailLabel:"',
+        'LastPlayedInfo:"',
+    ] as const;
+    const RequiredClasses = [
+        "GameStatsSection",
+        "GameStat",
+        "GameStatRight",
+        "PlayBarLabel",
+        "PlayBarDetailLabel",
+    ];
     const LabelToken = "#Settings_Page_Library";
     const StatKey = "steam-ui-library-details";
 
     let runtime;
     let react: any = null;
     let jsxRuntime: any = null;
+    let ui: any = null;
     let localize: ((token: string) => unknown) | null = null;
-    let classes: { section: string; stat: string; right: string; label: string; value: string } | null =
-        null;
+    let classes: {
+        section: string;
+        stat: string;
+        right: string;
+        label: string;
+        value: string;
+    } | null = null;
     let installed = false;
     let lastError = "";
     let lastOutcome = "never rendered";
     let placed = 0;
     let without = 0;
     let unsubscribe: (() => void) | null = null;
-    let reading = readLibraryBadgeState(null);
+    const local = createLibraryBadgeReading();
+    let reading = local.read();
+
+    function LiveLibraryStat(props) {
+        const store = local.storeFor(props.overview?.appid ?? 0);
+        react.useSyncExternalStore(store.subscribe, store.revision, store.revision);
+        if (!installed) return null;
+        reading = local.read();
+        const library = libraryForOverview(props.overview, reading);
+        return library ? renderStat(library) : null;
+    }
 
     const label = () => localizedOr(localize, LabelToken, "Library");
 
@@ -425,43 +557,85 @@ function createLibraryDetails() {
         return null;
     };
 
-    const renderStat = (library: { name: string; installed: boolean }) =>
+    const renderStat = (library: NonNullable<ReturnType<typeof libraryForOverview>>) =>
         react.createElement(
             "div",
-            {key: StatKey, className: classes!.stat},
+            { key: StatKey, className: classes!.stat },
             react.createElement(
                 "div",
-                {className: classes!.right},
-                react.createElement("div", {className: classes!.label}, label()),
+                { className: classes!.right },
+                react.createElement("div", { className: classes!.label }, label()),
                 react.createElement(
                     "div",
-                    {className: classes!.value, style: library.installed ? undefined : {opacity: 0.55}},
-                    library.name,
+                    {
+                        className: classes!.value,
+                        title: library.reason || library.name,
+                        style: library.installed
+                            ? undefined
+                            : { opacity: 0.55, whiteSpace: "normal" },
+                    },
+                    library.installed || !library.managed
+                        ? library.name
+                        : `${library.name}: Unavailable`,
+                    library.reason
+                        ? react.createElement(
+                              "div",
+                              { style: { fontSize: "12px" } },
+                              library.reason,
+                          )
+                        : null,
+                    !library.installed && library.managed && ui?.dialogButton
+                        ? react.createElement(
+                              ui.dialogButton,
+                              {
+                                  onClick: () =>
+                                      request(publicationId, "recheck", {
+                                          appId: library.appId,
+                                      }).catch(() => {}),
+                              },
+                              "Recheck",
+                          )
+                        : null,
                 ),
             ),
         );
 
     const transform = (create, type, props, key) => {
-        if (type !== "div" || !installed || !classes || props?.className !== classes.section) return undefined;
+        if (type !== "div" || !installed || !classes || props?.className !== classes.section)
+            return undefined;
         const children = Array.isArray(props.children) ? props.children : [props.children];
         if (children.some((child) => child?.key === StatKey)) return undefined;
-        const library = libraryForOverview(overviewIn(children), reading);
-        const additions = pluginFrontendElements("gamePage", react, { overview: overviewIn(children) });
+        const overview = overviewIn(children);
+        const library = libraryForOverview(overview, reading);
+        const additions = pluginFrontendElements("gamePage", react, { overview });
         if (!library) {
             without++;
         } else {
             placed++;
         }
         lastOutcome = `placed=${placed} without=${without} libraries=${reading.count} apps=${reading.libraries.size}`;
-        if (!library && !additions.length) return undefined;
-        return create(type, {...props, children: [...children, ...(library ? [renderStat(library)] : []), ...additions]}, key);
+        if (!overview && !additions.length) return undefined;
+        return create(
+            type,
+            {
+                ...props,
+                children: [
+                    ...children,
+                    ...(overview
+                        ? [react.createElement(LiveLibraryStat, { key: StatKey, overview })]
+                        : []),
+                    ...additions,
+                ],
+            },
+            key,
+        );
     };
 
     const resolve = () => {
         runtime = getWebpackRuntime("library-details");
         react = resolveReact(runtime);
-        if (!react) {
-            lastError = "React unavailable";
+        if (!react || typeof react.useSyncExternalStore !== "function") {
+            lastError = "React unavailable or lacks useSyncExternalStore";
             return false;
         }
         jsxRuntime = runtime.resolve([...JsxRuntimeTokens]);
@@ -478,7 +652,10 @@ function createLibraryDetails() {
             return false;
         }
         const join = (...names: string[]) =>
-            names.map((name) => map[name]).filter((value) => typeof value === "string" && value).join(" ");
+            names
+                .map((name) => map[name])
+                .filter((value) => typeof value === "string" && value)
+                .join(" ");
         classes = {
             section: map.GameStatsSection,
             stat: join("GameStat", "LastPlayed"),
@@ -489,42 +666,45 @@ function createLibraryDetails() {
 
         // Wanted, not required: without it the label is the English word.
         localize = resolveSteamLocalizer(runtime);
+        const components = resolveSteamUiComponents(runtime);
+        ui = components ? { ...components, react } : null;
         return true;
     };
 
     const install = () => {
-        if (installed) return {ok: true, alreadyInstalled: true};
+        if (installed) return { ok: true, alreadyInstalled: true };
         const resolved = attemptResolution(resolve, (error) => {
             lastError = "library details resolution failed: " + String(error);
         });
-        if (!resolved) return {ok: false, error: lastError};
+        if (!resolved) return { ok: false, error: lastError };
 
         installed = true;
         const claim = interceptElements(jsxRuntime, TransformName, transform);
         if (!claim.ok) {
             installed = false;
             lastError = claim.error ?? "the JSX runtime could not be intercepted";
-            return {ok: false, error: lastError};
+            return { ok: false, error: lastError };
         }
         lastError = "";
         unsubscribe = subscribe(publicationId, (state) => {
-            reading = readLibraryBadgeState(state);
+            reading = local.publish(state);
         });
-        return {ok: true, installed: true};
+        return { ok: true, installed: true };
     };
 
     const remove = () => {
-        if (!installed) return {ok: true, absent: true};
+        if (!installed) return { ok: true, absent: true };
         const released = releaseElements(jsxRuntime, TransformName);
         if (!released.ok) {
             lastError = released.error ?? "library details release failed";
-            return {ok: false, error: lastError};
+            return { ok: false, error: lastError };
         }
         installed = false;
         unsubscribe = endSubscription(unsubscribe);
-        reading = readLibraryBadgeState(null);
+        reading = local.publish(null);
+        local.changed();
         lastOutcome = "removed";
-        return {ok: true, removed: true};
+        return { ok: true, removed: true };
     };
 
     const status = () => ({
@@ -539,7 +719,7 @@ function createLibraryDetails() {
         lastError,
     });
 
-    return {install, remove, status};
+    return { install, remove, status };
 }
 
 registerGate("libraryDetails", createLibraryDetails());

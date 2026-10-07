@@ -160,6 +160,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
     // the host sends.
     private const int MaximumNotificationBytes = 1024 * 1024;
     private readonly Action<SteamUiCdpConnection, Exception?> _closed;
+    private readonly SteamUiCefDiagnostics? _diagnostics;
     private readonly Action<string, string> _notification;
 
     private readonly Channel<(string Method, string Parameters)> _notifications =
@@ -188,11 +189,16 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
     internal SteamUiCdpConnection(
         ISteamUiCdpWire wire,
         Action<string, string> notification,
-        Action<SteamUiCdpConnection, Exception?> closed)
+        Action<SteamUiCdpConnection, Exception?> closed,
+        SteamUiTargetRole? diagnosticRole = null)
     {
         _wire = wire ?? throw new ArgumentNullException(nameof(wire));
         _notification = notification ?? throw new ArgumentNullException(nameof(notification));
         _closed = closed ?? throw new ArgumentNullException(nameof(closed));
+        if (diagnosticRole is { } role)
+        {
+            _diagnostics = new SteamUiCefDiagnostics(role, this);
+        }
     }
 
     // A counter rather than the dictionary's Count, which takes every one of its internal locks and
@@ -210,6 +216,11 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
 
         _shutdown.Cancel();
         _notifications.Writer.TryComplete();
+        if (_diagnostics is not null)
+        {
+            await _diagnostics.DisposeAsync().ConfigureAwait(false);
+        }
+
         await DisposeWireAsync().ConfigureAwait(false);
         try
         {
@@ -558,6 +569,13 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
             {
                 parameters = value.GetRawText();
             }
+        }
+
+        // Console floods must not occupy the binding/generation lane or close a healthy socket.
+        if (_diagnostics?.Post(method, parameters,
+                root.TryGetProperty("params", out var diagnosticParameters) ? diagnosticParameters : default) == true)
+        {
+            return;
         }
 
         if (!_notifications.Writer.TryWrite((method, parameters)))

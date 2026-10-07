@@ -1,5 +1,18 @@
 namespace SteamUiToolkit;
 
+/// <summary>The severity of a console or exception message reported by Steam's CEF runtime.</summary>
+public enum SteamUiConsoleLevel
+{
+    /// <summary>A development trace or informational console message.</summary>
+    Debug,
+
+    /// <summary>A console warning.</summary>
+    Warning,
+
+    /// <summary>A console error or uncaught JavaScript exception.</summary>
+    Error
+}
+
 /// <summary>Where the Steam UI machinery writes its diagnostics.</summary>
 /// <remarks>
 ///     The host supplies this. Without it the machinery would either depend on one application's
@@ -9,6 +22,26 @@ namespace SteamUiToolkit;
 /// </remarks>
 public interface ISteamUiLog
 {
+    /// <summary>Whether informational CEF console messages should be captured as development diagnostics.</summary>
+    bool ConsoleVerboseEnabled => false;
+
+    /// <summary>Records a CEF message, including its source and available stack.</summary>
+    /// <param name="key">Stable target and severity key for repeated-message suppression.</param>
+    /// <param name="message">Bounded console text, object properties and stack frames.</param>
+    /// <param name="level">The console severity.</param>
+    /// <remarks>The default forwards warnings and errors through the existing change-aware sink.</remarks>
+    void Console(string key, string message, SteamUiConsoleLevel level)
+    {
+        if (level == SteamUiConsoleLevel.Debug)
+        {
+            Info(message);
+        }
+        else
+        {
+            Change(key, message, true);
+        }
+    }
+
     /// <summary>Records something that happened.</summary>
     /// <param name="message">The line to write.</param>
     void Info(string message);
@@ -46,8 +79,18 @@ public interface ISteamUiLog
 public static class SteamUiLog
 {
     private static readonly ISteamUiLog Discarding = new Discard();
+
     // Volatile: the host sets it once at startup and every thread that writes a line reads it.
     private static volatile ISteamUiLog _sink = Discarding;
+
+    internal static bool ConsoleEnabled => !ReferenceEquals(_sink, Discarding);
+
+    internal static bool ConsoleVerboseEnabled => _sink.ConsoleVerboseEnabled;
+
+    internal static void Console(string key, string message, SteamUiConsoleLevel level)
+    {
+        _sink.Console(key, message, level);
+    }
 
     /// <summary>Directs the machinery's diagnostics at the host's logger.</summary>
     /// <param name="sink">The host's sink, or <see langword="null" /> to discard.</param>

@@ -104,24 +104,31 @@ export const helperLabels = (asset) =>
     (label) => !label.includes("/") && label !== "components.ts" && label !== "epilogue.ts",
   );
 
+const withoutGateRegistrations = (source) =>
+  source.replace(/^[ \t]*registerGate\("[^"]+", [A-Za-z]+\(\)\);[ \t]*\r?$/gmu, "");
+
+/** Helper definitions for inert fixtures, without automatically constructing a helper-owned gate. */
+export const helperFragments = (asset, labels = helperLabels(asset)) =>
+  withoutGateRegistrations(fragments(asset, labels));
+
 /**
  * One gate fragment, whole, without its top-level registrations, so a check constructs each gate
  * itself over its own fixtures.
  */
 export const gateSource = (asset, label) => {
   const source = fragment(asset, label);
-  const gates = source.replace(/^[ \t]*registerGate\("[^"]+", [A-Za-z]+\(\)\);[ \t]*\r?$/gmu, "");
+  const gates = withoutGateRegistrations(source);
   assert.notEqual(gates, source, `the ${label} fragment must register its gate`);
   return gates;
 };
 
 /**
- * The ownership primitives, the RPC replies, the file picker and the shared gate helpers. Gates are
+ * The ownership primitives, RPC replies, file picker, gate helpers and plugin frontend helpers. Gates are
  * instantiated over these real definitions rather than stand-ins, so a check exercises the claims the
  * asset actually makes.
  */
 export const sharedFragments = (asset) =>
-  fragments(asset, ["ownership.ts", "rpc.ts", "file-picker.ts", "gate-helpers.ts"]);
+  helperFragments(asset, ["ownership.ts", "rpc.ts", "file-picker.ts", "gate-helpers.ts", "plugin-frontends"]);
 
 /**
  * Evaluates emitted code with named globals in scope and returns an expression over it. A global must

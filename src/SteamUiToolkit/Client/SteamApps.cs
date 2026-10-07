@@ -16,12 +16,14 @@ namespace SteamUiToolkit;
 ///     A store title's install folder. Steam never exposes a store title's executable, so this is the
 ///     closest thing it reports to where the game runs from.
 /// </param>
+/// <param name="Name">The app's live display name when the client overview is available.</param>
 public sealed record SteamAppDetails(
     string LaunchOptions,
     string ShortcutExe,
     string ShortcutLaunchOptions,
     string ShortcutStartDir,
-    string InstallFolder);
+    string InstallFolder,
+    string? Name = null);
 
 /// <summary>A custom artwork slot, numbered as Steam's <c>SetCustomArtworkForApp</c> expects.</summary>
 /// <remarks>
@@ -257,6 +259,21 @@ public sealed class SteamApps
             "await SteamClient.Apps.SetShortcutStartDir(app," + SteamCef.JsString(startDirectory) + ");" +
             "await SteamClient.Apps.SetShortcutLaunchOptions(app," + SteamCef.JsString(launchArguments) + ");"),
             cancellationToken);
+    }
+
+    /// <summary>Renames a non-Steam shortcut in place.</summary>
+    /// <param name="appId">The existing shortcut's confirmed unsigned id.</param>
+    /// <param name="name">The explicit new display name.</param>
+    /// <param name="cancellationToken">Cancels the operation.</param>
+    /// <returns>The outcome of the Steam write.</returns>
+    public Task<SteamClientWriteResult> SetShortcutNameAsync(uint appId, string name,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        var script = "const app=" + SteamClientScript.AppId(appId) + ",name=" + SteamCef.JsString(name) + ";" +
+                     "if(typeof SteamClient?.Apps?.SetShortcutName!=='function')throw new Error('Shortcut renaming is unavailable.');" +
+                     "await SteamClient.Apps.SetShortcutName(app,name);";
+        return WriteAsync(SteamClientScript.Write(script), cancellationToken);
     }
 
     /// <summary>Reads every non-Steam shortcut in the library, with what each one runs, in one call.</summary>
@@ -607,7 +624,8 @@ public sealed class SteamApps
             "const d=await " + SteamClientScript.AppDetailsPromise(appId, DetailsTimeoutMs) + ";" +
             "if(!d){return JSON.stringify({ok:false,err:'Steam has no details for this app.'});}" +
             "return JSON.stringify({ok:true,launch:d.strLaunchOptions||'',exe:d.strShortcutExe||''," +
-            "args:d.strShortcutLaunchOptions||'',dir:d.strShortcutStartDir||'',install:d.strInstallFolder||''});");
+            "args:d.strShortcutLaunchOptions||'',dir:d.strShortcutStartDir||'',install:d.strInstallFolder||''," +
+            "name:window.appStore?.GetAppOverviewByAppID?.(" + SteamClientScript.AppId(appId) + ")?.display_name??null});");
         var result = await _client.ReadAsync(expression, timeout, cancellationToken).ConfigureAwait(false);
         return ParseDetails(result);
     }
@@ -622,7 +640,8 @@ public sealed class SteamApps
                 SteamClientScript.StringOf(root, "exe"),
                 SteamClientScript.StringOf(root, "args"),
                 SteamClientScript.StringOf(root, "dir"),
-                SteamClientScript.StringOf(root, "install")));
+                SteamClientScript.StringOf(root, "install"),
+                root.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String ? name.GetString() : null));
     }
 
     /// <summary>The script <see cref="AddShortcutAsync" /> runs. Pure, for tests.</summary>

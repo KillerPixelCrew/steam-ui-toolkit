@@ -151,6 +151,26 @@ suppressed repeats are counted rather than dropped. The TypeScript ships as sour
 a consumer can compile it together with its own fragments; `dist/steam-ui.js` is the complete asset
 for a consumer with none.
 
+Connected target roles capture `Runtime.consoleAPICalled`, `Runtime.exceptionThrown` and
+`Log.entryAdded` through the same CDP connection. `ISteamUiLog.Console(key, message, level)`
+receives warnings and errors by default; `ConsoleVerboseEnabled` additionally captures informational
+output at `SteamUiConsoleLevel.Debug`. Existing sinks retain their change-aware warning behaviour
+through the default interface implementation. WSGM maps these levels into `wsgm.log`, with
+informational console output following its existing Verbose setting.
+
+Messages identify the target role and source URL and include available synchronous and async parent
+stack frames. Plain remote objects are inspected with `Runtime.getProperties` using own properties;
+getters are not invoked and native replies such as
+`{ result: 2, message: "CVRPathHelpers not found" }` remain readable. No stack is invented when CEF
+supplies none. Object handles are released after inspection. Source URL queries and sensitive named
+properties are omitted or redacted.
+
+The diagnostic lane is separate from commands and generation events, with 64 queued messages, 64 KiB
+parameter text, eight console arguments, four inspected objects, twelve printed properties, sixteen
+frames per stack and four stack levels. Output is bounded to 8 KiB. Overflow is reported without
+disconnecting Steam or delaying binding dispatch. This uses native CDP notifications; it installs no
+console wrappers or JavaScript event listeners.
+
 ## 3. Discovery and the port gate
 
 ### The opt-in flag
@@ -945,6 +965,33 @@ that can disagree. An empty published state is still answered: "no removable dri
 answer and the page renders it, where refusing to answer leaves Steam's spinner up forever.
 
 ### The library badge
+
+`SteamLibraryBadgeState.Shortcuts` optionally supplies `SteamShortcutAvailability` records keyed by
+the confirmed unsigned `uint` AppId. These records override the installed flag only in host
+presentation: logical location, unavailable colour, desaturated tile and reactive details reason.
+They never change Steam's global app type or installation data. Tiles and details subscribe through
+the shared local-store primitive to their app alone, including instances mounted after the claim. A
+publication refreshes only apps whose visible badge changed; mounted-tree adoption happens at
+installation and restoration at removal. Native `RunGame` stays untouched because its callers also
+update running state; the host's launch helper owns the final guard. `recheck { appId }` calls the
+required `ISteamLibraryBadgeBackend.RecheckAsync(uint, CancellationToken)` method. The reader
+accepts exactly one positive `uint` app ID. Removal restores the exact saved original tile type.
+
+`SteamApps.SetShortcutNameAsync` writes an existing shortcut's name while preserving AppId. A
+successful client write is applied without gating it on a later overview readback.
+`SteamAppDetails.Name` contains the live name when available.
+
+Extension actions appear below every section heading; settings fold beneath them. Action placement
+has no per-item visibility flag.
+
+`renderSteamUiSheet(ui, props, ...children)` draws a shared scrollable modal body, optional note and
+error, and actions. Each action has `id`, `label`, `onClick`, optional `primary` and `disabled`. Use
+it inside the existing `showSteamModal`; the caller owns dismissal and submitted work.
+`renderSteamUiStringList(ui, { values, onChange, label?, addLabel?, removeLabel?, resetLabel? })`
+draws a controlled list of text fields with add/remove and optional reset. Label callbacks receive
+the zero-based row index. The caller owns validation and any application-specific limits.
+`renderSteamUiLevel` can omit `onBack` for a standalone root, allowing Steam's route back-navigation
+to handle B; nested levels continue supplying their own callback.
 
 Every library tile — Home's carousel, the library grid, the collection views — is one exported
 `React.memo`, a mobx observer, drawn by every caller through the export. Its icon row holds Valve's

@@ -31,6 +31,12 @@
 const SteamUiKitStyles = `
 .steam-ui-kit-page{margin-top:var(--basicui-header-height,40px);height:calc(100% - var(--basicui-header-height,40px));display:flex;flex-direction:column;background:var(--gpSystemDarkestGrey,#0e141b);color:#dcdedf}
 .steam-ui-kit-pane{display:flex;flex-direction:column;gap:14px;padding:12px 4px 72px}
+.steam-ui-kit-sheet{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0;max-height:min(70vh,calc(100vh - 160px));overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-gutter:stable}
+.steam-ui-kit-sheet>*{min-width:0;max-width:100%;box-sizing:border-box;flex-shrink:0}
+.steam-ui-kit-sheet .DialogInput,.steam-ui-kit-sheet .DialogInputWrapper,.steam-ui-kit-sheet .DialogButton{min-width:0;max-width:100%;box-sizing:border-box}
+.steam-ui-kit-sheet-note{font-size:14px;color:#8b929a;line-height:1.45;margin:0 0 12px}
+.steam-ui-kit-sheet-error{color:#ff6d6d;font-size:14px}
+.steam-ui-kit-sheet-actions{padding-top:18px}
 .steam-ui-kit-page div[class*="gamepadtabbedpage_TabHeaderRowWrapper"]{background:#1b2838}
 .steam-ui-kit-page-banner{margin:8px 48px 0}
 .steam-ui-kit-page h3{margin:6px 0 0;font-size:15px;font-weight:700;color:#fff}
@@ -136,20 +142,20 @@ const SteamUiKitStyles = `
 const steamUiKitStyles = new WeakMap();
 const steamUiKitIcons = new WeakMap();
 const steamUiKitStyle = (react) => {
-  let element = steamUiKitStyles.get(react);
-  if (!element) {
-    element = react.createElement("style", { key: "steam-ui-kit" }, SteamUiKitStyles);
-    steamUiKitStyles.set(react, element);
-  }
-  return element;
+    let element = steamUiKitStyles.get(react);
+    if (!element) {
+        element = react.createElement("style", { key: "steam-ui-kit" }, SteamUiKitStyles);
+        steamUiKitStyles.set(react, element);
+    }
+    return element;
 };
 const steamUiKitIcon = (react) => {
-  let icon = steamUiKitIcons.get(react);
-  if (!icon) {
-    icon = createIconRenderer(react);
-    steamUiKitIcons.set(react, icon);
-  }
-  return icon;
+    let icon = steamUiKitIcons.get(react);
+    if (!icon) {
+        icon = createIconRenderer(react);
+        steamUiKitIcons.set(react, icon);
+    }
+    return icon;
 };
 
 // A section heading: a glyph, the title and its detail line, and, when it folds, the kit's caret
@@ -158,48 +164,50 @@ const steamUiKitIcon = (react) => {
 // a plain heading, drawn the same so a fixed section and a folding one read as siblings. `sub` is
 // the smaller heading a switch's own settings fold under inside a section.
 const renderSteamUiHeader = (
-  ui,
-  props: {
-    title: string;
-    icon?: any;
-    detail?: string;
-    collapsed?: boolean;
-    onToggle?: () => void;
-    sub?: boolean;
-  },
+    ui,
+    props: {
+        title: string;
+        icon?: any;
+        detail?: string;
+        collapsed?: boolean;
+        onToggle?: () => void;
+        sub?: boolean;
+    },
 ) => {
-  const h = ui.react.createElement;
-  const folds = typeof props.onToggle === "function";
-  const collapsed = folds && !!props.collapsed;
-  const icon = steamUiKitIcon(ui.react);
-  const children = [
-    props.icon ? h("div", { className: "steam-ui-kit-header-icon" }, props.icon) : null,
-    h(
-      "div",
-      { className: "steam-ui-kit-header-text" },
-      h("div", { className: "steam-ui-kit-header-title" }, props.title),
-      props.detail ? h("div", { className: "steam-ui-kit-header-detail" }, props.detail) : null,
-    ),
-    folds
-      ? h(
-          "div",
-          { className: "steam-ui-kit-header-caret" },
-          collapsed ? icon("sectionClosed", 18) : icon("sectionOpen", 18),
-        )
-      : null,
-  ].filter((child) => child !== null);
-  const className = `steam-ui-kit-header${collapsed ? "" : " open"}${folds ? "" : " plain"}${props.sub ? " sub" : ""}`;
-  return folds
-    ? h(
-        ui.focusable ?? "div",
-        {
-          className,
-          onActivate: props.onToggle,
-          onOKActionDescription: collapsed ? "Expand" : "Collapse",
-        },
-        ...children,
-      )
-    : h("div", { className }, ...children);
+    const h = ui.react.createElement;
+    const folds = typeof props.onToggle === "function";
+    const collapsed = folds && !!props.collapsed;
+    const icon = steamUiKitIcon(ui.react);
+    const children = [
+        props.icon ? h("div", { className: "steam-ui-kit-header-icon" }, props.icon) : null,
+        h(
+            "div",
+            { className: "steam-ui-kit-header-text" },
+            h("div", { className: "steam-ui-kit-header-title" }, props.title),
+            props.detail
+                ? h("div", { className: "steam-ui-kit-header-detail" }, props.detail)
+                : null,
+        ),
+        folds
+            ? h(
+                  "div",
+                  { className: "steam-ui-kit-header-caret" },
+                  collapsed ? icon("sectionClosed", 18) : icon("sectionOpen", 18),
+              )
+            : null,
+    ].filter((child) => child !== null);
+    const className = `steam-ui-kit-header${collapsed ? "" : " open"}${folds ? "" : " plain"}${props.sub ? " sub" : ""}`;
+    return folds
+        ? h(
+              ui.focusable ?? "div",
+              {
+                  className,
+                  onActivate: props.onToggle,
+                  onOKActionDescription: collapsed ? "Expand" : "Collapse",
+              },
+              ...children,
+          )
+        : h("div", { className }, ...children);
 };
 
 // A block of a panel: a heading over its rows, with a subtle fill and border so the blocks beside
@@ -213,466 +221,631 @@ const renderSteamUiHeader = (
 // gives them the same look with the `steam-ui-kit-blocks` class, and `steam-ui-kit-valve` also
 // restyles Valve's section titles to the kit's heading.
 const renderSteamUiGroup = (
-  ui,
-  props: {
-    key?: string;
-    title?: string | null;
-    icon?: any;
-    detail?: string;
-    collapsed?: boolean;
-    onToggle?: () => void;
-    hidden?: boolean;
-  },
-  ...children
+    ui,
+    props: {
+        key?: string;
+        title?: string | null;
+        icon?: any;
+        detail?: string;
+        collapsed?: boolean;
+        onToggle?: () => void;
+        hidden?: boolean;
+    },
+    ...children
 ) => {
-  const h = ui.react.createElement;
-  const folds = typeof props.onToggle === "function";
-  const collapsed = folds && !!props.collapsed;
-  const className = [
-    "steam-ui-kit-group",
-    props.title ? "" : "plain",
-    collapsed ? "closed" : "",
-    props.hidden ? "hidden" : "",
-  ]
-    .filter((name) => name)
-    .join(" ");
-  // Steam's Focusable where the client has one, so navigation can be switched off for what is not
-  // drawn; a plain element otherwise, where there is no gamepad navigation to switch off.
-  const box = (unreachable: boolean, boxProps: any, ...kids) =>
-    ui.focusable
-      ? h(ui.focusable, { ...boxProps, childFocusDisabled: unreachable }, ...kids)
-      : h("div", boxProps, ...kids);
-  return box(
-    !!props.hidden,
-    { key: props.key, className },
-    props.title
-      ? renderSteamUiHeader(ui, {
-          title: props.title,
-          icon: props.icon,
-          detail: props.detail,
-          collapsed,
-          onToggle: props.onToggle,
-        })
-      : null,
-    box(collapsed, { className: "steam-ui-kit-group-body" }, ...children),
-  );
+    const h = ui.react.createElement;
+    const folds = typeof props.onToggle === "function";
+    const collapsed = folds && !!props.collapsed;
+    const className = [
+        "steam-ui-kit-group",
+        props.title ? "" : "plain",
+        collapsed ? "closed" : "",
+        props.hidden ? "hidden" : "",
+    ]
+        .filter((name) => name)
+        .join(" ");
+    // Steam's Focusable where the client has one, so navigation can be switched off for what is not
+    // drawn; a plain element otherwise, where there is no gamepad navigation to switch off.
+    const box = (unreachable: boolean, boxProps: any, ...kids) =>
+        ui.focusable
+            ? h(ui.focusable, { ...boxProps, childFocusDisabled: unreachable }, ...kids)
+            : h("div", boxProps, ...kids);
+    return box(
+        !!props.hidden,
+        { key: props.key, className },
+        props.title
+            ? renderSteamUiHeader(ui, {
+                  title: props.title,
+                  icon: props.icon,
+                  detail: props.detail,
+                  collapsed,
+                  onToggle: props.onToggle,
+              })
+            : null,
+        box(collapsed, { className: "steam-ui-kit-group-body" }, ...children),
+    );
 };
 
 // Actions in a two-column grid: two short labels sit side by side, a long one takes the row. Each
 // is Steam's DialogButton, so it navigates and lights up as Steam's do.
-const renderSteamUiActions = (ui, actions: { id: string; label: string; onClick: () => void }[]) => {
-  const h = ui.react.createElement;
-  return h(
-    ui.focusable,
-    { "flow-children": "row", className: "steam-ui-kit-actions" },
-    ...actions.map((action) =>
-      h(
-        ui.dialogButton,
+const renderSteamUiActions = (
+    ui,
+    actions: {
+        id: string;
+        label: string;
+        onClick: () => void;
+        primary?: boolean;
+        disabled?: boolean;
+    }[],
+) => {
+    const h = ui.react.createElement;
+    return h(
+        ui.focusable,
+        { "flow-children": "row", className: "steam-ui-kit-actions" },
+        ...actions.map((action) =>
+            h(
+                action.primary ? (ui.dialogButtonPrimary ?? ui.dialogButton) : ui.dialogButton,
+                {
+                    key: action.id,
+                    className: action.label.length > 18 ? "steam-ui-kit-wide" : undefined,
+                    onClick: action.onClick,
+                    disabled: !!action.disabled,
+                },
+                action.label,
+            ),
+        ),
+    );
+};
+
+// A scrollable Steam modal body. The host supplies its fields and action handlers; the kit owns
+// the common spacing, error line and action row instead of each page carrying another sheet.
+const renderSteamUiSheet = (
+    ui,
+    props: {
+        className?: string;
+        note?: string;
+        error?: string;
+        actions?: {
+            id: string;
+            label: string;
+            onClick: () => void;
+            primary?: boolean;
+            disabled?: boolean;
+        }[];
+    },
+    ...children
+) => {
+    const h = ui.react.createElement;
+    return h(
+        ui.focusable ?? "div",
         {
-          key: action.id,
-          className: action.label.length > 18 ? "steam-ui-kit-wide" : undefined,
-          onClick: action.onClick,
+            className: ["steam-ui-kit-sheet", props.className].filter(Boolean).join(" "),
+            "flow-children": "column",
         },
-        action.label,
-      ),
-    ),
-  );
+        steamUiKitStyle(ui.react),
+        props.note ? h("p", { className: "steam-ui-kit-sheet-note" }, props.note) : null,
+        ...children,
+        props.error ? h("p", { className: "steam-ui-kit-sheet-error" }, props.error) : null,
+        props.actions?.length
+            ? h(
+                  "div",
+                  { className: "steam-ui-kit-sheet-actions" },
+                  renderSteamUiActions(ui, props.actions),
+              )
+            : null,
+    );
+};
+
+// A controlled list of text values: one Steam text field and remove action per row, plus add and
+// optional reset. The caller owns the draft and validation, including any application limits.
+const renderSteamUiStringList = (
+    ui,
+    props: {
+        values: readonly string[];
+        onChange: (values: string[]) => void;
+        label?: (index: number) => string;
+        addLabel?: string;
+        removeLabel?: (index: number) => string;
+        resetLabel?: string;
+    },
+) => {
+    const h = ui.react.createElement;
+    return h(
+        ui.focusable ?? "div",
+        { "flow-children": "column" },
+        ...props.values.map((value, index) =>
+            h(
+                ui.focusable ?? "div",
+                { key: index, "flow-children": "column" },
+                h(ui.textField, {
+                    label: props.label?.(index) ?? `Value ${index + 1}`,
+                    value,
+                    onChange: (event) =>
+                        props.onChange(
+                            props.values.map((item, position) =>
+                                position === index ? (event?.target?.value ?? "") : item,
+                            ),
+                        ),
+                }),
+                h(
+                    ui.dialogButton,
+                    {
+                        onClick: () =>
+                            props.onChange(
+                                props.values.filter((_item, position) => position !== index),
+                            ),
+                    },
+                    props.removeLabel?.(index) ?? `Remove value ${index + 1}`,
+                ),
+            ),
+        ),
+        h(
+            ui.dialogButton,
+            { onClick: () => props.onChange([...props.values, ""]) },
+            props.addLabel ?? "Add value",
+        ),
+        props.resetLabel
+            ? h(ui.dialogButton, { onClick: () => props.onChange([]) }, props.resetLabel)
+            : null,
+    );
 };
 
 // The foot of a list that is drawn a page at a time: one centred button that asks for the next page.
 // A long list is paged rather than drawn whole, because every card is a Focusable and an image, and a
 // few thousand of them stall Steam's renderer.
-const renderSteamUiMore = (ui, props: { label?: string; onClick: () => void; disabled?: boolean }) => {
-  const h = ui.react.createElement;
-  return h(
-    "div",
-    { className: "steam-ui-kit-more" },
-    h(ui.dialogButton, { onClick: props.onClick, disabled: !!props.disabled }, props.label ?? "Load More"),
-  );
+const renderSteamUiMore = (
+    ui,
+    props: { label?: string; onClick: () => void; disabled?: boolean },
+) => {
+    const h = ui.react.createElement;
+    return h(
+        "div",
+        { className: "steam-ui-kit-more" },
+        h(
+            ui.dialogButton,
+            { onClick: props.onClick, disabled: !!props.disabled },
+            props.label ?? "Load More",
+        ),
+    );
 };
 
 // A page's pane: the column its toolbar, grid and notes stand in. It takes the controller's focus
 // when it appears, which is when the page opens and when a detail or level over it closes: the
 // element that had focus is gone then, and focus left on nothing sends B out of the page.
 const renderSteamUiPane = (ui, props: { key?: string; className?: string }, ...children) => {
-  const h = ui.react.createElement;
-  const className = ["steam-ui-kit-pane", props.className].filter(Boolean).join(" ");
-  return ui.focusable
-    ? h(ui.focusable, { key: props.key, className, autoFocus: true, "flow-children": "column" }, ...children)
-    : h("div", { key: props.key, className }, ...children);
+    const h = ui.react.createElement;
+    const className = ["steam-ui-kit-pane", props.className].filter(Boolean).join(" ");
+    return ui.focusable
+        ? h(
+              ui.focusable,
+              { key: props.key, className, autoFocus: true, "flow-children": "column" },
+              ...children,
+          )
+        : h("div", { key: props.key, className }, ...children);
 };
 
 // A level of a page drawn over its main view, such as one title's artwork: it takes the
 // controller's focus when it opens, and B, handled here, goes back one level rather than leaving
 // the page.
-const renderSteamUiLevel = (ui, props: { className?: string; onBack: () => void }, ...children) =>
-  ui.react.createElement(
-    ui.focusable,
-    {
-      className: props.className,
-      autoFocus: true,
-      onCancelButton: props.onBack,
-      onCancelActionDescription: "Back",
-    },
-    ...children,
-  );
+const renderSteamUiLevel = (ui, props: { className?: string; onBack?: () => void }, ...children) =>
+    ui.react.createElement(
+        ui.focusable,
+        {
+            className: props.className,
+            autoFocus: true,
+            onCancelButton: props.onBack,
+            onCancelActionDescription: "Back",
+        },
+        ...children,
+    );
 
 // A colour as a small square.
 const renderSteamUiSwatch = (react, color: string) =>
-  react.createElement("div", { className: "steam-ui-kit-swatch", style: { background: color } });
+    react.createElement("div", { className: "steam-ui-kit-swatch", style: { background: color } });
 
 // A card in a grid: a 16:10 image with a stats strip over its foot, a badge in its corner, a title
 // and up to a few meta lines. Focusable and activatable as one thing.
 const renderSteamUiCard = (
-  ui,
-  props: {
-    key?: string;
-    image?: string | null;
-    stats?: { glyph?: any; text: string }[];
-    badge?: { text: string; warn?: boolean } | null;
-    title: string;
-    meta?: string[];
-    onActivate: () => void;
-  },
-) => {
-  const h = ui.react.createElement;
-  return h(
-    ui.focusable,
-    {
-      key: props.key,
-      className: "steam-ui-kit-card",
-      onActivate: props.onActivate,
-      onOKActionDescription: "Open",
+    ui,
+    props: {
+        key?: string;
+        image?: string | null;
+        stats?: { glyph?: any; text: string }[];
+        badge?: { text: string; warn?: boolean } | null;
+        title: string;
+        meta?: string[];
+        onActivate: () => void;
     },
-    h(
-      "div",
-      { className: "steam-ui-kit-card-shot" },
-      props.image ? h("img", { src: props.image, alt: "", loading: "lazy" }) : null,
-      props.stats?.length
-        ? h(
+) => {
+    const h = ui.react.createElement;
+    return h(
+        ui.focusable,
+        {
+            key: props.key,
+            className: "steam-ui-kit-card",
+            onActivate: props.onActivate,
+            onOKActionDescription: "Open",
+        },
+        h(
             "div",
-            { className: "steam-ui-kit-card-stats" },
-            ...props.stats.map((stat, index) => h("span", { key: index }, stat.glyph ?? null, stat.text)),
-          )
-        : null,
-      props.badge
-        ? h("div", { className: `steam-ui-kit-badge${props.badge.warn ? " warn" : ""}` }, props.badge.text)
-        : null,
-    ),
-    h("div", { className: "steam-ui-kit-card-title" }, props.title),
-    ...(props.meta ?? []).map((line, index) => h("div", { key: index, className: "steam-ui-kit-card-meta" }, line)),
-  );
+            { className: "steam-ui-kit-card-shot" },
+            props.image ? h("img", { src: props.image, alt: "", loading: "lazy" }) : null,
+            props.stats?.length
+                ? h(
+                      "div",
+                      { className: "steam-ui-kit-card-stats" },
+                      ...props.stats.map((stat, index) =>
+                          h("span", { key: index }, stat.glyph ?? null, stat.text),
+                      ),
+                  )
+                : null,
+            props.badge
+                ? h(
+                      "div",
+                      { className: `steam-ui-kit-badge${props.badge.warn ? " warn" : ""}` },
+                      props.badge.text,
+                  )
+                : null,
+        ),
+        h("div", { className: "steam-ui-kit-card-title" }, props.title),
+        ...(props.meta ?? []).map((line, index) =>
+            h("div", { key: index, className: "steam-ui-kit-card-meta" }, line),
+        ),
+    );
 };
 
 // A grid of cards.
 const renderSteamUiGrid = (ui, cards: any[]) =>
-  ui.react.createElement(ui.focusable, { className: "steam-ui-kit-grid", "flow-children": "grid" }, ...cards);
+    ui.react.createElement(
+        ui.focusable,
+        { className: "steam-ui-kit-grid", "flow-children": "grid" },
+        ...cards,
+    );
 
 // What a list shows when it has nothing, or why it could not be filled.
 const renderSteamUiEmpty = (react, text: string, error = false) =>
-  react.createElement("div", { className: `steam-ui-kit-empty${error ? " error" : ""}` }, text);
+    react.createElement("div", { className: `steam-ui-kit-empty${error ? " error" : ""}` }, text);
 
 // A line the user should read, with a way to dismiss it: a notice, or an error in red.
-const renderSteamUiBanner = (ui, props: { text: string; error?: boolean; onDismiss: () => void }) => {
-  const h = ui.react.createElement;
-  return h(
-    "div",
-    { className: `steam-ui-kit-banner${props.error ? " error" : ""}` },
-    h("span", null, props.text),
-    h(ui.smallButton ?? ui.dialogButton, { onClick: props.onDismiss }, "Dismiss"),
-  );
+const renderSteamUiBanner = (
+    ui,
+    props: { text: string; error?: boolean; onDismiss: () => void },
+) => {
+    const h = ui.react.createElement;
+    return h(
+        "div",
+        { className: `steam-ui-kit-banner${props.error ? " error" : ""}` },
+        h("span", null, props.text),
+        h(ui.smallButton ?? ui.dialogButton, { onClick: props.onDismiss }, "Dismiss"),
+    );
 };
 
 // A toolbar of controls: dropdowns, a search box and buttons in one focusable row. A tool is
 // `renderSteamUiTool`, which labels a control the way the store's filter row labels its own;
 // `grow` lets a search box take what is left.
 const renderSteamUiToolbar = (ui, ...tools) =>
-  ui.react.createElement(ui.focusable, { className: "steam-ui-kit-toolbar", "flow-children": "row" }, ...tools);
+    ui.react.createElement(
+        ui.focusable,
+        { className: "steam-ui-kit-toolbar", "flow-children": "row" },
+        ...tools,
+    );
 const renderSteamUiTool = (ui, label: string | null, control, grow = false) => {
-  const h = ui.react.createElement;
-  return h(
-    "div",
-    { className: `steam-ui-kit-tool${grow ? " grow" : ""}` },
-    label ? h("span", { className: "DialogLabel" }, label) : null,
-    control,
-  );
+    const h = ui.react.createElement;
+    return h(
+        "div",
+        { className: `steam-ui-kit-tool${grow ? " grow" : ""}` },
+        label ? h("span", { className: "DialogLabel" }, label) : null,
+        control,
+    );
 };
 
 // Small buttons in a wrapping row: a theme's targets, a filter's values.
-const renderSteamUiChips = (ui, chips: { label: string; onClick: () => void; description?: string }[]) => {
-  const h = ui.react.createElement;
-  return h(
-    ui.focusable,
-    { "flow-children": "row", className: "steam-ui-kit-chips" },
-    ...chips.map((chip, index) =>
-      h(
-        ui.dialogButton,
-        { key: `${index}:${chip.label}`, onClick: chip.onClick, onOKActionDescription: chip.description },
-        chip.label,
-      ),
-    ),
-  );
+const renderSteamUiChips = (
+    ui,
+    chips: { label: string; onClick: () => void; description?: string }[],
+) => {
+    const h = ui.react.createElement;
+    return h(
+        ui.focusable,
+        { "flow-children": "row", className: "steam-ui-kit-chips" },
+        ...chips.map((chip, index) =>
+            h(
+                ui.dialogButton,
+                {
+                    key: `${index}:${chip.label}`,
+                    onClick: chip.onClick,
+                    onOKActionDescription: chip.description,
+                },
+                chip.label,
+            ),
+        ),
+    );
 };
 
 // A box with a bold title line and whatever follows: the action column of a detail view.
 const renderSteamUiBox = (react, title, ...children) =>
-  react.createElement(
-    "div",
-    { className: "steam-ui-kit-box" },
-    title ? react.createElement("div", { className: "steam-ui-kit-box-title" }, title) : null,
-    ...children,
-  );
+    react.createElement(
+        "div",
+        { className: "steam-ui-kit-box" },
+        title ? react.createElement("div", { className: "steam-ui-kit-box-title" }, title) : null,
+        ...children,
+    );
 
 // A gallery: one large image and, with more than one, a column of thumbnails that pick it and a
 // counter over its corner.
 const renderSteamUiGallery = (
-  ui,
-  props: { images: string[]; index: number; onSelect: (index: number) => void; empty?: string },
+    ui,
+    props: { images: string[]; index: number; onSelect: (index: number) => void; empty?: string },
 ) => {
-  const h = ui.react.createElement;
-  const images = props.images ?? [];
-  const index = Math.min(Math.max(0, props.index), Math.max(0, images.length - 1));
-  const shown = images[index];
-  return h(
-    "div",
-    { className: "steam-ui-kit-gallery" },
-    images.length > 1
-      ? h(
-          ui.focusable,
-          { className: "steam-ui-kit-thumbs", "flow-children": "column" },
-          ...images.map((url, at) =>
-            h(
-              ui.focusable,
-              {
-                key: `${at}:${url}`,
-                className: `steam-ui-kit-thumb${at === index ? " current" : ""}`,
-                onActivate: () => props.onSelect(at),
-                onFocus: () => props.onSelect(at),
-              },
-              h("img", { src: url, alt: "" }),
-            ),
-          ),
-        )
-      : null,
-    h(
-      "div",
-      { className: "steam-ui-kit-hero" },
-      shown
-        ? h("img", { src: shown, alt: "" })
-        : h("div", { className: "steam-ui-kit-hero-empty" }, props.empty ?? "No image"),
-      images.length > 1 ? h("div", { className: "steam-ui-kit-hero-count" }, `${index + 1}/${images.length}`) : null,
-    ),
-  );
+    const h = ui.react.createElement;
+    const images = props.images ?? [];
+    const index = Math.min(Math.max(0, props.index), Math.max(0, images.length - 1));
+    const shown = images[index];
+    return h(
+        "div",
+        { className: "steam-ui-kit-gallery" },
+        images.length > 1
+            ? h(
+                  ui.focusable,
+                  { className: "steam-ui-kit-thumbs", "flow-children": "column" },
+                  ...images.map((url, at) =>
+                      h(
+                          ui.focusable,
+                          {
+                              key: `${at}:${url}`,
+                              className: `steam-ui-kit-thumb${at === index ? " current" : ""}`,
+                              onActivate: () => props.onSelect(at),
+                              onFocus: () => props.onSelect(at),
+                          },
+                          h("img", { src: url, alt: "" }),
+                      ),
+                  ),
+              )
+            : null,
+        h(
+            "div",
+            { className: "steam-ui-kit-hero" },
+            shown
+                ? h("img", { src: shown, alt: "" })
+                : h("div", { className: "steam-ui-kit-hero-empty" }, props.empty ?? "No image"),
+            images.length > 1
+                ? h(
+                      "div",
+                      { className: "steam-ui-kit-hero-count" },
+                      `${index + 1}/${images.length}`,
+                  )
+                : null,
+        ),
+    );
 };
 
 // A movie preview on the gallery's frame, 16:9: the movie playing quietly on a loop over its
 // still, the still alone, or what stands in for it. Muted, because a preview that speaks is a
 // preview that is closed.
-const renderSteamUiVideo = (react, props: { src?: string | null; poster?: string | null; empty?: string }) =>
-  react.createElement(
-    "div",
-    { className: "steam-ui-kit-hero video" },
-    props.src
-      ? react.createElement("video", {
-          src: props.src,
-          poster: props.poster ?? undefined,
-          autoPlay: true,
-          loop: true,
-          muted: true,
-          playsInline: true,
-        })
-      : props.poster
-        ? react.createElement("img", { src: props.poster, alt: "" })
-        : react.createElement("div", { className: "steam-ui-kit-hero-empty" }, props.empty ?? "No preview"),
-  );
+const renderSteamUiVideo = (
+    react,
+    props: { src?: string | null; poster?: string | null; empty?: string },
+) =>
+    react.createElement(
+        "div",
+        { className: "steam-ui-kit-hero video" },
+        props.src
+            ? react.createElement("video", {
+                  src: props.src,
+                  poster: props.poster ?? undefined,
+                  autoPlay: true,
+                  loop: true,
+                  muted: true,
+                  playsInline: true,
+              })
+            : props.poster
+              ? react.createElement("img", { src: props.poster, alt: "" })
+              : react.createElement(
+                    "div",
+                    { className: "steam-ui-kit-hero-empty" },
+                    props.empty ?? "No preview",
+                ),
+    );
 
 // The glyphs a store page's cards and boxes carry, drawn once here rather than per page.
 const SteamUiGlyphs = Object.freeze({
-  download: "M11 3h2v9.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4L11 12.2zM4 19h16v2H4z",
-  star: "M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z",
-  heart:
-    "M12 21s-7-4.6-9.3-9.1C1 8.5 3.2 5 6.7 5c2 0 3.4 1 4.3 2.3C12 6 13.4 5 15.3 5c3.5 0 5.7 3.5 4 6.9C19 16.4 12 21 12 21z",
-  target:
-    "M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18zm0 2a7 7 0 1 0 0 14 7 7 0 0 0 0-14zm0 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z",
+    download: "M11 3h2v9.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4L11 12.2zM4 19h16v2H4z",
+    star: "M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z",
+    heart: "M12 21s-7-4.6-9.3-9.1C1 8.5 3.2 5 6.7 5c2 0 3.4 1 4.3 2.3C12 6 13.4 5 15.3 5c3.5 0 5.7 3.5 4 6.9C19 16.4 12 21 12 21z",
+    target: "M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18zm0 2a7 7 0 1 0 0 14 7 7 0 0 0 0-14zm0 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z",
 });
-const renderSteamUiGlyph = (react, name: keyof typeof SteamUiGlyphs) => renderSteamGlyph(react, SteamUiGlyphs[name]);
+const renderSteamUiGlyph = (react, name: keyof typeof SteamUiGlyphs) =>
+    renderSteamGlyph(react, SteamUiGlyphs[name]);
 
 // What a tabbed host page needs resolved before it can draw: Steam's fields, buttons, sections,
 // tabs and modal. A page that needs no more passes this as its `required`.
 const SteamUiTabbedPageRequired = Object.freeze([
-  "react",
-  "focusable",
-  "toggleField",
-  "dropdown",
-  "sliderField",
-  "textField",
-  "dialogButton",
-  "dialogButtonPrimary",
-  "smallButton",
-  "valueField",
-  "settingsSection",
-  "tabs",
-  "modalRoot",
-  "showModal",
+    "react",
+    "focusable",
+    "toggleField",
+    "dropdown",
+    "sliderField",
+    "textField",
+    "dialogButton",
+    "dialogButtonPrimary",
+    "smallButton",
+    "valueField",
+    "settingsSection",
+    "tabs",
+    "modalRoot",
+    "showModal",
 ]);
 
 // A host page in Steam's tabbed layout: the kit's stylesheet and the page's own, a banner with the
 // notice or the error, and Steam's tabs, only the active one drawn. `content` answers the element
 // for a tab id.
 const renderSteamUiTabbedPage = (
-  ui,
-  props: {
-    id: string;
-    label: string;
-    style?: string;
-    tabs: { id: string; title: string }[];
-    active: string;
-    onTab: (tab: string) => void;
-    content: (tab: string) => any;
-    banner?: { text: string; error?: boolean; onDismiss: () => void } | null;
-  },
+    ui,
+    props: {
+        id: string;
+        label: string;
+        style?: string;
+        tabs: { id: string; title: string }[];
+        active: string;
+        onTab: (tab: string) => void;
+        content: (tab: string) => any;
+        banner?: { text: string; error?: boolean; onDismiss: () => void } | null;
+    },
 ) => {
-  const h = ui.react.createElement;
-  const active = props.tabs.some((tab) => tab.id === props.active) ? props.active : (props.tabs[0]?.id ?? "");
-  return h(
-    "div",
-    { id: props.id, className: "steam-ui-kit-page", "aria-label": props.label },
-    steamUiKitStyle(ui.react),
-    props.style ? h("style", null, props.style) : null,
-    props.banner?.text
-      ? h("div", { className: "steam-ui-kit-page-banner" }, renderSteamUiBanner(ui, props.banner))
-      : null,
-    h(ui.tabs, {
-      autoFocusContents: true,
-      activeTab: active,
-      onShowTab: props.onTab,
-      tabs: props.tabs.map((tab) => ({
-        id: tab.id,
-        title: tab.title,
-        content: tab.id === active ? props.content(tab.id) : null,
-      })),
-    }),
-  );
+    const h = ui.react.createElement;
+    const active = props.tabs.some((tab) => tab.id === props.active)
+        ? props.active
+        : (props.tabs[0]?.id ?? "");
+    return h(
+        "div",
+        { id: props.id, className: "steam-ui-kit-page", "aria-label": props.label },
+        steamUiKitStyle(ui.react),
+        props.style ? h("style", null, props.style) : null,
+        props.banner?.text
+            ? h(
+                  "div",
+                  { className: "steam-ui-kit-page-banner" },
+                  renderSteamUiBanner(ui, props.banner),
+              )
+            : null,
+        h(ui.tabs, {
+            autoFocusContents: true,
+            activeTab: active,
+            onShowTab: props.onTab,
+            tabs: props.tabs.map((tab) => ({
+                id: tab.id,
+                title: tab.title,
+                content: tab.id === active ? props.content(tab.id) : null,
+            })),
+        }),
+    );
 };
 
 // One item's detail: its media, heading and text beside a column of boxes and actions, left with
 // B. It takes the controller's focus when it opens: the card that opened it is gone, and focus left
 // on nothing sends B to Steam's back stack, which leaves the page instead of the detail. `title` draws as the heading, `badge` beside it.
 const renderSteamUiDetail = (
-  ui,
-  props: { title: string; badge?: string; media?: any; main: any[]; aside: any[]; onBack: () => void },
-) => {
-  const h = ui.react.createElement;
-  return h(
-    ui.focusable,
-    {
-      className: "steam-ui-kit-detail",
-      autoFocus: true,
-      onCancelButton: props.onBack,
-      onCancelActionDescription: "Back",
+    ui,
+    props: {
+        title: string;
+        badge?: string;
+        media?: any;
+        main: any[];
+        aside: any[];
+        onBack: () => void;
     },
-    h(
-      "div",
-      { className: "steam-ui-kit-detail-main" },
-      props.media ?? null,
-      h(
-        "div",
-        { className: "steam-ui-kit-detail-heading" },
-        h("h2", null, props.title),
-        props.badge ? h("span", null, props.badge) : null,
-      ),
-      ...props.main,
-    ),
-    h(
-      "div",
-      { className: "steam-ui-kit-detail-aside" },
-      ...props.aside,
-      h(ui.dialogButton, { onClick: props.onBack }, "Back"),
-    ),
-  );
+) => {
+    const h = ui.react.createElement;
+    return h(
+        ui.focusable,
+        {
+            className: "steam-ui-kit-detail",
+            autoFocus: true,
+            onCancelButton: props.onBack,
+            onCancelActionDescription: "Back",
+        },
+        h(
+            "div",
+            { className: "steam-ui-kit-detail-main" },
+            props.media ?? null,
+            h(
+                "div",
+                { className: "steam-ui-kit-detail-heading" },
+                h("h2", null, props.title),
+                props.badge ? h("span", null, props.badge) : null,
+            ),
+            ...props.main,
+        ),
+        h(
+            "div",
+            { className: "steam-ui-kit-detail-aside" },
+            ...props.aside,
+            h(ui.dialogButton, { onClick: props.onBack }, "Back"),
+        ),
+    );
 };
 
 // Asks before something is done: a sentence and two buttons in Steam's modal. Cancel and B send
 // nothing.
 const showSteamUiConfirm = (
-  ui,
-  props: { title: string; text: string; confirmLabel: string; onConfirm: () => void },
+    ui,
+    props: { title: string; text: string; confirmLabel: string; onConfirm: () => void },
 ) => {
-  const h = ui.react.createElement;
-  return showSteamModal(ui, {
-    title: props.title,
-    className: "steam-ui-kit-modal",
-    render: (close) =>
-      h(
-        "div",
-        { className: "steam-ui-kit-modal-body" },
-        h("p", null, props.text),
-        h(
-          ui.focusable,
-          { "flow-children": "row", className: "steam-ui-kit-modal-actions" },
-          h(ui.dialogButton, { onClick: close }, "Cancel"),
-          h(
-            ui.dialogButtonPrimary ?? ui.dialogButton,
-            {
-              onClick: () => {
-                props.onConfirm();
-                close();
-              },
-            },
-            props.confirmLabel,
-          ),
-        ),
-      ),
-  });
+    const h = ui.react.createElement;
+    return showSteamModal(ui, {
+        title: props.title,
+        className: "steam-ui-kit-modal",
+        render: (close) =>
+            h(
+                "div",
+                { className: "steam-ui-kit-modal-body" },
+                h("p", null, props.text),
+                h(
+                    ui.focusable,
+                    { "flow-children": "row", className: "steam-ui-kit-modal-actions" },
+                    h(ui.dialogButton, { onClick: close }, "Cancel"),
+                    h(
+                        ui.dialogButtonPrimary ?? ui.dialogButton,
+                        {
+                            onClick: () => {
+                                props.onConfirm();
+                                close();
+                            },
+                        },
+                        props.confirmLabel,
+                    ),
+                ),
+            ),
+    });
 };
 
 // Asks for a line of text: a sentence, Steam's text field and two buttons. An empty answer is not
 // sent.
 function SteamUiPromptBody(props: any) {
-  const ui = props.ui;
-  const react = ui.react;
-  const h = react.createElement;
-  const [value, setValue] = react.useState(props.initial ?? "");
-  return h(
-    "div",
-    { className: "steam-ui-kit-modal-body" },
-    props.text ? h("p", null, props.text) : null,
-    h(ui.textField, {
-      label: props.label,
-      value,
-      onChange: (event) => setValue(event?.target?.value ?? ""),
-    }),
-    h(
-      ui.focusable,
-      { "flow-children": "row", className: "steam-ui-kit-modal-actions" },
-      h(ui.dialogButton, { onClick: props.close }, "Cancel"),
-      h(
-        ui.dialogButtonPrimary ?? ui.dialogButton,
-        {
-          onClick: () => {
-            if (!String(value).trim()) return;
-            props.onConfirm(String(value).trim());
-            props.close();
-          },
-        },
-        props.confirmLabel,
-      ),
-    ),
-  );
+    const ui = props.ui;
+    const react = ui.react;
+    const h = react.createElement;
+    const [value, setValue] = react.useState(props.initial ?? "");
+    return h(
+        "div",
+        { className: "steam-ui-kit-modal-body" },
+        props.text ? h("p", null, props.text) : null,
+        h(ui.textField, {
+            label: props.label,
+            value,
+            onChange: (event) => setValue(event?.target?.value ?? ""),
+        }),
+        h(
+            ui.focusable,
+            { "flow-children": "row", className: "steam-ui-kit-modal-actions" },
+            h(ui.dialogButton, { onClick: props.close }, "Cancel"),
+            h(
+                ui.dialogButtonPrimary ?? ui.dialogButton,
+                {
+                    onClick: () => {
+                        if (!String(value).trim()) return;
+                        props.onConfirm(String(value).trim());
+                        props.close();
+                    },
+                },
+                props.confirmLabel,
+            ),
+        ),
+    );
 }
 const showSteamUiPrompt = (
-  ui,
-  props: {
-    title: string;
-    text?: string;
-    label: string;
-    initial?: string;
-    confirmLabel: string;
-    onConfirm: (value: string) => void;
-  },
+    ui,
+    props: {
+        title: string;
+        text?: string;
+        label: string;
+        initial?: string;
+        confirmLabel: string;
+        onConfirm: (value: string) => void;
+    },
 ) =>
-  showSteamModal(ui, {
-    title: props.title,
-    className: "steam-ui-kit-modal",
-    render: (close) => ui.react.createElement(SteamUiPromptBody, { ...props, ui, close }),
-  });
+    showSteamModal(ui, {
+        title: props.title,
+        className: "steam-ui-kit-modal",
+        render: (close) => ui.react.createElement(SteamUiPromptBody, { ...props, ui, close }),
+    });

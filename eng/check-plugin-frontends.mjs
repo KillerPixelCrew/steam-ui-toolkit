@@ -36,7 +36,7 @@ const globals = {
   renderSteamUiEmpty: inert,
   steamPageRenderers: new Map(),
 };
-instantiate(globals, fragment(loadAsset(), "plugin-frontends.ts"), "null");
+instantiate(globals, fragment(loadAsset(), "plugin-frontends"), "null");
 assert.equal(
   (
     await gate.load({

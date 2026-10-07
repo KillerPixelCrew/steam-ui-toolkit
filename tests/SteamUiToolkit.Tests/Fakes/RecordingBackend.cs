@@ -167,6 +167,11 @@ internal sealed class RecordingBackend :
         return Record($"home layout {(bigArt ? "big art" : "normal")}", cancellationToken);
     }
 
+    public Task<SteamUiCommandResult> RecheckAsync(uint appId, CancellationToken cancellationToken)
+    {
+        return Record($"recheck {appId}", cancellationToken);
+    }
+
     Task<SteamUiCommandResult> ISteamNavigationPanelBackend.ActivateAsync(string id, CancellationToken cancellationToken)
     {
         return Record($"navigation {id}", cancellationToken, "navigation.ActivateAsync");

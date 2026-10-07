@@ -6,7 +6,7 @@
 // activates, a confirm sends only on OK, a prompt sends only a non-empty answer. This runs the
 // emitted JavaScript.
 import assert from "node:assert/strict";
-import { createReact, fragments, helperLabels, instantiate, loadAsset, withSource } from "./check-harness.mjs";
+import { createReact, helperFragments, instantiate, loadAsset, withSource } from "./check-harness.mjs";
 
 const asset = loadAsset();
 const hooks = { states: [], index: 0 };
@@ -38,7 +38,7 @@ const ui = {
 
 const kit = instantiate(
   { window: {} },
-  fragments(asset, helperLabels(asset)),
+  helperFragments(asset),
   "({steamUiKitStyle, renderSteamUiHeader, renderSteamUiGroup, renderSteamUiActions, renderSteamUiMore, renderSteamUiPane, renderSteamUiLevel," +
     " renderSteamUiSwatch, renderSteamUiCard, renderSteamUiGrid, renderSteamUiEmpty, renderSteamUiBanner," +
     " renderSteamUiToolbar, renderSteamUiTool, renderSteamUiChips, renderSteamUiBox, renderSteamUiGallery, renderSteamUiVideo," +

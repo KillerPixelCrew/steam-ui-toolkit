@@ -3,7 +3,8 @@ import {
     createReact,
     declarations,
     element,
-    fragments,
+    find as findIn,
+    helperFragments,
     gateSource,
     helperLabels,
     instantiate,
@@ -146,6 +147,7 @@ runtime.exported = (tokens, predicate) => {
     if (fits.length !== 1) throw new Error("ambiguous");
     return fits[0];
 };
+const iconCalls = [];
 const globals = {
     getWebpackRuntime: () => runtime,
     subscribe: (id, callback) => {
@@ -157,7 +159,10 @@ const globals = {
         return refuseRequests ? Promise.reject(new Error("refused")) : Promise.resolve(nextAnswer);
     },
     nextActionGeneration: () => 1,
-    createIconRenderer: () => () => null,
+    createIconRenderer: () => (name, size) => {
+        iconCalls.push([name, size]);
+        return null;
+    },
     window,
 };
 // The settings renderer and the kit sit after the icons, outside the shared fragments; the tab
@@ -168,14 +173,15 @@ const code =
     sharedFragments(asset) +
     declarations(asset, "icons.ts", ["SteamGlyphPattern", "steamGlyphCaches", "renderSteamGlyph"]) +
     "\n" +
-    fragments(asset, helpers.slice(helpers.indexOf("icons.ts") + 1)) +
+    helperFragments(asset, helpers.slice(helpers.indexOf("icons.ts") + 1).filter((label) =>
+        label !== "plugin-frontends" && label !== "plugin-frontends.ts")) +
     gateSource(asset, "gates/extensions-tab.ts") +
     gateSource(asset, "gates/game-context-menu.ts");
-const { extensions, menu, createExtensions, unclaimedValue } = instantiate(
+const { extensions, menu, createExtensions, unclaimedValue, pluginFrontendSlots } = instantiate(
     globals,
     code,
     "({extensions:createExtensionsTab(),menu:createGameContextMenu()," +
-        "createExtensions:createExtensionsTab,unclaimedValue})",
+        "createExtensions:createExtensionsTab,unclaimedValue,pluginFrontendSlots})",
 );
 assert.equal(extensions.install().ok, true);
 assert.equal(memo.type.__steamUiExtensionsTabOriginal.kind, "steam-ui-property-snapshot-v1");
@@ -381,7 +387,7 @@ firstMove.props.onClick();
 assert.deepEqual(requests.at(-1)[2], { id: "one", key: "tabs", value: "x,y", revision: 6 });
 
 // Every section folds under the shared fold surface, and starts folded: its header carries its
-// name, its detail and a caret, and its rows are drawn only while it is open. A switch's settings
+// name, its detail and a caret, and actions stay visible while settings fold. A switch's settings
 // fold under a small heading of their own. Folding asks the host and shows at once.
 const themes = (revision) => ({
     items: [
@@ -459,9 +465,27 @@ assert.equal(
 );
 assert.equal(
     themesSection.props.children.length,
-    1,
-    "a section starts folded and draws its header and nothing else",
+    2,
+    "a folded section contains its heading and action row",
 );
+const foldedActionRow = themesSection.props.children[1];
+assert.equal(foldedActionRow.type, PanelRow, "folded actions remain in Steam's native row");
+const foldedAction = foldedActionRow.props.children[0].props.children[0];
+assert.equal(foldedAction.type, Button, "the folded action remains Steam's button");
+assert.deepEqual(foldedAction.props.children, ["Browse themes…"], "the action keeps its visible label");
+assert.equal(
+    findIn(react, themesSection, (node) => [Toggle, TextField, Dropdown, Slider].includes(node.type)).length,
+    0,
+    "folding hides setting controls while keeping the action",
+);
+nextAnswer = { route: "/wsgm/themes" };
+navigation.length = 0;
+foldedAction.props.onClick();
+await tick();
+assert.deepEqual(requests.at(-1).slice(0, 3), ["steam-ui.extensions-tab", "activate", { id: "browse" }]);
+assert.deepEqual(navigation, ["closed", "/wsgm/themes"], "a folded action still closes QAM and follows its route");
+nextAnswer = undefined;
+navigation.length = 0;
 headerButton.props.onActivate();
 assert.deepEqual(requests.at(-1).slice(0, 3), [
     "steam-ui.panel-folds",
@@ -474,8 +498,9 @@ let bodyRows = themesSection.props.children.slice(1).flat().filter(Boolean);
 assert.equal(
     bodyRows[0].props.children[0].props.children[0].type,
     Button,
-    "unfolded at once: the action is drawn",
+    "opening keeps the action ahead of the settings",
 );
+assert.deepEqual(bodyRows[0].props.children[0].props.children[0].props.children, ["Browse themes…"]);
 const themeToggle = bodyRows[1].props.children[0];
 assert.equal(themeToggle.type, Toggle);
 assert.equal(
@@ -566,10 +591,39 @@ subscriptions.get("steam-ui.panel-folds")({ open: [] });
 themesPanel = renderPanel();
 assert.equal(
     themesPanel.props.children[1][0].props.children.length,
-    1,
-    "the host's publication folds it again",
+    2,
+    "the host folds settings again while the action stays visible",
 );
+assert.equal(
+    findIn(react, themesPanel.props.children[1][0], (node) => [Toggle, TextField, Dropdown, Slider].includes(node.type)).length,
+    0,
+    "the host's fold removes the reopened setting controls",
+);
+assert.deepEqual(themesPanel.props.children[1][0].props.children[1].props.children[0].props.children[0].props.children,
+    ["Browse themes…"], "the host's fold preserves the action label");
 subscriptions.get("steam-ui.extensions-tab")({ items: [], revision: 11 });
+
+// Plugin tabs use the shared Extensions glyph only when they supply no icon of their own.
+const pluginSlot = {
+    id: "fixture.tab", kind: "tab", entry: {}, value: { title: "Plugin tab" },
+    element: () => element("plugin-tab", {}),
+};
+pluginFrontendSlots.set(pluginSlot.id, pluginSlot);
+let iconsBefore = iconCalls.length;
+memo.type({});
+let pluginTab = qamTabs.find((item) => item.steamUiPluginTab === pluginSlot.id);
+assert.ok(pluginTab, "the plugin tab is added to the native list");
+assert.deepEqual(iconCalls.slice(iconsBefore), [["extensions", 22]], "a plugin without an icon uses the shared fallback");
+const customIcon = element("custom-plugin-icon", {});
+pluginSlot.value.icon = customIcon;
+iconsBefore = iconCalls.length;
+memo.type({});
+pluginTab = qamTabs.find((item) => item.steamUiPluginTab === pluginSlot.id);
+assert.equal(pluginTab.tab, customIcon, "a plugin-supplied icon remains unchanged");
+assert.equal(iconCalls.length, iconsBefore, "a supplied icon does not draw the fallback");
+pluginFrontendSlots.delete(pluginSlot.id);
+memo.type({});
+assert.equal(qamTabs.some((item) => item.steamUiPluginTab === pluginSlot.id), false, "removed plugin tabs leave the list");
 
 const replacement = createExtensions();
 assert.equal(replacement.install().ok, true, "a fresh gate resolves its durable owned original");
