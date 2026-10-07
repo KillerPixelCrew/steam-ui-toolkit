@@ -8,18 +8,9 @@ namespace SteamUiToolkit;
 
 /// <summary>Asks Steam's router to open one of its routes, once, from the host.</summary>
 /// <remarks>
-///     <para>
-///         Every other route change starts in Steam: a gate follows the route a host command answered
-///         with. This is for the one case that starts on the host side - a host surface outside Steam,
-///         such as an overlay, handing the user over to a page inside it.
-///     </para>
-///     <para>
-///         It is a single bounded evaluation rather than a field on a publication. Published state is
-///         replayed to every new subscriber and forgotten when the bridge restarts, so a request left
-///         in state would navigate again after a gate reinstall or a document reload. The bounds are
-///         the ones the gates' own <c>navigateSteamRoute</c> applies, so the two ways in agree on what
-///         a route may be.
-///     </para>
+///     Navigation is a one-shot evaluation, never replayed publication state. It uses the same
+///     absolute, non-root route contract as the injected navigator. A missing router, expired request
+///     or changed generation reports failure; a potentially completed push is not retried.
 /// </remarks>
 public static class SteamRouteNavigation
 {
@@ -62,6 +53,10 @@ public static class SteamRouteNavigation
                && SteamSharedContext.IsReadyAt(transport, before.Generations);
     }
 
+    /// <summary>Builds a navigation request that refuses to run after its deadline.</summary>
+    /// <param name="route">Non-root absolute Steam route, encoded as a JavaScript string literal.</param>
+    /// <param name="expiresAt">UTC Unix time in milliseconds at which the request becomes stale.</param>
+    /// <returns>JavaScript returning whether the existing Steam history accepted the push; page exceptions yield false.</returns>
     internal static string CreateExpression(string route, long expiresAt)
     {
         return $$"""

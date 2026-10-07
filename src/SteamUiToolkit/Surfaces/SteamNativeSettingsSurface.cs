@@ -97,7 +97,10 @@ public static class SteamNativeSettingsSurface
 
     /// <summary>Declares the native page patch, state and bounded setting command.</summary>
     /// <param name="enabled">Whether native page additions are enabled.</param>
-    /// <param name="read">Reads current sections, or null to retract them.</param>
+    /// <param name="read">
+    ///     Reads current sections, or null to publish nothing. Publish an empty <c>Pages</c> list to
+    ///     clear prior sections.
+    /// </param>
     /// <param name="backend">The owner that revalidates availability and values.</param>
     /// <returns>The module to register.</returns>
     public static ISteamUiModule Module(Func<bool> enabled, Func<ValueTask<SteamNativeSettingsState?>> read,

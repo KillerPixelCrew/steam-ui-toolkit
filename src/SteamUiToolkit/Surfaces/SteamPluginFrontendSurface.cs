@@ -19,6 +19,13 @@ public static class SteamPluginFrontendSurface
     /// <param name="failed">Disables the entire owning package when any module fails.</param>
     /// <param name="read">Optional detached JSON state published to this frontend.</param>
     /// <returns>The independently removable toolkit module.</returns>
+    /// <remarks>
+    ///     The script has the privileges of Steam's page; failure isolation does not sandbox it.
+    ///     Register the returned module with the shared runtime and use a fresh identity when the
+    ///     host explicitly reloads a failed package. The failure callback must close admission for
+    ///     every sibling sharing the owner, and the host must drain backend calls before unloading
+    ///     package code. A null state reading withholds publication rather than clearing prior state.
+    /// </remarks>
     public static ISteamUiModule Module(string id, string owner, string module, string script, string? style,
         Func<bool> enabled, Func<string, JsonElement, CancellationToken, Task<JsonElement?>>? invoke,
         Action<string, string> failed, Func<JsonElement?>? read = null)

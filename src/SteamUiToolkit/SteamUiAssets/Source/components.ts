@@ -1,3 +1,7 @@
+/**
+ * Owns host Quick Access controls and their shared Steam render claims.
+ * @returns Per-kind install/remove/status operations and a dispose operation that releases subscriptions and claims.
+ */
 function createNativeComponentHost() {
     let unsubscribePlugins: any = null;
     const registrations = new Map();

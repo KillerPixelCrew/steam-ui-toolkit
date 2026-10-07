@@ -46,8 +46,11 @@ internal interface ISteamUiCdpWireFactory
         SteamUiEndpoint endpoint, CancellationToken cancellationToken);
 }
 
+/// <summary>Creates owned WebSocket channels for endpoints validated by discovery.</summary>
 internal sealed class SteamUiWebSocketWireFactory : ISteamUiCdpWireFactory
 {
+    /// <inheritdoc />
+    /// <remarks>The caller owns the returned channel. A failed connection disposes the socket before propagating the error.</remarks>
     public async Task<ISteamUiCdpWire> ConnectAsync(
         SteamUiEndpoint endpoint, CancellationToken cancellationToken)
     {
@@ -66,15 +69,11 @@ internal sealed class SteamUiWebSocketWireFactory : ISteamUiCdpWireFactory
     }
 }
 
+/// <summary>Frames CDP text messages over an owned WebSocket.</summary>
+/// <remarks>One reader may receive at a time. Send serialization belongs to the connection. Inbound messages are limited to 8 MiB; outbound messages have no toolkit size cap.</remarks>
 internal sealed class SteamUiWebSocketWire : ISteamUiCdpWire
 {
-    // Bounds what is READ. Steam's CEF is the peer here and its reply is accumulated into memory, so
-    // without a cap a malformed or enormous response takes the shell down. Nothing bounds what the host
-    // sends any more: the host decides that, and asserting our own payload is under a number we picked
-    // only ever managed to refuse a legitimate one — the handheld glyph stylesheet carries every
-    // control glyph and all three controller illustrations as data URIs, about 500 KB for the Claw,
-    // and the old 96 KB expression cap rejected it. The patch reported "expression exceeded its byte
-    // limit" and the Steam Input page silently kept Valve's artwork.
+    // Bound peer-controlled allocation; trusted host expressions use a separate outbound path.
     private const int MaximumResponseBytes = 8 * 1024 * 1024;
 
     // Reused across messages: only the connection's single read loop receives, and every message
@@ -82,17 +81,22 @@ internal sealed class SteamUiWebSocketWire : ISteamUiCdpWire
     private readonly ArrayBufferWriter<byte> _received = new(16 * 1024);
     private readonly ClientWebSocket _socket;
 
+    /// <summary>Takes ownership of an already connected WebSocket.</summary>
+    /// <param name="socket">Socket disposed when this wire is disposed.</param>
     internal SteamUiWebSocketWire(ClientWebSocket socket)
     {
         _socket = socket;
     }
 
+    /// <inheritdoc />
     public Task SendAsync(ReadOnlyMemory<byte> message, CancellationToken cancellationToken)
     {
         return _socket.SendAsync(
             message, WebSocketMessageType.Text, true, cancellationToken).AsTask();
     }
 
+    /// <inheritdoc />
+    /// <exception cref="InvalidDataException">Steam sends a non-text frame or a complete message exceeds 8 MiB.</exception>
     public async Task<byte[]?> ReceiveAsync(CancellationToken cancellationToken)
     {
         var writer = _received;
@@ -124,6 +128,8 @@ internal sealed class SteamUiWebSocketWire : ISteamUiCdpWire
         }
     }
 
+    /// <inheritdoc />
+    /// <remarks>Attempts a normal close-output handshake for at most 500 ms, then disposes the socket.</remarks>
     public async ValueTask DisposeAsync()
     {
         if (_socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
@@ -150,6 +156,8 @@ internal sealed class SteamUiWebSocketWire : ISteamUiCdpWire
 internal sealed class SteamUiUnansweredException(Exception inner)
     : IOException("Steam UI evaluation was sent but not answered: " + inner.Message, inner);
 
+/// <summary>Owns one CDP wire, correlated requests and a separate notification-dispatch pump.</summary>
+/// <remarks>Start once before invoking methods. Requests share a serialized send lane and a 32-request admission limit. Disposal closes the wire; callbacks must not block their pumps indefinitely.</remarks>
 internal sealed class SteamUiCdpConnection : IAsyncDisposable
 {
     private const int MaximumOutstandingRequests = 32;
@@ -186,6 +194,10 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
     private int _started;
     private int _wireDisposed;
 
+    /// <summary>Creates an unstarted connection and takes ownership of its wire.</summary>
+    /// <param name="wire">Connected message channel owned by this instance.</param>
+    /// <param name="notification">Notification callback invoked serially by a separate pump, not the socket reader.</param>
+    /// <param name="closed">Callback invoked when the read loop terminates, with its failure or null for normal shutdown.</param>
     internal SteamUiCdpConnection(
         ISteamUiCdpWire wire,
         Action<string, string> notification,
@@ -203,10 +215,14 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
 
     // A counter rather than the dictionary's Count, which takes every one of its internal locks and
     // is read for each transport snapshot.
+    /// <summary>Number of admitted requests awaiting completion, read without locking the correlation dictionary.</summary>
     internal int OutstandingRequests => Volatile.Read(ref _pendingCount);
 
+    /// <summary>Read-loop completion task; completed before Start and replaced when the reader starts.</summary>
     internal Task Completion { get; private set; } = Task.CompletedTask;
 
+    /// <inheritdoc />
+    /// <remarks>Idempotently closes the wire and waits up to one second for reader/notification pumps; in-flight continuations may still be leaving their cleanup blocks.</remarks>
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
@@ -236,6 +252,8 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
         // connection; explicitly disposing them here would race those continuations.
     }
 
+    /// <summary>Starts the reader and notification pump exactly once.</summary>
+    /// <exception cref="InvalidOperationException">The connection was already started.</exception>
     internal void Start()
     {
         if (Interlocked.Exchange(ref _started, 1) != 0)
@@ -248,8 +266,11 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
     }
 
     /// <summary>Evaluates one expression and returns what the page answered.</summary>
+    /// <param name="expression">JavaScript evaluated with promise waiting and by-value results.</param>
+    /// <param name="timeout">Request budget; must be positive and no greater than 30 seconds.</param>
+    /// <param name="cancellationToken">Cancels waiting; a frame whose send started still completes.</param>
     /// <returns>
-    ///     The by-value result, or the bounded JavaScript exception as <c>Error</c>. An exception the page
+    ///     The by-value result, or the complete JavaScript exception as <c>Error</c>. An exception the page
     ///     threw is still an answer: only protocol and framing faults throw.
     /// </returns>
     /// <exception cref="SteamUiUnansweredException">
@@ -308,6 +329,16 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
         return (null, null);
     }
 
+    /// <summary>Sends one correlated CDP method under a shared admission and send budget.</summary>
+    /// <param name="method">Nonblank CDP method name.</param>
+    /// <param name="writeParameters">Writes members of the parameters object, or null for none.</param>
+    /// <param name="timeout">Positive overall admission/send/reply budget, at most 30 seconds.</param>
+    /// <param name="cancellationToken">Cancels waiting; an already-started frame finishes under the connection lifetime.</param>
+    /// <param name="sendStarted">Optional callback immediately before the frame starts; records possible side effects.</param>
+    /// <param name="replyReceived">Optional callback after correlation, before inspecting a protocol error.</param>
+    /// <returns>The detached CDP result element; protocol errors, framing faults and cancellation propagate.</returns>
+    /// <exception cref="ObjectDisposedException">The connection has been disposed.</exception>
+    /// <exception cref="InvalidDataException">The response carries a CDP error.</exception>
     internal async Task<JsonElement> InvokeAsync(
         string method,
         Action<Utf8JsonWriter>? writeParameters,

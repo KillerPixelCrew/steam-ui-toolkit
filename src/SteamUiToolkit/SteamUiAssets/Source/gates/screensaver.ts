@@ -1,30 +1,8 @@
-// Big Picture's Screensaver settings, with the host's timeout rows beside Steam's own screensaver
-// timeout.
-//
-// Mapped from the September 2026 client beta's shipped bundle on 2026-09-11:
-//
-//   Settings page list          the Settings root's hook builds it with React.useMemo, one entry per
-//                               page: { visible, title, icon, route, content }
-//     /settings/customization   content is a module-local page returning a list of sections
-//       Screensaver section     module-local; draws "#Settings_Customization_Screensaver" and calls
-//                               Screensaver.ForceScreensaver for its preview button. Its last row is
-//                               Steam's "When idle, start screensaver after", which writes the
-//                               system_idle_screensaver_ac_sec client setting
-//
-// Steam keeps per-source idle settings on its Power page, and shows that page only on a machine it
-// believes has a battery or under gamescope; everywhere else the Screensaver section carries the one
-// plugged-in timeout. The report therefore carries both values and whether Steam believes there is a
-// battery, and the host decides which of its own timeouts each one bounds.
-//
-// Nothing of Steam's is restyled or rebuilt. The page list passes through the one shared useMemo
-// claim (ownership.ts); there the customization page is replaced by a wrapper that renders it and
-// swaps the Screensaver section for a wrapper that renders the section with the host's rows appended.
-// Both wrappers are cached by the component they wrap, so React keeps one stable type per original,
-// and both render exactly what Steam shipped once the gate is removed.
-//
-// The host owns what the rows offer: which timeouts, their observed values, and only the choices the
-// screensaver timeout allows. This half reads Steam's settings inside Steam's own mobx observer, so a
-// change made on the page re-renders the rows and reaches the host at once.
+/**
+ * Projects the host screensaver setting into the matched Steam settings surface.
+ * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ */
+
 function createScreensaverSettings() {
     const patchId = "steam-ui.screensaver";
     const MemoName = "screensaverSettings";

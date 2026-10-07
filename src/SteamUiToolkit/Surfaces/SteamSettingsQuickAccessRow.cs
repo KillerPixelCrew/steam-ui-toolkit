@@ -46,7 +46,10 @@ public static class SteamSettingsQuickAccessRow
 
     /// <summary>Declares the state, row patch and validated setting command.</summary>
     /// <param name="enabled">Whether native Quick Access is enabled.</param>
-    /// <param name="read">Reads the current sections, or null to retract them.</param>
+    /// <param name="read">
+    ///     Reads current sections, or null to publish nothing. Publish an empty <c>Pages</c> list to
+    ///     clear prior sections.
+    /// </param>
     /// <param name="backend">The setting owner.</param>
     /// <returns>The module.</returns>
     public static ISteamUiModule Module(Func<bool> enabled, Func<ValueTask<SteamSettingsQuickAccessState?>> read,

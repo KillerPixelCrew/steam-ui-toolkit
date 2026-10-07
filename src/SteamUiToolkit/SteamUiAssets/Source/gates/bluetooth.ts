@@ -1,16 +1,8 @@
-// Bluetooth is a WebUI transport service whose backend does not exist on Windows. The service,
-// its message shapes and every operation are present — GetState round-trips and answers
-// is_service_available:false with empty adapters and devices — so the host replaces the stub's
-// methods rather than implementing the service. `*Handler` exports are message descriptors,
-// not registration hooks, so implementing it is not on offer.
-//
-// The second gate matters here as much as the first: availability is read through react-query
-// with staleTime Infinity, so replacing the methods changes nothing until that cache is
-// invalidated. Live-verified 2026-08-30 that the stub's methods are writable and configurable and
-// that the query client's invalidateQueries is reachable.
-//
-// Client builds renumber the stub's module (the September 2026 beta did), so it is found by its
-// service method name and by its shape.
+/**
+ * Supplies Steam Bluetooth service responses and notifications from host publications.
+ * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ */
+
 function createBluetoothService() {
     const patchId = "steam-ui.bluetooth";
     const queryKey = ["BluetoothManagerService", "State"];

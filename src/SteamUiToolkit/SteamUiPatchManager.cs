@@ -63,6 +63,9 @@ public sealed class SteamUiPatchContext
     private readonly TimeSpan _operationTimeout;
     private readonly ISteamUiTransport _transport;
 
+    /// <summary>Pairs a borrowed transport with one patch phase budget.</summary>
+    /// <param name="transport">Transport owned by the host, not the context.</param>
+    /// <param name="operationTimeout">Budget applied independently to each context evaluation.</param>
     internal SteamUiPatchContext(ISteamUiTransport transport, TimeSpan operationTimeout)
     {
         _transport = transport;
@@ -188,6 +191,11 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
     {
     }
 
+    /// <summary>Creates a patch scheduler and subscribes to the borrowed transport generations.</summary>
+    /// <param name="transport">Host-owned transport; manager disposal releases its event subscription and patch leases.</param>
+    /// <param name="settleRetryDelay">Positive base delay for bounded within-generation compatibility retries.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The retry delay is not positive.</exception>
+    /// <exception cref="ArgumentNullException">The transport is null.</exception>
     internal SteamUiPatchManager(ISteamUiTransport transport, TimeSpan settleRetryDelay)
     {
         if (settleRetryDelay <= TimeSpan.Zero)

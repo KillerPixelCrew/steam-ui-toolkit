@@ -85,6 +85,8 @@ public sealed class SteamRunningAppsProbe
 
     private readonly SteamClient _client;
 
+    /// <summary>Creates the running-app observations façade without opening a connection.</summary>
+    /// <param name="client">Owning client; borrowed for dispatch and lifetime, never disposed by this façade.</param>
     internal SteamRunningAppsProbe(SteamClient client)
     {
         _client = client;
@@ -125,8 +127,9 @@ public sealed class SteamRunningAppsProbe
         return _client.Apps.ReadDetailsAsync(appId, EvaluationBudget, cancellationToken);
     }
 
-    /// <summary>Maps an observer reply to a reading. Pure, for tests.</summary>
+    /// <summary>Maps an observer reply to a reading.</summary>
     /// <param name="result">The evaluation outcome.</param>
+    /// <returns>A successful empty observation for a deliberately closed transport; otherwise the observer state or a failure.</returns>
     internal static SteamRunningAppsObservation ParseObservation(SteamUiEvaluationResult result)
     {
         // A deliberately closed transport means Steam names no app. Reporting it as a failure would

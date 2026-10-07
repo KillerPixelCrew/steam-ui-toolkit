@@ -54,6 +54,7 @@ public sealed record SteamSideMenuSnapshot(
 /// <summary>Reads Steam's known menu stores through an existing transport.</summary>
 public static class SteamSideMenuObserver
 {
+    /// <summary>Reads native side-menu, keyboard and observed overlay-activation state without changing a window.</summary>
     internal static string ReadExpression { get; } = $$"""
                                                        (()=>{
                                                          try {
@@ -95,6 +96,9 @@ public static class SteamSideMenuObserver
         return new SteamSideMenuSnapshot(result.Generations, result.Answered && current ? Parse(result.Value) : null);
     }
 
+    /// <summary>Validates a complete main-window-first side-menu observation.</summary>
+    /// <param name="value">JSON result from the observer, or null when the page returned no observation.</param>
+    /// <returns>A read-only snapshot list, or null for missing, malformed, duplicate or unsupported window identities/states.</returns>
     internal static IReadOnlyList<SteamWindowSideMenu>? Parse(string? value)
     {
         if (value is null)

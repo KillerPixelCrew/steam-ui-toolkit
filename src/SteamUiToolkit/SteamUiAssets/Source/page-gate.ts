@@ -1,16 +1,8 @@
-// A host's own page inside Steam: its gate, its state and its frame, declared once.
-//
-// Every page a host draws needs the same lifecycle: resolve Steam's components, refuse to install
-// when one it draws is missing, subscribe to the host's state for the page, tell a mounted page
-// when that state changes, arrives refused or goes away, and draw nothing of its own until all of
-// that holds. Written out per page it was written three times and had already drifted: one page
-// kept drawing its last state after its gate was removed.
-//
-// A page is declared with `registerSteamPage`, which registers the gate under `gate` and the
-// renderer under `template` (see pages.ts), and hands back what the page reads while it renders.
-// The page component is the host's; the frame around it is this file's, so a page that could not
-// resolve says why instead of showing "Loading…" for ever.
-
+/**
+ * Registers a renderer and generation-bound gate for one host page.
+ * @param definition Stable renderer/gate/patch identities, component requirements and lifecycle callbacks.
+ * @returns Live page accessors; removal clears UI and state while the React instance may remain available.
+ */
 function registerSteamPage(definition: SteamPageDefinition): SteamPageContext {
     let installed = false;
     let ui: any = null;
@@ -124,12 +116,7 @@ function registerSteamPage(definition: SteamPageDefinition): SteamPageContext {
                 lastError || "Loading…",
             );
         }
-        // Steam's own pages take the controller's focus when they open, from the page component
-        // they are drawn in. A host page has none, so focus stayed on whatever opened it, which is
-        // gone: B then found nothing on the page to answer it and Steam's back stack left the page.
-        // The page's root takes focus instead, so B reaches the page's own levels first, and the
-        // paged settings sidebar learns its list has had focus and sends B from the content back
-        // to it, as in Steam's Settings.
+        // The root must take focus so Back reaches page navigation before the router stack.
         return ui.focusable
             ? react.createElement(
                   ui.focusable,
@@ -148,37 +135,36 @@ function registerSteamPage(definition: SteamPageDefinition): SteamPageContext {
     return context;
 }
 
-// The page contract. Declared after the function because TypeScript erases a type together with
-// the comments that lead it, and this file's header has to reach the asset.
+/** Renderer, component requirements and resource ownership for a registered host page. */
 type SteamPageDefinition = {
-    // The renderer template the page host draws the page with.
+    /** The renderer template the page host draws the page with. */
     template: string;
-    // The name the gate registers under.
+    /** The name the gate registers under. */
     gate: string;
-    // The bridge identity the page's state is published under.
+    /** The bridge identity the page's state is published under. */
     patchId: string;
-    // Resolves the components the page draws with, from Steam's own; null when they are not there.
+    /** Resolves the components the page draws with, from Steam's own; null when they are not there. */
     components: (runtime: any) => any;
-    // The components the page cannot draw without.
+    /** The components the page cannot draw without. */
     required: readonly string[];
-    // Resolves anything else the page needs once the components are in, answering why not when it
-    // cannot. Optional.
+    /** Acquires page resources; returns a refusal reason or null on success. */
     prepare?: (ui: any, runtime: any) => string | null;
-    // Releases what `prepare` resolved. Optional.
+    /** Releases what `prepare` resolved. Optional. */
     release?: () => void;
-    // Extra facts for the gate's status. Optional.
+    /** Extra facts for the gate's status. Optional. */
     status?: () => Record<string, unknown>;
-    // The page itself: a component declared once, drawn inside the frame once the gate holds.
+    /** The page itself: a component declared once, drawn inside the frame once the gate holds. */
     Page: (props: any) => any;
 };
 
+/** Live accessors; callers must handle unavailable components and unpublished state. */
 type SteamPageContext = {
-    // Steam's React, from the components or, before they resolve, from the page host.
+    /** Steam's React, from the components or, before they resolve, from the page host. */
     react: () => any;
-    // The resolved components, or null while the gate is not installed.
+    /** The resolved components, or null while the gate is not installed. */
     ui: () => any;
-    // The latest state the host published for the page, or null.
+    /** The latest state the host published for the page, or null. */
     state: () => any;
-    // Why the host's latest state could not be delivered, or null.
+    /** Why the host's latest state could not be delivered, or null. */
     refusal: () => string | null;
 };

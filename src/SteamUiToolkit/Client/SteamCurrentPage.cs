@@ -53,6 +53,8 @@ public sealed class SteamCurrentPage
 
     private readonly SteamClient _client;
 
+    /// <summary>Creates the current-page observations façade without opening a connection.</summary>
+    /// <param name="client">Owning client; borrowed for dispatch and lifetime, never disposed by this façade.</param>
     internal SteamCurrentPage(SteamClient client)
     {
         _client = client;
@@ -89,8 +91,9 @@ public sealed class SteamCurrentPage
             : fromRoute;
     }
 
-    /// <summary>Parses one signal's reply. Pure, for tests.</summary>
+    /// <summary>Parses one signal's reply.</summary>
     /// <param name="result">The evaluation outcome.</param>
+    /// <returns>The current-app signal, including app id zero for no app, or a failed read.</returns>
     internal static SteamReadResult<SteamCurrentApp> Parse(SteamUiEvaluationResult result)
     {
         if (result.Dispatch != SteamUiDispatch.Answered || result.Error is not null || result.Value is null)

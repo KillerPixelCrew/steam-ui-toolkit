@@ -156,6 +156,8 @@ public sealed class SteamApps
 
     private readonly SteamClient _client;
 
+    /// <summary>Creates the app and shortcut operations façade without opening a connection.</summary>
+    /// <param name="client">Owning client; borrowed for dispatch and lifetime, never disposed by this façade.</param>
     internal SteamApps(SteamClient client)
     {
         _client = client;
@@ -588,8 +590,9 @@ public sealed class SteamApps
         return ParseLogoPosition(result);
     }
 
-    /// <summary>Maps a logo-position reply to a read. Pure, for tests.</summary>
+    /// <summary>Maps a logo-position reply to a read.</summary>
     /// <param name="result">The evaluation outcome.</param>
+    /// <returns>The position, a successful null for absent/out-of-range position data, or a failed read.</returns>
     internal static SteamReadResult<SteamLogoPosition> ParseLogoPosition(SteamUiEvaluationResult result)
     {
         return SteamClientScript.ParseRead<SteamLogoPosition>(result, "logo position", static root =>
@@ -615,6 +618,7 @@ public sealed class SteamApps
     /// <param name="appId">The app id.</param>
     /// <param name="timeout">The evaluation deadline.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The app details, or a failed read when Steam is unavailable, refuses or does not answer in time.</returns>
     internal async Task<SteamReadResult<SteamAppDetails>> ReadDetailsAsync(
         uint appId,
         TimeSpan timeout,
@@ -630,8 +634,9 @@ public sealed class SteamApps
         return ParseDetails(result);
     }
 
-    /// <summary>Maps a details reply to a read. Pure, for tests.</summary>
+    /// <summary>Maps a details reply to a read.</summary>
     /// <param name="result">The evaluation outcome.</param>
+    /// <returns>App detail strings on success, or a failed read retaining the dispatch and error.</returns>
     internal static SteamReadResult<SteamAppDetails> ParseDetails(SteamUiEvaluationResult result)
     {
         return SteamClientScript.ParseRead(result, "app details", static root =>
@@ -644,7 +649,12 @@ public sealed class SteamApps
                 root.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String ? name.GetString() : null));
     }
 
-    /// <summary>The script <see cref="AddShortcutAsync" /> runs. Pure, for tests.</summary>
+    /// <summary>The script <see cref="AddShortcutAsync" /> runs.</summary>
+    /// <param name="name">Shortcut display name.</param>
+    /// <param name="target">Executable or launch target passed to Steam.</param>
+    /// <param name="startDirectory">Working directory passed to Steam.</param>
+    /// <param name="launchArguments">Launch options passed to Steam.</param>
+    /// <returns>An async expression creating one shortcut and checking its identity and saved fields.</returns>
     internal static string AddShortcutScript(string name, string target, string startDirectory, string launchArguments)
     {
         return SteamClientScript.Read(
@@ -700,7 +710,7 @@ public sealed class SteamApps
             "mismatch:wrong.length?'Steam holds a different '+wrong.join(', ')+' than was written.':''});");
     }
 
-    /// <summary>Maps an add-shortcut reply to a result. Pure, for tests.</summary>
+    /// <summary>Maps an add-shortcut reply to a result.</summary>
     /// <param name="result">The evaluation outcome.</param>
     /// <remarks>
     ///     The id arrives as a decimal string because Steam's shortcut ids occupy the top half of the
@@ -708,6 +718,7 @@ public sealed class SteamApps
     ///     shortcut id is refused rather than returned: a store id here would mean the reply did not
     ///     describe the entry that was just created, so whether one was created is unknown.
     /// </remarks>
+    /// <returns>The outcome, returned id and readback confirmation; unreadable or unconfirmed creation remains uncertain.</returns>
     internal static SteamShortcutAddResult ParseAddShortcut(SteamUiEvaluationResult result)
     {
         if (result.Dispatch != SteamUiDispatch.Answered)
@@ -775,8 +786,9 @@ public sealed class SteamApps
         }
     }
 
-    /// <summary>Maps a shortcut-list reply to a read. Pure, for tests.</summary>
+    /// <summary>Maps a shortcut-list reply to a read.</summary>
     /// <param name="result">The evaluation outcome.</param>
+    /// <returns>The parsed shortcut list, or a failed read when any required id or list shape is invalid.</returns>
     internal static SteamReadResult<IReadOnlyList<SteamShortcut>> ParseShortcuts(SteamUiEvaluationResult result)
     {
         return SteamClientScript.ParseRead<IReadOnlyList<SteamShortcut>>(result, "shortcut list", static root =>

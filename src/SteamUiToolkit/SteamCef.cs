@@ -23,14 +23,16 @@ public static class SteamCef
     /// </summary>
     /// <param name="steamDirectory">
     ///     Steam's install directory, or <see langword="null" /> when the
-    ///     host could not find it. Finding Steam is the host's job: a library that guessed would be
-    ///     wrong on someone else's machine, and this writes a file into the directory it is given.
+    ///     host could not find it. The caller must validate this directory before allowing a write.
     /// </param>
     /// <param name="enabled">
     ///     The host's configured CEF master switch, independent of whether
     ///     startup readiness currently allows a transport connection.
     /// </param>
-    /// <returns><see langword="true" /> when the flag is present afterwards.</returns>
+    /// <returns>
+    ///     True when enabled and the flag exists or was created. False when disabled, no directory
+    ///     was supplied, or file access failed. An existing flag is never removed.
+    /// </returns>
     public static bool EnsureRemoteDebuggingEnabled(string? steamDirectory, bool enabled)
     {
         // Master switch off: never write the debug flag. An existing flag — from the user, another
@@ -64,7 +66,9 @@ public static class SteamCef
     ///     a value into an expression. JSON-encoding is mandatory — a raw path would
     ///     lose its backslashes.
     /// </summary>
-    /// <param name="value">The string to embed.</param>
+    /// <param name="value">The non-null string to embed.</param>
+    /// <returns>A JSON-escaped JavaScript string literal, including its surrounding quotes.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="value" /> is null.</exception>
     public static string JsString(string value)
     {
         return "\"" + JsonEncodedText.Encode(value) + "\"";
@@ -99,11 +103,8 @@ public static class SteamCef
     /// </param>
     /// <returns><see langword="true" /> only when a Steam process owns the port.</returns>
     /// <remarks>
-    ///     The reason is an out-parameter rather than a log call because this is a pure seam and has to
-    ///     stay one, and because the caller was otherwise left inventing a cause: it logged "listener
-    ///     is not a Steam process" for all four outcomes, including the ordinary one where Steam simply
-    ///     had not started yet. A wrong reason is worse than none — that line sent a maintainer hunting
-    ///     a squatter on a port that nothing was listening on.
+    ///     Returns a distinct reason for an unreadable listener table, absent listener, foreign
+    ///     process or accepted owner; this method performs no logging.
     /// </remarks>
     internal static bool IsSteamPortOwner(IReadOnlyList<NativeTcp.Listener>? listeners,
         Func<int, string?> processName,

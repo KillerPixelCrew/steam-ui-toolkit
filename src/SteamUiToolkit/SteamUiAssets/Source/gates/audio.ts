@@ -1,6 +1,8 @@
-// Audio is supplied as the namespace Steam's own store looks for, rather than drawn as a row.
-// The store's availability flag is literally `null != SteamClient.System.Audio`, so defining this
-// object is the entire gate — there is nothing to patch and nothing to hide.
+/**
+ * Adapts Steam audio RPCs to host state and commands without claiming a real native audio backend.
+ * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ */
+
 function createAudioNamespace() {
     const patchId = "steam-ui.audio";
     let installed = false;

@@ -12,6 +12,7 @@ namespace SteamUiToolkit;
 /// </remarks>
 public sealed class SteamOverlayActivationPatch : ISteamUiPatch
 {
+    /// <summary>Private page namespace shared by the activation subscription and side-menu observer.</summary>
     internal const string StateKey = "__steamUiOverlayActivation";
     private readonly string _removeExpression;
     private readonly string _verifyExpression;

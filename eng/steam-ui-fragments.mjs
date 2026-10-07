@@ -50,7 +50,11 @@ const trailing = ["components.ts", "epilogue.ts"];
 // Fragments that carry no marker: types.ts is erased, and bridge.ts starts the asset.
 const unmarked = ["types.ts", "bridge.ts"];
 
-/** The marker line that opens a fragment in the composed source and the emitted asset. */
+/**
+ * Creates a stable fragment boundary retained in composed source and emitted JavaScript.
+ * @param {string} label Toolkit-relative or consumer-prefixed fragment label.
+ * @returns {string} A JavaScript line comment identifying the fragment.
+ */
 export const fragmentMarker = (label) => `// @fragment ${label}`;
 
 const discover = (directory, exclude = []) => {
@@ -77,6 +81,8 @@ const labelled = (root, prefix) => (path) => ({
  * component host. Toolkit fragments are labelled by their path under Source/ ("ownership.ts",
  * "gates/audio.ts"); a consumer's by its path under the first extra directory, prefixed
  * "consumer/". A directory that does not exist contributes nothing.
+ * @param {string[]} extraDirectories Consumer directories, in composition order.
+ * @returns {{path: string, label: string}[]} Ordered source paths and stable fragment labels.
  */
 export const steamUiFragments = (extraDirectories = []) => {
   const toolkit = labelled(toolkitSourceDirectory, "");
@@ -96,6 +102,10 @@ export const steamUiFragments = (extraDirectories = []) => {
  * marker and closing the IIFE bridge.ts opens. `typescript` is the path of the caller's tsc.js.
  * Throws when the compile fails or erased a fragment marker: TypeScript drops the comments that lead
  * a declaration it erases, so a fragment must open with runtime code, not a `type` alias.
+ * @param {object} options Build inputs; this function does not write generated repository files.
+ * @param {string[]} [options.extraDirectories=[]] Consumer fragment directories.
+ * @param {string} options.typescript Absolute path to the caller's tsc.js.
+ * @returns {Promise<string>} Complete compiled JavaScript; temporary compiler files are removed.
  */
 export const compileSteamUiAsset = async ({ extraDirectories = [], typescript }) => {
   const fragments = steamUiFragments(extraDirectories);

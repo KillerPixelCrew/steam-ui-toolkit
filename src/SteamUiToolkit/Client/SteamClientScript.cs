@@ -29,6 +29,7 @@ internal static class SteamClientScript
 
     /// <summary>Formats an app id as the unsigned literal Steam's client API expects.</summary>
     /// <param name="appId">The app id.</param>
+    /// <returns>A culture-independent unsigned decimal JavaScript literal.</returns>
     internal static string AppId(uint appId)
     {
         return appId.ToString(CultureInfo.InvariantCulture);
@@ -39,6 +40,7 @@ internal static class SteamClientScript
     ///     and <c>{ok:false,err,result}</c> when any statement throws.
     /// </summary>
     /// <param name="statements">The statements, each terminated with a semicolon.</param>
+    /// <returns>An async JavaScript expression returning a JSON success or refusal envelope.</returns>
     internal static string Write(string statements)
     {
         return "(async()=>{try{" + statements + "return JSON.stringify({ok:true});}" + ErrorReply + "})()";
@@ -46,6 +48,7 @@ internal static class SteamClientScript
 
     /// <summary>Wraps a statement list that returns its own JSON string on success.</summary>
     /// <param name="statements">The statements, ending in a <c>return JSON.stringify(...)</c>.</param>
+    /// <returns>An async JavaScript expression preserving the supplied success reply and wrapping exceptions.</returns>
     internal static string Read(string statements)
     {
         return "(async()=>{try{" + statements + "}" + ErrorReply + "})()";
@@ -53,6 +56,7 @@ internal static class SteamClientScript
 
     /// <summary>A statement that waits for Steam to apply a setter on its own thread.</summary>
     /// <param name="milliseconds">How long to wait.</param>
+    /// <returns>An awaitable JavaScript delay statement; it does not confirm that a setter succeeded.</returns>
     internal static string Settle(int milliseconds)
     {
         return "await new Promise(r=>setTimeout(r," + milliseconds.ToString(CultureInfo.InvariantCulture) +
@@ -69,6 +73,7 @@ internal static class SteamClientScript
     ///     The call is a subscription, not a getter: Steam calls back with the current details and again
     ///     on every change, so the registration is released on both the answer and the timeout.
     /// </remarks>
+    /// <returns>A JavaScript promise expression yielding app details or null after failure or timeout.</returns>
     internal static string AppDetailsPromise(uint appId, int timeoutMilliseconds)
     {
         return "(" + AppDetailsFunction(timeoutMilliseconds) + ")(" + AppId(appId) + ")";
@@ -79,6 +84,7 @@ internal static class SteamClientScript
     ///     for a script that reads the details of several apps.
     /// </summary>
     /// <param name="timeoutMilliseconds">How long an unknown id may keep its promise open.</param>
+    /// <returns>A JavaScript function expression whose per-app promise releases its details subscription on answer or timeout.</returns>
     internal static string AppDetailsFunction(int timeoutMilliseconds)
     {
         return "(id=>new Promise(res=>{let t;try{const h=SteamClient.Apps.RegisterForAppDetails(" +
@@ -112,6 +118,7 @@ internal static class SteamClientScript
     ///     unanswered.
     /// </summary>
     /// <param name="dispatch">How far the request got.</param>
+    /// <returns>NotSent for closed or unsent requests; Unknown for requests that may have executed.</returns>
     internal static SteamClientWriteOutcome Unread(SteamUiDispatch dispatch)
     {
         return dispatch is SteamUiDispatch.NotSent or SteamUiDispatch.Closed
@@ -121,6 +128,7 @@ internal static class SteamClientScript
 
     /// <summary>Maps the reply of a <see cref="Write" /> expression to a result.</summary>
     /// <param name="result">The evaluation outcome.</param>
+    /// <returns>A write outcome preserving dispatch uncertainty; an unreadable answer is Unknown, never retried here.</returns>
     internal static SteamClientWriteResult ParseWrite(SteamUiEvaluationResult result)
     {
         if (result.Dispatch != SteamUiDispatch.Answered)
@@ -165,6 +173,7 @@ internal static class SteamClientScript
     ///     Reads the value from an <c>ok:true</c> reply. It throws <see cref="FormatException" /> for a
     ///     reply that does not hold a valid value.
     /// </param>
+    /// <returns>The decoded value and dispatch, or a default value with a refusal/decoding error.</returns>
     internal static SteamReadResult<T> ParseRead<T>(
         SteamUiEvaluationResult result,
         string what,
@@ -203,6 +212,7 @@ internal static class SteamClientScript
 
     /// <summary>Whether a reply object carries <c>ok: true</c>.</summary>
     /// <param name="root">The reply.</param>
+    /// <returns>True only for an object with a boolean true ok property.</returns>
     internal static bool IsOk(JsonElement root)
     {
         return root.ValueKind == JsonValueKind.Object
@@ -215,6 +225,7 @@ internal static class SteamClientScript
     ///     instead of a message. Null when the reply names neither.
     /// </summary>
     /// <param name="root">The reply.</param>
+    /// <returns>The textual error, a formatted EResult code, or null when neither is available.</returns>
     internal static string? RefusalOf(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object)
@@ -236,6 +247,7 @@ internal static class SteamClientScript
     /// <summary>A string property of a reply object, or an empty string.</summary>
     /// <param name="root">The reply.</param>
     /// <param name="name">The property.</param>
+    /// <returns>The string property value, or an empty string when the object/property has another shape.</returns>
     internal static string StringOf(JsonElement root, string name)
     {
         return root.ValueKind == JsonValueKind.Object

@@ -76,8 +76,7 @@ public static class SteamUiPayload
     /// <returns>Whether the payload is exactly that shape.</returns>
     /// <remarks>
     ///     Identifiers are one or more ASCII letters, digits, <c>.</c>, <c>_</c> and <c>-</c>.
-    ///     Uppercase is allowed because ids a host sends are often PascalCase; a lowercase-only rule
-    ///     once rejected every valid controller target while the row rendered normally.
+    ///     Uppercase is allowed: controller target ids may be PascalCase and must retain their case.
     /// </remarks>
     public static bool TryReadTarget(JsonElement payload, out string target)
     {

@@ -13,12 +13,8 @@ public enum SteamUiTargetRole
 
     /// <summary>The Big Picture window, which renders the pages the user is looking at.</summary>
     /// <remarks>
-    ///     Distinct from <see cref="SharedJsContext" />, which owns the route and the module registry but
-    ///     almost no DOM: with the Steam Input page open on the reference Claw its body measured 218
-    ///     bytes, while every element that page draws — and every Valve glyph image the stylesheet keys
-    ///     off — was here. CSS is per document, so a stylesheet meant for what the user sees has to be
-    ///     installed in this one. The glyph stylesheet was going to SharedJSContext, which is why half a
-    ///     megabyte of correct CSS applied, verified, and changed nothing.
+    ///     SharedJsContext owns stores and React but not the visible page DOM. Install document CSS
+    ///     and perform visible-page inspection on this role; use URL shape rather than a localized title.
     /// </remarks>
     MainWindow
 }
@@ -106,8 +102,8 @@ public enum SteamUiDispatch
 /// <param name="Dispatch">How far the request got.</param>
 /// <param name="Value">The by-value string result returned by JavaScript.</param>
 /// <param name="Error">
-///     Why the request was not sent or not answered, or the bounded JavaScript exception the page
-///     answered with.
+///     Why the request was not sent or not answered, or the complete JavaScript exception the page
+///     answered with. Log writers bound their output separately.
 /// </param>
 /// <param name="Generations">The generations under which the result was produced.</param>
 public readonly record struct SteamUiEvaluationResult(
@@ -185,5 +181,6 @@ public interface ISteamUiTransport : IAsyncDisposable
         CancellationToken cancellationToken = default);
 
     /// <summary>Returns sanitized state for every target channel.</summary>
+    /// <returns>A sanitized point-in-time snapshot of each target channel.</returns>
     IReadOnlyList<SteamUiTransportSnapshot> GetSnapshots();
 }

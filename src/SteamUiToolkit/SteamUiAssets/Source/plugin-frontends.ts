@@ -5,16 +5,37 @@ const pluginFrontendListeners = new Set<() => void>();
 const pluginFrontendChanged = () => {
   for (const listener of pluginFrontendListeners) listener();
 };
+/**
+ * Observes contribution changes in this bridge generation.
+ * @param listener Callback invoked after registrations change.
+ * @returns An unsubscribe callback; there is no cached replay.
+ */
 const subscribePluginFrontends = (listener: () => void) => {
   pluginFrontendListeners.add(listener);
   return () => pluginFrontendListeners.delete(listener);
 };
+/**
+ * Reads slots for currently active frontend contributions.
+ * @param kind Contribution category, such as menu or tab.
+ * @returns A new array excluding failed or closed owners.
+ */
 const pluginFrontendItems = (kind: string) =>
   [...pluginFrontendSlots.values()].filter(
     (slot) => slot.kind === kind && !slot.entry.failed && !slot.entry.closed,
   );
+/**
+ * Renders currently active frontend contributions of one kind.
+ * @param kind Contribution category.
+ * @param react Steam's React runtime.
+ * @param props Additional props supplied by the containing surface.
+ * @returns An array of owner-bound React elements.
+ */
 const pluginFrontendElements = (kind: string, react: any, props: any = {}) =>
   pluginFrontendItems(kind).map((slot) => slot.element(react, props));
+/**
+ * Owns trusted plugin frontend scripts, contributions and failure cleanup for this bridge.
+ * @returns Probe/load/status/unload controls; unloading awaits owned cleanup, while remove starts all unloads without awaiting.
+ */
 
 function createPluginFrontends() {
   const documents = () => {
@@ -227,27 +248,85 @@ function createPluginFrontends() {
       return work;
     };
     const api: any = {
+      /**
+       * Owner module identity used for backend commands and subscriptions.
+       */
       id: spec.id,
+      /**
+       * Diagnostic module name used in frontend failure reports.
+       */
       module: spec.module,
+      /**
+       * Steam's existing React runtime; frontends must not load a second copy.
+       */
       react: reactRuntime(),
+      /**
+       * Shared generation-bound bridge; trusted frontend code is not sandboxed.
+       */
       bridge,
-      // The plugin is trusted session code. These are convenience primitives, not permissions.
+      /**
+       * Returns the shared module resolver; unavailable Steam runtime throws.
+       */
       resolveModules: getWebpackRuntime,
+      /**
+       * Resolves native settings controls; returns null when required evidence is absent.
+       */
       resolveComponents: () =>
         resolveSteamSettingsComponents(getWebpackRuntime("plugin-frontends")),
+      /**
+       * Native section, header and empty-state helpers for contributed surfaces.
+       */
       uiKit: { section: renderSteamUiGroup, header: renderSteamUiHeader, note: renderSteamUiEmpty },
+      /**
+       * Wraps a callback so synchronous throws and rejected promises fail the owning plugin.
+       * @param callback Callback to invoke with the original receiver and arguments.
+       * @returns A guarded callback; failure triggers cleanup of this owner and sibling modules.
+       */
       guard: (callback: any) => guard(entry, spec.module, callback),
+      /**
+       * Registers owner cleanup, invoked in reverse order during unload or failure.
+       * @param callback Cleanup callback; an asynchronous result receives a two-second wait budget.
+       */
       onDispose: (callback: any) => entry.cleanups.push(callback),
+      /**
+       * Invokes an allowlisted backend method through this module.
+       * @param method Semantic backend method name.
+       * @param payload JSON arguments; defaults to null.
+       * @returns The bridge result promise; refusal and timeout reject.
+       */
       call: (method: string, payload: any = null) =>
         request(spec.id, "invoke", { method, payload }),
+      /**
+       * Observes backend state with cached replay and owner failure handling.
+       * @param callback Receives complete state publications.
+       * @returns An unsubscribe callback, also retained for automatic owner cleanup.
+       */
       subscribe: (callback: any) => {
         const stop = subscribe(spec.id, guard(entry, spec.module, callback));
         entry.cleanups.push(stop);
         return stop;
       },
+      /**
+       * Waits for a frontend readiness predicate, checking every 50 ms for up to five seconds.
+       * @param check Returns true or an object with ok:true when ready.
+       * @returns A promise rejecting on timeout, predicate failure or owner shutdown.
+       */
       ready: (check: any) => ready(entry, spec.module, check),
+      /**
+       * Contributes a routed page; duplicate ids and nonabsolute paths are rejected.
+       * @param id Contribution id unique within this module.
+       * @param page Page descriptor with an absolute path.
+       * @param render Renderer wrapped in the owning plugin error boundary.
+       * @returns A registration promise; asynchronous failure marks the owner failed and starts cleanup.
+       */
       registerPage: (id: string, page: any, render: any) =>
         register("page", id, page, render, "pages"),
+      /**
+       * Contributes a native navigation row, with an optional guarded activation callback.
+       * @param id Contribution id unique within this module.
+       * @param item Menu descriptor and optional onActivate callback.
+       * @returns A registration promise; owner status reports asynchronous failure.
+       */
       registerMenuEntry: (id: string, item: any) =>
         register(
           "menu",
@@ -261,8 +340,22 @@ function createPluginFrontends() {
           null,
           "navigationPanel",
         ),
+      /**
+       * Contributes a rendered Quick Access tab.
+       * @param id Contribution id unique within this module.
+       * @param tab Tab descriptor, including its title.
+       * @param render Renderer wrapped in the owning plugin error boundary.
+       * @returns A registration promise; owner status reports asynchronous failure.
+       */
       registerQuickAccessTab: (id: string, tab: any, render: any) =>
         register("tab", id, tab, render, "extensionsTab"),
+      /**
+       * Contributes a row through the native component host.
+       * @param id Contribution id unique within this module.
+       * @param placement quickSettings selects Quick Settings; every other value selects Performance.
+       * @param render Renderer wrapped in the owning plugin error boundary.
+       * @returns A registration promise; owner status reports asynchronous failure.
+       */
       registerQuickAccessRow: (id: string, placement: string, render: any) =>
         register(
           placement === "quickSettings" ? "quickSettings" : "perf",
@@ -272,15 +365,37 @@ function createPluginFrontends() {
           "nativeComponents",
           "settingsSections",
         ),
+      /**
+       * Contributes a library-card addition receiving the current surface props.
+       * @param id Contribution id unique within this module.
+       * @param render Renderer wrapped in the owning plugin error boundary.
+       * @returns A registration promise; owner status reports asynchronous failure.
+       */
       registerLibraryAddition: (id: string, render: any) =>
         register("library", id, {}, render, "libraryBadge"),
+      /**
+       * Contributes a game-details addition receiving the current surface props.
+       * @param id Contribution id unique within this module.
+       * @param render Renderer wrapped in the owning plugin error boundary.
+       * @returns A registration promise; owner status reports asynchronous failure.
+       */
       registerGamePageAddition: (id: string, render: any) =>
         register("gamePage", id, {}, render, "libraryDetails"),
+      /**
+       * Appends owner CSS to the main and reachable popup documents; unload removes the owned nodes.
+       * @param css CSS text evaluated with the same trust as the frontend script.
+       */
       addStyle: (css: string) => {
         entry.style = `${entry.style ?? ""}\n${css}`;
         for (const style of entry.styles) style.textContent = entry.style;
         refreshDocuments();
       },
+      /**
+       * Probes, applies and verifies a plugin-owned patch, retaining its remover for cleanup.
+       * @param id Diagnostic patch suffix within this module.
+       * @param patch Object providing probe, apply, verify and remove callbacks.
+       * @returns A promise; asynchronous failure marks the owner failed rather than escaping.
+       */
       registerPatch: (id: string, patch: any) => {
         const module = `${spec.module}/${id}`;
         const work = (async () => {
@@ -293,16 +408,35 @@ function createPluginFrontends() {
         entry.pending.push(work);
         return work;
       },
+      /**
+       * Schedules an owner-guarded callback and cancels it on cleanup.
+       * @param callback Callback whose failure fails the owner.
+       * @param milliseconds Delay passed to the browser timer.
+       * @returns The browser timeout handle.
+       */
       setTimeout: (callback: any, milliseconds: number) => {
         const timer = setTimeout(guard(entry, spec.module, callback), milliseconds);
         entry.cleanups.push(() => clearTimeout(timer));
         return timer;
       },
+      /**
+       * Schedules a repeating owner-guarded callback and cancels it on cleanup.
+       * @param callback Callback whose failure fails the owner.
+       * @param milliseconds Interval passed to the browser timer.
+       * @returns The browser interval handle.
+       */
       setInterval: (callback: any, milliseconds: number) => {
         const timer = setInterval(guard(entry, spec.module, callback), milliseconds);
         entry.cleanups.push(() => clearInterval(timer));
         return timer;
       },
+      /**
+       * Registers a guarded event listener and removes the same callback/options on cleanup.
+       * @param target EventTarget receiving the listener.
+       * @param type Browser event name.
+       * @param callback Listener whose failure fails the owner.
+       * @param options Listener options reused when removing it.
+       */
       addEventListener: (target: any, type: string, callback: any, options?: any) => {
         const wrapped = guard(entry, spec.module, callback);
         target.addEventListener(type, wrapped, options);

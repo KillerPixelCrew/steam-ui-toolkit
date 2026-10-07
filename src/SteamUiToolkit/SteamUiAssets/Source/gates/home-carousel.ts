@@ -1,48 +1,8 @@
-// Big Picture Home's carousel, fed from the libraries attached right now.
-//
-// Mapped from the September 2026 client beta's shipped bundle on 2026-09-11:
-//
-//   <route "/library/home">    one of the router switch's children
-//     Home                     a module-local React.memo; source carries "HomeTabsActive"
-//       ...RecentSection
-//         Carousel             module-local React.memo; source carries "#Showcase_RecentGames"
-//           games = on()       module-local hook: Steam's own mix, capped at 20 app ids
-//           Background { games, refOnItemFocus }        hero art for the focused game
-//           RecentGames { games, onItemFocus, ... }     plain function
-//             BoxCarousel { games, overscan: games.length }
-//               VirtualizedBox   react-virtualized Grid, overscanColumnCount = overscan ?? 3
-//
-// Two facts decide the whole design.
-//
-// The list is one array of app ids passed as `games` to both the background and the carousel. That
-// array is the data boundary: replacing it there feeds Steam's own components rather than building
-// cards, and the background, focus restore and featured tile all follow it. Nothing upstream of it
-// is reachable — the hook, the carousel and Home are all module-local — so the Home memo is taken
-// from the router's route list in SharedJSContext's React tree, and its `type` is claimed. The
-// carousel element is found in what Home renders.
-//
-// The claim reaches Homes mounted after it. Big Picture starts on Home, and since the client update
-// of 2026-09-22 the router and Home mount together the moment Steam's services report initialized,
-// so the Home on screen at install was drawn by the original and would stay Steam's until the user
-// left and came back. Install therefore also adopts every mounted Home (adoptMountedType), which
-// re-renders it through the claim at once.
-//
-// The carousel is already virtualized, and Home defeats that: it passes `overscan: games.length`,
-// so every tile in the list is mounted. At Steam's cap of 20 that is harmless; at a whole library it
-// is the memory flood. The Play Next carousel uses the same component with no overscan and gets the
-// component's own default of 3, which is what this gate restores.
-//
-// Ordering is done here rather than by the host, deliberately: the candidate set is every installed
-// and every owned game with its play and purchase timestamps, which is Steam's own data and already
-// in this document; the host has no better copy to publish. The host owns which libraries count and
-// whether uninstalled games appear; this owns reading Steam's data and projecting it into the
-// carousel.
-//
-// Reactivity comes from Steam's own mobx-react-lite `useObserver`, the hook Steam's `on()` is
-// built on: the wrapper reads the three collections it draws from inside it, so Steam re-renders
-// the carousel when one of them recomputes. The host's publication re-renders it through
-// `useSyncExternalStore`. The list itself is rebuilt only when one of those inputs actually changed,
-// never on the carousel's own focus re-renders.
+/**
+ * Replaces only the matched home-carousel collection using shared memo ownership.
+ * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ */
+
 function createHomeCarousel() {
     const patchId = "steam-ui.home-carousel";
     const claimKeys = {

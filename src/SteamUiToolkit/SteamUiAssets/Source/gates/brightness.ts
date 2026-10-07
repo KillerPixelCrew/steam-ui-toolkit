@@ -1,9 +1,8 @@
-// Not availability-only, despite the founding comment that said Steam's own backend works on
-// Windows. It does not — device-disproved 2026-08-30: SetBrightness is a native stub and
-// RegisterForBrightnessChanges never fires, so the store's observable sits at its constructed 1
-// and the revealed slider moves nothing. The host is the backend: the gate forwards the slider's
-// writes over the bridge and feeds the store's observable from the published state, both through
-// the same \\.\LCD interface the host owns.
+/**
+ * Binds Steam brightness controls to host display state and brightness commands.
+ * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ */
+
 function createBrightnessGate() {
     const patchId = "steam-ui.brightness";
     const field = "is_display_brightness_available";

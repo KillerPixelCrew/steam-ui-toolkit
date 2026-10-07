@@ -48,11 +48,9 @@ public readonly record struct SteamReadResult<T>(SteamUiDispatch Dispatch, T? Va
 ///         client API. Nothing here is process-global: two clients over two transports are independent.
 ///     </para>
 ///     <para>
-///         Every change to the client's library (apps, shortcuts, collections and install folders) goes
-///         through one write lane, one at a time. Each is a separate evaluation against a client that is
-///         mutating its own stores: two in flight at once is how those stores get corrupted, and a
-///         shortcut added by one caller while another diffs the library would make the other misread
-///         which entry it created.
+///         App, shortcut, collection and install-folder writes share one serialized lane. This
+///         preserves store mutation order and the before/after identity checks used by shortcut adds.
+///         The client borrows its transport; the caller owns transport disposal.
 ///     </para>
 /// </remarks>
 public sealed class SteamClient
@@ -103,6 +101,7 @@ public sealed class SteamClient
     /// </remarks>
     public SteamRunningAppsProbe RunningApps { get; }
 
+    /// <summary>Borrows the transport used by this client; helpers must not dispose it.</summary>
     internal ISteamUiTransport Transport => _transport;
 
     /// <summary>Runs one repository-owned expression and reports how far it got.</summary>

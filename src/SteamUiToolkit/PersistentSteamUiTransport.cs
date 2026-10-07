@@ -10,6 +10,12 @@ using System.Threading.Tasks;
 namespace SteamUiToolkit;
 
 /// <summary>Owns one persistent bounded CDP connection for each allowlisted Steam UI target.</summary>
+/// <remarks>
+///     A connection becomes ready only after endpoint validation, clearing Debugger exception pauses,
+///     disabling Debugger, and enabling Runtime, Page and DOM notifications. The optional main-window
+///     discovery requirement does not decide the host's game-mode readiness or transition policy.
+///     Keep one transport per host session and share it with patches, the bridge and client calls.
+/// </remarks>
 public sealed class PersistentSteamUiTransport : ISteamUiTransport
 {
     // How many evaluations may run out their own deadline back to back before the connection is
@@ -20,6 +26,7 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
     /// <summary>The reason a closed transport reports when the host gave none.</summary>
     public const string DefaultClosedReason = "Steam CEF integration disabled in settings.";
 
+    /// <summary>Reconnect backoff after connection failures; attempts beyond the schedule reuse its final delay.</summary>
     internal static readonly IReadOnlyList<TimeSpan> DefaultRetryDelays =
     [
         TimeSpan.FromSeconds(1),
@@ -541,6 +548,9 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
     }
 
     /// <summary>Returns the bounded reconnect delay for a zero-based failed attempt.</summary>
+    /// <param name="delays">Nonempty reconnect schedule owned by the transport.</param>
+    /// <param name="attempt">Zero-based failed attempt; out-of-range indices are clamped.</param>
+    /// <returns>The first delay for a negative attempt, the indexed delay, or the last delay after the schedule is exhausted.</returns>
     internal static TimeSpan RetryDelay(IReadOnlyList<TimeSpan> delays, int attempt)
     {
         return delays[Math.Clamp(attempt, 0, delays.Count - 1)];

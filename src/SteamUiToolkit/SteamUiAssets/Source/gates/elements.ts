@@ -1,10 +1,8 @@
-// The JSX-runtime claim (interceptElements in ownership.ts), for scripts outside this bundle.
-//
-// A consumer's own resident script runs in a separate evaluation and cannot reach the claim's
-// functions, so it registers its transform here, through the bridge's gate registry, instead of
-// wrapping the runtime itself: two wrappers on `jsx` would each hand back the other on removal, and a
-// wrapper under a claim is invisible to the claim's own verification. This gate installs nothing of
-// its own; it is the claim's front door, and a registration lives exactly as long as this bridge.
+/**
+ * Exposes the shared JSX transform claim to scripts outside this bundle.
+ * @returns Named transform registration, removal and ownership checks; registrations belong to this bridge.
+ */
+
 function createElementsGate() {
     // The bridge's shared resolver, so no chunk is pushed on every registration and check.
     const runtime = () => getWebpackRuntime("elements").resolve([...JsxRuntimeTokens]);

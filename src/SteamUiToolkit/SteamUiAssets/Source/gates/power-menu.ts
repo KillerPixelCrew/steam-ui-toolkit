@@ -1,18 +1,8 @@
-// Steam's own "Switch to Desktop" in the Big Picture power menu, answered by the host.
-//
-// Mapped from the installed client on 2026-09-28. The power menu is a module-private mobx observer
-// function component: nothing exports it and its render cannot be claimed, so its root is found
-// where it passes through the JSX runtime (interceptElements in ownership.ts). Valve draws the
-// entry only when `TS.IN_GAMESCOPE` is set and then calls SteamOS's session service, which does
-// nothing on Windows; spoofing that platform flag would also change every other branch of the menu.
-// This gate draws the entry itself instead, with the item and separator types Steam's menu already
-// rendered, Steam's localized `#SwitchToDesktop` label and Valve's destructive tone, at the end of
-// the menu where Valve places it. Selecting it asks the host, which owns the switch.
-//
-// The root is recognised by its direct children, never by its localized label: one of them is the
-// Sleep or Shutdown entry, and `#Quit_Shutdown` occurs nowhere else in the client. The entry is
-// drawn only while the host publishes `visible`, so the host decides when a desktop exists to
-// return to.
+/**
+ * Projects host power-menu additions and visibility into Steam's existing menu.
+ * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ */
+
 function createPowerMenu() {
     const patchId = "steam-ui.power-menu";
     const PowerTokens = new Set(["#Sleep", "#Quit_Sleep", "#Shutdown", "#Quit_Shutdown"]);

@@ -1,32 +1,15 @@
-// A host's own settings, drawn as Steam draws its Settings page.
-//
-// Every element here is one of Steam's: the routed sidebar its Settings page is built on, its
-// settings sections, and its toggle, dropdown, slider, text and value fields, buttons and confirm
-// modal. Nothing is styled by this file, so a host's page looks and navigates exactly like
-// Settings - and a component Steam no longer ships makes the page unavailable rather than
-// replacing it with an imitation.
-//
-// Mapped against the live client on 2026-09-24:
-//
-//   module with `disableRouteReporting`   one export: the routed sidebar. Props { pages }, each page
-//                                          { title, route, icon, content, visible }. It switches
-//                                          pages with history.replace, so B leaves the whole page.
-//   the field module (FieldTokens)         `DialogSettingsSection` (a titled section), the name/value
-//                                          field (inlineWrap "shift-children-below", focusable), and
-//                                          the small button (classes DialogButton, _DialogLayout, Small),
-//                                          beside the toggle, dropdown, slider and text fields.
-//   module with strMiddleButtonText,       one export: the generic confirm modal. Props { strTitle,
-//     bProgressDialog and bAlertDialog     strDescription, strOKButtonText, bDestructiveWarning,
-//                                          onOK, onCancel }.
-//
-// The rows are the host's, described by kind rather than by component, so any host page can
-// publish them: see SteamSettingsRow on the C# side.
+// Host settings use Steam's native routed sidebar and fields. Missing component contracts refuse
+// installation; descriptors and command policy belong to the host.
 
-// The routed sidebar Steam's Settings page renders, by the one prop only it takes.
 const SteamRoutedPagesTokens = ["disableRouteReporting"] as const;
 // The generic confirm modal, by three props only its module names together.
 const SteamConfirmModalTokens = ["strMiddleButtonText", "bProgressDialog", "bAlertDialog"] as const;
 
+/**
+ * Resolves native Settings controls using unique authored-source and export-shape matches.
+ * @param runtime The shared module resolver; matched factory loads can throw.
+ * @returns The component collection, or null when required module evidence is absent.
+ */
 const resolveSteamSettingsComponents = (runtime) => {
     const ui = resolveSteamUiComponents(runtime);
     const fieldsFactory = runtime.findUnique(FieldTokens);
@@ -61,7 +44,9 @@ const resolveSteamSettingsComponents = (runtime) => {
     return {...ui, settingsSection, valueField, smallButton, routedPages, confirmModal};
 };
 
-// What a page needs from the resolution above to draw every row kind.
+/**
+ * Component names required to draw every supported host Settings row.
+ */
 const SteamSettingsRequired = [
     "react",
     "focusable",
@@ -169,7 +154,15 @@ const parseSteamColor = (text: string): SteamColor | null => {
 };
 const formatSteamColor = (color) => `hsla(${color.h}, ${color.s}%, ${color.l}%, ${color.a})`;
 
-// Edits a colour in Steam's modal with Steam's sliders. Save sends it once; Cancel and B send nothing.
+/**
+ * Opens a staged color editor; only Save dispatches the selected color.
+ * @param ui Steam's resolved React and native control components.
+ * @param title Modal title.
+ * @param current Parsed hue/saturation/lightness/alpha value.
+ * @param send Receives the saved hsla() color; cancellation never calls it.
+ * @param alpha Whether opacity is editable; false fixes an opaque color.
+ * @returns Whether the native modal could be shown.
+ */
 const showSteamColorEditor = (ui, title: string, current: SteamColor, send: (value: string) => void, alpha = true) => {
     const react = ui.react;
     const h = react.createElement;
@@ -232,9 +225,15 @@ const showSteamColorEditor = (ui, title: string, current: SteamColor, send: (val
 const steamSettingDescription = (ui, row) =>
     steamAccentDescription(ui.react, row.description, row.accent === true);
 
-// One row, by kind. `draft` is what the user has changed and the host has not yet republished,
-// so a toggle does not flick back while its write is in flight; `change` records a draft and sends
-// the value; `action` asks the host to run a row's action.
+/**
+ * Renders one typed host setting with native fields and shared refusal/draft handling.
+ * @param ui Steam's resolved React and native control components.
+ * @param row Published SteamSettingsRow descriptor.
+ * @param draft Locally staged value, or undefined to use the published value.
+ * @param change Handles edits and whether they should be committed.
+ * @param action Handles action rows.
+ * @returns The row element, or null for an unsupported row kind.
+ */
 const renderSteamSettingRow = (ui, row, draft, change, action) => {
     const h = ui.react.createElement;
     const key = `steam-setting-${row.key}`;
@@ -424,18 +423,12 @@ const steamSettingPublished = (row) =>
                 : (row.text ?? null),
     );
 
-// The drafts of a set of host rows: what the user changed that the host has not published yet, so a
-// toggle does not flick back while its write is in flight and typed text stays while it is typed.
-//
-// A draft remembers what its row was published with when it was made and is shown only while the
-// row still carries that, so a publication that changes another row leaves it alone. A committed
-// draft is written through `send`, which answers the write's request: a refusal drops that row's
-// draft and shows the reason as the row's description until the row is changed again or published
-// with another value, and an accepted write's draft gives way to the next `revision`. A `send` that
-// answers nothing counts as accepted.
-//
-// `change(send)` is the change a row renderer calls, `draft(row)` the value to draw it with and
-// `row(row)` the row with its refusal, if any, as its description.
+/**
+ * Tracks per-row edits and refusals without letting older requests settle newer drafts.
+ * @param react Steam's React instance used by the consuming root.
+ * @param revision Published revision; a change releases committed drafts to the new state.
+ * @returns change(send), draft(row) and row(row) helpers for this mounted component.
+ */
 const useSteamSettingDrafts = (react, revision: unknown) => {
     const [state, setState] = react.useState({drafts: {}, refusals: {}});
     react.useEffect(
@@ -536,4 +529,10 @@ function SteamSettingsView(props) {
     });
 }
 
+/**
+ * Creates a routed native Settings view over host-owned descriptors.
+ * @param ui Steam's resolved React and native control components.
+ * @param props Base route, pages, publication revision and setting/action callbacks.
+ * @returns The settings view; the caller owns state persistence and command validation.
+ */
 const renderSteamSettings = (ui, props) => ui.react.createElement(SteamSettingsView, {ui, ...props});

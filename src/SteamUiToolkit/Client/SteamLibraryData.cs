@@ -53,6 +53,7 @@ public sealed class SteamLibraryData
 
     // Shortcuts come from the all-apps collection, because the type-games collection excludes them.
     // Steam keeps a shortcut's id as a signed number, so every id leaves the page unsigned.
+    /// <summary>Reads unique games and non-Steam shortcuts, normalizing each app id to unsigned form.</summary>
     internal const string GamesExpression =
         "(()=>{try{const cs=collectionStore;" +
         "const g=cs.GetCollection('type-games');" +
@@ -84,6 +85,8 @@ public sealed class SteamLibraryData
 
     private readonly SteamClient _client;
 
+    /// <summary>Creates the library metadata reads façade without opening a connection.</summary>
+    /// <param name="client">Owning client; borrowed for dispatch and lifetime, never disposed by this façade.</param>
     internal SteamLibraryData(SteamClient client)
     {
         _client = client;
@@ -121,8 +124,9 @@ public sealed class SteamLibraryData
         return ParseTags(result);
     }
 
-    /// <summary>Maps the games reply to a read. Pure, for tests.</summary>
+    /// <summary>Maps the games reply to a read.</summary>
     /// <param name="result">The evaluation outcome.</param>
+    /// <returns>A name-sorted game list, or an empty list with an error when the reply is invalid or unavailable.</returns>
     internal static SteamLibraryReadResult ParseReadGames(SteamUiEvaluationResult result)
     {
         var read = SteamClientScript.ParseRead<IReadOnlyList<SteamLibraryApp>>(result, "library", static root =>
@@ -156,8 +160,9 @@ public sealed class SteamLibraryData
             : new SteamLibraryReadResult([], read.Error ?? "Steam's library is unavailable.");
     }
 
-    /// <summary>Maps the collections reply to a read. Pure, for tests.</summary>
+    /// <summary>Maps the collections reply to a read.</summary>
     /// <param name="result">The evaluation outcome.</param>
+    /// <returns>Collection descriptors and member ids, or a failed read for an invalid or unavailable reply.</returns>
     internal static SteamReadResult<IReadOnlyList<SteamCollectionInfo>> ParseCollections(
         SteamUiEvaluationResult result)
     {
@@ -190,8 +195,9 @@ public sealed class SteamLibraryData
         });
     }
 
-    /// <summary>Maps the tags reply to a read. Pure, for tests.</summary>
+    /// <summary>Maps the tags reply to a read.</summary>
     /// <param name="result">The evaluation outcome.</param>
+    /// <returns>Named store tags with counts, or a failed read; entries with invalid ids or empty names are omitted.</returns>
     internal static SteamReadResult<IReadOnlyList<SteamStoreTag>> ParseTags(SteamUiEvaluationResult result)
     {
         return SteamClientScript.ParseRead<IReadOnlyList<SteamStoreTag>>(result, "store tags", static root =>

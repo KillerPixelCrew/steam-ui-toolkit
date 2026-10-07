@@ -48,13 +48,13 @@
     let nextSequence = 0;
     let disposed = false;
 
-    // One reviewed runtime tap for every gate. Capturing webpack's runtime by pushing an empty
-    // chunk is the proven primitive; six private copies only made it possible for their safety and
-    // diagnostics to drift. This helper captures the runtime but never evaluates an unknown module.
-    // The resolver is kept once a capture succeeds (the factory throws while the runtime is
-    // unavailable, so nothing is cached until then), so every gate shares one chunk push and one
-    // source cache. It remembers no failure, so a module that threw during a cold start recovers.
+    // A successful capture is shared; failed cold-start captures remain retryable.
     let webpackResolver: ReturnType<typeof createSteamUiModuleResolver> | undefined;
+    /**
+     * Returns this bridge's shared webpack resolver without evaluating unknown modules.
+     * @param scope Diagnostic label used only on the first successful capture.
+     * @returns The cached resolver; an unavailable runtime throws and can be retried later.
+     */
     const getWebpackRuntime = (scope) => (webpackResolver ??= createSteamUiModuleResolver(scope));
 
     const allowed = (patchId, command) => {
@@ -67,16 +67,7 @@
         if (typeof binding !== "function") throw new Error("Steam UI Runtime binding unavailable");
         binding(JSON.stringify(envelope));
     };
-    // The host REJECTS an action generation of zero, and several gates were passing exactly that —
-    // "sequence or action generation is invalid" against steam-ui.performance/updateSettings,
-    // steam-network.gate/startScan and stopScan, and steam-bluetooth.service/setDiscovering, on the
-    // reference device on 2026-08-30. Every Valve performance control's write, and every signal that
-    // Steam's network page had started looking for networks, was dropped by the bridge before the host
-    // ever saw it — which is why the Wi-Fi list never filled: the host was never told to scan.
-    //
-    // Zero was meant as "no user-initiated row action here", which is true of a gate. Rather than
-    // repeat the counter at each such call site, an absent or non-positive generation is allocated
-    // one here, so no caller can construct an invalid envelope at all.
+    // Every request requires a positive generation, including automatic service notifications.
     const actionGenerations = new Map<string, number>();
     const nextActionGeneration = (patchId) => {
         const next = (actionGenerations.get(patchId) || 0) + 1;
@@ -93,8 +84,14 @@
         }
         return nextActionGeneration(patchId);
     };
-    // The generation is optional: a gate has no user-initiated row action to number, and one is
-    // allocated for it above. Row controls pass their own so an echo can be matched to the write.
+    /**
+     * Sends one allowlisted semantic request in the current bridge generation.
+     * @param patchId Registered command namespace.
+     * @param command Allowlisted command name.
+     * @param payload JSON-serializable payload; undefined becomes null.
+     * @param requestedGeneration Optional positive action generation; otherwise a new one is allocated.
+     * @returns A promise for the backend payload; rejects on refusal, overload, timeout, disposal or send failure.
+     */
     const request = (patchId, command, payload, requestedGeneration?: number) => {
         if (!allowed(patchId, command)) return Promise.reject(new Error("command not allowlisted"));
         if (pending.size >= config.maximumPending) return Promise.reject(new Error("bridge busy"));
@@ -130,9 +127,12 @@
             }
         });
     };
-    // After dispose a subscription registers nothing and hands back a no-op. It does not throw: the
-    // old bridge's components can still run an effect before Steam unmounts them, and a throw there
-    // would take down the React tree it sits in.
+    /**
+     * Subscribes to a patch state with synchronous cached replay and isolated callback errors.
+     * @param patchId Registered publication identity.
+     * @param callback Receives each complete delivered state, including cached state if available.
+     * @returns An unsubscribe callback; after disposal a valid subscription returns a no-op.
+     */
     const subscribe = (patchId, callback) => {
         if (!Object.hasOwn(config.allowed, patchId) || typeof callback !== "function")
             throw new Error("subscription not allowlisted");
@@ -150,8 +150,12 @@
         }
         return () => set.delete(callback);
     };
-    // Tells a surface when its state could not be delivered: called with the reason, and with null
-    // once a state arrives again. Replayed on subscription like state is.
+    /**
+     * Subscribes to publication failures and their recovery with synchronous cached replay.
+     * @param patchId Registered publication identity.
+     * @param callback Receives a refusal reason, or null when a later state succeeds.
+     * @returns An unsubscribe callback; invalid identities or callbacks throw.
+     */
     const subscribeRefusal = (patchId, callback) => {
         if (!Object.hasOwn(config.allowed, patchId) || typeof callback !== "function")
             throw new Error("subscription not allowlisted");
@@ -317,6 +321,11 @@
     // early because an identical bridge is already installed, the whole IIFE returns and no fragment
     // registers over it.
     const gates = new Map<string, unknown>();
+    /**
+     * Registers one gate implementation in this asset's shared bridge.
+     * @param name Gate identity used by host patch expressions.
+     * @param gate Gate lifecycle object retained until bridge disposal.
+     */
     const registerGate = (name: string, gate: unknown) => {
         gates.set(name, gate);
     };

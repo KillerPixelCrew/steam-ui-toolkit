@@ -1,21 +1,13 @@
-// A folder and file picker for pages drawn inside Steam.
-//
-// Steam has no picker a page can open, and a Windows dialog opens behind Big Picture with no
-// controller support. This draws one as a Steam modal from Steam's own components: its dialog
-// frame, its focusable rows and its buttons. The host lists the file system through the
-// steam-ui.file-picker commands (SteamFilePickerSurface on the C# side); nothing here reads the
-// disk, and the page decides what to do with the path the user chose.
-//
-// Controller: A opens a folder or chooses a file, X uses the current folder, Y goes up a level,
-// B cancels.
+// Controller-accessible file selection; filesystem listing is delegated to the host bridge.
 
 const SteamFilePickerPatchId = "steam-ui.file-picker";
 
-// Opens the picker. Resolves with the chosen path, or null when the user cancelled.
-//
-// ui       resolved Steam components: react, focusable, dialogButton, dialogButtonPrimary,
-//          modalRoot, showModal
-// options  { title, mode: "folder" | "file", extensions: [".lnk", ...], start: "D:\\Games" }
+/**
+ * Opens a controller-accessible picker backed by the file-picker bridge commands.
+ * @param ui Steam's resolved React and native control components.
+ * @param options Optional title, folder/file mode, extension filters and starting path.
+ * @returns A promise for the selected path, or null on cancellation or unavailable modal components.
+ */
 const showSteamFilePicker = (ui, options: any = {}) =>
     new Promise<string | null>((resolve) => {
         const react = ui?.react;

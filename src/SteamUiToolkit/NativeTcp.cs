@@ -57,6 +57,7 @@ internal static partial class NativeTcp
     ///     by that many fixed-size rows. Exposed for tests.
     /// </summary>
     /// <param name="buffer">The raw table bytes.</param>
+    /// <returns>Decoded complete rows; a short header yields an empty list and truncated trailing rows are ignored.</returns>
     internal static List<Listener> DecodeTable(ReadOnlySpan<byte> buffer)
     {
         var listeners = new List<Listener>();
@@ -92,6 +93,7 @@ internal static partial class NativeTcp
     ///     table could not be read at all, which callers must not report as "nothing is
     ///     listening".
     /// </summary>
+    /// <returns>The listener list, possibly empty, or null when the native table cannot be read.</returns>
     internal static unsafe List<Listener>? ListListeners()
     {
         // Classic two-call pattern: a socket opened or closed between the sizing call

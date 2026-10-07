@@ -1,25 +1,7 @@
-// Glyphs for the Quick Access rows and section headers the component host mounts.
-//
-// Valve draws every Quick Access icon as inline SVG that carries no size of its own: the shapes are
-// filled with `currentColor` so they inherit the row's colour, and the panel's own CSS decides
-// how big they are — `.FieldIcon svg` is 20px tall next to a label, and `.PanelSectionTitle > svg`
-// is 18px. Field takes one through its `icon` prop, which SliderField, ToggleField and DropDownField
-// all forward, so a row needs nothing but an element here.
-//
-// These are the toolkit's own drawings on a 24x24 grid, not copies of the client's artwork. Valve's
-// icons live in the Steam bundle under Valve's terms; a library that ships under its own license
-// cannot vendor them, and matching the drawing convention — solid shapes, `currentColor`, holes cut
-// with `fill-rule="evenodd"` — is what makes a new glyph sit beside a Valve one without looking
-// borrowed or bolted on.
-//
-// EVERY GLYPH IS USED EXACTLY ONCE. People navigate a panel like this by shape before they read the
-// label, so a glyph that appears on a header and again on a row inside it, or on two rows that do
-// different things, is worse than no glyph at all: it tells the eye two controls are the same when
-// they are not. Adding a row means drawing a shape, never borrowing one.
-//
-// A shape is a tag and its attributes, in React's camelCase spelling because these are handed
-// straight to Steam's own createElement. Composing an icon from rects and circles where the geometry
-// allows keeps the path data short enough to read, which is the same reason Valve does it.
+// Original 24×24 glyphs for native Steam rows; filled with currentColor and sized by the host.
+// Each row has a distinct shape so controller navigation retains recognizable landmarks.
+
+/** Named glyph shapes expressed as React SVG tags and attributes. */
 const SteamUiIconShapes: Readonly<Record<string, readonly SteamUiIconShape[]>> = Object.freeze({
     // -- Profile scope --------------------------------------------------------------------------
 
@@ -407,10 +389,11 @@ const SteamUiIconShapes: Readonly<Record<string, readonly SteamUiIconShape[]>> =
 // the comments that lead it, and this file's header has to reach the asset.
 type SteamUiIconShape = readonly [string, Readonly<Record<string, string | number | boolean>>];
 
-// Builds icons with Steam's own React, and caches the result: a React element is immutable, so one
-// per name and size can be handed to every render of every row rather than rebuilt on each pass.
-// An unknown name returns null, which is what Field, PanelSection and the section header below all
-// treat as "no icon" — a mistyped name loses a glyph, never a row.
+/**
+ * Creates a decorative icon renderer with a cache owned by the supplied React runtime.
+ * @param react Steam's React runtime; elements must be rendered by this same instance.
+ * @returns A (name, size = 20) renderer; unknown icon names return null.
+ */
 const createIconRenderer = (react) => {
     const cache = new Map();
     return (name, size = 20) => {
@@ -440,14 +423,15 @@ const createIconRenderer = (react) => {
     };
 };
 
-// A glyph the host supplies as SVG path data on a 24x24 grid: one path, filled with `currentColor`,
-// holes cut with `fill-rule="evenodd"`. That is Valve's own convention for the main menu's icons -
-// inline SVG with no size of its own, sized by the row's icon box - so a host's mark sits beside
-// Home and Library as one of them. Only path commands and numbers are accepted, so a publication
-// can describe a shape and nothing else; its length is the host's. Cached per React and path, so a
-// glyph is never handed to a React that did not build it; null when the data is not a path.
+// Only SVG path commands and numbers are accepted; publications cannot inject markup.
 const SteamGlyphPattern = /^[MmLlHhVvCcSsQqTtAaZz0-9.,\-\s]+$/u;
 const steamGlyphCaches = new WeakMap();
+/**
+ * Renders host-supplied SVG path data as a decorative current-color glyph.
+ * @param react Steam's React runtime, which owns cached elements.
+ * @param d SVG path commands and numbers on a 24×24 grid; markup is rejected.
+ * @returns A cached or new SVG element, or null when the path fails validation.
+ */
 const renderSteamGlyph = (react, d) => {
     if (typeof d !== "string" || !SteamGlyphPattern.test(d)) return null;
     let steamGlyphCache = steamGlyphCaches.get(react);

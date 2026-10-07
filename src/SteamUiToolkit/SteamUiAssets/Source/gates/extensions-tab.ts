@@ -1,9 +1,8 @@
-// The Quick Access Extensions tab.
-//
-// Decky demonstrates that a tab object is data added to the QAM's tab list, but this gate owns the
-// narrow operation rather than exposing Decky's raw patch helpers to package code. The tab body is
-// entirely host-rendered from a typed publication, so extensions cannot inject a React tree into a
-// shared Steam surface.
+/**
+ * Contributes the host Extensions tab through the shared Quick Access memo claim.
+ * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ */
+
 function createExtensionsTab() {
   const patchId = "steam-ui.extensions-tab";
   const claimKeys = {

@@ -15,6 +15,12 @@ namespace SteamUiToolkit;
 public delegate bool SteamUiPayloadReader<T>(JsonElement payload, out T value);
 
 /// <summary>Public building blocks for consumer- and plugin-owned typed Steam UI modules.</summary>
+/// <remarks>
+///     A null typed reading withholds that publication; it does not clear the document's last state.
+///     To retract content while its patch remains installed, publish the surface's explicit empty
+///     state. Patch enablement and removal are separate host decisions. A publication revision must
+///     change whenever its serialized state changes, including a change to empty state.
+/// </remarks>
 public static class SteamUiModuleBuilder
 {
     /// <summary>Declares a surface that publishes one typed state.</summary>

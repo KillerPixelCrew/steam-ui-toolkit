@@ -1,32 +1,5 @@
-// The UI kit: the elements a host draws around Steam's own fields.
-//
-// Steam ships a toggle, a dropdown, a slider, a text field, a button and a modal, and a page uses
-// those wherever one fits, resolved from Steam's own modules. It ships nothing for the rest of what
-// a page is made of: a section heading that folds, a block of rows, a row of actions, a swatch, a
-// card in a grid. Those are drawn here, once, from plain elements and one stylesheet, in the
-// vocabulary of Steam's own panels — its greys, its 2px radius, its focus outline — so a host's
-// page and its Quick Access tab look like one thing and like the panels beside them.
-//
-// Every element takes `ui`, the components resolved for the page, and answers React elements built
-// with Steam's React, so Steam's navigation treats them as its own. Focus is Steam's Focusable, and
-// the `gpfocus` class it sets on the focused element is what the stylesheet lights up.
-//
-// The stylesheet is rendered by whichever root uses the kit (`steamUiKitStyle`), so it lands in the
-// document the root is drawn into: the Quick Access popup, a page's window, a modal. Class names
-// are prefixed `steam-ui-kit-` and the rules are flat, so a host can add to them without fighting
-// specificity.
-//
-// One rule names a Steam class: the tabbed page's header row is picked by the substring
-// `gamepadtabbedpage_TabHeaderRowWrapper` of its class, which survives the hash suffix Steam adds,
-// to give that row the panel's background. Three more reach into Steam's own markup by structure
-// rather than by any class name. A block zeroes the field bleed Steam's panel rows give their fields
-// (`--field-negative-horizontal-margin`, 16px, so a field can run to the panel's edge): a block
-// has a border, and a field runs to that. The Quick Access menu also gives a field's control
-// container a 270px minimum width and its buttons a 160px one, from an id-scoped rule, so both are
-// lifted with `!important`; a block's content is narrower than Valve's panel column, and a fixed
-// minimum is what pushed dropdowns past the border. And `steam-ui-kit-battery` draws Valve's
-// battery line at one line's height, finding the row as the element with three children whose middle
-// one, the percentage, is not empty: the section around it has three as well, the last two empty.
+// Shared elements around Steam's native fields. Use Steam React/Focusable and render the kit
+// stylesheet in each consuming document. CSS selectors preserve Valve layout and focus behavior.
 
 const SteamUiKitStyles = `
 .steam-ui-kit-page{margin-top:var(--basicui-header-height,40px);height:calc(100% - var(--basicui-header-height,40px));display:flex;flex-direction:column;background:var(--gpSystemDarkestGrey,#0e141b);color:#dcdedf}
@@ -141,6 +114,11 @@ const SteamUiKitStyles = `
 // than fresh ones to diff.
 const steamUiKitStyles = new WeakMap();
 const steamUiKitIcons = new WeakMap();
+/**
+ * Returns the cached kit stylesheet element; render it once in each consuming document root.
+ * @param react Steam's React instance used by the consuming root.
+ * @returns The style element shared by callers using this React instance.
+ */
 const steamUiKitStyle = (react) => {
     let element = steamUiKitStyles.get(react);
     if (!element) {
@@ -158,11 +136,12 @@ const steamUiKitIcon = (react) => {
     return icon;
 };
 
-// A section heading: a glyph, the title and its detail line, and, when it folds, the kit's caret
-// saying which way. A folding heading is Steam's Focusable, because Steam's own section title
-// cannot take focus and a controller has to be able to land on the fold; one that does not fold is
-// a plain heading, drawn the same so a fixed section and a folding one read as siblings. `sub` is
-// the smaller heading a switch's own settings fold under inside a section.
+/**
+ * Creates a section heading with optional controller-accessible folding.
+ * @param ui Steam's resolved React and native control components.
+ * @param props Title, optional icon/detail, fold state and toggle callback; sub selects nested styling.
+ * @returns A heading element; without onToggle it is not a focusable fold control.
+ */
 const renderSteamUiHeader = (
     ui,
     props: {
@@ -210,16 +189,13 @@ const renderSteamUiHeader = (
         : h("div", { className }, ...children);
 };
 
-// A block of a panel: a heading over its rows, with a subtle fill and border so the blocks beside
-// each other read as groups. With `onToggle` the heading folds the body away; the body stays
-// mounted while folded, so rows keep their subscriptions and what a folded block's detail line
-// reports stays current. `hidden` takes the whole block out of layout, still mounted. Steam's
-// gamepad navigation walks mounted Focusables whether they are drawn or not, so a folded body and a
-// hidden block are Focusables with child focus disabled: the controller and the arrow keys move from
-// a folded heading to the next block's, never into rows nobody can see. Without a
-// title the block is a plain box around its rows. A root whose blocks are Steam's own PanelSections
-// gives them the same look with the `steam-ui-kit-blocks` class, and `steam-ui-kit-valve` also
-// restyles Valve's section titles to the kit's heading.
+/**
+ * Creates a section whose hidden or folded descendants remain mounted but cannot receive focus.
+ * @param ui Steam's resolved React and native control components.
+ * @param props Section identity, optional title/icon/detail and fold/visibility controls.
+ * @param children Rows retained while the section is folded.
+ * @returns The grouped React element; the caller owns fold state.
+ */
 const renderSteamUiGroup = (
     ui,
     props: {
@@ -266,8 +242,12 @@ const renderSteamUiGroup = (
     );
 };
 
-// Actions in a two-column grid: two short labels sit side by side, a long one takes the row. Each
-// is Steam's DialogButton, so it navigates and lights up as Steam's do.
+/**
+ * Creates a controller-navigable grid of native action buttons.
+ * @param ui Steam's resolved React and native control components.
+ * @param actions Stable ids, visible labels and activation callbacks in display order.
+ * @returns A two-column grid; long labels span both columns.
+ */
 const renderSteamUiActions = (
     ui,
     actions: {
@@ -390,9 +370,12 @@ const renderSteamUiStringList = (
     );
 };
 
-// The foot of a list that is drawn a page at a time: one centred button that asks for the next page.
-// A long list is paged rather than drawn whole, because every card is a Focusable and an image, and a
-// few thousand of them stall Steam's renderer.
+/**
+ * Creates the next-page control for a bounded list of rendered items.
+ * @param ui Steam's resolved React and native control components.
+ * @param props Optional label/disabled state and the callback requesting more items.
+ * @returns A centered native button; it does not fetch or append items itself.
+ */
 const renderSteamUiMore = (
     ui,
     props: { label?: string; onClick: () => void; disabled?: boolean },
@@ -409,9 +392,13 @@ const renderSteamUiMore = (
     );
 };
 
-// A page's pane: the column its toolbar, grid and notes stand in. It takes the controller's focus
-// when it appears, which is when the page opens and when a detail or level over it closes: the
-// element that had focus is gone then, and focus left on nothing sends B out of the page.
+/**
+ * Creates a page column that acquires controller focus when mounted.
+ * @param ui Steam's resolved React and native control components.
+ * @param props Optional React key and additional class name.
+ * @param children Toolbar, list or other page content in navigation order.
+ * @returns The focusable pane, or a plain container when Focusable is unavailable.
+ */
 const renderSteamUiPane = (ui, props: { key?: string; className?: string }, ...children) => {
     const h = ui.react.createElement;
     const className = ["steam-ui-kit-pane", props.className].filter(Boolean).join(" ");
@@ -424,9 +411,13 @@ const renderSteamUiPane = (ui, props: { key?: string; className?: string }, ...c
         : h("div", { key: props.key, className }, ...children);
 };
 
-// A level of a page drawn over its main view, such as one title's artwork: it takes the
-// controller's focus when it opens, and B, handled here, goes back one level rather than leaving
-// the page.
+/**
+ * Creates a nested page level that handles Back before Steam leaves the route.
+ * @param ui Steam's resolved React and native control components.
+ * @param props Optional class and callback returning to the previous level.
+ * @param children Content of the nested level.
+ * @returns A focusable level with initial focus and the supplied Back action.
+ */
 const renderSteamUiLevel = (ui, props: { className?: string; onBack?: () => void }, ...children) =>
     ui.react.createElement(
         ui.focusable,
@@ -439,12 +430,21 @@ const renderSteamUiLevel = (ui, props: { className?: string; onBack?: () => void
         ...children,
     );
 
-// A colour as a small square.
+/**
+ * Creates a noninteractive color preview.
+ * @param react Steam's React instance used by the consuming root.
+ * @param color CSS color used as the swatch background.
+ * @returns The swatch element.
+ */
 const renderSteamUiSwatch = (react, color: string) =>
     react.createElement("div", { className: "steam-ui-kit-swatch", style: { background: color } });
 
-// A card in a grid: a 16:10 image with a stats strip over its foot, a badge in its corner, a title
-// and up to a few meta lines. Focusable and activatable as one thing.
+/**
+ * Creates one activatable gallery card using Steam controller focus.
+ * @param ui Steam's resolved React and native control components.
+ * @param props Optional image/stats/badge, title, metadata and activation callback.
+ * @returns A single focus target containing the card content.
+ */
 const renderSteamUiCard = (
     ui,
     props: {
@@ -494,7 +494,12 @@ const renderSteamUiCard = (
     );
 };
 
-// A grid of cards.
+/**
+ * Arranges rendered cards in a controller-navigable grid.
+ * @param ui Steam's resolved React and native control components.
+ * @param cards Already-created card elements in display order.
+ * @returns The grid element; callers bound the number of mounted cards.
+ */
 const renderSteamUiGrid = (ui, cards: any[]) =>
     ui.react.createElement(
         ui.focusable,
@@ -502,11 +507,22 @@ const renderSteamUiGrid = (ui, cards: any[]) =>
         ...cards,
     );
 
-// What a list shows when it has nothing, or why it could not be filled.
+/**
+ * Creates an empty-list explanation or error message.
+ * @param react Steam's React instance used by the consuming root.
+ * @param text Visible reason or empty-state text.
+ * @param error Whether to use error styling.
+ * @returns The message element.
+ */
 const renderSteamUiEmpty = (react, text: string, error = false) =>
     react.createElement("div", { className: `steam-ui-kit-empty${error ? " error" : ""}` }, text);
 
-// A line the user should read, with a way to dismiss it: a notice, or an error in red.
+/**
+ * Creates a dismissible notice or error.
+ * @param ui Steam's resolved React and native control components.
+ * @param props Message, error flag and callback that clears the owning state.
+ * @returns The banner; dismissal is delegated to the caller.
+ */
 const renderSteamUiBanner = (
     ui,
     props: { text: string; error?: boolean; onDismiss: () => void },
@@ -520,15 +536,26 @@ const renderSteamUiBanner = (
     );
 };
 
-// A toolbar of controls: dropdowns, a search box and buttons in one focusable row. A tool is
-// `renderSteamUiTool`, which labels a control the way the store's filter row labels its own;
-// `grow` lets a search box take what is left.
+/**
+ * Groups existing controls in a horizontal controller-navigation row.
+ * @param ui Steam's resolved React and native control components.
+ * @param tools Rendered toolbar items, normally created with renderSteamUiTool.
+ * @returns The focusable toolbar element.
+ */
 const renderSteamUiToolbar = (ui, ...tools) =>
     ui.react.createElement(
         ui.focusable,
         { className: "steam-ui-kit-toolbar", "flow-children": "row" },
         ...tools,
     );
+/**
+ * Labels a control within a toolbar.
+ * @param ui Steam's resolved React and native control components.
+ * @param label Visible label, or null to omit it.
+ * @param control Rendered native control.
+ * @param grow Whether this item occupies remaining toolbar space.
+ * @returns The labelled toolbar item.
+ */
 const renderSteamUiTool = (ui, label: string | null, control, grow = false) => {
     const h = ui.react.createElement;
     return h(
@@ -539,7 +566,12 @@ const renderSteamUiTool = (ui, label: string | null, control, grow = false) => {
     );
 };
 
-// Small buttons in a wrapping row: a theme's targets, a filter's values.
+/**
+ * Creates a wrapping row of native buttons.
+ * @param ui Steam's resolved React and native control components.
+ * @param chips Labels, click handlers and optional controller action descriptions.
+ * @returns The controller-navigable chip row.
+ */
 const renderSteamUiChips = (
     ui,
     chips: { label: string; onClick: () => void; description?: string }[],
@@ -562,7 +594,13 @@ const renderSteamUiChips = (
     );
 };
 
-// A box with a bold title line and whatever follows: the action column of a detail view.
+/**
+ * Groups detail content under an optional heading.
+ * @param react Steam's React instance used by the consuming root.
+ * @param title Heading content; a false-like value omits the heading.
+ * @param children Content rendered below the heading.
+ * @returns The detail box element.
+ */
 const renderSteamUiBox = (react, title, ...children) =>
     react.createElement(
         "div",
@@ -571,8 +609,12 @@ const renderSteamUiBox = (react, title, ...children) =>
         ...children,
     );
 
-// A gallery: one large image and, with more than one, a column of thumbnails that pick it and a
-// counter over its corner.
+/**
+ * Creates a selected image with controller-selectable thumbnails.
+ * @param ui Steam's resolved React and native control components.
+ * @param props Image URLs, selected index, selection callback and optional empty text.
+ * @returns The gallery; the displayed index is clamped without changing caller state.
+ */
 const renderSteamUiGallery = (
     ui,
     props: { images: string[]; index: number; onSelect: (index: number) => void; empty?: string },
@@ -619,9 +661,12 @@ const renderSteamUiGallery = (
     );
 };
 
-// A movie preview on the gallery's frame, 16:9: the movie playing quietly on a loop over its
-// still, the still alone, or what stands in for it. Muted, because a preview that speaks is a
-// preview that is closed.
+/**
+ * Creates a muted looping preview, a poster fallback or empty-state text.
+ * @param react Steam's React instance used by the consuming root.
+ * @param props Optional media URL, poster URL and empty-state message.
+ * @returns The preview element; unmounting removes its video element.
+ */
 const renderSteamUiVideo = (
     react,
     props: { src?: string | null; poster?: string | null; empty?: string },
@@ -647,18 +692,27 @@ const renderSteamUiVideo = (
                 ),
     );
 
-// The glyphs a store page's cards and boxes carry, drawn once here rather than per page.
+/**
+ * Shared SVG path data for store-page metadata glyphs.
+ */
 const SteamUiGlyphs = Object.freeze({
     download: "M11 3h2v9.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4L11 12.2zM4 19h16v2H4z",
     star: "M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z",
     heart: "M12 21s-7-4.6-9.3-9.1C1 8.5 3.2 5 6.7 5c2 0 3.4 1 4.3 2.3C12 6 13.4 5 15.3 5c3.5 0 5.7 3.5 4 6.9C19 16.4 12 21 12 21z",
     target: "M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18zm0 2a7 7 0 1 0 0 14 7 7 0 0 0 0-14zm0 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z",
 });
+/**
+ * Creates an SVG from the kit glyph vocabulary.
+ * @param react Steam's React instance used by the consuming root.
+ * @param name Key from SteamUiGlyphs.
+ * @returns The rendered glyph.
+ */
 const renderSteamUiGlyph = (react, name: keyof typeof SteamUiGlyphs) =>
     renderSteamGlyph(react, SteamUiGlyphs[name]);
 
-// What a tabbed host page needs resolved before it can draw: Steam's fields, buttons, sections,
-// tabs and modal. A page that needs no more passes this as its `required`.
+/**
+ * Component names a tabbed page must resolve before installation.
+ */
 const SteamUiTabbedPageRequired = Object.freeze([
     "react",
     "focusable",
@@ -676,9 +730,12 @@ const SteamUiTabbedPageRequired = Object.freeze([
     "showModal",
 ]);
 
-// A host page in Steam's tabbed layout: the kit's stylesheet and the page's own, a banner with the
-// notice or the error, and Steam's tabs, only the active one drawn. `content` answers the element
-// for a tab id.
+/**
+ * Creates a native tabbed host page and mounts only its active content.
+ * @param ui Steam's resolved React and native control components.
+ * @param props Page identity/label, optional CSS/banner, tabs, active id and tab callbacks.
+ * @returns The page with kit styles; an unknown active id selects the first tab.
+ */
 const renderSteamUiTabbedPage = (
     ui,
     props: {
@@ -721,9 +778,12 @@ const renderSteamUiTabbedPage = (
     );
 };
 
-// One item's detail: its media, heading and text beside a column of boxes and actions, left with
-// B. It takes the controller's focus when it opens: the card that opened it is gone, and focus left
-// on nothing sends B to Steam's back stack, which leaves the page instead of the detail. `title` draws as the heading, `badge` beside it.
+/**
+ * Creates an item detail view with its own controller Back action.
+ * @param ui Steam's resolved React and native control components.
+ * @param props Heading/badge/media, primary and aside content, and the Back callback.
+ * @returns The focused detail layout.
+ */
 const renderSteamUiDetail = (
     ui,
     props: {
@@ -765,8 +825,12 @@ const renderSteamUiDetail = (
     );
 };
 
-// Asks before something is done: a sentence and two buttons in Steam's modal. Cancel and B send
-// nothing.
+/**
+ * Opens a native confirmation; Cancel and Back invoke no action.
+ * @param ui Steam's resolved React and native control components.
+ * @param props Title, explanation, confirm label and callback invoked on confirmation.
+ * @returns Whether the modal could be shown; a thrown confirmation callback is not swallowed.
+ */
 const showSteamUiConfirm = (
     ui,
     props: { title: string; text: string; confirmLabel: string; onConfirm: () => void },
@@ -833,6 +897,12 @@ function SteamUiPromptBody(props: any) {
         ),
     );
 }
+/**
+ * Opens a native text prompt that submits only a trimmed nonempty value.
+ * @param ui Steam's resolved React and native control components.
+ * @param props Title, optional explanation/initial value, input label and confirmation callback.
+ * @returns Whether the modal could be shown; cancellation submits nothing.
+ */
 const showSteamUiPrompt = (
     ui,
     props: {
