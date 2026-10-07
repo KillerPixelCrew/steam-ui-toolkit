@@ -198,6 +198,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
     /// <param name="wire">Connected message channel owned by this instance.</param>
     /// <param name="notification">Notification callback invoked serially by a separate pump, not the socket reader.</param>
     /// <param name="closed">Callback invoked when the read loop terminates, with its failure or null for normal shutdown.</param>
+    /// <param name="diagnosticRole">Target role for bounded CEF diagnostics, or null to disable capture.</param>
     internal SteamUiCdpConnection(
         ISteamUiCdpWire wire,
         Action<string, string> notification,
