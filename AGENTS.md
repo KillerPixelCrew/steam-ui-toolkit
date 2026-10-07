@@ -95,6 +95,25 @@ host can add to them. The root that uses the kit renders `steamUiKitStyle(react)
 stylesheet lands in that root's document. Cover a new element in `eng/check-extension-surfaces.mjs`
 or a check of its own.
 
+## Before any live debugger connection
+
+Confirm from the current Steam run's logs that Steam and Big Picture have fully started before
+starting or invoking a CEF/CDP/MCP debugger, calling a helper or reading `/json/list` or
+`/json/version`. Read-only target discovery is still a connection and must wait. An early
+connection can hang the entire Steam UI and leave Steam requiring force-close; this warning does
+not authorize that recovery.
+
+Read the installed Steam `logs/cef_log.txt` and `logs/webhelper_js.txt` from disk and record
+current-run affirmative startup evidence and timestamps. A process, open port, SharedJSContext,
+login popup, window alone or fixed delay is not the required log confirmation. There is no universal
+Steam-log success marker implemented here. If logs are missing or inconclusive, stay disconnected
+and continue offline. Reconfirm after restart, renderer replacement or a mode transition. Only then
+prove loopback listener ownership and target identity before attachment.
+
+This is the attended debugging prerequisite, including read-only investigation. Production host
+readiness remains a separate policy; WSGM currently uses process/window checks and validated
+MainWindow discovery, not Steam-log parsing. Do not alter runtime policy as a documentation change.
+
 ## Discovery and transport invariants
 
 Before making an HTTP request, prove that port 8080 is owned by an accepted Steam process and that
@@ -182,8 +201,8 @@ The emitted asset is intentionally readable, type-stripped ES2022 JavaScript. Do
 downlevel, or add helpers. `types.ts`, `bridge.ts`, `ownership.ts` and `rpc.ts` come first; every
 other top-level fragment and every file under `gates/` is discovered in sorted order. A new shared
 fragment therefore needs no builder change in either repository, but it must not be read during
-bundle evaluation before its own definition. Every fragment after `bridge.ts` opens with a
-`// @fragment <label>` line, so a fragment must open with runtime code: TypeScript erases the
+bundle evaluation before its own definition. The compiler inserts a
+`// @fragment <label>` line before every fragment after `bridge.ts`, so a fragment must open with runtime code: TypeScript erases the
 comments that lead a `type` declaration, and the compile refuses an asset that lost a marker.
 Changes to fragment roles or ordering belong in `steam-ui-fragments.mjs` and the reference
 documentation.

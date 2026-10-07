@@ -10,7 +10,8 @@ trust/enablement policy. See [plugin frontends](docs/plugin-frontends.md).
 
 Add, hide and revive elements in Steam's Big Picture front end, from .NET. This README is the
 orientation and the how-to. The contract, with every limit, state and log key, is in
-[`docs/reference.md`](docs/reference.md).
+[`docs/reference.md`](docs/reference.md). The [source map](docs/code-map.md) follows the whole
+implementation from discovery and client calls to frontend rendering, teardown and build tooling.
 
 Patch results retain full page diagnostics; log lines bound their diagnostic text separately. The
 reference's [script API](docs/reference.md#script-api-for-consumer-fragments) lists the helpers
@@ -47,8 +48,11 @@ verified.
 | Answer an RPC         | overlay a method the client already has                                   | restore what was displaced                        |
 | Reveal what is gated  | flip the one flag or getter hiding a surface the client can already serve | restore the original, never the platform constant |
 
-**Host-rendered extension surfaces,** so a consumer can let third-party packages publish bounded
-commands without handing them Steam objects or an injection API.
+**Two plugin presentation models:** host-rendered Extensions-tab settings and game-menu commands use
+bounded data, while `SteamPluginFrontendSurface` deliberately runs unrestricted JavaScript/CSS with
+native surface registrations and owner-wide failure cleanup. The consumer decides which model and
+which packages to admit; the latter is not a sandbox. `SteamUiExtensionHost` is a separate manifest
+validator, not the runtime that loads those frontend modules.
 
 ## The revived surfaces
 
@@ -95,10 +99,11 @@ described by `SteamSettingsRowKind`; `docs/reference.md` lists what each kind dr
 Display, Power, Audio and Controller pages. Publish `SteamNativeSettingsState` with
 `SteamNativeSettingsPage`s identified by `SteamNativeSettingsPageId`, and implement
 `ISteamNativeSettingsBackend.SetAsync` to validate and apply the current row's primitive value.
-Steam retains its original controls, route, labels and navigation. An empty page or null state
-retracts its additions. The Power page is revealed only while host sections exist; Steam's platform
-identity stays untouched. Set a color row's `ColorAlpha` to false for hardware RGB: its editor
-stages three sliders and sends only on Save.
+Steam retains its original controls, route, labels and navigation. Publish an empty `Pages` list to
+retract additions. A null C# reading withholds publication and preserves the last state. The Power
+page is revealed only while host sections exist; Steam's platform identity stays untouched. Set a
+color row's `ColorAlpha` to false for hardware RGB: its editor stages three sliders and sends only
+on Save.
 
 **`SteamLibraryBadgeSurface.Module`** draws a library badge on every library tile, immediately left
 of Valve's Steam Input badge in the tile's icon row: the name of the library holding the game, green
@@ -191,8 +196,8 @@ so an application can tell which games Steam is running without watching process
 ### Game state, end to end
 
 A complete program. It needs a `net10.0-windows` target and a reference to this package, and nothing
-else: these calls evaluate and read, so knowing what Steam is doing costs you the transport and no
-injected script, bridge or patch.
+else. These calls use the transport directly without the bridge or patch manager. The running-app
+lease installs its own small resident observer and removes it when disposed.
 
 ```csharp
 using System;
@@ -315,6 +320,12 @@ bytes that get injected, against those scenarios in CI. It caught a real defect 
 written. `npm run prelude:claims` runs it with the other emitted-asset checks.
 
 ## Using it
+
+Before an attended CEF debugging session, confirm from the current Steam logs that Steam and Big
+Picture have fully started. This applies before even target listing. Early attachment can hang the
+whole UI and leave Steam requiring force-close; do not use a debugger to probe startup readiness.
+Follow the [contributor preflight](AGENTS.md#before-any-live-debugger-connection). Application
+runtime readiness is host policy, separate from that debugging rule.
 
 For a host that must leave Steam's cold startup untouched, construct
 `new PersistentSteamUiTransport(requireMainWindow: true)`. Discovery then waits for one validated

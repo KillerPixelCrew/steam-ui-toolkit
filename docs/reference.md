@@ -6,6 +6,9 @@ audio-manager ownership.
 The [plugin frontend contract](plugin-frontends.md) covers unrestricted bundle loading, surface
 registrations, optional backend/state traffic, source attribution and owner-wide teardown.
 
+The [source map](code-map.md) links every implementation area to its API, injected code and
+regression sources. Use it with this reference when following a call end to end.
+
 The contract of `SteamUiToolkit`: the transport that owns one CDP connection to Steam's Chromium
 front-end, the probe/apply/verify/remove patch lifecycle, the in-page bridge, the module contract,
 the ownership primitives, the extension host, the prelude build and the surfaces. The XML
@@ -100,7 +103,7 @@ SteamUiModuleRuntime         the two traffic directions between modules and the 
 SteamUiExtensionHost         discovers and validates JavaScript extension packages
 ```
 
-Every Steam-shaped fact (a literal module id, a store's field names, a localization token, a row's
+Every Steam-shaped fact (a source fingerprint, a store's field names, a localization token, a row's
 placement) lives in a surface (§15), never in the machinery. The bridge's vocabulary is derived from
 whichever modules the consumer registers. A consumer's own fragments call `registerGate`, and its
 patches reach them through `window[namespace].gate(name)`, exactly as the shipped surfaces do.
@@ -152,6 +155,13 @@ a consumer can compile it together with its own fragments; `dist/steam-ui.js` is
 for a consumer with none.
 
 ## 3. Discovery and the port gate
+
+For attended investigation, first confirm from the current Steam logs that Steam and Big Picture
+have fully started, before any debugger connection, MCP invocation or HTTP target discovery. Early
+attachment can hang the entire Steam UI and leave Steam requiring force-close. Missing or ambiguous
+log evidence means stay offline. This debugging prerequisite is separate from the host's production
+readiness policy described below; the transport does not parse Steam logs. The contributor guide's
+[startup preflight](../AGENTS.md#before-any-live-debugger-connection) gives the full rule.
 
 ### The opt-in flag
 
@@ -295,11 +305,12 @@ The loop connects, marks `Retrying` with the failure on error, waits for the con
 completion, then sleeps 1 s, 4 s, 16 s, 30 s (clamped). An absent target is not a failure: the loop
 polls it at the first step without advancing the backoff, so attachment follows Steam's window
 within a second. Only a connection that stays up 30 s resets the backoff. Connecting runs discovery
-(`Unavailable` with `Steam UI <role> target is absent.` when it returns null), enables `Runtime`,
-`Page` and `DOM` with 5 s each, and only then publishes the connection, so an in-place document
-replacement is observable from the first moment a channel claims to be ready. Ownership is
-re-checked before publishing and again after the domains are enabled; a connection that completes
-after its owner left logs
+(`Unavailable` with `Steam UI <role> target is absent.` when it returns null), enables `Debugger`,
+clears pause-on-exceptions with `Debugger.setPauseOnExceptions {state: "none"}`, disables
+`Debugger`, then enables `Runtime`, `Page` and `DOM`, each command under a 5 s budget, and only then
+publishes the connection, so an in-place document replacement is observable from the first moment a
+channel claims to be ready. Ownership is re-checked before publishing and again after the domains
+are enabled; a connection that completes after its owner left logs
 `Steam UI <role> connection completed after its owner left; discarding it.` and throws
 `OperationCanceledException`.
 
@@ -495,15 +506,18 @@ the next (`steam.ui.publication.<id>`). `CancelAllInflight` is the generation-re
 
 ### Webpack modules
 
-The toolkit touches webpack in exactly two places: `getWebpackRuntime(scope)` captures the runtime
-by pushing an empty chunk and never evaluates an unknown module, and `rpc.ts` names the one literal
-module it needs. The bridge keeps one resolver once a capture succeeds, so every gate shares one
-chunk push and one source cache, and the resolver remembers no failure: Steam's loader keeps the
-exports of a factory that threw and never runs it again, so a module that failed during a cold start
-is handed to the export shape tests on the next resolution instead of being refused for the bridge's
-life. The same constraint binds consumers: never iterate the module registry constructing exports;
-name literal ids and inspect factory or prototype source. Enumerating and calling everything once
-restarted a machine and signed Steam out.
+All webpack access goes through `SteamUiModuleResolver` and its shared `module-resolver.ts`
+implementation. `getWebpackRuntime(scope)` captures that resolver lazily by pushing an empty chunk;
+capture itself executes no unknown factory. A caller supplies authored source tokens to `resolve` or
+`exported`, and only a unique match may load. `rpc.ts` uses that same resolver to find the query
+client by source and export shape. No feature names a client-build module id or minified export.
+
+The bridge keeps one resolver once capture succeeds, so gates share the capture and source cache.
+Factory failures are not cached by the resolver: Steam may retain partial exports after a throw, and
+a later lookup must inspect their current shape. Source lookup is not permission to initialize Steam
+before its UI is ready. Prefer an existing published store or rendered component handle when one is
+available. Never iterate the registry executing its factories or constructors: that once restarted a
+machine and signed Steam out.
 
 ## 8. The bridge
 
@@ -511,9 +525,11 @@ restarted a machine and signed Steam out.
 
 `SteamUiBridgeIdentity.Namespace = "__steamUi_v1_28d7c54a"`,
 `BindingName = "__steamUiBridge_v1_7b24d11c"`. `SteamUiBridgeHost.SchemaVersion = 1`,
-`DeliveryPartCharacters = 256 KiB` per evaluation for what the host delivers to the document (what
-the document sends has no size limit either: delivery is chunked, so a state, an answer or a
-refusal's text goes whole), `OperationTimeout = 5 s`, a 64-slot request channel.
+`DeliveryPartCharacters = 256 * 1024` UTF-16 characters per evaluation for host-to-document
+delivery, `OperationTimeout = 5 s`, and a 64-slot request channel. Host state, responses and refusal
+text have no aggregate bridge size cap; large envelopes are delivered in parts. Document-to-host
+requests use `Runtime.bindingCalled`, whose complete notification parameters still have the CDP
+connection's 1 MiB cap. They are not streamed in the opposite direction.
 
 A delivery longer than one part goes as parts under one delivery id, each acknowledged before the
 next, and the injected side's `deliverPart` reassembles them before any subscriber sees the state.
@@ -521,7 +537,8 @@ It reassembles by delivery id, so a large response and a large state publication
 interleave both arrive. A set cut short by a failed or out-of-order part is dropped without touching
 another delivery, never delivered half, and parts never split a surrogate pair. The injected
 `request()` refuses only a command outside the allow map and a request past `maximumPending`, each
-with a reason instead of a timeout; a request has no size limit.
+with a reason instead of a timeout. It adds no per-request size check of its own; the lower CDP
+notification bound still applies.
 
 A publication may declare a revision (`SteamUiModuleBuilder.Publication(..., revision)`). A round
 whose revision the document already holds (`SteamUiBridgeHost.IsPublished`) skips the read and the
@@ -789,7 +806,7 @@ runs while the bundle is evaluated and its place among the discovered fragments 
 | Transport event channels                                                              | 256 bindings (refused when full), latest generation per role   |
 | Patch operation timeout default                                                       | 8 s                                                            |
 | Absent-target re-probes within one generation                                         | 1, 2, 4, 8, 16 s                                               |
-| Bridge schema, delivery part, operation timeout, request channel                      | 1, 256 KiB, 5 s, 64                                            |
+| Bridge schema, delivery part, operation timeout, request channel                      | 1, 262,144 UTF-16 characters, 5 s, 64                          |
 | Injected `maximumPending`, `timeoutMilliseconds`                                      | 32, 5000                                                       |
 | Bridge namespace, binding                                                             | `__steamUi_v1_28d7c54a`, `__steamUiBridge_v1_7b24d11c`         |
 | Configuration placeholder, bundle marker                                              | `__STEAM_UI_CONFIGURATION_JSON__`, `// @steam-ui-bundle-start` |
@@ -837,11 +854,12 @@ to run with the rebuilt emitted asset before their behavior is considered verifi
 
 A surface is one Valve feature the Windows client ships inert, revived end to end: the injected gate
 that supplies or reveals it, the C# patch that probes, applies, verifies and removes it, the typed
-state a consumer feeds, and the backend interface a consumer implements. Every literal module id,
+state a consumer feeds, and the backend interface a consumer implements. Every source fingerprint,
 store field name, localization token and row placement lives here, in `Surfaces/` and
 `SteamUiAssets/Source/gates/` plus `components.ts`, so a consumer never reads the client's bundle.
 
-Each surface class has the same four members:
+Most typed surface factories share these members; layout-only and dynamic frontend factories expose
+the subset appropriate to their contract:
 
 | Member                               | Meaning                                                                                   |
 | ------------------------------------ | ----------------------------------------------------------------------------------------- |
@@ -877,6 +895,27 @@ for fixtures and diagnostics.
 | `SteamScreensaverSurface`     | host rows in the Screensaver settings section             | a transform on the shared `useMemo` claim wraps the customization page and its Screensaver section | `SteamScreensaverState`      | hears Steam's screensaver timeouts; applies a row's choice                                 |
 | `SteamFilePickerSurface`      | the folder and file picker a host page opens              | none: `showSteamFilePicker` draws a Steam modal on the page that asks                              | none                         | lists the drives and user folders; lists one folder's subfolders and matching files        |
 | `SteamThemeStyleSurface`      | CSSLoader-compatible stylesheets in every Steam window    | appends one `<style>` per block to each popup document its targets name, through `g_PopupManager`  | `SteamThemeState`            | none: the blocks are declared, not commanded                                               |
+
+The other built-in surface contracts use the same runtime and lifetime rules:
+
+| Surface                         | State and frontend                                        | Backend or command                                                   |
+| ------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------- |
+| `SteamPowerProfileRow`          | `SteamPowerProfileState`, component host                  | `setPowerProfile` through `ISteamPowerProfileBackend`.               |
+| `SteamPowerPresetRow`           | `SteamPowerPresetState`, component host                   | Separate `setAcPowerPreset` / `setBatteryPowerPreset`.               |
+| `SteamCpuBoostRow`              | `SteamCpuBoostState`, component host                      | `setCpuBoost` through `ISteamCpuBoostBackend`.                       |
+| `SteamHybridCoreRow`            | `SteamHybridCoreState`, component host                    | `setHybridCores` through `ISteamHybridCoreBackend`.                  |
+| `SteamPanelFoldsSurface`        | `SteamPanelFoldsState`, shared fold helper                | `setFolded`; the host persists state.                                |
+| `SteamQuickAccessLayoutSurface` | `SteamQuickAccessLayout`, component host                  | Publication-only section/row placement.                              |
+| `SteamSettingsQuickAccessRow`   | `SteamSettingsQuickAccessState`, shared settings renderer | `set {key,value}` through its backend.                               |
+| `SteamNativeSettingsSurface`    | `SteamNativeSettingsState`, `nativeSettings` gate         | `set {key,value}` on existing Steam Settings pages.                  |
+| `SteamExtensionsTabSurface`     | `SteamExtensionsTabState`, `extensionsTab` gate           | `activate` and `configure`, host-rendered plugin descriptors.        |
+| `SteamGameContextMenuSurface`   | `SteamGameContextMenuState`, `gameContextMenu` gate       | `activate` with a selected positive app id and command id.           |
+| `SteamPowerMenuSurface`         | `SteamPowerMenuState`, `powerMenu` gate                   | `switchToDesktop` delegated to the host.                             |
+| `SteamSoundOverrideSurface`     | `SteamSoundOverrideState`, `soundOverrides` gate          | Revision-bound `status` decoding reports.                            |
+| `SteamPluginFrontendSurface`    | Optional detached JSON state, `pluginFrontends` gate      | `invoke` and `failure`; unrestricted scripts and owner-wide cleanup. |
+
+See the [source map](code-map.md#surface-implementations) for the complete file inventory, including
+native-window observation/replay and lifecycle helpers which are not state-publishing surfaces.
 
 ### Marked rows
 
@@ -1395,13 +1434,14 @@ per React, so a root re-rendering on every publication hands React the same elem
 
 ### Settings pages
 
-`settings.ts` draws a host's own settings the way Steam draws its Settings page, with nothing styled
-by the toolkit. A host publishes `SteamSettingsPage`s: pages of `SteamSettingsSection`s of
-`SteamSettingsRow`s, each described by `SteamSettingsRowKind` rather than by component. The host's
-page renderer passes them to `renderSteamSettings(ui, {route, pages, revision, onChange, onAction})`
-with components from `resolveSteamSettingsComponents(runtime)`, and requires
-`SteamSettingsRequired`. `onChange(row, value)` and `onAction(row)` answer the request they made, so
-a refusal is shown on its row.
+`settings.ts` draws a host's settings with Steam's native routed sidebar, sections and fields, using
+the shared UI kit for the surrounding elements such as color swatches. A host publishes
+`SteamSettingsPage`s: pages of `SteamSettingsSection`s of `SteamSettingsRow`s, each described by
+`SteamSettingsRowKind` rather than by component. The host's page renderer passes them to
+`renderSteamSettings(ui, {route, pages, revision, onChange, onAction})` with components from
+`resolveSteamSettingsComponents(runtime)`, and requires `SteamSettingsRequired`.
+`onChange(row, value)` and `onAction(row)` answer the request they made, so a refusal is shown on
+its row.
 
 Mapped against the live client on 2026-09-24:
 
@@ -1834,9 +1874,11 @@ switched off.
 `SteamNativeSettingsState.Pages` contains unique `SteamNativeSettingsPage` identities `display`,
 `power`, `audio` and `controller`, each with existing `SteamSettingsSection` and `SteamSettingsRow`
 descriptors. `Revision` advances after observed values or descriptors change. Empty sections and
-pages are omitted; null or malformed publication retracts all additions. Supported rows are boolean,
-choice, range, text, color, action and note. Device availability and profile/GPU scope belong to the
-host.
+pages are omitted. A malformed wire publication retracts all additions; the injected gate also
+accepts a JSON null as empty state. A C# `read` callback returning null, however, sends no
+publication and leaves the last state in place. Publish `Pages = []` to clear additions, or disable
+the patch to remove the hooks. Supported rows are boolean, choice, range, text, color, action and
+note. Device availability and profile/GPU scope belong to the host.
 
 The only command is `set { key, value }`: exactly two properties, a nonblank key of at most 1,024
 characters and a boolean, number or string value. Strings are bounded to 4,096 characters; null,
@@ -1885,7 +1927,8 @@ restoration. The opaque color path is covered by `eng/check-settings-fields.mjs`
 shared native settings fields and UI kit groups. Each page is one folding group titled by the page;
 its sections are plain inner groups. The host owns row keys, revision, capability availability and
 command validation through `ISteamSettingsQuickAccessBackend.SetAsync`. Its only command is `set`
-with `{key,value}`; arrays, objects, blank keys and extra fields are refused.
+with `{key,value}`; arrays, objects, blank keys and extra fields are refused. A null C# reading
+withholds publication; publish an empty `Pages` list to clear previously rendered sections.
 
 `SteamAudioFormatState` publishes independent `ChannelOptions`/`CurrentChannels` and
 `FormatOptions`/`CurrentFormat` alongside Spatial choices. Both playback selectors send the offered

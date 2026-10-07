@@ -10,6 +10,12 @@ using System.Threading.Tasks;
 namespace SteamUiToolkit;
 
 /// <summary>Owns one persistent bounded CDP connection for each allowlisted Steam UI target.</summary>
+/// <remarks>
+///     A connection becomes ready only after endpoint validation, clearing Debugger exception pauses,
+///     disabling Debugger, and enabling Runtime, Page and DOM notifications. The optional main-window
+///     discovery requirement does not decide the host's game-mode readiness or transition policy.
+///     Keep one transport per host session and share it with patches, the bridge and client calls.
+/// </remarks>
 public sealed class PersistentSteamUiTransport : ISteamUiTransport
 {
     // How many evaluations may run out their own deadline back to back before the connection is

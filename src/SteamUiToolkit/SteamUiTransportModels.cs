@@ -106,8 +106,8 @@ public enum SteamUiDispatch
 /// <param name="Dispatch">How far the request got.</param>
 /// <param name="Value">The by-value string result returned by JavaScript.</param>
 /// <param name="Error">
-///     Why the request was not sent or not answered, or the bounded JavaScript exception the page
-///     answered with.
+///     Why the request was not sent or not answered, or the complete JavaScript exception the page
+///     answered with. Log writers bound their output separately.
 /// </param>
 /// <param name="Generations">The generations under which the result was produced.</param>
 public readonly record struct SteamUiEvaluationResult(
