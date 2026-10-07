@@ -55,6 +55,8 @@ public sealed class SteamDownloadActivity
 
     private readonly SteamClient _client;
 
+    /// <summary>Creates the download observations façade without opening a connection.</summary>
+    /// <param name="client">Owning client; borrowed for dispatch and lifetime, never disposed by this façade.</param>
     internal SteamDownloadActivity(SteamClient client)
     {
         _client = client;
@@ -89,6 +91,7 @@ public sealed class SteamDownloadActivity
 
     /// <summary>Parses the script's payload; null for error payloads and malformed JSON.</summary>
     /// <param name="json">The payload.</param>
+    /// <returns>The download snapshot, or null for missing, refused or unreadable payloads.</returns>
     internal static SteamDownloadOverview? Parse(string? json)
     {
         if (string.IsNullOrWhiteSpace(json))

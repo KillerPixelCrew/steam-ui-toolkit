@@ -1,8 +1,8 @@
-// Append host fields to Steam's native Big Picture Settings pages. Offline read on 2026-10-06:
-// one factory builds the Display/Power/Audio/Controller descriptor map through useMemo, then filters
-// it into the native sidebar. Big Picture's own ordering already contains all four. Only Power's
-// descriptor is hidden when Steam believes there is no battery. The shared memo claim changes that
-// one descriptor while host sections exist; it never changes Steam's platform or battery identity.
+/**
+ * Contributes host settings pages to Steam using reversible member and render claims.
+ * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ */
+
 function createNativeSettings() {
   const patchId = "steam-ui.native-settings";
   const RootOriginal = "__steamUiNativeSettingsRootOriginal";

@@ -1,18 +1,5 @@
-// A library capsule drawn exactly as Steam's library draws one.
-//
-// Steam's own capsule component takes an app overview from its stores, so it can only draw games
-// Steam already has. A host page that shows titles Steam does not know yet - an importer's review,
-// say - builds the same element from Steam's library class map instead: the item box with its
-// portrait or landscape shape, the image class, the shine and the overlay areas. The focus ring,
-// the grow-on-focus animation and the shine are Steam's CSS for those classes, not this file's.
-//
-// Mapped from the installed client on 2026-09-27: the library item module's class map carries
-// LibraryItemBox, Portrait, Landscape, PortraitImage, LibraryItemBoxShine and the two overlay
-// areas; its gamepad capsule composes LibraryItemBox with Portrait or Landscape, then the image,
-// then the shine, then LibraryItemOverlayOuterArea around LibraryItemOverlayInnerArea.
+// Native library styling for host-owned titles that have no Steam app overview.
 
-// Every class the capsule uses. A map that lost one of them is not the map this was written
-// against, so the capsule is unavailable rather than half-styled.
 const SteamLibraryClassNames = [
     "LibraryItemBox",
     "Portrait",
@@ -23,7 +10,11 @@ const SteamLibraryClassNames = [
     "LibraryItemOverlayInnerArea",
 ] as const;
 
-// Resolves Steam's library class map, or null when this client's differs.
+/**
+ * Resolves all native CSS classes needed for a host-rendered library capsule.
+ * @param runtime Shared resolver; loading a matched factory may throw.
+ * @returns Mapped capsule classes, or null when the complete class contract is unavailable.
+ */
 const resolveSteamLibraryClasses = (runtime) => {
     const factory = runtime.findUnique([...SteamLibraryClassTokens]);
     if (!factory) return null;
@@ -52,19 +43,12 @@ const SteamCapsuleAspects: Record<string, string> = {
     icon: "1 / 1",
 };
 
-// Builds the capsule component over resolved Steam components and classes. Create it once per
-// resolution and keep it: a component made on every render is a new type each time, and React
-// would remount the grid and drop the controller's focus.
-//
-// Props:
-//   asset        grid, wide, hero, logo or icon: the shape
-//   image        the URL to show, or empty for the placeholder
-//   placeholder  what to write in its place when there is no image
-//   width        the capsule's width in pixels
-//   dimmed       drawn faded, for an item that is left out
-//   overlay      elements for the overlay area: badges, a selection mark
-//   caption      an element for the bottom edge, such as which image of how many
-//   focus        props for Steam's Focusable: onActivate, onSecondaryButton, action descriptions
+/**
+ * Creates a reusable capsule component; retain its identity across renders to preserve focus.
+ * @param ui Steam's resolved React and native control components.
+ * @param classes Complete class map from resolveSteamLibraryClasses.
+ * @returns A component accepting asset/image/placeholder/width/dimmed/overlay/caption/focus props.
+ */
 const createSteamCapsule = (ui, classes) => {
     const react = ui.react;
     return function SteamCapsule(props: any) {

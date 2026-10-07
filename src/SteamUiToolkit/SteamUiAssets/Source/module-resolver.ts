@@ -1,5 +1,9 @@
-// Keep this fragment valid JavaScript: the same bytes are embedded for standalone C# probes
-// and composed into the bridge. Features supply fingerprints, never their own registry scan.
+/**
+ * Captures Steam's webpack runtime and exposes unique source-fingerprint resolution.
+ * @param scope Diagnostic chunk-label suffix for this resolver capture.
+ * @returns A checked module reader with count/findUnique/resolve/exported helpers.
+ * @throws When the runtime is absent, a fingerprint is invalid or a requested match/load fails.
+ */
 function createSteamUiModuleResolver(scope) {
     let runtime;
     window.webpackChunksteamui?.push([
@@ -76,11 +80,14 @@ function createSteamUiModuleResolver(scope) {
         cache.matches.set(key, found);
         return found;
     };
+    /** Counts matching factories without executing them; invalid tokens throw. */
     requirePresent.count = (tokens) => matches(tokens).length;
+    /** Returns the unique factory id/source pair, or null on absence or ambiguity. */
     requirePresent.findUnique = (tokens) => {
         const ids = matches(tokens);
         return ids.length === 1 ? [ids[0], sourceOf(runtime.m[ids[0]])] : null;
     };
+    /** Loads one uniquely matched module; invalid, absent, ambiguous or failed loads throw. */
     requirePresent.resolve = (tokens) => {
         const ids = matches(tokens);
         if (ids.length !== 1)
@@ -89,10 +96,12 @@ function createSteamUiModuleResolver(scope) {
             );
         return requirePresent(ids[0]);
     };
-    // One export of a uniquely fingerprinted module, chosen by what it is. Client builds renumber
-    // modules and rename exports, so neither a module id nor an export name is an identity: the
-    // September 2026 beta did both and took down every gate that had named them. Aliases of one value
-    // count once; no fit or two distinct fits throws, so a moved export says so instead of guessing.
+    /**
+     * Selects one distinct export of a uniquely fingerprinted module.
+     * @param tokens Nonempty source tokens that must all match one factory.
+     * @param predicate Shape predicate; throwing getters and predicates are ignored.
+     * @returns The unique matching value; aliases count once. Absence or ambiguity throws.
+     */
     requirePresent.exported = (tokens, predicate) => {
         if (typeof predicate !== "function") throw new Error("Steam export predicate invalid");
         const exports = requirePresent.resolve(tokens);

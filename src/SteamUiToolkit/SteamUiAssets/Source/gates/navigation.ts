@@ -1,35 +1,8 @@
-// Steam's left slideout navigation panel, as an extension surface.
-//
-// The panel is module-private. Mapped against the live client on 2026-09-10:
-//
-//   memo          an exported React.memo, the VR-aware outer wrapper
-//     container   navID "MainNavMenuContainer", role "application"
-//       context   nav context
-//         root    the panel root, props { loggedIn, menuOpen }   <- local, not exported
-//           menu  role "menu", aria-label #MainMenu_Title, flow-children "column"
-//             route entry   props { route, active, label, icon, onGamepadFocus }
-//             action entry  props { label, action, active, icon, onGamepadFocus }
-//
-// Re-read on 2026-09-24: a route entry maps its route to an action entry through the router, so both
-// draw the same row - Valve's Focusable with the menu's own Item, ItemIcon and ItemLabel classes,
-// the active dot, and mouse and gamepad activation. A route entry also gives the row its active
-// state and navigates with Valve's own route action; an action entry calls `action`. Power is an
-// action entry, Library a route entry.
-//
-// The panel root builds its list from a module-local builder given `loggedIn` and maps it to entry
-// elements keyed by the descriptor's own `key`. Neither the root nor the builder is exported, and
-// the builder calls hooks — calling the module's own exported list builder from outside a render
-// throws React error #321, which is how that was established rather than assumed. So both reading
-// the entries and changing them have to happen during a render, and one wrapper serves both.
-//
-// The claim is on the exported memo's `type`, which is the only public handle on the panel. From
-// there the descent reaches the panel root by rendering: a component's children do not exist until React
-// renders it, so a walk over props.children alone arrives nowhere. That is the same mechanism
-// `hideNativeRows` in components.ts already uses, pointed at a different target.
-//
-// Entries are identified by `route` and by their React key, never by index or by a generated class
-// name. Both come from Valve's own descriptor and are stable across builds and languages; the
-// rendered labels are localized and the class names are content hashes, so neither is an anchor.
+/**
+ * Contributes navigation entries using native route/action rows and a reversible memo claim.
+ * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ */
+
 function createNavigationPanel() {
     const patchId = "steam-ui.navigation-panel";
     const claimKeys = {

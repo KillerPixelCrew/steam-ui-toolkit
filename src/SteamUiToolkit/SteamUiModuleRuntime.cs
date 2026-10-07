@@ -12,27 +12,10 @@ namespace SteamUiToolkit;
 ///     out, and commands answered back.
 /// </summary>
 /// <remarks>
-///     This is the half of hosting that is the same for any consumer. What it deliberately does NOT
-///     own is which patches should be applied when — that is the host's policy, it differs per
-///     application, and pulling it in here would mean a constructor full of predicates that only
-///     describe one host's rules.
-///     <para>
-///         One rule here is load-bearing rather than incidental:
-///         <b>
-///             every refusal is logged with its
-///             reason
-///         </b>
-///         . The reason is built by the module and handed straight back to the injected side,
-///         which has nowhere to put it, so a control the user operated that quietly did nothing would
-///         otherwise leave no trace at all on this side of the bridge. That defect cost a session — Steam
-///         had a 28 W limit stored, the gate had forwarded it, and the hardware was still at 30 W with not
-///         one line saying why.
-///     </para>
-///     <para>
-///         A module whose callback throws is quarantined for as long as it stays registered: its traffic
-///         is refused and its patches are faulted in the patch manager, which removes them and keeps them
-///         off whatever the host's switches say.
-///     </para>
+///     The host owns patch enablement policy. This runtime coalesces publications, routes semantic
+///     commands and logs refusal reasons without payload string values. A throwing module callback
+///     quarantines that module until replacement and faults its patches for removal. Handlers must
+///     return tasks promptly; backend owners serialize writes and honor cancellation.
 /// </remarks>
 public sealed class SteamUiModuleRuntime : IAsyncDisposable
 {
@@ -98,6 +81,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
     }
 
     /// <summary>Stops answering, drains in-flight work, and releases the pump.</summary>
+    /// <returns>An asynchronous operation that waits without a deadline for publication and command work to drain.</returns>
     public async ValueTask DisposeAsync()
     {
         await ShutdownAsync(CancellationToken.None).ConfigureAwait(false);

@@ -1,5 +1,8 @@
-// Exact resource-name overrides on the Gamepad UI manager only. Pack format and discovery belong
-// to the host. No Steam file changes and no interception of voice/chat audio managers.
+/**
+ * Overrides selected Steam UI sounds and restores the displaced sound handlers on removal.
+ * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ */
+
 function createSoundOverrides() {
   const patchId = "steam-ui.sound-overrides";
   const keys = { marker: "__steamUiSoundsClaimed", original: "__steamUiSoundsOriginal" };

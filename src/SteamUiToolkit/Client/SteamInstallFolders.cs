@@ -120,6 +120,8 @@ public sealed class SteamInstallFolders
 
     private readonly SteamClient _client;
 
+    /// <summary>Creates the install-folder operations façade without opening a connection.</summary>
+    /// <param name="client">Owning client; borrowed for dispatch and lifetime, never disposed by this façade.</param>
     internal SteamInstallFolders(SteamClient client)
     {
         _client = client;
@@ -209,6 +211,7 @@ public sealed class SteamInstallFolders
     /// <param name="libraryPath">The library folder.</param>
     /// <param name="label">The label, or null or empty for none.</param>
     /// <param name="replaceExisting">Whether a mounted registration at the path is stale too.</param>
+    /// <returns>An async expression adopting or adding the library and reporting stale-registration and label failures.</returns>
     internal static string BuildAddExpression(string libraryPath, string? label, bool replaceExisting)
     {
         var pathLiteral = SteamCef.JsString(libraryPath);
@@ -233,6 +236,7 @@ public sealed class SteamInstallFolders
     /// <summary>Builds the relabel script.</summary>
     /// <param name="libraryPath">The library folder.</param>
     /// <param name="label">The new label.</param>
+    /// <returns>An async expression relabeling the preferred matching registration or reporting that it is absent.</returns>
     internal static string BuildLabelExpression(string libraryPath, string label)
     {
         return SteamClientScript.Read(
@@ -248,6 +252,7 @@ public sealed class SteamInstallFolders
 
     /// <summary>Builds the removal script.</summary>
     /// <param name="libraryPath">The library folder.</param>
+    /// <returns>An async expression removing all matching registrations or reporting that none exist.</returns>
     internal static string BuildRemoveExpression(string libraryPath)
     {
         return SteamClientScript.Read(
@@ -265,6 +270,7 @@ public sealed class SteamInstallFolders
     ///     other refusal carries Steam's own reason code.
     /// </summary>
     /// <param name="result">The evaluation outcome.</param>
+    /// <returns>The add status, including already-present, partial, refused and uncertain outcomes.</returns>
     internal static SteamLibraryAddResult InterpretAdd(SteamUiEvaluationResult result)
     {
         if (Unanswered(result) is { } unanswered)
@@ -329,6 +335,7 @@ public sealed class SteamInstallFolders
 
     /// <summary>Maps the relabel reply to a result.</summary>
     /// <param name="result">The evaluation outcome.</param>
+    /// <returns>The label status; absent paths are NotPresent and unreadable sent replies are Unknown.</returns>
     internal static SteamLibraryLabelResult InterpretLabel(SteamUiEvaluationResult result)
     {
         if (Unanswered(result) is { } unanswered)
@@ -367,6 +374,7 @@ public sealed class SteamInstallFolders
 
     /// <summary>Maps the removal reply to a result.</summary>
     /// <param name="result">The evaluation outcome.</param>
+    /// <returns>The remove status; absent paths are NotPresent and unreadable sent replies are Unknown.</returns>
     internal static SteamLibraryRemoveResult InterpretRemove(SteamUiEvaluationResult result)
     {
         if (Unanswered(result) is { } unanswered)

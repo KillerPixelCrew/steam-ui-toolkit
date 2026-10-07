@@ -53,6 +53,8 @@ public sealed class SteamCollections
 
     private readonly SteamClient _client;
 
+    /// <summary>Creates the collection synchronization façade without opening a connection.</summary>
+    /// <param name="client">Owning client; borrowed for dispatch and lifetime, never disposed by this façade.</param>
     internal SteamCollections(SteamClient client)
     {
         _client = client;
@@ -80,11 +82,17 @@ public sealed class SteamCollections
         return ParseSync(result);
     }
 
-    /// <summary>The script <see cref="SyncAsync" /> runs. Pure, for tests.</summary>
+    /// <summary>The script <see cref="SyncAsync" /> runs.</summary>
     /// <remarks>
     ///     Once a collection has been created and saved, every reply carries its id, a failure included:
     ///     <c>col</c> is declared outside the <c>try</c> so the shared catch can still name it.
     /// </remarks>
+    /// <param name="existingId">Existing collection id, or null/empty to create one when additions exist.</param>
+    /// <param name="name">Display name used only when creating a collection.</param>
+    /// <param name="add">App ids to add when Steam has loaded their overview.</param>
+    /// <param name="remove">Existing member ids to remove.</param>
+    /// <param name="deleteWhenEmpty">Whether to delete the collection after its final member is removed.</param>
+    /// <returns>An async expression retaining the collection id even when a later mutation fails.</returns>
     internal static string SyncScript(
         string? existingId,
         string name,
@@ -124,8 +132,9 @@ public sealed class SteamCollections
                "return JSON.stringify({ok:false,err:m?String(m):String(e),id:col&&col.id||undefined});}})()";
     }
 
-    /// <summary>Maps the reply of <see cref="SyncScript" /> to a result. Pure, for tests.</summary>
+    /// <summary>Maps the reply of <see cref="SyncScript" /> to a result.</summary>
     /// <param name="result">The evaluation outcome.</param>
+    /// <returns>The sync outcome and any known collection id, including an id created before a later refusal.</returns>
     internal static SteamCollectionSyncResult ParseSync(SteamUiEvaluationResult result)
     {
         if (result.Dispatch != SteamUiDispatch.Answered)

@@ -47,6 +47,12 @@ public static class SteamNativeSurfaceCommands
                                 && result.Value == "true";
     }
 
+    /// <summary>Builds a native main-menu, Quick Access or keyboard action for one Steam window.</summary>
+    /// <param name="action">Defined native surface action.</param>
+    /// <param name="processId">Overlay process id, or zero for the main window.</param>
+    /// <param name="appId">Overlay app identity; must be zero for the main window.</param>
+    /// <returns>JavaScript that verifies the target and action API before invoking it.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The action is undefined, or a main-window request carries a nonzero app id.</exception>
     internal static string CreateExpression(SteamNativeSurfaceAction action, uint processId, uint appId)
     {
         if (!Enum.IsDefined(action) || (processId == 0 && appId != 0))

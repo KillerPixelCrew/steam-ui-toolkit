@@ -1,13 +1,8 @@
-// The performance surface is the largest absent backend: SystemPerfStore's constructor
-// optional-chains through a SteamClient.System.Perf that does not exist on Windows, so its state
-// stays empty and every control renders null. Availability for each control is read out of that
-// same state, which is why supplying it also decides what appears — omit a limits field and
-// Valve's own wrapper renders nothing.
-//
-// State is written into m_msgState directly rather than pushed through OnStateChanged, which
-// would mean building a CMsgSystemPerfState protobuf in injected JavaScript to have the store
-// immediately decode it again. Live-verified 2026-08-30 that the direct write is observed through
-// every accessor the hooks use and restores cleanly.
+/**
+ * Projects host performance state into Steam performance RPCs and semantic write commands.
+ * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ */
+
 function createPerfNamespace() {
     const patchId = "steam-ui.performance";
     let installed = false;

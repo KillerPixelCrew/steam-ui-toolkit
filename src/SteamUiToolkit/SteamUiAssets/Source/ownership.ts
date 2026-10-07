@@ -1,40 +1,5 @@
-// Ownership claims: the one primitive every gate needs and every gate used to hand-roll.
-//
-// Three ways to change Steam's front-end, and every gate uses one of them. Naming which is not
-// decoration — it decides what "installed" means, what a probe may check, and what removal owes:
-//
-//   FEED A DATA CONSTRUCT   supplyNamespace / withdrawNamespace
-//     Give a store the shape it was written against, where the client has none. Nothing is
-//     displaced, so removal deletes. Perf, audio.
-//
-//   ANSWER AN RPC           claimMember / releaseMember  (with rpc.ts)
-//     Overlay a method the client already has. Something IS displaced, so removal restores it, and
-//     the overlay must carry it — see rpc.ts for the reply shape and the query invalidation that
-//     make the answer visible. SteamOS Manager GetState, Bluetooth stubs, the brightness setter.
-//
-//   REVEAL WHAT IS GATED    claimValue / releaseValue, claimAccessor / releaseAccessor
-//     Flip the one flag or getter that hides a surface the client can already serve. Narrow and
-//     reversible, and never the platform constant: setting TS.IS_STEAMOS produces the same row
-//     while changing unrelated client behaviour everywhere, which is the spoof D16 forbids.
-//     Brightness availability, network availability.
-//
-// A gate changes something the client owns. Three things then have to be true, and getting any of
-// them wrong has cost a device session:
-//
-//   1. It can recognise its OWN work. A probe that cannot tell "already ours" from "someone else's"
-//      either refuses forever or overwrites a value that was never ours to change. Worse, a probe
-//      that requires the pre-patch condition its own apply invalidates tears the patch down every
-//      poll — the self-incompatibility teardown loop, paid for three times (the audio namespace,
-//      the network getter, the brightness flag, whose row flickered on a ~25-second cycle).
-//   2. It can hand back EXACTLY what was there. Keeping the original only in the installing
-//      closure restores `undefined` to a bridge replaced in place, and Steam's `?? true` hooks then
-//      keep a row visible after removal.
-//   3. Both facts survive a separate CDP evaluation. Probes run in their own call, so the marker
-//      must be a string key on the object — a Symbol from this scope is not reachable from there.
-//
-// Every claim below therefore writes two non-enumerable fields: a marker saying this is ours, and
-// the original it displaced. Callers supply their own key names so no existing marker changes
-// meaning; a renamed key would orphan the marker a previous build left on a running client.
+// Durable ownership claims shared across CDP evaluations. Restore exact descriptors and inherited
+// membership; never stack wrappers, replace a real backend or spoof global platform identity.
 
 const defineHidden = (host: object, key: string, value: unknown) => {
     Object.defineProperty(host, key, {
@@ -45,17 +10,18 @@ const defineHidden = (host: object, key: string, value: unknown) => {
     });
 };
 
-// The claim vocabulary. Declared after the first runtime statement because TypeScript erases a
-// type together with the comments that lead it, and this file's header has to reach the asset.
+/** Durable property names shared by every evaluation that owns the same claim. */
 type ClaimKeys = {
-    // Set to true on the claimed object. "Is this ours?"
+    /** Boolean ownership marker stored on the claimed object. */
     readonly marker: string;
-    // Holds what was displaced. "What do we hand back?"
+    /** Hidden property retaining the displaced member or descriptor snapshot. */
     readonly original: string;
 };
 
+/** Successful acquisition identifies reclamation; refusal carries a diagnostic and leaves other owners intact. */
 type ClaimOutcome = { ok: true; reclaimed: boolean } | { ok: false; error: string };
 
+/** Exact property ownership and descriptor needed to restore inherited versus own membership. */
 type PropertySnapshot = Readonly<{
     kind: "steam-ui-property-snapshot-v1";
     hadOwn: boolean;
@@ -162,8 +128,14 @@ const installDataValue = (
     }
 };
 
-// Claims a plain data field, a flag or value the client set that a gate replaces. Reclaiming a
-// previous bridge's work keeps what THAT bridge displaced, never the value it installed.
+/**
+ * Claims a field while preserving the exact underlying property across bridge replacements.
+ * @param host Object containing the field, or null when unavailable.
+ * @param field Existing field to replace.
+ * @param keys Stable marker/original property names shared by later evaluations.
+ * @param next Desired value; an unowned field already equal to it is refused.
+ * @returns Claim status and reclaim flag, or a diagnostic; failed installation attempts rollback.
+ */
 const claimValue = (
     host: Record<string, unknown> | null,
     field: string,
@@ -202,8 +174,13 @@ const claimValue = (
     }
 };
 
-// Hands a claimed field back. Releasing something never claimed is success, not an error: a gate
-// that failed halfway must be able to unwind without knowing how far it got.
+/**
+ * Restores a claimed field through its saved descriptor or original accessor setter.
+ * @param host Claimed object, or null.
+ * @param field Field named at installation.
+ * @param keys The same durable keys used to claim the field.
+ * @returns Success for an absent claim; otherwise restoration status and any diagnostic.
+ */
 const releaseValue = (
     host: Record<string, unknown> | null,
     field: string,
@@ -223,9 +200,14 @@ const releaseValue = (
     }
 };
 
-// Claims a member — a method a gate overlays, or a namespace it supplies where the client has
-// none. The marker goes on the REPLACEMENT rather than the host, so `status` can ask the live
-// object whether what is installed is ours without consulting any closure.
+/**
+ * Replaces a member with a marked object/function without stacking prior toolkit wrappers.
+ * @param host Object whose member is replaced, or null.
+ * @param member Member to claim.
+ * @param keys Durable marker/original keys on the replacement.
+ * @param replacement Builds the replacement from the underlying original value.
+ * @returns Claim status; a replacement that cannot carry its marker is refused.
+ */
 const claimMember = (
     host: Record<string, unknown> | null,
     member: string,
@@ -258,8 +240,13 @@ const claimMember = (
     }
 };
 
-// Hands a claimed member back to whatever it displaced. A member that was absent before the claim
-// is deleted rather than set to undefined, so `member in host` reads as it did.
+/**
+ * Restores only the currently marked member, including its prior inherited/absent state.
+ * @param host Object carrying the replacement, or null.
+ * @param member Claimed member name.
+ * @param keys Marker/original keys from installation.
+ * @returns Restoration status; an absent or no-longer-owned member is already released.
+ */
 const releaseMember = (
     host: Record<string, unknown> | null,
     member: string,
@@ -276,31 +263,27 @@ const releaseMember = (
     }
 };
 
+/**
+ * Checks the live member for this claim marker.
+ * @param host Object to inspect, or null/undefined.
+ * @param member Member name.
+ * @param keys Claim marker/original keys.
+ * @returns Whether the current member is marked as owned.
+ */
 const memberClaimed = (
     host: Record<string, unknown> | null | undefined,
     member: string,
     keys: ClaimKeys,
 ) => claimed(host?.[member], keys);
 
-// Supplies a namespace the client does not have — the Performance and audio backends Valve's own
-// components were written against and the Windows client never defines.
-//
-// Distinct from claimMember, which overlays something that EXISTS. Three differences matter:
-//
-//   - Refusing a real backend is correct. A client that grows one must not be shadowed by a
-//     projection of a different machine's hardware.
-//   - Reclaiming our own is mandatory. A namespace outlives the bridge backing it — the bridge is a
-//     window property that dies with the JS context, SteamClient does not — so after a context
-//     reload an orphaned namespace is left whose methods call a bridge that is gone. Refusing there
-//     stranded the client permanently: the probe saw a namespace, called the patch incompatible,
-//     and Steam's audio page stayed empty until Steam itself restarted.
-//   - Removal DELETES rather than restores, because there was nothing there to hand back.
-//
-// Defined rather than assigned, and non-writable: assignment would throw against a previous
-// bridge's non-writable definition, under the "use strict" this whole asset runs in — turning a
-// reclaim into exactly the refusal above.
-// Takes a marker alone rather than a ClaimKeys pair, because nothing is displaced: there is no
-// original to remember, and removal deletes.
+/**
+ * Supplies an absent namespace or reclaims an orphaned toolkit namespace.
+ * @param host Namespace parent, or null.
+ * @param name Property receiving the namespace.
+ * @param marker Durable ownership marker.
+ * @param factory Builds the supplied object; no real unmarked backend is replaced.
+ * @returns Claim/reclaim status or the refusal reason.
+ */
 const supplyNamespace = (
     host: Record<string, unknown> | null,
     name: string,
@@ -329,8 +312,13 @@ const supplyNamespace = (
     }
 };
 
-// Withdraws a supplied namespace. Only ever deletes one this bridge marked, so a real backend that
-// appeared underneath is left alone.
+/**
+ * Deletes only the namespace carrying the supplied marker.
+ * @param host Namespace parent, or null/undefined.
+ * @param name Namespace property name.
+ * @param marker Marker used when supplying the namespace.
+ * @returns Removal status; missing or foreign namespaces are left intact.
+ */
 const withdrawNamespace = (
     host: Record<string, unknown> | null | undefined,
     name: string,
@@ -345,16 +333,14 @@ const withdrawNamespace = (
     }
 };
 
-// Claims an accessor property — a getter the client computes, that a gate answers differently.
-//
-// Separate from claimMember because the write has to be defineProperty rather than assignment:
-// assigning to a getter-backed property either calls a setter that is not there or throws, and
-// defining the replacement on the INSTANCE instead of where the accessor lives would shadow rather
-// than replace, leaving the shadow behind after removal. The marker goes on the replacement getter
-// and carries the whole original descriptor, because that is what has to be handed back.
-//
-// Refuses a non-configurable property rather than throwing: a client that locked it is a client
-// this gate stands aside for.
+/**
+ * Claims a configurable own accessor while retaining its complete original descriptor.
+ * @param host Object that defines the accessor, not an inheriting instance.
+ * @param property Own property to replace.
+ * @param keys Durable marker/original keys carried by the getter.
+ * @param getter Replacement getter.
+ * @returns Claim/reclaim status; unavailable or non-configurable properties are refused.
+ */
 const claimAccessor = (
     host: object | null,
     property: string,
@@ -380,7 +366,13 @@ const claimAccessor = (
     }
 };
 
-// Restores the descriptor a claimed accessor displaced.
+/**
+ * Restores the descriptor saved by a still-owned accessor claim.
+ * @param host Object defining the accessor, or null.
+ * @param property Claimed property.
+ * @param keys Marker/original keys from installation.
+ * @returns Restoration status; missing saved originals remain failures.
+ */
 const releaseAccessor = (
     host: object | null,
     property: string,
@@ -501,20 +493,37 @@ const memoClaim = createSharedClaim<(value: unknown) => unknown>(
             return value;
         },
 );
+/**
+ * Registers a named transform on the shared React.useMemo claim; throwing transforms preserve the previous result.
+ * @param host Steam React or JSX runtime object.
+ * @param name Unique transform identity for later release.
+ * @param transform Transformation callback; it must not recursively call the claimed wrappers.
+ * @returns Installation status; transforms run in registration order.
+ */
 const interceptMemo = memoClaim.intercept;
+/**
+ * Withdraws one transform and restores the claimed functions when the last transform leaves.
+ * @param host Original React/JSX host; required while a wrapper remains installed.
+ * @param name Registered transform identity.
+ * @returns Cleanup status; unavailable hosts with remaining wrappers are reported as failures.
+ */
 const releaseMemo = memoClaim.release;
+/**
+ * Checks that a named transform and all corresponding live wrappers are still owned.
+ * @param host React/JSX host to inspect.
+ * @param name Transform identity.
+ * @returns Whether both registration and wrapper ownership hold.
+ */
 const memoIntercepted = memoClaim.intercepted;
 
-// Intercepts elements as Steam creates them, for what is built inside a mobx observer class.
-// mobx-react pins a non-writable `render` on each instance of such a class after its first render,
-// so neither its prototype nor an instance can be claimed; the one place its output passes through
-// is the JSX runtime's `jsx` and `jsxs`, which share one claim for the same reason useMemo does.
-//
-// A transform receives `(create, type, props, key)` and returns the element to use, or undefined to
-// leave the call alone. `create` is the runtime's own function, so a replacement is built without
-// passing through the transforms again. Transforms run in registration order, the first to answer
-// wins, and one that throws is skipped. Every element Steam creates passes through here, so a
-// transform's first test has to be a cheap comparison.
+/**
+ * Transforms an element before React renders it; first non-undefined result wins.
+ * @param create Original JSX constructor, bypassing all registered transforms.
+ * @param type Element component or intrinsic type; check cheaply before inspecting props.
+ * @param props Original element props.
+ * @param key React element key.
+ * @returns A replacement element, or undefined to continue. Throwing transforms are skipped.
+ */
 type ElementTransform = (
     create: (...args: unknown[]) => unknown,
     type: unknown,
@@ -540,6 +549,25 @@ const elementClaim = createSharedClaim<ElementTransform>(
             return original.apply(this, arguments as any);
         },
 );
+/**
+ * Registers a named JSX transform on the shared jsx/jsxs claims; the first defined result wins.
+ * @param host Steam React or JSX runtime object.
+ * @param name Unique transform identity for later release.
+ * @param transform Transformation callback; it must not recursively call the claimed wrappers.
+ * @returns Installation status; throwing transforms are skipped.
+ */
 const interceptElements = elementClaim.intercept;
+/**
+ * Withdraws one transform and restores the claimed functions when the last transform leaves.
+ * @param host Original React/JSX host; required while a wrapper remains installed.
+ * @param name Registered transform identity.
+ * @returns Cleanup status; unavailable hosts with remaining wrappers are reported as failures.
+ */
 const releaseElements = elementClaim.release;
+/**
+ * Checks that a named transform and all corresponding live wrappers are still owned.
+ * @param host React/JSX host to inspect.
+ * @param name Transform identity.
+ * @returns Whether both registration and wrapper ownership hold.
+ */
 const elementsIntercepted = elementClaim.intercepted;

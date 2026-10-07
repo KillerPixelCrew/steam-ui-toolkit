@@ -44,6 +44,8 @@ internal interface ISteamUiEndpointDiscovery
         SteamUiTargetRole role, CancellationToken cancellationToken);
 }
 
+/// <summary>Discovers validated loopback CDP targets only after checking the listener belongs to Steam.</summary>
+/// <remarks>This production component does not parse Steam startup logs. Attended debugging must independently satisfy the documented log-confirmed Steam and Big Picture startup prerequisite before any discovery request.</remarks>
 internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDisposable
 {
     private const int MaximumDiscoveryBytes = 1024 * 1024;
@@ -58,12 +60,16 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDis
     private readonly bool _requireMainWindow;
     private int _disposed;
 
+    /// <summary>Creates a reusable HTTP discovery client without making a request.</summary>
+    /// <param name="requireMainWindow">Require exactly one validated main-window target before returning any role.</param>
     internal SteamUiEndpointDiscovery(bool requireMainWindow = false)
     {
         _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
         _requireMainWindow = requireMainWindow;
     }
 
+    /// <inheritdoc />
+    /// <remarks>Idempotently releases the owned HTTP client; later discovery throws.</remarks>
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 0)
@@ -72,6 +78,9 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDis
         }
     }
 
+    /// <inheritdoc />
+    /// <exception cref="ObjectDisposedException">Discovery has been disposed.</exception>
+    /// <exception cref="InvalidDataException">A discovery response exceeds its bound, has an invalid target-list shape, or names a nonlocal/ambiguous endpoint.</exception>
     public async Task<SteamUiEndpoint?> DiscoverAsync(
         SteamUiTargetRole role, CancellationToken cancellationToken)
     {
@@ -114,6 +123,13 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDis
         return match;
     }
 
+    /// <summary>Selects one validated role from a parsed CDP target array.</summary>
+    /// <param name="targets">JSON array of target objects; missing or invalid required fields cause that target to be skipped.</param>
+    /// <param name="role">Target role to match.</param>
+    /// <param name="browserId">Validated browser identity copied into the result.</param>
+    /// <param name="requireMainWindow">Require exactly one separately validated main window.</param>
+    /// <returns>The unique endpoint, or null when the requested role/main-window prerequisite is absent.</returns>
+    /// <exception cref="InvalidDataException">More than one target matches the requested role.</exception>
     internal static SteamUiEndpoint? SelectTarget(
         JsonElement targets, SteamUiTargetRole role, string browserId, bool requireMainWindow)
     {
@@ -158,6 +174,12 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDis
         return requireMainWindow && mainWindows != 1 ? null : match;
     }
 
+    /// <summary>Matches a Steam target using the role-specific title and creation-URL contract.</summary>
+    /// <param name="role">Allowlisted target role.</param>
+    /// <param name="type">Reported CDP target type.</param>
+    /// <param name="title">Reported title; used for SharedJSContext, not the localized main window.</param>
+    /// <param name="url">Target creation URL, which can differ from the current document URL.</param>
+    /// <returns>True for the expected target shape; unknown roles return false.</returns>
     internal static bool MatchesTarget(
         SteamUiTargetRole role, string type, string title, string url)
     {
@@ -169,15 +191,8 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDis
                 && Uri.TryCreate(url, UriKind.Absolute, out var sharedUri)
                 && sharedUri.Scheme == Uri.UriSchemeHttps
                 && sharedUri.Host == "steamloopback.host",
-            // Steam's top-level window, identified by the shape of its creation URL rather than by
-            // its title or its document address. The title is localized — "Big-Picture-Modus" on a
-            // German client — and the URL reported here is the URL the target was CREATED with, not
-            // the one it later navigated to: the document reads
-            // "https://steamloopback.host/index.html?…" while this field still says "about:blank?…".
-            // Matching the document address therefore found nothing at all.
-            //
-            // What separates it from every sibling: it is a real window, so it carries a minimum
-            // size, and it is nobody's popup, so it has neither a browser-view marker nor an opener.
+            // CDP retains the creation URL, not the navigated document URL. Main-window titles
+            // are localized; require a sized top-level window without popup or opener markers.
             SteamUiTargetRole.MainWindow =>
                 type == "page"
                 && url.StartsWith("about:blank?", StringComparison.Ordinal)

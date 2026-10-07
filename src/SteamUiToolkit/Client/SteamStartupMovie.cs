@@ -83,6 +83,8 @@ public sealed class SteamStartupMovie
 
     private readonly SteamClient _client;
 
+    /// <summary>Creates the startup-movie ownership façade without opening a connection.</summary>
+    /// <param name="client">Owning client; borrowed for dispatch and lifetime, never disposed by this façade.</param>
     internal SteamStartupMovie(SteamClient client)
     {
         _client = client;
@@ -110,11 +112,12 @@ public sealed class SteamStartupMovie
         return Parse(result);
     }
 
-    /// <summary>The script <see cref="SetAsideAsync" /> runs. Pure, for tests.</summary>
+    /// <summary>The script <see cref="SetAsideAsync" /> runs.</summary>
     /// <remarks>
     ///     The first setter changes Steam's choice, so every failure after it answers the choice Steam
     ///     held; the caller would otherwise lose the user's movie for good.
     /// </remarks>
+    /// <returns>An async expression clearing a nondefault choice and preserving it in the reply, even after a partial failure.</returns>
     internal static string SetAsideScript()
     {
         return SteamClientScript.Read(
@@ -125,7 +128,9 @@ public sealed class SteamStartupMovie
             "return JSON.stringify({ok:true,choice:now});");
     }
 
-    /// <summary>The script <see cref="RestoreAsync" /> runs. Pure, for tests.</summary>
+    /// <summary>The script <see cref="RestoreAsync" /> runs.</summary>
+    /// <param name="choice">Previously saved choice; its strings are encoded as JavaScript literals.</param>
+    /// <returns>An async expression restoring the saved choice only while Steam still has its default choice.</returns>
     internal static string RestoreScript(SteamStartupMovieChoice choice)
     {
         return SteamClientScript.Read(
@@ -138,8 +143,9 @@ public sealed class SteamStartupMovie
             "return JSON.stringify({ok:true,choice:back});");
     }
 
-    /// <summary>Maps the reply of either script to a result. Pure, for tests.</summary>
+    /// <summary>Maps the reply of either script to a result.</summary>
     /// <param name="result">The evaluation outcome.</param>
+    /// <returns>The outcome and any choice carried by the reply, including a choice preserved on failure.</returns>
     internal static SteamStartupMovieResult Parse(SteamUiEvaluationResult result)
     {
         if (result.Dispatch != SteamUiDispatch.Answered)

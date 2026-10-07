@@ -10,13 +10,9 @@ namespace SteamUiToolkit;
 ///     compatibility predicate over its JSON, and the injected gate's install/status/remove surface.
 /// </summary>
 /// <remarks>
-///     The behavior every gate shares lives here once: the probe skeleton, the
-///     <c>bridge.install()</c> apply, and the status-checked verify/remove wrappers. What a gate
-///     supplies (a namespace, an RPC answer, a revealed flag) lives in its injected fragment under
-///     <c>SteamUiAssets\Source\gates\</c>; what makes the client compatible lives in the probe
-///     expression and predicate each surface declares. Every probe accepts "already ours" as
-///     compatible — requiring the pre-patch shape alone made a successful apply invalidate its own next
-///     probe and tear the gate down (see the inline probe comments on each surface).
+///     The surface supplies read-only probe evidence and install/status/remove predicates. A probe
+///     must recognize its own post-install claims as compatible. The manager supplies phase budgets,
+///     serialization and rollback; the gate owns exact restoration of its page mutations.
 /// </remarks>
 public sealed class SteamGatePatch : ISteamUiPatch
 {

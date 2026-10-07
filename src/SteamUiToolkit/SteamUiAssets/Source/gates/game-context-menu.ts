@@ -1,8 +1,8 @@
-// Host-owned per-game commands in Steam's library and gear context menu.
-//
-// The component already knows which app opened its menu. This gate only wraps that render method,
-// reuses the exact item type Steam emitted, and sends a bounded app id plus host command identity.
-// It never offers package JavaScript or React nodes a handle to Steam's private menu objects.
+/**
+ * Adds host actions to Steam game context menus while preserving native entries.
+ * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ */
+
 function createGameContextMenu() {
   const patchId = "steam-ui.game-context-menu";
   const renderClaimKeys = {

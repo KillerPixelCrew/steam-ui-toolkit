@@ -1,15 +1,8 @@
-// Answering what Steam asks.
-//
-// The client calls a service method and reads a transport reply, not a bare value. Two gates
-// answer such calls — the SteamOS Manager's GetState and the Bluetooth service's stubs — and both
-// had built the same reply shape and the same query invalidation by hand.
-//
-// Overlaying the method itself is an ownership claim (claimMember); what is here is the rest of
-// the job, which is the half that is easy to forget.
-
-// The shape Steam reads back from a service call. BSuccess decides whether the caller proceeds at
-// all, so a reply that omits it is discarded before its body is ever looked at; Body().toObject()
-// is what the store then consumes.
+/**
+ * Creates the success envelope expected by Steam service callers.
+ * @param body Response body returned by Body().toObject().
+ * @returns An object exposing BSuccess/BFailed/GetEResult/Body.
+ */
 const transportReply = (body: object) => ({
     BSuccess: () => true,
     BFailed: () => false,
@@ -17,8 +10,11 @@ const transportReply = (body: object) => ({
     Body: () => ({...body, toObject: () => body}),
 });
 
-// A refused call in the same shape. k_EResultFail rather than an absent method, so a caller that
-// compares the result reads a refusal instead of throwing where the comparison would have been.
+/**
+ * Creates a refused Steam service response with EResult 2.
+ * @param body Failure response body.
+ * @returns The same transport shape as transportReply, marked failed.
+ */
 const transportFailure = (body: object) => ({
     ...transportReply(body),
     BSuccess: () => false,
@@ -39,7 +35,11 @@ const transportFailure = (body: object) => ({
 const QueryClientTokens = ["ReactQueryDevtools", "offlineFirst"];
 const isQueryClient = (value: any) =>
     typeof value?.invalidateQueries === "function" && typeof value?.getQueryState === "function";
-// The query client, or null when the provider moved or no longer answers to that shape.
+/**
+ * Resolves Steam's query client without exposing factory or export identities to callers.
+ * @param req Shared module resolver.
+ * @returns The uniquely shaped query client, or null on discovery/load failure.
+ */
 const resolveQueryClient = (req: any) => {
     try {
         return req?.exported(QueryClientTokens, isQueryClient) ?? null;
@@ -47,6 +47,11 @@ const resolveQueryClient = (req: any) => {
         return null;
     }
 };
+/**
+ * Invalidates a Steam query after a supplied service reply changes.
+ * @param req Shared module resolver.
+ * @param queryKey Query key to invalidate.
+ */
 const invalidateQuery = (req: any, queryKey: unknown) => {
     try {
         resolveQueryClient(req)?.invalidateQueries({queryKey});

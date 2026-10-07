@@ -158,6 +158,10 @@ internal sealed class SteamUiBridgeAuthorizer
         }
     }
 
+    /// <summary>Checks a command name against the exact ordinal allowlist.</summary>
+    /// <param name="commands">Commands authorized for one patch.</param>
+    /// <param name="command">Case-sensitive command name.</param>
+    /// <returns>True when one entry matches exactly.</returns>
     internal static bool Contains(IReadOnlyList<string> commands, string command)
     {
         for (var index = 0; index < commands.Count; index++)
@@ -171,6 +175,11 @@ internal sealed class SteamUiBridgeAuthorizer
         return false;
     }
 
+    /// <summary>Validates and snapshots patch command declarations.</summary>
+    /// <param name="allowedCommands">Patch identities with their case-sensitive command lists.</param>
+    /// <returns>A detached dictionary whose command lists are read-only.</returns>
+    /// <exception cref="ArgumentException">A patch/command name is blank or a command is duplicated within its patch.</exception>
+    /// <exception cref="ArgumentNullException">The vocabulary or a command list is null.</exception>
     internal static IReadOnlyDictionary<string, IReadOnlyList<string>> CopyVocabulary(
         IReadOnlyDictionary<string, IReadOnlyList<string>> allowedCommands)
     {
@@ -686,6 +695,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
 
     /// <summary>Removes only the host-owned bridge namespace and Runtime binding.</summary>
     /// <param name="cancellationToken">Cancels cleanup.</param>
+    /// <returns>A task completing after owned bridge cleanup is attempted; cancellation propagates.</returns>
     public async Task RemoveAsync(CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);

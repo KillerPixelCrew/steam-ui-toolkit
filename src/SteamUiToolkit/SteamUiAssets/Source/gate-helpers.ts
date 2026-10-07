@@ -109,6 +109,11 @@ const optionalSteamExport = (runtime, tokens, predicate) => {
     }
 };
 
+/**
+ * Resolves React and native field components for row renderers.
+ * @param runtime Shared module resolver.
+ * @returns Available field components, or null when foundational module evidence is absent.
+ */
 const resolveSteamFieldComponents = (runtime) => {
     const react = resolveReact(runtime);
     const fieldsFactory = runtime.findUnique(FieldTokens);
@@ -171,6 +176,11 @@ const resolveSteamFieldComponents = (runtime) => {
     };
 };
 
+/**
+ * Resolves native page controls using shared module fingerprints and export shapes.
+ * @param runtime Shared module resolver; matching factory loads may throw.
+ * @returns The available component collection, or null when base fields cannot resolve.
+ */
 const resolveSteamUiComponents = (runtime) => {
     const fields = resolveSteamFieldComponents(runtime);
     if (!fields) return null;
@@ -242,6 +252,11 @@ const resolveSteamUiComponents = (runtime) => {
 // titled section, and PanelSectionRow, which lays one control out inside it. Both come from the one
 // layout module that names them together; null when either is not a unique match there.
 const PanelLayoutTokens = ["PanelSectionTitle", "PanelSectionRow", "spinner"] as const;
+/**
+ * Resolves both native Quick Access section and row components.
+ * @param runtime Shared module resolver.
+ * @returns The pair, or null unless both exports match uniquely.
+ */
 const resolveSteamPanelComponents = (runtime) => {
     const factory = runtime.findUnique(PanelLayoutTokens);
     if (!factory) return null;
@@ -292,13 +307,19 @@ const createSteamFolds = () => {
     };
 };
 
-// Steam's checkbox where the client has it, its toggle otherwise: both take label, description,
-// checked, onChange and disabled, so a page draws either without knowing which it got.
+/**
+ * Selects a native checkbox with a toggle fallback.
+ * @param ui Steam's resolved React and native control components.
+ * @returns The checkbox/toggle component, or null when neither exists.
+ */
 const steamCheckbox = (ui) => ui?.checkbox ?? ui?.toggleField ?? null;
 
-// A dropdown for a toolbar: Steam's bare dropdown button where the client has it, its labelled
-// DropDownField otherwise. Takes the dropdown's own props; `label` names the field, or titles the
-// bare button's menu.
+/**
+ * Draws a native toolbar dropdown, falling back to a labelled field.
+ * @param ui Steam's resolved React and native control components.
+ * @param props Native dropdown props, including options, current selection, label and change handler.
+ * @returns The dropdown element.
+ */
 const renderSteamDropdown = (ui, props) =>
     ui.dropdownControl
         ? ui.react.createElement(ui.dropdownControl, {
@@ -317,10 +338,12 @@ const renderSteamDropdown = (ui, props) =>
               layout: "below",
           });
 
-// Opens a Steam modal around a body the caller draws. `render(close)` is called on every render of
-// the modal, so a body that keeps state is a component the caller renders from it. `onCancel` runs
-// when the user dismisses the modal with B or the backdrop, before it closes. Answers false when
-// this client has no modal manager, so the caller can say why nothing opened.
+/**
+ * Opens a native modal and supplies a close callback to its content.
+ * @param ui Steam's resolved React and native control components.
+ * @param options Optional title/class, content renderer and cancellation callback.
+ * @returns True when shown, false when modal components are unavailable.
+ */
 const showSteamModal = (
     ui,
     options: {title?: string; className?: string; render: (close: () => void) => any; onCancel?: () => void},
@@ -347,9 +370,11 @@ const showSteamModal = (
 // Steam's gamepad button codes, as a Focusable's onButtonDown reports them in event.detail.button.
 const SteamGamepadButton = Object.freeze({TriggerLeft: 7, TriggerRight: 8} as const);
 
-// An onButtonDown handler that turns the triggers into a step: -1 for LT, +1 for RT. A trigger it
-// handles goes no further, so the same press does not also scroll the page; any other button is
-// left to Steam.
+/**
+ * Creates a handler that consumes LT/RT and leaves other buttons to Steam.
+ * @param step Receives -1 for LT and +1 for RT.
+ * @returns A Steam Focusable onButtonDown handler.
+ */
 const onSteamTriggers = (step: (delta: number) => void) => (event: any) => {
     const button = event?.detail?.button;
     if (button !== SteamGamepadButton.TriggerLeft && button !== SteamGamepadButton.TriggerRight) return;
@@ -385,10 +410,11 @@ const isSteamRouteList = (react, value, knownRoute: string) =>
 const isNavigableRoute = (route) =>
     typeof route === "string" && route.startsWith("/") && route !== "/" && !/[\u0000-\u001f\u007f]/u.test(route);
 
-// Only a route returned by a successful host command is followed. Publications cannot inject a
-// target, and the bounds keep this a router operation rather than an open-ended navigation API. A
-// navigation entry's published route is the one exception, and it is followed by Valve's own entry
-// only when the user selects that row.
+/**
+ * Pushes an absolute non-root route through the existing Steam history.
+ * @param route Route without control characters; no length bound is imposed.
+ * @returns False for an invalid route or missing history; true after push. History exceptions propagate.
+ */
 const navigateSteamRoute = (route) => {
     if (!isNavigableRoute(route)) {
         return false;
@@ -515,8 +541,12 @@ const SteamAccentColor = "#1a9fff";
 const steamAccentDescription = (react, text, accent) =>
     accent ? react.createElement("span", {style: {color: SteamAccentColor}}, text) : text || undefined;
 
-// An element's props with its key carried along. The key lives on the element, not in props, and
-// dropping it would re-key the node inside its parent's child list on every render.
+/**
+ * Builds props that retain an existing React element's key.
+ * @param element Element whose identity is preserved.
+ * @param props Replacement props; defaults to the element's current props.
+ * @returns Original props for a null key; otherwise a shallow props copy containing the key.
+ */
 const keyed = (element, props = element.props) =>
     element.key === null ? props : {...props, key: element.key};
 
@@ -590,7 +620,11 @@ const attemptResolution = (resolve: () => boolean, failed: (error: unknown) => v
     }
 };
 
-// Ends a gate's bridge subscription, if it holds one, and answers the cleared handle.
+/**
+ * Invokes an optional subscription disposer; cleanup exceptions propagate.
+ * @param unsubscribe Current disposer, or null.
+ * @returns Null, suitable for assigning back to the owner's subscription field.
+ */
 const endSubscription = (unsubscribe: (() => void) | null) => {
     unsubscribe?.();
     return null;

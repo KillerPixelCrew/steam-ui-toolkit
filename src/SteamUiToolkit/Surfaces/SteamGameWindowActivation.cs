@@ -38,6 +38,10 @@ public static class SteamGameWindowActivation
                && SteamSharedContext.IsReadyAt(transport, before.Generations);
     }
 
+    /// <summary>Builds a single-use game-window activation request for exactly one matching overlay.</summary>
+    /// <param name="processId">Selected nonzero game process id.</param>
+    /// <param name="expiresAt">UTC Unix time in milliseconds after which the page must refuse to invoke Steam.</param>
+    /// <returns>JavaScript resolving true only after Steam's raise call completes; it validates the 64-bit game id as a string.</returns>
     internal static string CreateExpression(uint processId, long expiresAt)
     {
         return $$"""

@@ -1,31 +1,8 @@
-// Theme stylesheets in every Steam window, the way CSSLoader delivers them.
-//
-// CSSLoader (b1bc683, css_browserhook.py) opens a CDP session to each of Steam's page targets and
-// appends one <style> per block to that document's head, choosing the documents a block is for by
-// the target's title, its URL or the classes on its root elements. Every one of those windows is
-// rendered from SharedJSContext, so their documents are reachable from here without a connection
-// per window: one gate, one publication, every window.
-//
-// Where the windows are, measured on a Windows client on 2026-09-28: g_PopupManager holds the Big
-// Picture window and its context menus, and NOT the Quick Access, main-menu and toast windows.
-// Those exist to SharedJSContext only as the containers of React portals, which is how Steam draws
-// into them. So the documents are gathered from both: every popup the manager lists, and every
-// document a portal in SharedJSContext's mounted trees renders into.
-//
-// What identifies a window, measured the same day: the window's own name, "SP BPM_uid0",
-// "QuickAccess_uid17", "MainMenu_uid17", "notificationtoasts_uid17", "contextmenu_13_uid0". The
-// document title is that name for the popups but the LOCALIZED product name for the Big Picture
-// window ("Big-Picture-Modus" on a German client), and its URL carries none of the markers
-// CSSLoader's table names. A title target is therefore tested against the name as well as the
-// title, and the host's alias table names the Big Picture window by its name.
-//
-// The host publishes the blocks and the targets each is for; the gate installs them once per
-// window and touches a window again only when the publication changes or Steam opens a window,
-// which it announces through the popup manager's created callback. CSSLoader looks at every target
-// every three seconds from outside Steam; doing the same from in here meant walking Steam's whole
-// React tree on its own thread every two seconds, and with a large library that slowed every image
-// Big Picture loads (2026-09-29, a handheld with 33 themes on). Nothing here reads the CSS: a theme is
-// the host's to load, translate and order, and this gate installs what it is given.
+/**
+ * Reconciles host CSS into owned style elements across eligible Steam documents.
+ * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced. The windows accessor reports currently reachable documents and owned nodes.
+ */
+
 function createThemeStyles() {
   const patchId = "steam-ui.theme-styles";
   // Every node this gate appends carries the class, and only nodes with it are ever removed.

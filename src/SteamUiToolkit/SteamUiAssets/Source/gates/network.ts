@@ -1,11 +1,8 @@
-// Wi-Fi is hidden by one getter, not by an absent backend. Steam's Windows client genuinely
-// tracks the wireless device — hasWirelessDevice and isWifiEnabled are true here without any
-// help — and only `get networkManagementAvailable(){return TS.IS_STEAMOS}` keeps the UI away.
-//
-// Overriding that one property is narrow and reversible and affects one surface. Setting the
-// constant it reads would produce the same row while changing unrelated client behaviour
-// everywhere, which is the spoof D16 forbids. Live-verified 2026-08-30: the descriptor is
-// configurable, the override flips the value, and restoring the saved descriptor puts it back.
+/**
+ * Supplies Steam networking RPCs and scan notifications from host publications.
+ * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ */
+
 function createNetworkGate() {
     const property = "networkManagementAvailable";
     const patchId = "steam-ui.network";

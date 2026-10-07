@@ -64,6 +64,10 @@ const libraryForOverview = (overview, reading: ReturnType<typeof readLibraryBadg
     if (!library) return null;
     return {name: library.name, installed};
 };
+/**
+ * Adds host library badges using shared element transforms and published library identity.
+ * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ */
 
 function createLibraryBadge() {
     const patchId = "steam-ui.library-badge";
@@ -371,28 +375,10 @@ function createLibraryBadge() {
 
 registerGate("libraryBadge", createLibraryBadge());
 
-// The library as a stat on a game's own page, after Last Played and Play Time.
-//
-// Mapped from the Stable client (UI build of 2026-09-06) and the September 2026 beta on 2026-09-11,
-// whose app-details module is the same in both:
-//
-//   PlayBar                  exported mobx observer class
-//     StatusAndStats         exported mobx observer class
-//       stats section        module-local mobx observer class, rendering
-//         div.GameStatsSection   claim content, cloud status, install size, Last Played,
-//                                Play Time or time left, achievements, controller support
-//
-// Every one of those pins a non-writable render on each instance, so no claim on a type or a
-// prototype holds. The row passes through the JSX runtime when Steam creates it, and that is where
-// this adds to it (interceptElements in ownership.ts): the div whose class is the play bar class
-// map's `GameStatsSection` gets one more child. The stat is Valve's markup for Last Played, built
-// from the same class map, so it takes the row's type, spacing and narrow-window rules, and its
-// label is Steam's own `#Settings_Page_Library`, localized. The app is the overview the row's own
-// children are given.
-//
-// The data is the library badge's publication, read by the same rules: a game on a library that is
-// not attached shows its library dimmed, and one installed nowhere has no stat. The row draws with the
-// page, so a new publication shows the next time the page renders.
+/**
+ * Adds host metadata and frontend contributions to the matched game details page.
+ * @returns Install/remove controls and diagnostics for the reversible details-page claim.
+ */
 function createLibraryDetails() {
     const publicationId = "steam-ui.library-badge";
     const TransformName = "libraryDetails";

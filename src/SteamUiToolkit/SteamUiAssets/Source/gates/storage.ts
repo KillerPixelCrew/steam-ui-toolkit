@@ -1,31 +1,8 @@
-// Steam's own storage device manager, revived on Windows.
-//
-// Big Picture ships a complete SteamOS storage UI — drives, block devices, format, adopt, eject,
-// trim — and on Windows it never appears. Mapped against the live client on 2026-09-10: the whole
-// surface hangs off one question. Its hooks call
-//
-//   StorageDeviceManager.IsServiceAvailable#1
-//
-// through the WebUI service transport, and every other query is `enabled:` on that answer. The
-// Windows client has no service behind it, so the answer never arrives and the UI stays inert.
-//
-// The transport is where this is claimable. Each generated client resolves
-// `GetDefaultTransport().SendMsg(name, request, responseType, options)`, and `SendMsg` lives on the
-// transport prototype as a writable, configurable property. Claiming it on the *instance* scopes
-// the change to the one live transport and lets removal delete the own property so the prototype
-// method shows through again, untouched.
-//
-// Everything not addressed to StorageDeviceManager is forwarded to the original synchronously and
-// unexamined. This carries all of Steam's service traffic, so the filter is a name prefix checked
-// first and nothing else happens on that path.
-//
-// The service vocabulary, read from the client's own message classes:
-//
-//   IsServiceAvailable, GetState, StateChanged, Eject, Adopt, Format, Unmount, TrimAll
-//   CStorageDeviceManagerDrive        id, is_formattable, is_unformatted
-//   CStorageDeviceManagerBlockDevice  block_device_id, drive_id, mount_paths, has_steam_library
-//   CStorageDeviceManagerState        drives, block_devices, is_adopt_supported,
-//                                     is_unmount_supported, is_trim_supported, is_trim_running
+/**
+ * Supplies Steam storage RPCs while retaining unrelated native transport behavior.
+ * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ */
+
 function createStorageService() {
     const patchId = "steam-ui.storage";
     const claimKeys = {

@@ -22,12 +22,21 @@
 // the match with the back stack, so B and the back gesture pop the page the way they pop /settings.
 // Using react-router's Route renders the same content and silently loses that.
 const steamPageRenderers = new Map<string, (react: any, page: any) => any>();
+/**
+ * Registers a renderer for one page template in this bridge generation.
+ * @param template Stable template key used by host page publications.
+ * @param render Renderer receiving Steam's React runtime and the published page descriptor.
+ */
 const registerSteamPageRenderer = (template: string, render: (react: any, page: any) => any) => {
   if (!template || template === "default" || steamPageRenderers.has(template)) {
     throw new Error(`Steam page renderer '${template}' is invalid or already registered.`);
   }
   steamPageRenderers.set(template, render);
 };
+/**
+ * Installs host-owned routes and renders registered page templates inside Steam's router.
+ * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ */
 
 function createPageHost() {
   const patchId = "steam-ui.pages";
