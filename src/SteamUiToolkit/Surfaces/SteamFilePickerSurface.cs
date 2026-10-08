@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Security;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -119,7 +120,10 @@ public static partial class SteamFilePickerSurface
     ///     form, so the listing and every path in it read the way the user knows them.
     /// </remarks>
     /// <param name="path">The folder.</param>
-    /// <param name="extensions">The file types to include, each with its dot; empty for folders only.</param>
+    /// <param name="extensions">
+    ///     File extensions with their dot; empty lists folders only, and <c>.*</c> includes every file
+    ///     type.
+    /// </param>
     /// <param name="cancellationToken">Stops the enumeration once the request was given up on.</param>
     /// <returns>The listing, with an error when the folder cannot be read.</returns>
     /// <exception cref="OperationCanceledException">The request was cancelled while the folder was listed.</exception>
@@ -174,14 +178,15 @@ public static partial class SteamFilePickerSurface
                     .Where(entry =>
                     {
                         cancellationToken.ThrowIfCancellationRequested();
-                        return extensions.Contains(entry.Extension, StringComparer.OrdinalIgnoreCase);
+                        return extensions.Contains(".*") ||
+                               extensions.Contains(entry.Extension, StringComparer.OrdinalIgnoreCase);
                     })
                     .Select(entry => new SteamFileEntry(entry.Name, entry.FullName, false))
                     .OrderBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase)
                     .ToList();
             return new SteamFileListing(full, parent, [.. folders, .. files], null);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SecurityException)
         {
             return new SteamFileListing(full, parent, [], ex is UnauthorizedAccessException
                 ? "This folder cannot be opened."
@@ -193,7 +198,8 @@ public static partial class SteamFilePickerSurface
     /// <param name="payload">The request payload.</param>
     /// <param name="request">The path and extensions, when this returns true.</param>
     /// <returns>Whether the payload had that shape.</returns>
-    public static bool TryReadListFolder(JsonElement payload, out (string Path, IReadOnlyList<string> Extensions) request)
+    public static bool TryReadListFolder(JsonElement payload,
+        out (string Path, IReadOnlyList<string> Extensions) request)
     {
         request = (string.Empty, []);
         if (!SteamUiPayload.HasExactly(payload, 2)
@@ -210,7 +216,7 @@ public static partial class SteamFilePickerSurface
             if (item.ValueKind != JsonValueKind.String
                 || item.GetString() is not { Length: > 1 } extension
                 || !extension.StartsWith('.')
-                || extension.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+                || (extension != ".*" && extension.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0))
             {
                 return false;
             }

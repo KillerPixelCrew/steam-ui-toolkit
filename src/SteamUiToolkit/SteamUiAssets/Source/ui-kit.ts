@@ -91,6 +91,29 @@ const SteamUiKitStyles = `
 .steam-ui-kit-box{background:rgba(27,40,56,.9);border-radius:4px;padding:16px;display:flex;flex-direction:column;gap:10px}
 .steam-ui-kit-box-title{display:flex;align-items:center;gap:6px;font-size:16px;font-weight:600;color:#fff}
 .steam-ui-kit-box-title svg{width:18px;height:18px}
+.steam-ui-kit-box p{margin:0;line-height:1.45}
+.steam-ui-kit-box,.steam-ui-kit-group,.steam-ui-kit-group-body,.steam-ui-kit-pane,.steam-ui-kit-detail-aside{min-width:0;max-width:100%;box-sizing:border-box}
+.steam-ui-kit-box>*{min-width:0;max-width:100%;box-sizing:border-box}
+.steam-ui-kit-box .DialogButton,.steam-ui-kit-sheet .DialogButton{min-width:0!important;max-width:100%;box-sizing:border-box!important;white-space:normal;overflow-wrap:anywhere}
+.steam-ui-kit-choice{display:flex;flex-direction:column;gap:6px;min-width:0;max-width:100%;width:100%;box-sizing:border-box}
+.steam-ui-kit-choice-label{font-size:14px;color:#dcdedf}
+.steam-ui-kit-choice .DialogDropDown{min-width:0!important;max-width:100%!important;width:100%!important;box-sizing:border-box!important;margin:0}
+.steam-ui-kit-choice div{min-width:0!important;max-width:100%!important;box-sizing:border-box!important}
+.steam-ui-kit-choice .DialogButton{width:100%!important;min-width:0!important;max-width:100%!important;box-sizing:border-box!important}
+.steam-ui-kit-choice .DialogDropDown_CurrentDisplay{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.steam-ui-kit-choice>div{width:100%!important;min-width:0;max-width:100%;box-sizing:border-box;--field-negative-horizontal-margin:0px}
+.steam-ui-kit-select-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;width:100%;min-width:0;text-align:left;box-sizing:border-box}
+.steam-ui-kit-select-row-title{min-width:0;overflow-wrap:anywhere}
+.steam-ui-kit-select-row-detail{grid-column:1 / -1;min-width:0;font-size:13px;color:#8b929a;white-space:normal;overflow-wrap:anywhere}
+.steam-ui-kit-picker{display:flex;flex-direction:column;gap:12px;min-width:0;width:min(900px,100%);max-width:100%;box-sizing:border-box}
+.steam-ui-kit-picker-body{display:grid;grid-template-columns:minmax(140px,1fr) minmax(0,2fr);gap:16px;min-height:0;height:min(360px,48vh)}
+.steam-ui-kit-picker-places,.steam-ui-kit-picker-files{min-width:0;min-height:0;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:6px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.12);border-radius:4px;padding:8px;box-sizing:border-box}
+.steam-ui-kit-picker-heading{padding:4px 8px 8px;border-bottom:1px solid #3d4450;font-size:12px;font-weight:600;color:#8b929a;text-transform:uppercase;letter-spacing:.06em}
+.steam-ui-kit-picker .steam-ui-kit-select-row{padding:4px 0;border-bottom:1px solid rgba(255,255,255,.14)}
+.steam-ui-kit-picker .DialogButton{min-width:0!important;max-width:100%;width:100%;box-sizing:border-box!important;white-space:normal;margin:0}
+.steam-ui-kit-picker-path{font-size:14px;color:#b8bcbf;overflow-wrap:anywhere}
+.steam-ui-kit-picker-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.steam-ui-kit-picker-actions .DialogButton{width:auto}
 .steam-ui-kit-muted{color:rgb(124,142,163);font-size:13px}
 .steam-ui-kit-gallery{display:flex;gap:12px}
 .steam-ui-kit-thumbs{display:flex;flex-direction:column;gap:8px}
@@ -134,6 +157,46 @@ const steamUiKitIcon = (react) => {
         steamUiKitIcons.set(react, icon);
     }
     return icon;
+};
+
+/**
+ * Fits a native dropdown to a box, toolbar or table cell without a second settings-row label.
+ * @param ui Resolved native controls; a full field with below layout is the fallback.
+ * @param props Accessible label, optional visible label and native option/selection/change props.
+ * @returns A contained dropdown; its popup remains owned by Steam.
+ */
+const renderSteamUiChoice = (ui, props: {
+    label: string; showLabel?: boolean; rgOptions: any[]; selectedOption: any;
+    disabled?: boolean; onChange: (option: any) => void;
+}) => {
+    const h = ui.react.createElement;
+    const bare = !!ui.dropdownControl;
+    return h("div", {className: "steam-ui-kit-choice", "aria-label": props.label},
+        bare && props.showLabel !== false ? h("div", {className: "steam-ui-kit-choice-label"}, props.label) : null,
+        h(ui.dropdownControl ?? ui.dropdown, {
+            label: bare || props.showLabel !== false ? props.label : "",
+            menuLabel: props.label,
+            layout: "below", rgOptions: props.rgOptions, selectedOption: props.selectedOption,
+            disabled: !!props.disabled, onChange: props.onChange, "aria-label": props.label
+        }));
+};
+
+/**
+ * Arranges a selectable item as a title, trailing status and separate supporting line.
+ * @param ui Resolved native Steam button.
+ * @param props Stable key, label/detail/status, selected state and one activation callback.
+ * @returns One native focus target with structured content instead of concatenated button text.
+ */
+const renderSteamUiSelectRow = (ui, props: {
+    key: string; title: string; detail?: string; status?: any; selected?: boolean;
+    onClick: () => void;
+}) => {
+    const h = ui.react.createElement;
+    return h(ui.dialogButton, {key:props.key, "aria-pressed":!!props.selected, onClick:props.onClick},
+        h("div", {className:"steam-ui-kit-select-row"},
+            h("span", {className:"steam-ui-kit-select-row-title"}, props.title),
+            props.status ?? null,
+            props.detail ? h("span", {className:"steam-ui-kit-select-row-detail"}, props.detail) : null));
 };
 
 /**

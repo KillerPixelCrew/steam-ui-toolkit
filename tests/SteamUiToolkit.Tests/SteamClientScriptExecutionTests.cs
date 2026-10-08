@@ -92,7 +92,7 @@ public sealed class SteamClientScriptExecutionTests
                 assert.equal((await run('clearLogo')).ok,true);
                 assert.deepEqual(await run('readLogo'),{ok:true,anchor:'',width:0,height:0});
                 const reading=await run('details');
-                assert.deepEqual(reading,{ok:true,launch:test.arguments,exe:test.target,args:test.arguments,
+                assert.deepEqual(reading,{ok:true,name:"Owner's game",launch:test.arguments,exe:test.target,args:test.arguments,
                   dir:"C:\\Owner's Games",install:'D:/Installed'});
                 assert.deepEqual((await run('shortcuts')).shortcuts,[{id:String(test.appId),name:"Owner's game",
                   exe:test.target,dir:"C:\\Owner's Games",args:test.arguments}]);

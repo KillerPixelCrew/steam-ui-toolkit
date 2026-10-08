@@ -1439,6 +1439,19 @@ export by shape; it does not sweep the registry or invoke unknown exports.
 
 ### The UI kit
 
+`renderSteamUiChoice(ui, {label, showLabel, rgOptions, selectedOption, disabled, onChange})`
+contains Steam's bare dropdown in narrow columns, with a below-layout full-field fallback. Use
+`showLabel:false` when a table already names the row; the accessible label remains. The shared
+styles contain Steam's fixed-width dropdown wrappers without changing the separately owned popup.
+`renderSteamUiSelectRow(ui, {key, title, detail, status, selected, onClick})` keeps a native button
+as one focus target and lays out title/status on one row and supporting text on its own line. Plain
+adjacent spans are not a multi-column button layout.
+
+File pickers size against their modal parent, never a viewport-derived minimum width. Their rail and
+file list scroll independently; actions remain outside the scroll region. A file picker with no
+extension filter sends `.*`, the one explicit all-files filter. An empty extension list still means
+folders only to `SteamFilePickerSurface.ListFolder`. Other wildcard patterns are rejected.
+
 `ui-kit.ts` is what a host draws around Steam's fields: the elements Steam ships none of, drawn once
 from plain elements and one stylesheet in the vocabulary of Steam's own panels, so a host's page and
 its Quick Access section look like the panels beside them. The rule is the toolkit's: Steam's field

@@ -148,9 +148,12 @@ colour or a labelled slider are drawn the way the settings renderer draws them.
 **The UI kit** (`SteamUiAssets/Source/ui-kit.ts`) is what a host draws around Steam's own fields:
 groups with headings that fold, action grids, swatches, cards, banners, toolbars, chips, galleries,
 a confirm and a prompt, styled once in the vocabulary of Steam's panels. A host page uses Steam's
-field where one fits and the kit for the rest, and adds to the kit rather than drawing its own. The
-Quick Access row host draws its sections as those groups; which are folded is published by
-`SteamPanelFoldsSurface`, so a fold outlives Steam rebuilding the tab.
+field where one fits and the kit for the rest, and adds to the kit rather than drawing its own. Use
+`renderSteamUiChoice` for dropdowns in narrow boxes or table cells, and `renderSteamUiSelectRow` for
+separate title/status/detail slots inside a native button. The shared picker fits its modal parent
+and keeps its places rail and file list independently scrollable. The Quick Access row host draws
+its sections as those groups; which are folded is published by `SteamPanelFoldsSurface`, so a fold
+outlives Steam rebuilding the tab.
 
 **`SteamThemeStyleSurface.Module`** installs CSSLoader-compatible stylesheet blocks into every Steam
 window, choosing each block's windows by CSSLoader's own target vocabulary and reaching the

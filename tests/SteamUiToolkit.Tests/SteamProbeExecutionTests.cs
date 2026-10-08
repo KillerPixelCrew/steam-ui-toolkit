@@ -103,7 +103,8 @@ public sealed class SteamProbeExecutionTests
                 if(probe.error)assert.doesNotMatch(probe.error,/ReferenceError|SyntaxError/,test.Id);
                 results.push(probe);
                 const status={installed:true,resolved:true,claimed:true,namespacePresent:true,available:true,
-                  setterOwned:true,subscribed:true,observing:true,nativeComponentsResolved:true,replaced:1};
+                  setterOwned:true,subscribed:true,observing:true,nativeComponentsResolved:true,replaced:1,
+                  ownedRoots:1,claimsRemaining:true};
                 let removed=false,removeOk=true;
                 const gate={status:()=>status,remove:()=>{removed=true;return {ok:removeOk}}};
                 window[test.bridgeNamespace]={gate:()=>gate};
@@ -112,7 +113,7 @@ public sealed class SteamProbeExecutionTests
                 assert.notEqual(JSON.parse(vm.runInNewContext(test.verify,globals)).ok,true,test.Id);
                 status.installed=true;
                 assert.notEqual(JSON.parse(vm.runInNewContext(test.remove,globals)).ok,true,test.Id);
-                for(const key of Object.keys(status))status[key]=key==='replaced'?0:false;
+                for(const key of Object.keys(status))status[key]=key==='replaced'||key==='ownedRoots'?0:false;
                 removeOk=false;
                 assert.equal(JSON.parse(vm.runInNewContext(test.remove,globals)).ok,false,test.Id);
                 removeOk=true;

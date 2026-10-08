@@ -8,6 +8,7 @@ internal sealed class RecordingBackend :
     ISteamAudioBackend,
     ISteamAudioFormatBackend,
     ISteamSettingsQuickAccessBackend,
+    ISteamNativeSettingsBackend,
     ISteamNetworkBackend,
     ISteamBluetoothBackend,
     ISteamBrightnessBackend,

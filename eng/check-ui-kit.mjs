@@ -43,7 +43,7 @@ const kit = instantiate(
     " renderSteamUiSwatch, renderSteamUiCard, renderSteamUiGrid, renderSteamUiEmpty, renderSteamUiBanner," +
     " renderSteamUiToolbar, renderSteamUiTool, renderSteamUiChips, renderSteamUiBox, renderSteamUiGallery, renderSteamUiVideo," +
     " renderSteamUiTabbedPage, renderSteamUiDetail, SteamUiTabbedPageRequired," +
-    " showSteamUiConfirm, showSteamUiPrompt, SteamUiKitStyles})",
+    " renderSteamUiChoice, renderSteamUiSelectRow, showSteamUiConfirm, showSteamUiPrompt, SteamUiKitStyles})",
 );
 
 // The stylesheet is one element a root renders, and every class an element uses has a rule.
@@ -214,6 +214,61 @@ chips.props.children[0].props.onClick();
 assert.deepEqual(ran, ["a", "chip"]);
 const box = kit.renderSteamUiBox(react, "Install", "body");
 assert.equal(box.props.children[0].props.className, "steam-ui-kit-box-title");
+
+// A compact choice uses the bare native dropdown and leaves the table's label in its own column.
+const BareDropdown = named("BareDropdown");
+const FieldDropdown = named("FieldDropdown");
+const choices = [];
+const choice = kit.renderSteamUiChoice(
+    { ...ui, dropdownControl: BareDropdown, dropdown: FieldDropdown },
+    {
+        label: "Nintendo Entertainment System emulator",
+        showLabel: false,
+        rgOptions: [{ data: "", label: "No default" }],
+        selectedOption: "",
+        onChange: (value) => choices.push(value.data),
+    },
+);
+assert.equal(choice.props.children[0], null, "table cells do not repeat the system label");
+assert.equal(
+    choice.props.children[1].type,
+    BareDropdown,
+    "a native settings row is not a table cell",
+);
+assert.deepEqual(choices, [], "rendering does not commit a selection");
+choice.props.children[1].props.onChange({ data: "retroarch" });
+assert.deepEqual(choices, ["retroarch"]);
+const fallback = kit.renderSteamUiChoice(
+    { ...ui, dropdown: FieldDropdown },
+    {
+        label: "Release channel",
+        rgOptions: [],
+        selectedOption: "stable",
+        onChange: () => {},
+    },
+);
+assert.equal(fallback.props.children[1].type, FieldDropdown);
+assert.equal(
+    fallback.props.children[1].props.layout,
+    "below",
+    "fallback fields fit their containing column",
+);
+assert.equal(fallback.props.children[1].props.label, "Release channel");
+const row = kit.renderSteamUiSelectRow(ui, {
+    key: "psx",
+    title: "PlayStation",
+    detail: "Emulator not installed",
+    status: "Missing",
+    selected: true,
+    onClick: () => ran.push("psx"),
+});
+const rowContent = row.props.children[0];
+assert.equal(rowContent.props.children[0].props.children[0], "PlayStation");
+assert.equal(rowContent.props.children[1], "Missing");
+assert.equal(rowContent.props.children[2].props.className, "steam-ui-kit-select-row-detail");
+assert.equal(row.props["aria-pressed"], true);
+row.props.onClick();
+assert.equal(ran.at(-1), "psx", "one native button activation dispatches once");
 
 // A gallery picks a thumbnail and counts; one image needs no thumbnails.
 let picked = -1;
