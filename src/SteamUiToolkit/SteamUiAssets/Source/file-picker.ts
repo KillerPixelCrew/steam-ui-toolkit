@@ -1,4 +1,4 @@
-// Controller-accessible file selection; the host owns filesystem enumeration.
+// Controller-accessible file selection; the host owns directory enumeration.
 const SteamFilePickerPatchId = "steam-ui.file-picker";
 
 /**
