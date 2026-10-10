@@ -41,8 +41,11 @@ public sealed class SteamSurfaceModuleTests
     {
         return typeof(SteamAudioSurface).Assembly.GetExportedTypes()
             .Where(type => type.IsAbstract && type.IsSealed && type.GetField("PatchId") is not null)
-            .Select(type => (Type: type, Factory: type.GetMethod("Module", BindingFlags.Public
-                                                                           | BindingFlags.Static)))
+            // Revision-aware overloads configure the same surface; exercise its complete factory.
+            .Select(type => (Type: type, Factory: type.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .Where(method => method.Name == "Module" && method.ReturnType == typeof(ISteamUiModule))
+                .OrderByDescending(method => method.GetParameters().Length)
+                .FirstOrDefault()))
             .Where(surface => surface.Factory?.ReturnType == typeof(ISteamUiModule))
             .OrderBy(surface => surface.Type.Name, StringComparer.Ordinal)
             .Select(surface =>
@@ -62,7 +65,7 @@ public sealed class SteamSurfaceModuleTests
 
                     if (type == typeof(Func<bool>))
                     {
-                        return (Func<bool>)Always;
+                        return Always;
                     }
 
                     Assert.True(typeof(Delegate).IsAssignableFrom(type),
