@@ -418,8 +418,10 @@ has been done and what has not.
 MIT, see `LICENSE`.
 
 `SteamSettingsQuickAccessRow` draws host-owned settings categories as folding groups in Performance
-with the shared native fields. Advanced audio in Quick Settings uses separate channel and format
-selectors under Audio. See [the surface contract](docs/reference.md).
+with the shared native fields. Its `Module` overload accepts a publication revision callback so
+unchanged sections skip reading and serialization during other surfaces' updates. Advanced audio in
+Quick Settings uses separate channel and format selectors under Audio. See
+[the surface contract](docs/reference.md).
 
 For a game picker, use `SteamClient.Library.ReadGamesAsync` to distinguish an unavailable or invalid
 library from a confirmed empty one. `SteamLibraryReadResult` carries the error and the confirmed

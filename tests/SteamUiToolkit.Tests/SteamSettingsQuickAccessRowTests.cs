@@ -47,4 +47,43 @@ public sealed class SteamSettingsQuickAccessRowTests
         Assert.Equal("frames", wire.GetProperty("pages")[0].GetProperty("sections")[0].GetProperty("id").GetString());
         Assert.Equal(3, wire.GetProperty("revision").GetInt64());
     }
+
+    [Fact]
+    public async Task PublicationRevisionComesFromTheOwnerWithoutReadingItsState()
+    {
+        RecordingBackend backend = new();
+        var revision = 3L;
+        var reads = 0;
+        var module = SteamSettingsQuickAccessRow.Module(Always, () =>
+        {
+            reads++;
+            return new ValueTask<SteamSettingsQuickAccessState?>(new SteamSettingsQuickAccessState([], revision));
+        }, backend, () => revision);
+        var publication = Assert.Single(module.Publications);
+
+        Assert.NotNull(publication.Revision);
+        Assert.Equal(3L, publication.Revision!());
+        revision++;
+        Assert.Equal(4L, publication.Revision!());
+        Assert.Equal(0, reads);
+        var wire = await publication.Read();
+        Assert.Equal(4L, wire!.Value.GetProperty("revision").GetInt64());
+        Assert.Empty(wire!.Value.GetProperty("pages").EnumerateArray());
+        Assert.Equal(1, reads);
+
+        var result = await DispatchAsync(new SteamUiModuleSet([module]), SteamSettingsQuickAccessRow.PatchId, "set",
+            "{\"key\":\"gpu/setting\",\"value\":true}");
+        Assert.True(result.Succeeded);
+        Assert.Equal("setting gpu/setting true", Assert.Single(backend.Calls));
+    }
+
+    [Fact]
+    public void TheExistingModuleOverloadKeepsPublicationWithoutARevision()
+    {
+        RecordingBackend backend = new();
+        var module = SteamSettingsQuickAccessRow.Module(Always,
+            () => new ValueTask<SteamSettingsQuickAccessState?>(null as SteamSettingsQuickAccessState), backend);
+
+        Assert.Null(Assert.Single(module.Publications).Revision);
+    }
 }

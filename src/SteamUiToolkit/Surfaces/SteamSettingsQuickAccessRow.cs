@@ -55,14 +55,37 @@ public static class SteamSettingsQuickAccessRow
     public static ISteamUiModule Module(Func<bool> enabled, Func<ValueTask<SteamSettingsQuickAccessState?>> read,
         ISteamSettingsQuickAccessBackend backend)
     {
+        return Module(enabled, read, backend, null);
+    }
+
+    /// <summary>Declares the state, row patch and validated setting command with an optional publication revision.</summary>
+    /// <param name="enabled">Whether native Quick Access is enabled.</param>
+    /// <param name="read">
+    ///     Reads current sections, or null to publish nothing. Publish an empty <c>Pages</c> list to
+    ///     clear prior sections.
+    /// </param>
+    /// <param name="backend">The setting owner.</param>
+    /// <param name="revision">
+    ///     The current state revision, or null when the host has none. It must change whenever the
+    ///     published state changes, including clearing prior sections. An unchanged revision skips
+    ///     reading and serializing state already delivered to the current document.
+    /// </param>
+    /// <returns>The module.</returns>
+    public static ISteamUiModule Module(Func<bool> enabled, Func<ValueTask<SteamSettingsQuickAccessState?>> read,
+        ISteamSettingsQuickAccessBackend backend, Func<long>? revision)
+    {
         ArgumentNullException.ThrowIfNull(backend);
-        return SteamUiModuleBuilder.Module("settingsSections", PatchId, enabled, read,
-            SteamSurfaceJsonContext.Default.SteamSettingsQuickAccessState, [Patch],
-            [
-                SteamUiModuleBuilder.Command<SetRequest>(PatchId, "set", TryReadSet,
-                    (request, token) => backend.SetAsync(request.Key, request.Value, token),
-                    "The Quick Access setting payload is invalid.")
-            ]);
+        var publication = revision is null
+            ? SteamUiModuleBuilder.Publication(PatchId, enabled, read,
+                SteamSurfaceJsonContext.Default.SteamSettingsQuickAccessState)
+            : SteamUiModuleBuilder.Publication(PatchId, enabled, read,
+                SteamSurfaceJsonContext.Default.SteamSettingsQuickAccessState, revision);
+        return new SteamUiModule("settingsSections", [Patch], [publication],
+        [
+            SteamUiModuleBuilder.Command<SetRequest>(PatchId, "set", TryReadSet,
+                (request, token) => backend.SetAsync(request.Key, request.Value, token),
+                "The Quick Access setting payload is invalid.")
+        ]);
     }
 
     private static bool TryReadSet(JsonElement payload, out SetRequest value)

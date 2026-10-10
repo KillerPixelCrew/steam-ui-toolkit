@@ -1990,6 +1990,13 @@ command validation through `ISteamSettingsQuickAccessBackend.SetAsync`. Its only
 with `{key,value}`; arrays, objects, blank keys and extra fields are refused. A null C# reading
 withholds publication; publish an empty `Pages` list to clear previously rendered sections.
 
+The four-argument `Module(enabled, read, backend, revision)` overload accepts a cheap revision
+callback. Once the current document has that revision, the bridge skips `read` and serialization on
+publication rounds raised by other surfaces. Change the revision for every state change, including
+an empty `Pages` list. Document replacement still republishes the same current state. The existing
+three-argument overload, or a null revision callback, retains publication without a revision
+shortcut.
+
 `SteamAudioFormatState` publishes independent `ChannelOptions`/`CurrentChannels` and
 `FormatOptions`/`CurrentFormat` alongside Spatial choices. Both playback selectors send the offered
 complete format id to `setFormat`; the host supplies supported combinations and preserves encoding
