@@ -1,13 +1,27 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
 
 namespace SteamUiToolkit;
 
+/// <summary>The observed state of Steam's loopback CEF remote-debugging listener.</summary>
+public enum SteamCefDebuggingState
+{
+    /// <summary>The listener table was readable and no loopback or wildcard debug-port listener exists.</summary>
+    Closed,
+
+    /// <summary>A verified Steam process owns the debug-port listener reached over loopback.</summary>
+    Open,
+
+    /// <summary>The listener table or its owner could not be verified, or a foreign process owns the port.</summary>
+    Unavailable
+}
+
 /// <summary>
-///     Owns only Steam's remote-debugging opt-in and pure JavaScript/endpoint validation helpers.
+///     Owns Steam's remote-debugging opt-in, passive listener inspection and JavaScript/endpoint validation helpers.
 /// </summary>
 public static class SteamCef
 {
@@ -62,6 +76,40 @@ public static class SteamCef
     }
 
     /// <summary>
+    ///     Inspects the native TCP listener table and owning processes without opening an HTTP or
+    ///     debugger connection, changing Steam's opt-in flag or controlling its process lifetime.
+    /// </summary>
+    /// <param name="reason">The observed listener or refusal reason, ready for the caller to log.</param>
+    /// <returns>
+    ///     <see cref="SteamCefDebuggingState.Closed" /> only when the listener table was readable and
+    ///     no loopback or wildcard listener exists on the debug port;
+    ///     <see cref="SteamCefDebuggingState.Open" /> only for a verified Steam owner; otherwise
+    ///     <see cref="SteamCefDebuggingState.Unavailable" />.
+    /// </returns>
+    /// <remarks>
+    ///     An open listener does not prove Steam startup or target readiness. The host owns those
+    ///     checks and any recovery policy. This method performs no logging.
+    /// </remarks>
+    public static SteamCefDebuggingState GetRemoteDebuggingState(out string reason)
+    {
+        return GetRemoteDebuggingState(
+            NativeTcp.ListListeners(),
+            static processId =>
+            {
+                try
+                {
+                    using var process = Process.GetProcessById(processId);
+                    return process.ProcessName;
+                }
+                catch
+                {
+                    return null;
+                }
+            },
+            out reason);
+    }
+
+    /// <summary>
     ///     Builds a JS string literal (with surrounding quotes) for embedding
     ///     a value into an expression. JSON-encoding is mandatory — a raw path would
     ///     lose its backslashes.
@@ -110,13 +158,27 @@ public static class SteamCef
         Func<int, string?> processName,
         out string reason)
     {
+        return GetRemoteDebuggingState(listeners, processName, out reason)
+               == SteamCefDebuggingState.Open;
+    }
+
+    /// <summary>Classifies the listener state using the same ordered owner gate as discovery.</summary>
+    /// <param name="listeners">The TCP listener table, or null when it could not be read.</param>
+    /// <param name="processName">Resolves a pid to its process name, or null if it is gone.</param>
+    /// <param name="reason">The observed listener or refusal reason.</param>
+    /// <returns>Closed for an absent listener, Open for a verified Steam owner, otherwise Unavailable.</returns>
+    internal static SteamCefDebuggingState GetRemoteDebuggingState(
+        IReadOnlyList<NativeTcp.Listener>? listeners,
+        Func<int, string?> processName,
+        out string reason)
+    {
         if (listeners is null)
         {
             // A failed table read is NOT "nothing is listening" — reporting it as such
             // once sent the maintainer hunting a closed Steam port that was open.
             reason = $"the TCP listener table was unavailable, so the owner of port {DebugPort} "
                      + "could not be verified";
-            return false;
+            return SteamCefDebuggingState.Unavailable;
         }
 
         // Only a loopback or wildcard (0.0.0.0) row can answer a connect to 127.0.0.1. A process
@@ -130,7 +192,7 @@ public static class SteamCef
         if (candidates.Count == 0)
         {
             reason = $"nothing is listening on port {DebugPort}";
-            return false;
+            return SteamCefDebuggingState.Closed;
         }
 
         var unidentified = 0;
@@ -148,7 +210,7 @@ public static class SteamCef
             if (name is "steamwebhelper" or "steam")
             {
                 reason = $"port {DebugPort} is owned by {name} (pid {listener.ProcessId})";
-                return true;
+                return SteamCefDebuggingState.Open;
             }
 
             // Decisive, not just logged: we connect to 127.0.0.1, and Windows routes
@@ -157,13 +219,13 @@ public static class SteamCef
             // down the list belongs to a socket our connect never reaches, and
             // continuing the scan would clear a squatter sitting in front of Steam.
             reason = $"port {DebugPort} is owned by {name} (pid {listener.ProcessId}), not Steam";
-            return false;
+            return SteamCefDebuggingState.Unavailable;
         }
 
         // Every candidate's owning process exited during lookup. That is distinct from a confirmed
         // non-Steam owner and must remain diagnosable.
         reason = $"{unidentified} listener(s) on port {DebugPort} could not be attributed to a "
                  + "running process";
-        return false;
+        return SteamCefDebuggingState.Unavailable;
     }
 }

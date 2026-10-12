@@ -341,6 +341,12 @@ discovery. Pass the configured opt-in explicitly to
 `SteamCef.EnsureRemoteDebuggingEnabled(directory, enabled)`; the flag has to be writable while the
 transport is intentionally held closed.
 
+`SteamCef.GetRemoteDebuggingState(out reason)` passively reads the native listener table and process
+owners without connecting to CEF. It returns `Closed` only when no loopback or wildcard debug-port
+listener exists, `Open` for a verified Steam owner, and `Unavailable` when the table or owner cannot
+be verified or a foreign process owns the port. An open listener does not establish startup or
+target readiness. The host decides whether and when to activate or restart Steam.
+
 In standalone feature scripts, use `SteamUiModuleResolver.CreateExpression(scope)`. The returned
 resolver's `resolve(tokens)` loads a module by a unique source fingerprint, and
 `exported(tokens, predicate)` returns the one export of that module fitting the predicate.

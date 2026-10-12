@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -86,7 +85,7 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDis
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         // Returning null abandons Steam UI injection, so preserve the decisive discovery reason.
-        if (!IsSteamPortOwner(out var ownership))
+        if (SteamCef.GetRemoteDebuggingState(out var ownership) != SteamCefDebuggingState.Open)
         {
             SteamUiLog.Change(
                 "steam.ui.discovery",
@@ -245,24 +244,5 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDis
         destination.Position = 0;
         return await JsonDocument.ParseAsync(destination, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
-    }
-
-    private static bool IsSteamPortOwner(out string reason)
-    {
-        return SteamCef.IsSteamPortOwner(
-            NativeTcp.ListListeners(),
-            static processId =>
-            {
-                try
-                {
-                    using var process = Process.GetProcessById(processId);
-                    return process.ProcessName;
-                }
-                catch
-                {
-                    return null;
-                }
-            },
-            out reason);
     }
 }

@@ -139,4 +139,73 @@ public sealed class SteamCefTests
             static pid => pid == 1 ? "steam" : "squatter",
             out _));
     }
+
+    [Fact]
+    public void UnreadableListenerStateIsUnavailable()
+    {
+        Assert.Equal(SteamCefDebuggingState.Unavailable,
+            SteamCef.GetRemoteDebuggingState(null, static _ => "steam", out var reason));
+        Assert.Contains("unavailable", reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReadableTableWithoutAReachableDebugListenerIsClosed()
+    {
+        Assert.Equal(SteamCefDebuggingState.Closed,
+            SteamCef.GetRemoteDebuggingState([], static _ => "steam", out var reason));
+        Assert.Contains("nothing is listening", reason, StringComparison.Ordinal);
+
+        Assert.Equal(SteamCefDebuggingState.Closed,
+            SteamCef.GetRemoteDebuggingState(
+                [
+                    new NativeTcp.Listener(NativeTcp.Loopback, 1234, 42),
+                    new NativeTcp.Listener(0x0A000005, DebugPort, 43)
+                ],
+                static _ => throw new InvalidOperationException("Unreachable listeners must not be inspected."),
+                out reason));
+        Assert.Contains("nothing is listening", reason, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("steam", SteamCefDebuggingState.Open)]
+    [InlineData("steamwebhelper", SteamCefDebuggingState.Open)]
+    [InlineData("squatter", SteamCefDebuggingState.Unavailable)]
+    [InlineData(null, SteamCefDebuggingState.Unavailable)]
+    public void DebugListenerStateRequiresAVerifiedSteamOwner(string? name, SteamCefDebuggingState state)
+    {
+        Assert.Equal(state,
+            SteamCef.GetRemoteDebuggingState(
+                [new NativeTcp.Listener(NativeTcp.Loopback, DebugPort, 42)],
+                _ => name,
+                out var reason));
+        Assert.False(string.IsNullOrWhiteSpace(reason));
+    }
+
+    [Fact]
+    public void ListenerStateRefusesALoopbackSquatterBeforeSteamsWildcard()
+    {
+        Assert.Equal(SteamCefDebuggingState.Unavailable,
+            SteamCef.GetRemoteDebuggingState(
+                [
+                    new NativeTcp.Listener(NativeTcp.AnyAddress, DebugPort, 1),
+                    new NativeTcp.Listener(NativeTcp.Loopback, DebugPort, 2)
+                ],
+                static pid => pid == 1 ? "steam" : "squatter",
+                out var reason));
+        Assert.Contains("squatter", reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ListenerStateSkipsExitedProcessesBeforeAVerifiedSteamOwner()
+    {
+        Assert.Equal(SteamCefDebuggingState.Open,
+            SteamCef.GetRemoteDebuggingState(
+                [
+                    new NativeTcp.Listener(NativeTcp.Loopback, DebugPort, 1),
+                    new NativeTcp.Listener(NativeTcp.AnyAddress, DebugPort, 2)
+                ],
+                static pid => pid == 1 ? null : "steam",
+                out var reason));
+        Assert.Contains("steam", reason, StringComparison.Ordinal);
+    }
 }
