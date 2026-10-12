@@ -6,18 +6,32 @@
 // activates, a confirm sends only on OK, a prompt sends only a non-empty answer. This runs the
 // emitted JavaScript.
 import assert from "node:assert/strict";
-import { createReact, helperFragments, instantiate, loadAsset, withSource } from "./check-harness.mjs";
+import {
+    createReact,
+    helperFragments,
+    instantiate,
+    loadAsset,
+    withSource,
+} from "./check-harness.mjs";
 
 const asset = loadAsset();
 const hooks = { states: [], index: 0 };
 const react = createReact({
-  useState(initial) {
-    const slot = hooks.index++;
-    if (!(slot in hooks.states)) hooks.states[slot] = initial;
-    return [hooks.states[slot], (next) => (hooks.states[slot] = typeof next === "function" ? next(hooks.states[slot]) : next)];
-  },
+    useState(initial) {
+        const slot = hooks.index++;
+        if (!(slot in hooks.states)) hooks.states[slot] = initial;
+        return [
+            hooks.states[slot],
+            (next) =>
+                (hooks.states[slot] = typeof next === "function" ? next(hooks.states[slot]) : next),
+        ];
+    },
 });
-const named = (name) => withSource(Object.defineProperty(() => null, "name", { value: name }), name);
+const named = (name) =>
+    withSource(
+        Object.defineProperty(() => null, "name", { value: name }),
+        name,
+    );
 const Focusable = named("Focusable");
 const Button = named("Button");
 const Primary = named("Primary");
@@ -26,46 +40,118 @@ const TextField = named("TextField");
 const Modal = named("Modal");
 const shown = [];
 const ui = {
-  react,
-  focusable: Focusable,
-  dialogButton: Button,
-  dialogButtonPrimary: Primary,
-  smallButton: Small,
-  textField: TextField,
-  modalRoot: Modal,
-  showModal: (modal) => shown.push(modal),
+    react,
+    focusable: Focusable,
+    dialogButton: Button,
+    dialogButtonPrimary: Primary,
+    smallButton: Small,
+    textField: TextField,
+    modalRoot: Modal,
+    showModal: (modal) => shown.push(modal),
 };
 
 const kit = instantiate(
-  { window: {} },
-  helperFragments(asset),
-  "({steamUiKitStyle, renderSteamUiHeader, renderSteamUiGroup, renderSteamUiActions, renderSteamUiMore, renderSteamUiPane, renderSteamUiLevel," +
-    " renderSteamUiSwatch, renderSteamUiCard, renderSteamUiGrid, renderSteamUiEmpty, renderSteamUiBanner," +
-    " renderSteamUiToolbar, renderSteamUiTool, renderSteamUiChips, renderSteamUiBox, renderSteamUiGallery, renderSteamUiVideo," +
-    " renderSteamUiTabbedPage, renderSteamUiDetail, SteamUiTabbedPageRequired," +
-    " renderSteamUiChoice, renderSteamUiSelectRow, showSteamUiConfirm, showSteamUiPrompt, SteamUiKitStyles})",
+    { window: {} },
+    helperFragments(asset),
+    "({steamUiKitStyle, renderSteamUiHeader, renderSteamUiGroup, renderSteamUiActions, renderSteamUiMore, renderSteamUiPane, renderSteamUiLevel," +
+        " renderSteamUiSwatch, renderSteamUiCard, renderSteamUiGrid, renderSteamUiEmpty, renderSteamUiBanner," +
+        " renderSteamUiToolbar, renderSteamUiTool, renderSteamUiChips, renderSteamUiBox, renderSteamUiGallery, renderSteamUiVideo," +
+        " renderSteamUiTabbedPage, renderSteamUiDetail, SteamUiTabbedPageRequired," +
+        " renderSteamUiChoice, renderSteamUiSelectRow, showSteamUiConfirm, showSteamUiPrompt, SteamUiKitStyles})",
 );
 
 // The stylesheet is one element a root renders, and every class an element uses has a rule.
 const style = kit.steamUiKitStyle(react);
 assert.equal(style.type, "style");
-for (const cls of ["page", "pane", "header", "header-icon", "group", "group-body", "blocks", "valve", "battery", "actions", "nested", "swatch", "card", "grid", "banner", "toolbar", "chips", "box", "gallery", "detail", "detail-main", "detail-aside", "page-banner", "modal-body", "more"]) {
-  assert.ok(kit.SteamUiKitStyles.includes(`.steam-ui-kit-${cls}`), `a rule for steam-ui-kit-${cls}`);
+for (const cls of [
+    "page",
+    "pane",
+    "header",
+    "header-icon",
+    "group",
+    "group-body",
+    "blocks",
+    "valve",
+    "battery",
+    "actions",
+    "nested",
+    "swatch",
+    "card",
+    "grid",
+    "banner",
+    "toolbar",
+    "chips",
+    "box",
+    "gallery",
+    "detail",
+    "detail-main",
+    "detail-aside",
+    "page-banner",
+    "modal-body",
+    "more",
+]) {
+    assert.ok(
+        kit.SteamUiKitStyles.includes(`.steam-ui-kit-${cls}`),
+        `a rule for steam-ui-kit-${cls}`,
+    );
+}
+
+// The beta slider keeps 24px notch containers and a 100px track minimum. A shrink rule on
+// every descendant div erased both, spreading zero-width ticks past the track's endpoints.
+// Width constraints belong to the kit's layout boxes, not the internals of any native field.
+const widthRules = [...kit.SteamUiKitStyles.matchAll(/([^{}]+)\{([^{}]*)\}/gu)].filter(
+    ([, , declarations]) => /(?:^|;)min-width\s*:/u.test(declarations),
+);
+for (const boundary of ["group-body", "blocks", "valve", "battery"]) {
+    const own = `.steam-ui-kit-${boundary}`;
+    assert.ok(
+        widthRules.some(
+            ([, selectors, declarations]) =>
+                selectors.split(",").some((selector) => selector.trim() === own) &&
+                /(?:^|;)min-width\s*:\s*0(?:px)?(?:;|$)/u.test(declarations),
+        ),
+        `${boundary} itself can shrink to fit a narrow panel`,
+    );
+    for (const [, selectors] of widthRules) {
+        assert.equal(
+            selectors
+                .split(",")
+                .some(
+                    (selector) =>
+                        selector.trim().startsWith(own + " ") &&
+                        /(?:^|\s|>)div(?:$|[.:\s>])/u.test(selector),
+                ),
+            false,
+            `${boundary} preserves native slider, notch and dropdown minimum widths`,
+        );
+    }
 }
 
 // A header is Steam's Focusable, says which way it folds, and toggles on activation.
 let toggled = 0;
-const header = kit.renderSteamUiHeader(ui, { title: "Themes", detail: "2 of 2 enabled", collapsed: true, onToggle: () => toggled++ });
+const header = kit.renderSteamUiHeader(ui, {
+    title: "Themes",
+    detail: "2 of 2 enabled",
+    collapsed: true,
+    onToggle: () => toggled++,
+});
 assert.equal(header.type, Focusable);
 assert.equal(header.props.className, "steam-ui-kit-header");
 assert.equal(header.props.onOKActionDescription, "Expand");
 header.props.onActivate();
 assert.equal(toggled, 1);
-assert.equal(kit.renderSteamUiHeader(ui, { title: "T", collapsed: false, onToggle: () => {} }).props.className, "steam-ui-kit-header open");
+assert.equal(
+    kit.renderSteamUiHeader(ui, { title: "T", collapsed: false, onToggle: () => {} }).props
+        .className,
+    "steam-ui-kit-header open",
+);
 // The caret is the kit's own, and a heading that does not fold is a plain div with no caret at all.
 assert.equal(header.props.children.at(-1).props.className, "steam-ui-kit-header-caret");
 assert.equal(header.props.children.at(-1).props.children[0].type, "svg");
-assert.equal(kit.renderSteamUiHeader(ui, { title: "S", sub: true, onToggle: () => {} }).props.className, "steam-ui-kit-header open sub");
+assert.equal(
+    kit.renderSteamUiHeader(ui, { title: "S", sub: true, onToggle: () => {} }).props.className,
+    "steam-ui-kit-header open sub",
+);
 const fixed = kit.renderSteamUiHeader(ui, { title: "Profile scope", icon: "glyph" });
 assert.equal(fixed.type, "div");
 assert.equal(fixed.props.className, "steam-ui-kit-header open plain");
@@ -76,9 +162,24 @@ assert.equal(fixed.props.children.length, 2, "no caret on a heading that does no
 // plain box, and hidden takes it out of layout. What is folded or hidden stays mounted but cannot take
 // the controller's focus, so navigation moves from a folded heading to the next block.
 let groupToggled = 0;
-const group = kit.renderSteamUiGroup(ui, { key: "k", title: "Power profiles", detail: "Balanced", collapsed: true, onToggle: () => groupToggled++ }, "row-a", "row-b");
+const group = kit.renderSteamUiGroup(
+    ui,
+    {
+        key: "k",
+        title: "Power profiles",
+        detail: "Balanced",
+        collapsed: true,
+        onToggle: () => groupToggled++,
+    },
+    "row-a",
+    "row-b",
+);
 assert.equal(group.type, Focusable);
-assert.equal(group.props.childFocusDisabled, false, "a shown block's heading and rows are reachable");
+assert.equal(
+    group.props.childFocusDisabled,
+    false,
+    "a shown block's heading and rows are reachable",
+);
 assert.equal(group.key, "k");
 assert.equal(group.props.className, "steam-ui-kit-group closed");
 assert.equal(group.props.children[0].type, Focusable);
@@ -86,11 +187,27 @@ assert.equal(group.props.children[0].props.className, "steam-ui-kit-header");
 group.props.children[0].props.onActivate();
 assert.equal(groupToggled, 1);
 assert.equal(group.props.children[1].props.className, "steam-ui-kit-group-body");
-assert.deepEqual(group.props.children[1].props.children, ["row-a", "row-b"], "a folded body keeps its rows");
+assert.deepEqual(
+    group.props.children[1].props.children,
+    ["row-a", "row-b"],
+    "a folded body keeps its rows",
+);
 assert.equal(group.props.children[1].type, Focusable);
-assert.equal(group.props.children[1].props.childFocusDisabled, true, "a folded body's rows are out of navigation");
-const open = kit.renderSteamUiGroup(ui, { title: "Open", collapsed: false, onToggle: () => {} }, "row");
-assert.equal(open.props.children[1].props.childFocusDisabled, false, "an open body's rows are reachable");
+assert.equal(
+    group.props.children[1].props.childFocusDisabled,
+    true,
+    "a folded body's rows are out of navigation",
+);
+const open = kit.renderSteamUiGroup(
+    ui,
+    { title: "Open", collapsed: false, onToggle: () => {} },
+    "row",
+);
+assert.equal(
+    open.props.children[1].props.childFocusDisabled,
+    false,
+    "an open body's rows are reachable",
+);
 assert.equal(kit.renderSteamUiGroup(ui, { title: "Fixed" }).props.className, "steam-ui-kit-group");
 assert.equal(kit.renderSteamUiGroup(ui, { title: "Fixed" }).props.children[0].type, "div");
 const gone = kit.renderSteamUiGroup(ui, { title: "Gone", hidden: true, onToggle: () => {} });
@@ -125,8 +242,8 @@ assert.equal(more, 1);
 // Actions are Steam's buttons in the kit's grid; a long label spans the row.
 const ran = [];
 const actions = kit.renderSteamUiActions(ui, [
-  { id: "a", label: "Browse…", onClick: () => ran.push("a") },
-  { id: "b", label: "A label longer than eighteen", onClick: () => ran.push("b") },
+    { id: "a", label: "Browse…", onClick: () => ran.push("a") },
+    { id: "b", label: "A label longer than eighteen", onClick: () => ran.push("b") },
 ]);
 assert.equal(actions.type, Focusable);
 assert.equal(actions.props.className, "steam-ui-kit-actions");
@@ -144,12 +261,12 @@ assert.equal(kit.steamUiKitStyle(react), style);
 // A card is one Focusable with its image, stats, badge, title and meta, and activates as one.
 let opened = 0;
 const card = kit.renderSteamUiCard(ui, {
-  image: "https://x/1.jpg",
-  stats: [{ text: "12" }, { text: "3" }],
-  badge: { text: "Update", warn: true },
-  title: "Dark Deck",
-  meta: ["v2.1", "By Squishy"],
-  onActivate: () => opened++,
+    image: "https://x/1.jpg",
+    stats: [{ text: "12" }, { text: "3" }],
+    badge: { text: "Update", warn: true },
+    title: "Dark Deck",
+    meta: ["v2.1", "By Squishy"],
+    onActivate: () => opened++,
 });
 assert.equal(card.type, Focusable);
 assert.equal(card.props.className, "steam-ui-kit-card");
@@ -162,7 +279,10 @@ assert.equal(card.props.children.length, 4);
 card.props.onActivate();
 assert.equal(opened, 1);
 assert.equal(kit.renderSteamUiGrid(ui, [card]).props.className, "steam-ui-kit-grid");
-assert.equal(kit.renderSteamUiEmpty(react, "Nothing", true).props.className, "steam-ui-kit-empty error");
+assert.equal(
+    kit.renderSteamUiEmpty(react, "Nothing", true).props.className,
+    "steam-ui-kit-empty error",
+);
 
 // A video preview plays the movie muted on a loop, shows the still without one, and says so without either.
 const video = kit.renderSteamUiVideo(react, { src: "https://x/1.webm", poster: "https://x/1.jpg" });
@@ -170,8 +290,14 @@ assert.equal(video.props.className, "steam-ui-kit-hero video");
 assert.equal(video.props.children[0].type, "video");
 assert.equal(video.props.children[0].props.muted, true);
 assert.equal(video.props.children[0].props.loop, true);
-assert.equal(kit.renderSteamUiVideo(react, { poster: "https://x/1.jpg" }).props.children[0].type, "img");
-assert.equal(kit.renderSteamUiVideo(react, { empty: "Nothing" }).props.children[0].props.className, "steam-ui-kit-hero-empty");
+assert.equal(
+    kit.renderSteamUiVideo(react, { poster: "https://x/1.jpg" }).props.children[0].type,
+    "img",
+);
+assert.equal(
+    kit.renderSteamUiVideo(react, { empty: "Nothing" }).props.children[0].props.className,
+    "steam-ui-kit-hero-empty",
+);
 
 // A tabbed page draws only the active tab, falls back to the first for an unknown one, and shows a
 // banner only with text; a detail is Steam's Focusable, left with B, with Back last in its aside.
@@ -179,17 +305,39 @@ const Tabs = "Tabs";
 const pageUi = { ...ui, tabs: Tabs };
 const shownTabs = [];
 const page = kit.renderSteamUiTabbedPage(pageUi, {
-  id: "p", label: "P", tabs: [{ id: "a", title: "A" }, { id: "b", title: "B" }], active: "zzz",
-  onTab: () => {}, content: (tab) => { shownTabs.push(tab); return tab; }, banner: { text: "", onDismiss: () => {} },
+    id: "p",
+    label: "P",
+    tabs: [
+        { id: "a", title: "A" },
+        { id: "b", title: "B" },
+    ],
+    active: "zzz",
+    onTab: () => {},
+    content: (tab) => {
+        shownTabs.push(tab);
+        return tab;
+    },
+    banner: { text: "", onDismiss: () => {} },
 });
 assert.equal(page.props.className, "steam-ui-kit-page");
 const tabsElement = page.props.children.find((child) => child?.type === Tabs);
 assert.equal(tabsElement.props.activeTab, "a");
-assert.deepEqual(tabsElement.props.tabs.map((tab) => tab.content), ["a", null]);
+assert.deepEqual(
+    tabsElement.props.tabs.map((tab) => tab.content),
+    ["a", null],
+);
 assert.deepEqual(shownTabs, ["a"]);
-assert.ok(!page.props.children.some((child) => child?.props?.className === "steam-ui-kit-page-banner"));
+assert.ok(
+    !page.props.children.some((child) => child?.props?.className === "steam-ui-kit-page-banner"),
+);
 let backed = 0;
-const detail = kit.renderSteamUiDetail(ui, { title: "T", badge: "v1", main: ["m"], aside: ["box"], onBack: () => backed++ });
+const detail = kit.renderSteamUiDetail(ui, {
+    title: "T",
+    badge: "v1",
+    main: ["m"],
+    aside: ["box"],
+    onBack: () => backed++,
+});
 assert.equal(detail.type, Focusable);
 detail.props.onCancelButton();
 assert.equal(backed, 1);
@@ -203,8 +351,15 @@ assert.equal(banner.props.className, "steam-ui-kit-banner");
 assert.equal(banner.props.children[1].type, Small);
 banner.props.children[1].props.onClick();
 assert.equal(dismissed, 1);
-assert.equal(kit.renderSteamUiBanner(ui, { text: "x", error: true, onDismiss: () => {} }).props.className, "steam-ui-kit-banner error");
-const toolbar = kit.renderSteamUiToolbar(ui, kit.renderSteamUiTool(ui, "Sort", "dropdown"), kit.renderSteamUiTool(ui, null, "search", true));
+assert.equal(
+    kit.renderSteamUiBanner(ui, { text: "x", error: true, onDismiss: () => {} }).props.className,
+    "steam-ui-kit-banner error",
+);
+const toolbar = kit.renderSteamUiToolbar(
+    ui,
+    kit.renderSteamUiTool(ui, "Sort", "dropdown"),
+    kit.renderSteamUiTool(ui, null, "search", true),
+);
 assert.equal(toolbar.type, Focusable);
 assert.equal(toolbar.props.children[0].props.children[0].props.children[0], "Sort");
 assert.equal(toolbar.props.children[1].props.className, "steam-ui-kit-tool grow");
@@ -272,24 +427,39 @@ assert.equal(ran.at(-1), "psx", "one native button activation dispatches once");
 
 // A gallery picks a thumbnail and counts; one image needs no thumbnails.
 let picked = -1;
-const gallery = kit.renderSteamUiGallery(ui, { images: ["a", "b", "c"], index: 1, onSelect: (at) => (picked = at) });
+const gallery = kit.renderSteamUiGallery(ui, {
+    images: ["a", "b", "c"],
+    index: 1,
+    onSelect: (at) => (picked = at),
+});
 assert.equal(gallery.props.children[0].props.className, "steam-ui-kit-thumbs");
-assert.equal(gallery.props.children[0].props.children[1].props.className, "steam-ui-kit-thumb current");
+assert.equal(
+    gallery.props.children[0].props.children[1].props.className,
+    "steam-ui-kit-thumb current",
+);
 gallery.props.children[0].props.children[2].props.onActivate();
 assert.equal(picked, 2);
 assert.deepEqual(gallery.props.children[1].props.children[1].props.children, ["2/3"]);
-assert.equal(kit.renderSteamUiGallery(ui, { images: ["a"], index: 0, onSelect: () => {} }).props.children[0], null);
+assert.equal(
+    kit.renderSteamUiGallery(ui, { images: ["a"], index: 0, onSelect: () => {} }).props.children[0],
+    null,
+);
 
 // A confirm sends only on OK; a prompt sends only a non-empty answer.
 let confirmed = 0;
-kit.showSteamUiConfirm(ui, { title: "Delete Theme", text: "Sure?", confirmLabel: "Delete", onConfirm: () => confirmed++ });
+kit.showSteamUiConfirm(ui, {
+    title: "Delete Theme",
+    text: "Sure?",
+    confirmLabel: "Delete",
+    onConfirm: () => confirmed++,
+});
 assert.equal(shown.length, 1);
 let closed = 0;
 const renderModal = (modal) => {
-  hooks.index = 0;
-  const frame = modal.type({ closeModal: () => closed++ });
-  assert.equal(frame.type, Modal, "the body sits in Steam's dialog");
-  return frame.props.children[0];
+    hooks.index = 0;
+    const frame = modal.type({ closeModal: () => closed++ });
+    assert.equal(frame.type, Modal, "the body sits in Steam's dialog");
+    return frame.props.children[0];
 };
 let body = renderModal(shown[0]);
 const [cancel, ok] = body.props.children[1].props.children;
@@ -300,7 +470,12 @@ ok.props.onClick();
 assert.equal(confirmed, 1);
 assert.equal(closed, 2);
 const answers = [];
-kit.showSteamUiPrompt(ui, { title: "Create Profile", label: "Profile Name", confirmLabel: "Create", onConfirm: (value) => answers.push(value) });
+kit.showSteamUiPrompt(ui, {
+    title: "Create Profile",
+    label: "Profile Name",
+    confirmLabel: "Create",
+    onConfirm: (value) => answers.push(value),
+});
 const prompt = renderModal(shown[1]);
 let promptBody = prompt.type(prompt.props);
 promptBody.props.children[2].props.children[1].props.onClick();
@@ -311,4 +486,6 @@ promptBody = prompt.type(prompt.props);
 promptBody.props.children[2].props.children[1].props.onClick();
 assert.deepEqual(answers, ["Night"], "the answer is sent trimmed");
 
-console.log("UI kit: stylesheet, header, actions, card, banner, toolbar, chips, gallery, confirm and prompt passed.");
+console.log(
+    "UI kit: stylesheet, header, actions, card, banner, toolbar, chips, gallery, confirm and prompt passed.",
+);

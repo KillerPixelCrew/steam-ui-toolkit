@@ -38,6 +38,8 @@ const window = {
 // this check pins is only visible across renders that remember what the previous one stored.
 const hookCells = [];
 let hookIndex = 0;
+let renderingGameMenu = false;
+let gameMenuNotifications = 0;
 const react = createReact({
     useState: (initial) => {
         const index = hookIndex++;
@@ -52,6 +54,13 @@ const react = createReact({
         ];
     },
     useEffect: () => {},
+    useSyncExternalStore: (subscribe, read) => {
+        subscribe(() => {
+            assert.equal(renderingGameMenu, false, "native action discovery notifies after render");
+            gameMenuNotifications += 1;
+        });
+        return read();
+    },
 });
 // Steam's components, each with the source text the resolvers fingerprint it by. The tab draws
 // with these and nothing else, so the check runs the path a real client takes.
@@ -124,10 +133,9 @@ const modules = {
         exports: { PanelSection, PanelRow },
     },
     qam: { tokens: ["QuickAccessMenuBrowserView"], exports: { memo } },
-    // The game menu module is found, never read: the menu gate claims its class through the JSX
-    // runtime instead.
+    // No private-factory fingerprint fits. The actual native class still appears through JSX.
     gameMenu: {
-        tokens: ["GetTargetApps", "BuildManageSubmenu", "GetPrimaryActionMenuItem"],
+        tokens: [],
         exports: {},
     },
 };
@@ -173,16 +181,21 @@ const code =
     sharedFragments(asset) +
     declarations(asset, "icons.ts", ["SteamGlyphPattern", "steamGlyphCaches", "renderSteamGlyph"]) +
     "\n" +
-    helperFragments(asset, helpers.slice(helpers.indexOf("icons.ts") + 1).filter((label) =>
-        label !== "plugin-frontends" && label !== "plugin-frontends.ts")) +
+    helperFragments(
+        asset,
+        helpers
+            .slice(helpers.indexOf("icons.ts") + 1)
+            .filter((label) => label !== "plugin-frontends" && label !== "plugin-frontends.ts"),
+    ) +
     gateSource(asset, "gates/extensions-tab.ts") +
     gateSource(asset, "gates/game-context-menu.ts");
-const { extensions, menu, createExtensions, unclaimedValue, pluginFrontendSlots } = instantiate(
-    globals,
-    code,
-    "({extensions:createExtensionsTab(),menu:createGameContextMenu()," +
-        "createExtensions:createExtensionsTab,unclaimedValue,pluginFrontendSlots})",
-);
+const { extensions, menu, createMenu, createExtensions, unclaimedValue, pluginFrontendSlots } =
+    instantiate(
+        globals,
+        code,
+        "({extensions:createExtensionsTab(),menu:createGameContextMenu()," +
+            "createMenu:createGameContextMenu,createExtensions:createExtensionsTab,unclaimedValue,pluginFrontendSlots})",
+    );
 assert.equal(extensions.install().ok, true);
 assert.equal(memo.type.__steamUiExtensionsTabOriginal.kind, "steam-ui-property-snapshot-v1");
 assert.equal(memo.type.__steamUiExtensionsTabOriginal.value, originalRoot);
@@ -472,9 +485,15 @@ const foldedActionRow = themesSection.props.children[1];
 assert.equal(foldedActionRow.type, PanelRow, "folded actions remain in Steam's native row");
 const foldedAction = foldedActionRow.props.children[0].props.children[0];
 assert.equal(foldedAction.type, Button, "the folded action remains Steam's button");
-assert.deepEqual(foldedAction.props.children, ["Browse themes…"], "the action keeps its visible label");
+assert.deepEqual(
+    foldedAction.props.children,
+    ["Browse themes…"],
+    "the action keeps its visible label",
+);
 assert.equal(
-    findIn(react, themesSection, (node) => [Toggle, TextField, Dropdown, Slider].includes(node.type)).length,
+    findIn(react, themesSection, (node) =>
+        [Toggle, TextField, Dropdown, Slider].includes(node.type),
+    ).length,
     0,
     "folding hides setting controls while keeping the action",
 );
@@ -482,8 +501,16 @@ nextAnswer = { route: "/wsgm/themes" };
 navigation.length = 0;
 foldedAction.props.onClick();
 await tick();
-assert.deepEqual(requests.at(-1).slice(0, 3), ["steam-ui.extensions-tab", "activate", { id: "browse" }]);
-assert.deepEqual(navigation, ["closed", "/wsgm/themes"], "a folded action still closes QAM and follows its route");
+assert.deepEqual(requests.at(-1).slice(0, 3), [
+    "steam-ui.extensions-tab",
+    "activate",
+    { id: "browse" },
+]);
+assert.deepEqual(
+    navigation,
+    ["closed", "/wsgm/themes"],
+    "a folded action still closes QAM and follows its route",
+);
 nextAnswer = undefined;
 navigation.length = 0;
 headerButton.props.onActivate();
@@ -500,7 +527,9 @@ assert.equal(
     Button,
     "opening keeps the action ahead of the settings",
 );
-assert.deepEqual(bodyRows[0].props.children[0].props.children[0].props.children, ["Browse themes…"]);
+assert.deepEqual(bodyRows[0].props.children[0].props.children[0].props.children, [
+    "Browse themes…",
+]);
 const themeToggle = bodyRows[1].props.children[0];
 assert.equal(themeToggle.type, Toggle);
 assert.equal(
@@ -595,17 +624,26 @@ assert.equal(
     "the host folds settings again while the action stays visible",
 );
 assert.equal(
-    findIn(react, themesPanel.props.children[1][0], (node) => [Toggle, TextField, Dropdown, Slider].includes(node.type)).length,
+    findIn(react, themesPanel.props.children[1][0], (node) =>
+        [Toggle, TextField, Dropdown, Slider].includes(node.type),
+    ).length,
     0,
     "the host's fold removes the reopened setting controls",
 );
-assert.deepEqual(themesPanel.props.children[1][0].props.children[1].props.children[0].props.children[0].props.children,
-    ["Browse themes…"], "the host's fold preserves the action label");
+assert.deepEqual(
+    themesPanel.props.children[1][0].props.children[1].props.children[0].props.children[0].props
+        .children,
+    ["Browse themes…"],
+    "the host's fold preserves the action label",
+);
 subscriptions.get("steam-ui.extensions-tab")({ items: [], revision: 11 });
 
 // Plugin tabs use the shared Extensions glyph only when they supply no icon of their own.
 const pluginSlot = {
-    id: "fixture.tab", kind: "tab", entry: {}, value: { title: "Plugin tab" },
+    id: "fixture.tab",
+    kind: "tab",
+    entry: {},
+    value: { title: "Plugin tab" },
     element: () => element("plugin-tab", {}),
 };
 pluginFrontendSlots.set(pluginSlot.id, pluginSlot);
@@ -613,7 +651,11 @@ let iconsBefore = iconCalls.length;
 memo.type({});
 let pluginTab = qamTabs.find((item) => item.steamUiPluginTab === pluginSlot.id);
 assert.ok(pluginTab, "the plugin tab is added to the native list");
-assert.deepEqual(iconCalls.slice(iconsBefore), [["extensions", 22]], "a plugin without an icon uses the shared fallback");
+assert.deepEqual(
+    iconCalls.slice(iconsBefore),
+    [["extensions", 22]],
+    "a plugin without an icon uses the shared fallback",
+);
 const customIcon = element("custom-plugin-icon", {});
 pluginSlot.value.icon = customIcon;
 iconsBefore = iconCalls.length;
@@ -623,7 +665,11 @@ assert.equal(pluginTab.tab, customIcon, "a plugin-supplied icon remains unchange
 assert.equal(iconCalls.length, iconsBefore, "a supplied icon does not draw the fallback");
 pluginFrontendSlots.delete(pluginSlot.id);
 memo.type({});
-assert.equal(qamTabs.some((item) => item.steamUiPluginTab === pluginSlot.id), false, "removed plugin tabs leave the list");
+assert.equal(
+    qamTabs.some((item) => item.steamUiPluginTab === pluginSlot.id),
+    false,
+    "removed plugin tabs leave the list",
+);
 
 const replacement = createExtensions();
 assert.equal(replacement.install().ok, true, "a fresh gate resolves its durable owned original");
@@ -652,44 +698,300 @@ nativeAvailable = true;
 // No document or MutationObserver exists in this fixture, just as no visible DOM is available in
 // SharedJSContext. Class discovery must happen before React creates the first instance.
 class GameMenu {
+    constructor(props) {
+        this.props = props;
+        this.targetApps = [{ appid: 42 }];
+        this.primaryAvailable = false;
+    }
     GetTargetApps() {
-        return [{ appid: 42 }];
+        return this.targetApps;
     }
     BuildManageSubmenu() {}
-    GetPrimaryActionMenuItem() {}
+    GetCollectionManagementActions() {
+        return {
+            rgCanAdd: this.primaryAvailable
+                ? [element("item", { onSelected: () => "Add to collection" })]
+                : [],
+            rgCanRemove: [],
+        };
+    }
+    GetPrimaryActionMenuItem() {
+        return this.primaryAvailable ? element("item", { onSelected: () => "Play" }) : null;
+    }
     render() {
+        const collections = this.GetCollectionManagementActions();
         return element("menu", {
             children: [
-                element("item", {
-                    onSelected() {
-                        return "AppProperties";
-                    },
-                }),
-            ],
+                !this.props.omitPrimaryAction && this.GetPrimaryActionMenuItem(),
+                ...collections.rgCanAdd,
+                ...react.Children.toArray(this.props.additionalActions),
+            ].filter(Boolean),
         });
     }
 }
+// Stable and beta both autobind this method through an accessor that freezes the instance member.
+const nativeActionMethod = GameMenu.prototype.GetPrimaryActionMenuItem;
+Object.defineProperty(GameMenu.prototype, "GetPrimaryActionMenuItem", {
+    configurable: true,
+    get() {
+        const bound = nativeActionMethod.bind(this);
+        if (!Object.hasOwn(this, "GetPrimaryActionMenuItem")) {
+            Object.defineProperty(this, "GetPrimaryActionMenuItem", { value: bound });
+        }
+        return bound;
+    },
+});
+const originalActionDescriptor = Object.getOwnPropertyDescriptor(
+    GameMenu.prototype,
+    "GetCollectionManagementActions",
+);
+// Today's MobX observer captures the native render at decoration time, then binds an immutable
+// instance render on its first call. Later app-data updates completely bypass prototype.render.
+const nativeRender = GameMenu.prototype.render;
+GameMenu.prototype.render = function () {
+    Object.defineProperty(this, "render", {
+        configurable: false,
+        writable: false,
+        value: nativeRender.bind(this),
+    });
+    return this.render();
+};
 const originalRender = GameMenu.prototype.render;
 assert.equal(menu.install().ok, true);
-subscriptions.get("steam-ui.game-context-menu")({ items: [{ id: "art", label: "Artwork" }] });
-jsx.jsx(GameMenu, {});
 assert.equal(
-    jsx.jsx,
-    originalJsx,
-    "the capture transform is withdrawn once the menu class is held",
+    runtime.findUnique(["GetTargetApps", "BuildManageSubmenu", "GetPrimaryActionMenuItem"]),
+    null,
 );
-assert.equal(menu.status().observing, true, "a held menu class still counts as observing");
-const first = new GameMenu().render();
-const inserted = first.props.children.flat()[0];
-assert.equal(inserted.props.children[0], "Artwork", "first opening already includes commands");
+assert.equal(
+    menu.status().nativeMenuState,
+    "awaiting-native-menu",
+    "observer readiness does not claim a native menu was seen",
+);
+subscriptions.get("steam-ui.game-context-menu")({ items: [{ id: "art", label: "Artwork" }] });
+const nativeAction = element("item", { children: "Native action", onSelected: () => {} });
+const refCalls = [];
+const menuElement = jsx.jsx(GameMenu, {
+    omitPrimaryAction: true,
+    additionalActions: nativeAction,
+    ref: (instance) => refCalls.push(instance),
+});
+assert.notEqual(jsx.jsx, originalJsx, "later parent renders retain the native-slot transform");
+assert.equal(menu.status().observing, true);
+assert.equal(
+    menu.status().nativeMenuState,
+    "native-class-held",
+    "the actual handle is distinguished from observing JSX",
+);
+const instance = new GameMenu(menuElement.props);
+const first = instance.render();
+assert.equal(
+    menu.status().nativeObserved,
+    true,
+    "the native collection return validates its real contract",
+);
+const actionsOf = (root) =>
+    root.props.children.find((child) => child?.type?.name === "SteamUiGameContextMenuItems");
+const firstActions = actionsOf(first);
+assert.equal(
+    Object.hasOwn(instance, "GetPrimaryActionMenuItem"),
+    false,
+    "gear menus never invoke the omitted primary action",
+);
+assert.equal(first.props.children[0], nativeAction, "Valve's additional actions are preserved");
+assert.equal(
+    firstActions.type(firstActions.props),
+    null,
+    "an initially absent native action is not guessed",
+);
+assert.equal(
+    GameMenu.prototype.render,
+    originalRender,
+    "discovery never claims the observer's render",
+);
+const notificationsBeforeAction = gameMenuNotifications;
+instance.primaryAvailable = true;
+renderingGameMenu = true;
+const ready = instance.render();
+renderingGameMenu = false;
+const readyActions = actionsOf(ready);
+const inserted = readyActions.type(readyActions.props)[0];
+assert.equal(
+    inserted.props.children[0],
+    "Artwork",
+    "an async native action supplies the real item type",
+);
+assert.equal(
+    gameMenuNotifications,
+    notificationsBeforeAction,
+    "there is no synchronous render notification",
+);
+await tick();
+assert.ok(
+    gameMenuNotifications > notificationsBeforeAction,
+    "the native action event wakes mounted host items",
+);
 inserted.props.onSelected();
 assert.deepEqual(requests.at(-1).slice(0, 3), [
     "steam-ui.game-context-menu",
     "activate",
     { appId: 42, id: "art" },
 ]);
+menuElement.props.ref(instance);
+assert.deepEqual(refCalls, [instance], "the native ref still receives its exact instance");
+assert.equal(Object.getOwnPropertyDescriptor(instance, "render").configurable, false);
+const later = instance.render();
+const laterActions = actionsOf(later);
+assert.equal(
+    laterActions.type(laterActions.props)[0].props.children[0],
+    "Artwork",
+    "the immutable observer render keeps the row after async app-data updates",
+);
+subscriptions.get("steam-ui.game-context-menu")({ items: [{ id: "art", label: "New artwork" }] });
+assert.equal(laterActions.type(laterActions.props)[0].props.children[0], "New artwork");
+instance.targetApps = [{ appid: 42 }, { appid: 43 }];
+assert.equal(
+    laterActions.type(laterActions.props),
+    null,
+    "multi-select offers no single-game command",
+);
+instance.targetApps = [{ appid: 43 }];
+inserted.props.onSelected();
+assert.deepEqual(
+    requests.at(-1)[2],
+    { appId: 43, id: "art" },
+    "activation rechecks the actual target",
+);
+const replacementRef = { current: null };
+const refreshedMenu = jsx.jsxs(GameMenu, {
+    omitPrimaryAction: true,
+    additionalActions: nativeAction,
+    ref: replacementRef,
+});
+instance.props = refreshedMenu.props;
+refreshedMenu.props.ref(instance);
+assert.equal(
+    replacementRef.current,
+    instance,
+    "native object refs remain intact on parent updates",
+);
+const replacementActions = actionsOf(instance.render());
+assert.equal(
+    replacementActions.type(replacementActions.props)[0].props.children[0],
+    "New artwork",
+    "new parent props preserve actions without touching the frozen instance render",
+);
+const repeated = jsx.jsx(GameMenu, refreshedMenu.props);
+assert.equal(
+    repeated.props.additionalActions.filter((action) => action.type === replacementActions.type)
+        .length,
+    1,
+    "reused augmented props do not accumulate duplicate host actions",
+);
+let nativeRefCleanups = 0;
+const cleanupElement = jsx.jsx(GameMenu, {
+    ref: () => () => {
+        nativeRefCleanups += 1;
+    },
+});
+const cleanupRef = cleanupElement.props.ref(instance);
+cleanupRef();
+assert.equal(nativeRefCleanups, 1, "React callback-ref cleanup remains owned by the native caller");
 assert.equal(menu.status().menuClaimed, true);
 assert.equal(menu.remove().ok, true);
 assert.equal(GameMenu.prototype.render, originalRender);
+assert.deepEqual(
+    Object.getOwnPropertyDescriptor(GameMenu.prototype, "GetCollectionManagementActions"),
+    originalActionDescriptor,
+);
+assert.equal(
+    Object.hasOwn(instance, "GetCollectionManagementActions"),
+    false,
+    "capture never replaces an instance method",
+);
 assert.equal(jsx.jsx, originalJsx);
+assert.equal(
+    replacementActions.type(replacementActions.props),
+    null,
+    "removal clears an open menu's actions",
+);
+const requestsBeforeRemovalClick = requests.length;
+inserted.props.onSelected();
+assert.equal(
+    requests.length,
+    requestsBeforeRemovalClick,
+    "a retained removed action cannot dispatch",
+);
+assert.equal(
+    instance.render().props.children[1],
+    nativeAction,
+    "removal preserves native menu behavior",
+);
+
+// Similar-looking classes without the complete native contract are left completely untouched.
+class MalformedMenu {
+    GetTargetApps() {
+        return [];
+    }
+    BuildManageSubmenu() {}
+    GetPrimaryActionMenuItem() {
+        return null;
+    }
+    render() {
+        return null;
+    }
+}
+const competing = createMenu();
+assert.equal(competing.install().ok, true);
+const malformedProps = { additionalActions: nativeAction };
+assert.equal(jsx.jsx(MalformedMenu, malformedProps).props, malformedProps);
+assert.equal(competing.status().nativeMenuState, "awaiting-native-menu");
+jsx.jsx(GameMenu, { omitPrimaryAction: true });
+assert.equal(competing.status().menuClaimed, true);
+class OtherNativeMenu {
+    constructor(props) {
+        this.props = props;
+    }
+    GetTargetApps() {
+        return [{ appid: 44 }];
+    }
+    BuildManageSubmenu() {}
+    GetPrimaryActionMenuItem() {
+        return null;
+    }
+    GetCollectionManagementActions() {
+        return null;
+    }
+    render() {
+        this.GetCollectionManagementActions();
+        return element("native-menu", {});
+    }
+}
+const otherOriginal = OtherNativeMenu.prototype.GetCollectionManagementActions;
+const competingProps = {};
+assert.equal(jsx.jsx(OtherNativeMenu, competingProps).props, competingProps);
+assert.equal(
+    competing.status().ambiguous,
+    true,
+    "competing actual native handles refuse ownership",
+);
+assert.equal(competing.status().nativeMenuState, "refused");
+assert.equal(OtherNativeMenu.prototype.GetCollectionManagementActions, otherOriginal);
+assert.equal(competing.remove().ok, true);
+assert.deepEqual(
+    Object.getOwnPropertyDescriptor(GameMenu.prototype, "GetCollectionManagementActions"),
+    originalActionDescriptor,
+);
+assert.equal(jsx.jsx, originalJsx);
+
+// A naturally called method with an incompatible result is refused without changing its output.
+const badReturn = createMenu();
+assert.equal(badReturn.install().ok, true);
+const badElement = jsx.jsx(OtherNativeMenu, {});
+assert.equal(new OtherNativeMenu(badElement.props).render().type, "native-menu");
+assert.equal(badReturn.status().nativeRefused, true);
+assert.equal(badReturn.status().nativeMenuState, "refused");
+assert.equal(badReturn.remove().ok, true);
+assert.equal(OtherNativeMenu.prototype.GetCollectionManagementActions, otherOriginal);
+assert.equal(jsx.jsx, originalJsx);
+await tick();
 console.log("Extension surfaces emitted checks passed.");

@@ -42,7 +42,7 @@ const SteamUiKitStyles = `
 .steam-ui-kit-valve > div:not(:empty){padding-top:8px!important}
 .steam-ui-kit-valve > div:not(:empty) > div:first-child{font-size:12px!important;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.6)!important;padding:4px 0 8px!important}
 .steam-ui-kit-group-body > div > :first-child,.steam-ui-kit-blocks > div > div > :first-child,.steam-ui-kit-valve > div > div > :first-child{--field-negative-horizontal-margin:0px}
-.steam-ui-kit-group-body div,.steam-ui-kit-blocks div,.steam-ui-kit-valve div,.steam-ui-kit-battery div{min-width:0!important}
+.steam-ui-kit-group-body,.steam-ui-kit-blocks,.steam-ui-kit-valve,.steam-ui-kit-battery{min-width:0}
 .steam-ui-kit-group-body button.DialogButton,.steam-ui-kit-blocks button.DialogButton,.steam-ui-kit-valve button.DialogButton{min-width:0!important;box-sizing:border-box!important}
 .steam-ui-kit-battery{width:calc(100% - 32px);box-sizing:border-box;margin:0 16px 6px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.08);--field-negative-horizontal-margin:0px}
 .steam-ui-kit-battery > *{margin-inline:0!important;padding-inline:0!important;width:100%!important}
@@ -165,20 +165,36 @@ const steamUiKitIcon = (react) => {
  * @param props Accessible label, optional visible label and native option/selection/change props.
  * @returns A contained dropdown; its popup remains owned by Steam.
  */
-const renderSteamUiChoice = (ui, props: {
-    label: string; showLabel?: boolean; rgOptions: any[]; selectedOption: any;
-    disabled?: boolean; onChange: (option: any) => void;
-}) => {
+const renderSteamUiChoice = (
+    ui,
+    props: {
+        label: string;
+        showLabel?: boolean;
+        rgOptions: any[];
+        selectedOption: any;
+        disabled?: boolean;
+        onChange: (option: any) => void;
+    },
+) => {
     const h = ui.react.createElement;
     const bare = !!ui.dropdownControl;
-    return h("div", {className: "steam-ui-kit-choice", "aria-label": props.label},
-        bare && props.showLabel !== false ? h("div", {className: "steam-ui-kit-choice-label"}, props.label) : null,
+    return h(
+        "div",
+        { className: "steam-ui-kit-choice", "aria-label": props.label },
+        bare && props.showLabel !== false
+            ? h("div", { className: "steam-ui-kit-choice-label" }, props.label)
+            : null,
         h(ui.dropdownControl ?? ui.dropdown, {
             label: bare || props.showLabel !== false ? props.label : "",
             menuLabel: props.label,
-            layout: "below", rgOptions: props.rgOptions, selectedOption: props.selectedOption,
-            disabled: !!props.disabled, onChange: props.onChange, "aria-label": props.label
-        }));
+            layout: "below",
+            rgOptions: props.rgOptions,
+            selectedOption: props.selectedOption,
+            disabled: !!props.disabled,
+            onChange: props.onChange,
+            "aria-label": props.label,
+        }),
+    );
 };
 
 /**
@@ -187,16 +203,31 @@ const renderSteamUiChoice = (ui, props: {
  * @param props Stable key, label/detail/status, selected state and one activation callback.
  * @returns One native focus target with structured content instead of concatenated button text.
  */
-const renderSteamUiSelectRow = (ui, props: {
-    key: string; title: string; detail?: string; status?: any; selected?: boolean;
-    onClick: () => void;
-}) => {
+const renderSteamUiSelectRow = (
+    ui,
+    props: {
+        key: string;
+        title: string;
+        detail?: string;
+        status?: any;
+        selected?: boolean;
+        onClick: () => void;
+    },
+) => {
     const h = ui.react.createElement;
-    return h(ui.dialogButton, {key:props.key, "aria-pressed":!!props.selected, onClick:props.onClick},
-        h("div", {className:"steam-ui-kit-select-row"},
-            h("span", {className:"steam-ui-kit-select-row-title"}, props.title),
+    return h(
+        ui.dialogButton,
+        { key: props.key, "aria-pressed": !!props.selected, onClick: props.onClick },
+        h(
+            "div",
+            { className: "steam-ui-kit-select-row" },
+            h("span", { className: "steam-ui-kit-select-row-title" }, props.title),
             props.status ?? null,
-            props.detail ? h("span", {className:"steam-ui-kit-select-row-detail"}, props.detail) : null));
+            props.detail
+                ? h("span", { className: "steam-ui-kit-select-row-detail" }, props.detail)
+                : null,
+        ),
+    );
 };
 
 /**

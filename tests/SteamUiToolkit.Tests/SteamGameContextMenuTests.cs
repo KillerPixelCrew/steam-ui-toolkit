@@ -9,7 +9,7 @@ public sealed class SteamGameContextMenuTests
     private static SteamGatePatch Gate => (SteamGatePatch)SteamGameContextMenuSurface.Patch;
 
     [Fact]
-    public void ProbeRequiresOneLibraryMenuAndJsxRuntimeBeforeInterceptingFirstRender()
+    public void ProbeRequiresReactAndJsxForObservationWithoutRequiringPrivateFactoryPlacement()
     {
         var probe = Gate.ProbeExpression;
 
@@ -21,11 +21,18 @@ public sealed class SteamGameContextMenuTests
 
         using var compatible = JsonDocument.Parse(
             """{"menuModule":1,"react":1,"jsx":1}""");
-        using var ambiguous = JsonDocument.Parse(
+        using var relocated = JsonDocument.Parse(
             """{"menuModule":0,"react":1,"jsx":1}""");
+        using var split = JsonDocument.Parse(
+            """{"menuModule":2,"react":1,"jsx":1}""");
 
         Assert.True(Gate.Compatible(compatible.RootElement));
-        Assert.False(Gate.Compatible(ambiguous.RootElement));
+        Assert.True(Gate.Compatible(relocated.RootElement));
+        Assert.True(Gate.Compatible(split.RootElement));
+        Assert.Contains("menuModule:count", probe, StringComparison.Ordinal);
+        Assert.Contains("!status.ambiguous", Gate.VerifyOk, StringComparison.Ordinal);
+        Assert.Contains("!status.nativeRefused", Gate.VerifyOk, StringComparison.Ordinal);
+        Assert.Contains("status.observing", Gate.VerifyOk, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -33,6 +40,16 @@ public sealed class SteamGameContextMenuTests
     [InlineData("""{"menuModule":1,"react":1,"jsx":0}""")]
     [InlineData("""{"menuModule":1,"react":1,"jsx":2}""")]
     public void ProbeRefusesMissingOrAmbiguousJsxRuntime(string json)
+    {
+        using var probe = JsonDocument.Parse(json);
+
+        Assert.False(Gate.Compatible(probe.RootElement));
+    }
+
+    [Theory]
+    [InlineData("""{"react":0,"jsx":1}""")]
+    [InlineData("""{"react":2,"jsx":1}""")]
+    public void ProbeStillRefusesMissingOrAmbiguousReact(string json)
     {
         using var probe = JsonDocument.Parse(json);
 

@@ -31,10 +31,10 @@ public interface ISteamGameContextMenuBackend
 /// Adds host-owned commands to Steam's per-game gear and library context menu.
 /// </summary>
 /// <remarks>
-/// Steam's stable module export supplies the menu shell, while the class that renders it is private
-/// to that module. The shared JSX interceptor recognizes that exact class before its first render
-/// and claims its render method. It never constructs an unknown export or accepts a
-/// package-supplied React element.
+/// The shared JSX interceptor recognizes the actual native menu class before its first render
+/// and observes its native action method to capture the actual instance and item type. Commands use Steam's
+/// additional-actions slot, which survives the observer's instance-bound renders. It never constructs
+/// an unknown export or accepts a package-supplied React element.
 /// </remarks>
 public static class SteamGameContextMenuSurface
 {
@@ -48,23 +48,20 @@ public static class SteamGameContextMenuSurface
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
         "gameContextMenu",
-        "steam-game-context-menu-v5:unique-library-menu-module+jsx-class-claim",
+        "steam-game-context-menu-v7:unique-react-jsx+observed-native-menu",
         $$"""
           {{SteamUiProbeJs.Preamble("steam_ui_game_context_menu_probe_")}}
-            const menu=req.findUnique(['GetTargetApps','BuildManageSubmenu','GetPrimaryActionMenuItem']);
-            if(!menu)return JSON.stringify({menuModule:0});
             return JSON.stringify({
-              menuModule:1,
+              menuModule:count(['GetTargetApps','BuildManageSubmenu','GetPrimaryActionMenuItem']),
               react:count({{SteamUiProbeJs.ReactTokens}}),
               jsx:count({{SteamUiProbeJs.JsxRuntimeTokens}})
             });
           {{SteamUiProbeJs.Close}}
           """,
         root =>
-            SteamUiPatchEvaluation.IsOne(root, "menuModule")
-            && SteamUiPatchEvaluation.IsOne(root, "react")
+            SteamUiPatchEvaluation.IsOne(root, "react")
             && SteamUiPatchEvaluation.IsOne(root, "jsx"),
-        "status.installed&&status.resolved&&status.observing",
+        "status.installed&&status.resolved&&status.observing&&!status.ambiguous&&!status.nativeRefused",
         "!status.installed",
         "Game context menu");
 
