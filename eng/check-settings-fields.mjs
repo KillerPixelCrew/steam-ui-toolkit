@@ -6,12 +6,12 @@
 // This runs the emitted JavaScript, not the TypeScript source.
 import assert from "node:assert/strict";
 import {
-  createReact,
-  helperFragments,
-  instantiate,
-  loadAsset,
-  tick,
-  withSource,
+    createReact,
+    helperFragments,
+    instantiate,
+    loadAsset,
+    tick,
+    withSource,
 } from "./check-harness.mjs";
 
 const asset = loadAsset();
@@ -20,91 +20,121 @@ const asset = loadAsset();
 // that run when their dependencies change.
 const hooks = { states: [], effects: [], index: 0 };
 const react = createReact({
-  useState(initial) {
-    const slot = hooks.index++;
-    if (!(slot in hooks.states)) hooks.states[slot] = initial;
-    const set = (next) => {
-      hooks.states[slot] = typeof next === "function" ? next(hooks.states[slot]) : next;
-    };
-    return [hooks.states[slot], set];
-  },
-  useEffect(effect, dependencies) {
-    const slot = hooks.index++;
-    const previous = hooks.effects[slot];
-    if (!previous || dependencies.some((value, index) => value !== previous[index])) {
-      hooks.effects[slot] = dependencies;
-      effect();
-    }
-  },
+    useState(initial) {
+        const slot = hooks.index++;
+        if (!(slot in hooks.states)) hooks.states[slot] = initial;
+        const set = (next) => {
+            hooks.states[slot] = typeof next === "function" ? next(hooks.states[slot]) : next;
+        };
+        return [hooks.states[slot], set];
+    },
+    useEffect(effect, dependencies) {
+        const slot = hooks.index++;
+        const previous = hooks.effects[slot];
+        if (!previous || dependencies.some((value, index) => value !== previous[index])) {
+            hooks.effects[slot] = dependencies;
+            effect();
+        }
+    },
 });
 
 // Steam's components, each with the source text the resolver fingerprints it by.
-const named = (name, source) => withSource(Object.defineProperty(() => null, "name", { value: name }), source);
+const named = (name, source) =>
+    withSource(
+        Object.defineProperty(() => null, "name", { value: name }),
+        source,
+    );
 const Slider = named("Slider", "onChangeComplete notchCount valueSuffix explainerTitle");
 const Dropdown = named("Dropdown", "contextMenuPositionOptions childrenContainerWidth menuLabel");
 const Toggle = named("Toggle", "OnToggleChange this.Toggle()");
 // The buttons are found by their class names however the arguments between them are spaced.
-const Button = named("Button", 'classNames(props.className, "DialogButton", "_DialogLayout", "Secondary")');
-const Primary = named("Primary", "classNames(props.className, 'DialogButton', '_DialogLayout', 'Primary')");
+const Button = named(
+    "Button",
+    'classNames(props.className, "DialogButton", "_DialogLayout", "Secondary")',
+);
+const Primary = named(
+    "Primary",
+    "classNames(props.className, 'DialogButton', '_DialogLayout', 'Primary')",
+);
 const TextField = named("TextField", "class TextField");
 TextField.validateUrl = () => true;
 TextField.validateEmail = () => true;
 const Section = named("Section", 'className:"DialogSettingsSection"');
 // A component of one argument; the field layout that reads the same props takes two and is not it.
 const ValueField = withSource(
-  Object.defineProperty((props) => props && null, "name", { value: "ValueField" }),
-  'const {name, value, ...rest} = props; return <Field label={name} focusable inlineWrap="shift-children-below" {...rest}>',
+    Object.defineProperty((props) => props && null, "name", { value: "ValueField" }),
+    'const {name, value, ...rest} = props; return <Field label={name} focusable inlineWrap="shift-children-below" {...rest}>',
 );
 const FieldLayout = withSource(
-  Object.defineProperty((props, ref) => props && ref && null, "name", { value: "FieldLayout" }),
-  'const {label, inlineWrap, focusable} = props; inlineWrap === "shift-children-below"',
+    Object.defineProperty((props, ref) => props && ref && null, "name", { value: "FieldLayout" }),
+    'const {label, inlineWrap, focusable} = props; inlineWrap === "shift-children-below"',
 );
 const SmallButton = named("SmallButton", '"DialogButton _DialogLayout Small"');
 const Focusable = named("Focusable", "focusableIfEmpty onActivate onCancel focusClassName");
 const RoutedPages = named("RoutedPages", "function(e){const{pages:t,disableRouteReporting:c}=e}");
 const Confirm = named("Confirm", "strMiddleButtonText bProgressDialog bAlertDialog");
-const Dialog = named("Dialog", "Either closeModal or onCancel should be passed to GenericDialog. Classes: ");
+const Dialog = named(
+    "Dialog",
+    "Either closeModal or onCancel should be passed to GenericDialog. Classes: ",
+);
 const shown = [];
 const ShowModal = named("ShowModal", "props.bDisableBackgroundDismiss");
 
 const modules = {
-  react: { tokens: ["react.transitional.element", "useState", "cloneElement", "createElement"], exports: react },
-  fields: {
-    tokens: ["DialogSlider_Container", "DropDownField", "SliderField"],
-    exports: { Slider, Dropdown, Toggle, Button, Primary, TextField, Section, ValueField, FieldLayout, SmallButton },
-  },
-  focusable: { tokens: ["focusableIfEmpty", "onActivate", '"Panel"'], exports: { Focusable } },
-  modal: { tokens: ["props.bDisableBackgroundDismiss"], exports: { ShowModal } },
-  dialog: {
-    tokens: ["Either closeModal or onCancel should be passed to GenericDialog. Classes: "],
-    exports: { Dialog },
-  },
-  pages: { tokens: ["disableRouteReporting"], exports: { RoutedPages } },
-  confirm: { tokens: ["strMiddleButtonText", "bProgressDialog", "bAlertDialog"], exports: { Confirm } },
+    react: {
+        tokens: ["react.transitional.element", "useState", "cloneElement", "createElement"],
+        exports: react,
+    },
+    fields: {
+        tokens: ["DialogSlider_Container", "DropDownField", "SliderField"],
+        exports: {
+            Slider,
+            Dropdown,
+            Toggle,
+            Button,
+            Primary,
+            TextField,
+            Section,
+            ValueField,
+            FieldLayout,
+            SmallButton,
+        },
+    },
+    focusable: { tokens: ["focusableIfEmpty", "onActivate", '"Panel"'], exports: { Focusable } },
+    modal: { tokens: ["props.bDisableBackgroundDismiss"], exports: { ShowModal } },
+    dialog: {
+        tokens: ["Either closeModal or onCancel should be passed to GenericDialog. Classes: "],
+        exports: { Dialog },
+    },
+    pages: { tokens: ["disableRouteReporting"], exports: { RoutedPages } },
+    confirm: {
+        tokens: ["strMiddleButtonText", "bProgressDialog", "bAlertDialog"],
+        exports: { Confirm },
+    },
 };
 const moduleFor = (tokens) =>
-  Object.keys(modules).find((id) => tokens.every((token) => modules[id].tokens.includes(token)));
+    Object.keys(modules).find((id) => tokens.every((token) => modules[id].tokens.includes(token)));
 const runtime = (id) => modules[id].exports;
 runtime.findUnique = (tokens) => (moduleFor(tokens) ? [moduleFor(tokens), ""] : null);
 runtime.exported = (tokens, predicate) => {
-  const id = moduleFor(tokens);
-  if (!id) throw new Error("absent");
-  const fits = Object.values(modules[id].exports).filter((value) => predicate(value));
-  if (fits.length !== 1) throw new Error("ambiguous");
-  return fits[0];
+    const id = moduleFor(tokens);
+    if (!id) throw new Error("absent");
+    const fits = Object.values(modules[id].exports).filter((value) => predicate(value));
+    if (fits.length !== 1) throw new Error("ambiguous");
+    return fits[0];
 };
 
 const api = instantiate(
-  { window: {} },
-  helperFragments(asset),
-  "{ resolveSteamSettingsComponents, SteamSettingsRequired, renderSteamSettings }",
+    { window: {} },
+    helperFragments(asset),
+    "{ resolveSteamSettingsComponents, SteamSettingsRequired, renderSteamSettings }",
 );
 
 // Resolution: every component the page draws is Steam's, and all of them resolve.
 const resolved = api.resolveSteamSettingsComponents(runtime);
 assert.ok(resolved, "the settings components must resolve");
 for (const name of api.SteamSettingsRequired) {
-  assert.ok(resolved[name], `${name} must resolve`);
+    assert.ok(resolved[name], `${name} must resolve`);
 }
 assert.equal(resolved.routedPages, RoutedPages, "the sidebar must be Steam's routed pages");
 assert.equal(resolved.confirmModal, Confirm, "the confirmation must be Steam's confirm modal");
@@ -114,40 +144,102 @@ assert.equal(resolved.smallButton, SmallButton);
 
 // The host's page, one row of every kind.
 const ui = {
-  ...resolved,
-  showModal: (modal) => shown.push(modal),
+    ...resolved,
+    showModal: (modal) => shown.push(modal),
 };
 const pages = [
-  {
-    id: "steam",
-    title: "Steam",
-    glyph: "M1 1h2v2H1Z",
-    sections: [
-      {
-        title: "Integration",
-        rows: [
-          {
-            key: "cef",
-            kind: "boolean",
-            label: "CEF",
-            checked: true,
-            confirm: { when: false, title: "Turn off?", description: "It goes away.", confirmLabel: "Turn off" },
-          },
-          { key: "mode", kind: "choice", label: "Mode", text: "a", choices: [{ value: "a", label: "A" }, { value: "b", label: "B" }] },
-          { key: "level", kind: "range", label: "Level", number: 3, minimum: 0, maximum: 10, step: 1 },
-          { key: "name", kind: "text", label: "Name", text: "old" },
-          { key: "key", kind: "secret", label: "Key", text: "Set" },
-          { key: "order", kind: "order", label: "Order", order: ["a", "b"], choices: [{ value: "a", label: "First" }] },
-          { key: "run", kind: "action", label: "Run", buttonLabel: "Go" },
-          { key: "state", kind: "note", label: "State", text: "Active" },
-          { key: "future", kind: "hologram", label: "Future" },
-          { key: "size", kind: "range", label: "Size", number: 1, labels: ["Small", "Medium", "Large"] },
-          { key: "tone", kind: "color", label: "Tone", text: "#ff0000" },
-          { key: "tint", kind: "boolean", label: "Tint", description: "Game override · Ready", checked: false, accent: true },
+    {
+        id: "steam",
+        title: "Steam",
+        glyph: "M1 1h2v2H1Z",
+        sections: [
+            {
+                title: "Integration",
+                rows: [
+                    {
+                        key: "cef",
+                        kind: "boolean",
+                        label: "CEF",
+                        checked: true,
+                        confirm: {
+                            when: false,
+                            title: "Turn off?",
+                            description: "It goes away.",
+                            confirmLabel: "Turn off",
+                        },
+                    },
+                    {
+                        key: "mode",
+                        kind: "choice",
+                        label: "Mode",
+                        text: "a",
+                        choices: [
+                            { value: "a", label: "A" },
+                            { value: "b", label: "B" },
+                        ],
+                    },
+                    {
+                        key: "level",
+                        kind: "range",
+                        label: "Level",
+                        number: 3,
+                        minimum: 0,
+                        maximum: 10,
+                        step: 1,
+                    },
+                    { key: "name", kind: "text", label: "Name", text: "old" },
+                    { key: "key", kind: "secret", label: "Key", text: "Set" },
+                    {
+                        key: "order",
+                        kind: "order",
+                        label: "Order",
+                        order: ["a", "b"],
+                        choices: [{ value: "a", label: "First" }],
+                    },
+                    { key: "run", kind: "action", label: "Run", buttonLabel: "Go" },
+                    { key: "state", kind: "note", label: "State", text: "Active" },
+                    { key: "future", kind: "hologram", label: "Future" },
+                    {
+                        key: "size",
+                        kind: "range",
+                        label: "Size",
+                        number: 1,
+                        labels: ["Small", "Medium", "Large"],
+                    },
+                    { key: "tone", kind: "color", label: "Tone", text: "#ff0000" },
+                    {
+                        key: "tint",
+                        kind: "boolean",
+                        label: "Tint",
+                        description: "Game override · Ready",
+                        checked: false,
+                        accent: true,
+                    },
+                    {
+                        key: "fan",
+                        kind: "curve",
+                        label: "Fan curve",
+                        minimum: 0,
+                        maximum: 100,
+                        step: 1,
+                        curve: [
+                            { input: 40, output: 20 },
+                            { input: 80, output: 90 },
+                        ],
+                        curvePresets: [
+                            {
+                                label: "Quiet",
+                                points: [
+                                    { input: 40, output: 20 },
+                                    { input: 80, output: 70 },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
         ],
-      },
-    ],
-  },
+    },
 ];
 const changes = [];
 const actions = [];
@@ -155,30 +247,42 @@ const actions = [];
 let answer = () => undefined;
 let revision = 1;
 const render = () => {
-  hooks.index = 0;
-  const view = api.renderSteamSettings(ui, {
-    route: "/host/settings",
-    pages,
-    revision,
-    onChange: (row, value) => {
-      changes.push([row.key, value]);
-      return answer(row);
-    },
-    onAction: (row) => actions.push(row.key),
-  });
-  return view.type(view.props);
+    hooks.index = 0;
+    const view = api.renderSteamSettings(ui, {
+        route: "/host/settings",
+        pages,
+        revision,
+        onChange: (row, value) => {
+            changes.push([row.key, value]);
+            return answer(row);
+        },
+        onAction: (row) => actions.push(row.key),
+    });
+    return view.type(view.props);
 };
 const rowsOf = (tree) => tree.props.pages[0].content.props.children[0].props.children;
 const row = (tree, key) =>
-  rowsOf(tree).find((node) => node.key === `steam-setting-${key}`) ??
-  assert.fail(`no row ${key}`);
+    rowsOf(tree).find((node) => node.key === `steam-setting-${key}`) ??
+    assert.fail(`no row ${key}`);
 
 let tree = render();
 assert.equal(tree.type, RoutedPages, "the page must be Steam's routed sidebar");
-assert.equal(tree.props.pages[0].route, "/host/settings/steam", "each page must sit below the route");
+assert.equal(
+    tree.props.pages[0].route,
+    "/host/settings/steam",
+    "each page must sit below the route",
+);
 assert.equal(tree.props.pages[0].title, "Steam");
-assert.equal(tree.props.pages[0].icon.props.children[0].props.d, "M1 1h2v2H1Z", "the glyph is the page's icon");
-assert.equal(tree.props.pages[0].content.props.children[0].type, Section, "sections must be Steam's");
+assert.equal(
+    tree.props.pages[0].icon.props.children[0].props.d,
+    "M1 1h2v2H1Z",
+    "the glyph is the page's icon",
+);
+assert.equal(
+    tree.props.pages[0].content.props.children[0].type,
+    Section,
+    "sections must be Steam's",
+);
 assert.equal(tree.props.pages[0].content.props.children[0].props.label, "Integration");
 
 // Kinds map to Steam's own fields.
@@ -187,26 +291,61 @@ assert.equal(row(tree, "cef").type, Toggle);
 // and adds no words of its own.
 assert.equal(row(tree, "cef").props.description, undefined, "an unmarked row keeps its plain text");
 {
-  const marked = row(tree, "tint").props.description;
-  assert.equal(marked.type, "span");
-  assert.equal(marked.props.style.color, "#1a9fff");
-  assert.deepEqual(marked.props.children, ["Game override · Ready"]);
+    const marked = row(tree, "tint").props.description;
+    assert.equal(marked.type, "span");
+    assert.equal(marked.props.style.color, "#1a9fff");
+    assert.deepEqual(marked.props.children, ["Game override · Ready"]);
 }
 assert.equal(row(tree, "mode").type, Dropdown);
 assert.deepEqual(row(tree, "mode").props.rgOptions, [
-  { data: "a", label: "A" },
-  { data: "b", label: "B" },
+    { data: "a", label: "A" },
+    { data: "b", label: "B" },
 ]);
 assert.equal(row(tree, "level").type, Slider);
 assert.equal(row(tree, "name").type, TextField);
 assert.equal(row(tree, "run").type, ValueField);
 assert.equal(row(tree, "run").props.value.type, Button, "an action is Steam's dialog button");
 assert.equal(row(tree, "state").props.value, "Active", "a note shows its text");
-assert.equal(row(tree, "future").props.value, "", "an unknown kind is its label and nothing that sends");
+assert.equal(
+    row(tree, "future").props.value,
+    "",
+    "an unknown kind is its label and nothing that sends",
+);
+
+// Curve edits keep firmware temperatures, stage locally, and reach hardware only on Apply.
+{
+    const curve = row(tree, "fan");
+    const [, first, second, buttons] = curve.props.children;
+    assert.equal(first.type, Slider);
+    assert.equal(first.props.label, "40 °C");
+    assert.equal(second.props.label, "80 °C");
+    assert.equal(buttons.props.children.at(-1).props.disabled, true);
+    first.props.onChange(95);
+    assert.deepEqual(changes, [], "moving a curve node must not write");
+    tree = render();
+    const staged = row(tree, "fan").props.children;
+    assert.equal(staged[1].props.value, 95);
+    assert.equal(staged[2].props.value, 95, "a higher temperature cannot have a lower fan duty");
+    staged.at(-1).props.children.at(-1).props.onClick();
+    assert.deepEqual(changes, [
+        [
+            "fan",
+            [
+                { input: 40, output: 95 },
+                { input: 80, output: 95 },
+            ],
+        ],
+    ]);
+    changes.length = 0;
+}
 
 // A confirmation is asked in Steam's modal, and cancelling sends nothing.
 row(tree, "cef").props.onChange(false);
-assert.deepEqual(changes, [], "a change needing confirmation must not be sent before it is confirmed");
+assert.deepEqual(
+    changes,
+    [],
+    "a change needing confirmation must not be sent before it is confirmed",
+);
 assert.equal(shown.length, 1);
 assert.equal(shown[0].type, Confirm);
 assert.equal(shown[0].props.bDestructiveWarning, true);
@@ -228,7 +367,10 @@ row(tree, "level").props.onChange(4);
 row(tree, "level").props.onChange(5);
 assert.deepEqual(changes, [["mode", "b"]], "moving the slider must not send");
 row(tree, "level").props.onChangeComplete(6);
-assert.deepEqual(changes, [["mode", "b"], ["level", 6]]);
+assert.deepEqual(changes, [
+    ["mode", "b"],
+    ["level", 6],
+]);
 
 // Text is sent when the field loses focus, and only if it changed.
 changes.length = 0;
@@ -237,7 +379,11 @@ row(tree, "name").props.onBlur();
 assert.deepEqual(changes, [], "an unchanged field must not send");
 row(tree, "name").props.onChange({ target: { value: "new" } });
 tree = render();
-assert.equal(row(tree, "name").props.value, "new", "a typed value is kept while it is being edited");
+assert.equal(
+    row(tree, "name").props.value,
+    "new",
+    "a typed value is kept while it is being edited",
+);
 row(tree, "name").props.onBlur();
 assert.deepEqual(changes, [["name", "new"]]);
 
@@ -278,14 +424,11 @@ assert.equal(size.type, Slider);
 assert.equal(size.props.min, 0);
 assert.equal(size.props.max, 2);
 assert.equal(size.props.showValue, false, "a labelled notch needs no number beside the track");
-assert.deepEqual(
-  size.props.notchLabels,
-  [
+assert.deepEqual(size.props.notchLabels, [
     { notchIndex: 0, label: "Small" },
     { notchIndex: 1, label: "Medium" },
     { notchIndex: 2, label: "Large" },
-  ],
-);
+]);
 changes.length = 0;
 size.props.onChangeComplete(2);
 assert.deepEqual(changes, [["size", 2]]);
@@ -303,22 +446,22 @@ shown.length = 0;
 edit.props.onClick();
 assert.equal(shown.length, 1, "Edit opens one modal");
 const renderModal = () => {
-  hooks.index = 100; // its own hook slots, apart from the page's
-  const frame = shown[0].type(shown[0].props);
-  assert.equal(frame.type, Dialog, "the editor sits in Steam's dialog");
-  const editor = frame.props.children[0];
-  return editor.type(editor.props);
+    hooks.index = 100; // its own hook slots, apart from the page's
+    const frame = shown[0].type(shown[0].props);
+    assert.equal(frame.type, Dialog, "the editor sits in Steam's dialog");
+    const editor = frame.props.children[0];
+    return editor.type(editor.props);
 };
 let editorTree = renderModal();
 const sliders = editorTree.props.children.filter((child) => child?.type === Slider);
 assert.deepEqual(
-  sliders.map((slider) => slider.props.label),
-  ["Hue", "Saturation", "Lightness", "Opacity"],
+    sliders.map((slider) => slider.props.label),
+    ["Hue", "Saturation", "Lightness", "Opacity"],
 );
 assert.deepEqual(
-  sliders.map((slider) => slider.props.value),
-  [0, 100, 50, 1],
-  "the sliders start from the colour the row holds",
+    sliders.map((slider) => slider.props.value),
+    [0, 100, 50, 1],
+    "the sliders start from the colour the row holds",
 );
 sliders[0].props.onChange(120);
 editorTree = renderModal();
@@ -332,7 +475,11 @@ editorTree = renderModal();
 editorTree.props.children.filter((child) => child?.type === Slider)[0].props.onChange(120);
 editorTree = renderModal();
 editorTree.props.children.at(-1).props.children[1].props.onClick();
-assert.deepEqual(changes, [["tone", "hsla(120, 100%, 50%, 1)"]], "Save sends the colour once as hsla()");
+assert.deepEqual(
+    changes,
+    [["tone", "hsla(120, 100%, 50%, 1)"]],
+    "Save sends the colour once as hsla()",
+);
 changes.length = 0;
 
 // Hardware RGB has no alpha channel. The shared modal offers three staged sliders and Save stays
@@ -342,11 +489,11 @@ shown.length = 0;
 edit.props.onClick();
 editorTree = renderModal();
 assert.deepEqual(
-  editorTree.props.children
-    .filter((child) => child?.type === Slider)
-    .map((slider) => slider.props.label),
-  ["Hue", "Saturation", "Lightness"],
-  "an opaque color offers no opacity control",
+    editorTree.props.children
+        .filter((child) => child?.type === Slider)
+        .map((slider) => slider.props.label),
+    ["Hue", "Saturation", "Lightness"],
+    "an opaque color offers no opacity control",
 );
 assert.deepEqual(changes, [], "opening an opaque color editor sends nothing");
 editorTree.props.children.at(-1).props.children[0].props.onClick();
@@ -356,7 +503,11 @@ assert.deepEqual(changes, [], "cancelling an opaque color editor sends nothing")
 revision = 2;
 render(); // the effect clears the drafts, as React runs it after the commit
 tree = render();
-assert.equal(row(tree, "name").props.value, "old", "a new revision must drop the drafts written before it");
+assert.equal(
+    row(tree, "name").props.value,
+    "old",
+    "a new revision must drop the drafts written before it",
+);
 
 // Text being typed survives a publication that changes another row.
 const published = (key) => pages[0].sections[0].rows.find((candidate) => candidate.key === key);
@@ -365,23 +516,44 @@ published("level").number = 7;
 revision = 3;
 render();
 tree = render();
-assert.equal(row(tree, "name").props.value, "typing", "an unrelated publication must keep a draft being typed");
+assert.equal(
+    row(tree, "name").props.value,
+    "typing",
+    "an unrelated publication must keep a draft being typed",
+);
 assert.equal(row(tree, "level").props.value, 7, "the other row shows what was published");
 
 // A refused write drops only its own draft and says why in that row's description.
-answer = (changed) => (changed.key === "mode" ? Promise.reject(new Error("Mode is locked by the device")) : undefined);
+answer = (changed) =>
+    changed.key === "mode" ? Promise.reject(new Error("Mode is locked by the device")) : undefined;
 row(tree, "mode").props.onChange({ data: "b", label: "B" });
 tree = render();
-assert.equal(row(tree, "mode").props.selectedOption, "b", "the choice shows while its write is in flight");
+assert.equal(
+    row(tree, "mode").props.selectedOption,
+    "b",
+    "the choice shows while its write is in flight",
+);
 await tick();
 tree = render();
-assert.equal(row(tree, "mode").props.selectedOption, "a", "a refused choice returns to the published value");
-assert.equal(row(tree, "mode").props.description, "Mode is locked by the device", "the refusal is the row's description");
+assert.equal(
+    row(tree, "mode").props.selectedOption,
+    "a",
+    "a refused choice returns to the published value",
+);
+assert.equal(
+    row(tree, "mode").props.description,
+    "Mode is locked by the device",
+    "the refusal is the row's description",
+);
 assert.equal(row(tree, "name").props.value, "typing", "a refusal leaves another row's draft alone");
 answer = () => undefined;
 row(tree, "mode").props.onChange({ data: "b", label: "B" });
 tree = render();
-assert.equal(row(tree, "mode").props.description, undefined, "changing the row again clears its refusal");
+assert.equal(
+    row(tree, "mode").props.description,
+    undefined,
+    "changing the row again clears its refusal",
+);
 
 // A draft gives way when its own row is published with another value.
 published("name").text = "replaced";
@@ -390,4 +562,6 @@ render();
 tree = render();
 assert.equal(row(tree, "name").props.value, "replaced", "a republished row replaces its draft");
 
-console.log("Settings: native components, kinds, confirmation, drafts, refusals and secrets passed.");
+console.log(
+    "Settings: native components, kinds, confirmation, drafts, refusals and secrets passed.",
+);

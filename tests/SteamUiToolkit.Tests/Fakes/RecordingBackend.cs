@@ -248,6 +248,11 @@ internal sealed class RecordingBackend :
         return Record($"setting {key} {value.GetRawText()}", cancellationToken);
     }
 
+    public Task<SteamUiCommandResult> SetControlAsync(string key, JsonElement value, CancellationToken cancellationToken)
+    {
+        return Record($"device {key} {value.GetRawText()}", cancellationToken);
+    }
+
     public Task<SteamUiCommandResult> AdoptAsync(uint driveId, string label, bool validate,
         CancellationToken cancellationToken)
     {

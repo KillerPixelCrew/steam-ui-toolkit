@@ -514,7 +514,11 @@ assert.equal(normalizeQuickAccessLayout(null), null);
     // Plugin tabs share the Extensions symbol only as a default; a host-supplied icon wins.
     // This is one generic fallback, not another fixed control in this host's layout.
     const pluginFallback = /slot\.value\.icon\s*\?\?\s*icon\(\s*["']extensions["']\s*,\s*22\s*\)/gu;
-    assert.equal([...code.matchAll(pluginFallback)].length, 1, "one shared plugin-tab icon fallback");
+    assert.equal(
+        [...code.matchAll(pluginFallback)].length,
+        1,
+        "one shared plugin-tab icon fallback",
+    );
     const fixedCode = code.replace(pluginFallback, "");
     const used = [
         ...[...code.matchAll(/\bicon\(\s*["']([A-Za-z]+)["']/gu)].map((match) => match[1]),
@@ -571,6 +575,11 @@ const createDeviceControl = instantiate(
         }),
         useTrailingCommit: () => () => {},
         useEchoedValue: (_runtime, value) => ({ value }),
+        useSteamSettingDrafts: () => ({
+            change: (send) => send,
+            draft: () => undefined,
+            row: (row) => row,
+        }),
         note: () => null,
         renderOutcomes: {},
         isBusy: () => false,
@@ -766,17 +775,23 @@ console.log("Device controls retain charging and brightness without the optional
             steamUiKitStyle: () => ({ type: "style" }),
             deviceControlsControl: undefined,
         },
-        declarations(asset, "plugin-frontends", ["pluginFrontendSlots", "pluginFrontendItems", "pluginFrontendElements"]) + "\n" + host(
-            "normalizeQuickAccessSections",
-            "normalizeQuickAccessLayout",
-            "untitledSection",
-            "sectionIcon",
-            "sectionSummary",
-            "hostSection",
-            "controlRows",
-            "describe",
-            "appendControls",
-        ),
+        declarations(asset, "plugin-frontends", [
+            "pluginFrontendSlots",
+            "pluginFrontendItems",
+            "pluginFrontendElements",
+        ]) +
+            "\n" +
+            host(
+                "normalizeQuickAccessSections",
+                "normalizeQuickAccessLayout",
+                "untitledSection",
+                "sectionIcon",
+                "sectionSummary",
+                "hostSection",
+                "controlRows",
+                "describe",
+                "appendControls",
+            ),
         "{ appendControls, useRows: (rows) => { controlRows = rows; } }",
     );
     // The row table resolveControls builds once the controls resolve: its whole assignment, read from

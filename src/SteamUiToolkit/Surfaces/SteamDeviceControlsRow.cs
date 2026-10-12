@@ -62,14 +62,25 @@ public sealed record SteamLightingZoneState(
 ///     The zones. With at least one available zone the row draws a zone dropdown, a colour preview
 ///     and hue, saturation and value sliders.
 /// </param>
+/// <param name="Sections">Additional descriptor controls using the shared native settings renderer.</param>
+/// <param name="Revision">Publication revision used to release settled editor drafts.</param>
 public sealed record SteamDeviceControlsState(
     SteamDeviceRangeState? ChargeLimit,
     SteamDeviceRangeState? LightingBrightness,
-    IReadOnlyList<SteamLightingZoneState> LightingZones);
+    IReadOnlyList<SteamLightingZoneState> LightingZones,
+    IReadOnlyList<SteamSettingsSection>? Sections = null,
+    long Revision = 0);
 
 /// <summary>What answers the device-control rows.</summary>
 public interface ISteamDeviceControlsBackend
 {
+    /// <summary>Writes or invokes a currently published descriptor control.</summary>
+    /// <param name="key">Opaque identity of the current immutable descriptor.</param>
+    /// <param name="value">The typed editor value, or null for an action.</param>
+    /// <param name="cancellationToken">Cancels the operation.</param>
+    /// <returns>The operation outcome.</returns>
+    Task<SteamUiCommandResult> SetControlAsync(string key, JsonElement value, CancellationToken cancellationToken);
+
     /// <summary>Sets the battery charge limit.</summary>
     /// <param name="percent">The limit, on a published step.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
@@ -108,7 +119,7 @@ public static class SteamDeviceControlsRow
 
     /// <summary>The exact command vocabulary the injected row sends.</summary>
     public static IReadOnlyList<string> Commands { get; } =
-        ["setChargeLimit", "setLightingBrightness", "setLightingColor"];
+        ["setControl", "setChargeLimit", "setLightingBrightness", "setLightingColor"];
 
     /// <summary>The row patch.</summary>
     public static SteamQuickAccessRowPatch Patch { get; } = new(
@@ -147,6 +158,12 @@ public static class SteamDeviceControlsRow
             SteamSurfaceJsonContext.Default.SteamDeviceControlsState,
             [Patch],
             [
+                SteamUiModuleBuilder.Command<(string Key, JsonElement Value)>(
+                    PatchId,
+                    "setControl",
+                    TryReadControl,
+                    (value, cancellationToken) => backend.SetControlAsync(value.Key, value.Value, cancellationToken),
+                    "The device-control payload is invalid."),
                 SteamUiModuleBuilder.Command<int>(
                     PatchId,
                     "setChargeLimit",
@@ -167,6 +184,20 @@ public static class SteamDeviceControlsRow
                         backend.SetLightingColorAsync(value.Zone, value.Color, cancellationToken),
                     "The lighting-color payload is invalid.")
             ]);
+    }
+
+    private static bool TryReadControl(JsonElement payload, out (string Key, JsonElement Value) value)
+    {
+        value = default;
+        if (!SteamUiPayload.TryReadNonBlankString(payload, "key", out var key)
+            || key.Length > 256 || !payload.TryGetProperty("value", out var content)
+            || !SteamUiPayload.HasExactly(payload, 2))
+        {
+            return false;
+        }
+
+        value = (key, content.Clone());
+        return true;
     }
 
     private static bool TryReadPercent(JsonElement payload, out int percent)

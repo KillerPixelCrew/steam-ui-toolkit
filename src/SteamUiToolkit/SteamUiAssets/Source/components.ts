@@ -585,6 +585,8 @@ function createNativeComponentHost() {
             chargeLimit,
             lightingBrightness,
             lightingZones: Object.freeze(lightingZones),
+            sections: Array.isArray(value.sections) ? value.sections : [],
+            revision: Number.isSafeInteger(value.revision) ? value.revision : 0,
         });
     };
 
@@ -1776,7 +1778,7 @@ function createNativeComponentHost() {
             return controlRuntime.react.createElement(controlRuntime.react.Fragment, null, ...rows);
         };
 
-    const createDeviceControlsControl = (controlRuntime) =>
+    const createDeviceControlsControl = (controlRuntime, ui) =>
         // `sections` is the Quick Settings sections of the host's layout, or null without one.
         function SteamUiDeviceControls({ sections }) {
             const state = useSemanticState(
@@ -1801,6 +1803,7 @@ function createNativeComponentHost() {
             const [selectedZone, setSelectedZone] = controlRuntime.react.useState("");
             const [editingColor, setEditingColor] = controlRuntime.react.useState(false);
             const folds = useSemanticState(controlRuntime, "panelFolds", normalizePanelFoldsState);
+            const drafts = useSteamSettingDrafts(controlRuntime.react, state?.revision);
             const chargeValue = state?.chargeLimit
                 ? (state.chargeLimit.observed ?? state.chargeLimit.desired)
                 : null;
@@ -2043,7 +2046,31 @@ function createNativeComponentHost() {
                 });
             }
 
-            if (!rows.length && !chargingRows.length)
+            const descriptorRows = ui?.valueField && ui?.smallButton
+                ? (state.sections ?? []).flatMap((section) => (section.rows ?? []).map((row) => {
+                    const change = drafts.change((current, value) => {
+                        if (current.kind === "color") {
+                            const parsed = parseSteamColor(String(value));
+                            if (!parsed) return Promise.reject(new Error("Enter a valid opaque color."));
+                            const saturation = parsed.s / 100;
+                            const lightness = parsed.l / 100;
+                            const component = (offset) => {
+                                const k = (offset + parsed.h / 30) % 12;
+                                const a = saturation * Math.min(lightness, 1 - lightness);
+                                return Math.round(255 * (lightness - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
+                            };
+                            value = "#" + [component(0), component(8), component(4)]
+                                .map((part) => part.toString(16).padStart(2, "0")).join("");
+                        }
+                        return sendCommand(definition, "setControl", {key: current.key,
+                            value: current.kind === "action" ? null : value});
+                    });
+                    return controlRuntime.react.createElement(controlRuntime.row, {key: row.key},
+                        renderSteamSettingRow(ui, drafts.row({...row, layout: "below"}),
+                            drafts.draft(row), change, (current) => change(current, true)));
+                }))
+                : [];
+            if (!rows.length && !chargingRows.length && !descriptorRows.length)
                 return note("deviceControls", "no compatible charge or lighting rows");
             drew("deviceControls", `rendered ${rows.length + chargingRows.length} row(s)`);
             // Two groups, two detail lines, each under the kind its section names: the charge limit, and
@@ -2070,6 +2097,7 @@ function createNativeComponentHost() {
                 null,
                 group("charging", chargingRows),
                 group("lighting", rows),
+                ...(descriptorRows.length ? [group("deviceDescriptors", descriptorRows)] : []),
             );
         };
 
@@ -2515,7 +2543,7 @@ function createNativeComponentHost() {
         }
         settingsSectionsControl = createSettingsSectionsControl(controlRuntime, settingsRuntime);
         vrrControl = createVrrControl(controlRuntime);
-        deviceControlsControl = createDeviceControlsControl(controlRuntime);
+        deviceControlsControl = createDeviceControlsControl(controlRuntime, settingsRuntime);
         powerLimitControl = createPowerLimitControl(controlRuntime);
 
         // Selected by the localization token it draws, never by a minified export name: the names are

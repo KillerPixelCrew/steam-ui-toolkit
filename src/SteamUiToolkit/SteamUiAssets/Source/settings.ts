@@ -248,6 +248,38 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
     };
 
     switch (row.kind) {
+        case "curve": {
+            const points = draft !== undefined ? draft : (row.curve ?? []);
+            return h(ui.react.Fragment, {key},
+                h(ui.valueField, {name: row.label, description: steamSettingDescription(ui, row), focusable: false, value: null}),
+                ...points.map((point, index) => h(ui.sliderField, {
+                    key: `${key}-${point.input}`,
+                    label: `${point.input} °C`,
+                    value: point.output,
+                    min: row.minimum ?? 0,
+                    max: row.maximum ?? 100,
+                    step: row.step ?? 1,
+                    valueSuffix: row.suffix ?? "%",
+                    showValue: true,
+                    disabled: !!row.disabled,
+                    onChange: (output) => {
+                        // A fan must not slow down as temperature rises. Keep the existing input
+                        // breakpoints and adjust adjoining duties when a node moves past them.
+                        const next = points.map((entry, entryIndex) => ({...entry,
+                            output: entryIndex < index ? Math.min(entry.output, output)
+                                : entryIndex > index ? Math.max(entry.output, output) : output}));
+                        change(row, next, false);
+                    },
+                })),
+                renderSteamUiActions(ui, [
+                        ...(row.curvePresets ?? []).map((preset) => ({id: `${key}-${preset.label}`, label: preset.label,
+                            disabled: !!row.disabled || !points.length,
+                            onClick: () => change(row, preset.points, false)})),
+                        {id: `${key}-apply`, label: "Apply curve", disabled: !!row.disabled || !points.length || draft === undefined,
+                            onClick: () => send(points)},
+                ]),
+            );
+        }
         case "boolean":
             return h(ui.toggleField, {
                 key,
@@ -420,6 +452,8 @@ const steamSettingPublished = (row) =>
               ? (row.number ?? null)
               : row.kind === "order"
                 ? (row.order ?? null)
+                : row.kind === "curve"
+                  ? (row.curve ?? null)
                 : (row.text ?? null),
     );
 

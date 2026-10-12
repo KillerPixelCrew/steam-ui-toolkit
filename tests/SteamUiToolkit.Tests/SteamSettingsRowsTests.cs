@@ -4,6 +4,20 @@ namespace SteamUiToolkit.Tests;
 public sealed class SteamSettingsRowsTests
 {
     [Fact]
+    public void CurvesPublishFixedInputsAndSampledPresets()
+    {
+        SteamSettingsRow curve = new("fan", SteamSettingsRowKind.Curve, "Fan curve", Minimum: 0, Maximum: 100,
+            Curve: [new SteamSettingsCurvePoint(40, 20), new SteamSettingsCurvePoint(80, 90)],
+            CurvePresets: [new SteamSettingsCurvePreset("Quiet", [new SteamSettingsCurvePoint(40, 20), new SteamSettingsCurvePoint(80, 70)])]);
+        var wire = SteamDeviceControlsRow.Serialize(new SteamDeviceControlsState(null, null, [],
+            [new SteamSettingsSection("Fans", [curve])], Revision: 7));
+        Assert.Equal(7, wire.GetProperty("revision").GetInt64());
+        var row = wire.GetProperty("sections")[0].GetProperty("rows")[0];
+        Assert.Equal(40, row.GetProperty("curve")[0].GetProperty("input").GetInt32());
+        Assert.Equal(70, row.GetProperty("curvePresets")[0].GetProperty("points")[1].GetProperty("output").GetInt32());
+    }
+
+    [Fact]
     public void EveryFieldTheRendererReadsIsOnTheWireInCamelCase()
     {
         SteamSettingsPage page = new("steam", "Steam",

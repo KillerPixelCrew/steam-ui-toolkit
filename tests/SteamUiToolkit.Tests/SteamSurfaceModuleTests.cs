@@ -362,6 +362,22 @@ public sealed class SteamSurfaceModuleTests
         Assert.Equal(["color ring FF0000", "charge 80"], backend.Calls);
     }
 
+    [Fact]
+    public async Task DescriptorCommandsPreserveTypedValuesAndRejectExtraPayloadFields()
+    {
+        RecordingBackend backend = new();
+        SteamUiModuleSet set = new([
+            SteamDeviceControlsRow.Module(Always, () => new ValueTask<SteamDeviceControlsState?>((SteamDeviceControlsState?)null), backend)
+        ]);
+        var applied = await DispatchAsync(set, SteamDeviceControlsRow.PatchId, "setControl",
+            """{"key":"current-fan","value":[{"input":40,"output":35}]}""");
+        var invalid = await DispatchAsync(set, SteamDeviceControlsRow.PatchId, "setControl",
+            """{"key":"current-fan","value":35,"instance":"left"}""");
+        Assert.True(applied.Succeeded);
+        Assert.False(invalid.Succeeded);
+        Assert.Equal(["device current-fan [{\"input\":40,\"output\":35}]"], backend.Calls);
+    }
+
     [Theory]
     [InlineData("brightness")]
     [InlineData("home-carousel")]

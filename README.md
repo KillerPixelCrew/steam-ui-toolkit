@@ -97,7 +97,11 @@ product page or artwork browser.
 A renderer for a settings page can hand its rows to `renderSteamSettings`, which draws them with
 Steam's own routed sidebar, settings sections, fields, small buttons and confirm modal, exactly as
 Steam's Settings page looks and navigates. Publish `SteamSettingsPage`s of `SteamSettingsRow`s,
-described by `SteamSettingsRowKind`; `docs/reference.md` lists what each kind draws.
+described by `SteamSettingsRowKind`; `docs/reference.md` lists what each kind draws. Device Quick
+Access controls can publish the same rows through `SteamDeviceControlsState.Sections`. `setControl`
+carries an opaque current descriptor key and its editor value. The host validates identity, values
+and profile scope. Fixed fan curves use native sliders, host-sampled presets and explicit Apply.
+Returning device controls to Global follows Steam's existing profile reset.
 
 **`SteamNativeSettingsSurface.Module`** appends those same native fields to Steam's existing
 Display, Power, Audio and Controller pages. Publish `SteamNativeSettingsState` with

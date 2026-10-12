@@ -915,7 +915,7 @@ for fixtures and diagnostics.
 | `SteamAudioFormatRow`         | channel/default-format and spatial sound (Quick Settings) | rows on Valve's dropdown                                                                           | `SteamAudioFormatState`      | apply a format or spatial sound choice                                                     |
 | `SteamAutoTdpRow`             | automatic power-limit switch                              | row on Valve's toggle                                                                              | `SteamAutoTdpState`          | setting on/off                                                                             |
 | `SteamControllerTargetRow`    | controller-target dropdown                                | row on Valve's dropdown                                                                            | `SteamControllerTargetState` | choose a target                                                                            |
-| `SteamDeviceControlsRow`      | charge limit, lighting brightness and colour              | rows on Valve's slider and dropdown                                                                | `SteamDeviceControlsState`   | three writes                                                                               |
+| `SteamDeviceControlsRow`      | charge, lighting and host descriptor controls             | native sliders, dropdowns and shared settings rows                                                 | `SteamDeviceControlsState`   | charge/brightness/color writes and `setControl`                                            |
 | `SteamNavigationPanelSurface` | left slideout navigation panel                            | claims the exported memo's `type`, reaches the panel root by rendering                             | `SteamNavigationPanelState`  | activate an added entry                                                                    |
 | `SteamPageSurface`            | custom pages in Steam's router                            | claims the router memo's `type`, inserts routes into the route list                                | `SteamPageState`             | none: a page is declared, not commanded                                                    |
 | `SteamStorageSurface`         | SteamOS storage management pages                          | claims `SendMsg` on the service transport, answers `StorageDeviceManager.*`                        | `SteamStorageState`          | adopt, unmount, eject, format, trim                                                        |
@@ -1534,6 +1534,11 @@ The toggle, dropdown, slider, text field, dialog button and `showModal` are the 
 - `order` is the value field per value with Steam's small buttons to move one up or down, and sends
   the whole list.
 - `action` is a dialog button that sends the row to `onAction`, and `note` is a read-only value.
+- `curve` keeps the host's fixed `Curve` inputs and stages output edits with native sliders.
+  `CurvePresets` stage host-sampled points; Apply curve sends the whole array once. Temperature
+  inputs cannot be edited, and fan duties remain nondecreasing as outputs move. The shared draft
+  owner preserves an active edit through unrelated publications and shows a refused Apply on its
+  row.
 - A row with `accent` set draws its description, which the host writes, in Steam's accent blue, the
   same colour the marked Quick Access rows use. Nothing is added beside the control.
 - A `range` with `labels` is one of them by index: Steam's slider names each notch with a label, the

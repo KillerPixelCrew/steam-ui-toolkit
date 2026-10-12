@@ -39,7 +39,20 @@ public static class SteamSettingsRowKind
     ///     without a modal it is a text field.
     /// </summary>
     public const string Color = "color";
+
+    /// <summary>A fixed-breakpoint curve edited with native sliders and an explicit Apply button.</summary>
+    public const string Curve = "curve";
 }
+
+/// <summary>One host-declared curve breakpoint.</summary>
+/// <param name="Input">Fixed input, such as temperature in degrees Celsius.</param>
+/// <param name="Output">Editable output within the row's published bounds.</param>
+public sealed record SteamSettingsCurvePoint(int Input, int Output);
+
+/// <summary>A host-sampled preset over the curve's existing breakpoints.</summary>
+/// <param name="Label">The preset button's label.</param>
+/// <param name="Points">The points staged by the button; applying still requires Apply.</param>
+public sealed record SteamSettingsCurvePreset(string Label, IReadOnlyList<SteamSettingsCurvePoint> Points);
 
 /// <summary>One choice of a <see cref="SteamSettingsRowKind.Choice" /> or <see cref="SteamSettingsRowKind.Order" /> row.</summary>
 /// <param name="Value">What the host receives when it is picked.</param>
@@ -87,6 +100,8 @@ public sealed record SteamSettingsConfirmation(
 ///     in Steam's accent colour.
 /// </param>
 /// <param name="ColorAlpha">Whether the color editor offers opacity; false keeps the value opaque.</param>
+/// <param name="Curve">Fixed curve inputs and current output values.</param>
+/// <param name="CurvePresets">Host-sampled presets using the same fixed inputs.</param>
 public sealed record SteamSettingsRow(
     string Key,
     string Kind,
@@ -107,7 +122,9 @@ public sealed record SteamSettingsRow(
     string? ButtonLabel = null,
     IReadOnlyList<string>? Labels = null,
     bool Accent = false,
-    bool ColorAlpha = true);
+    bool ColorAlpha = true,
+    IReadOnlyList<SteamSettingsCurvePoint>? Curve = null,
+    IReadOnlyList<SteamSettingsCurvePreset>? CurvePresets = null);
 
 /// <summary>A titled group of rows: one of Steam's settings sections.</summary>
 /// <param name="Title">The section heading, or null for an untitled section.</param>
