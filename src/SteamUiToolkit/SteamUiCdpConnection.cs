@@ -188,6 +188,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
     private int _disposed;
     private int _malformedFrames;
     private int _nextRequestId;
+    private long _nextEvaluationId;
     private Task _notificationPump = Task.CompletedTask;
     private int _orphanResponses;
     private int _pendingCount;
@@ -284,40 +285,149 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(expression);
         var sent = false;
         var replied = false;
-        JsonElement response;
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(timeout);
+        var objectGroup = "steam-ui-evaluation-" + Interlocked.Increment(ref _nextEvaluationId);
         try
         {
-            response = await InvokeAsync(
+            var response = await InvokeAsync(
                 "Runtime.evaluate",
                 writer =>
                 {
                     writer.WriteString("expression", expression);
-                    writer.WriteBoolean("awaitPromise", true);
-                    writer.WriteBoolean("returnByValue", true);
+                    // Steam's CEF can stop servicing inspector promise reactions while ordinary
+                    // JavaScript still runs. Awaiting even a string then reports "Promise was
+                    // collected". Read the value first, retaining actual objects in our own group.
+                    writer.WriteBoolean("awaitPromise", false);
+                    writer.WriteBoolean("returnByValue", false);
+                    writer.WriteString("objectGroup", objectGroup);
                     writer.WriteBoolean("userGesture", true);
                 },
                 timeout,
-                cancellationToken,
+                deadline.Token,
                 () => sent = true,
                 () => replied = true).ConfigureAwait(false);
+
+            if (response.TryGetProperty("exceptionDetails", out var exception))
+            {
+                return (null, $"Steam UI JavaScript exception: {exception.GetRawText()}");
+            }
+
+            if (!response.TryGetProperty("result", out var result))
+            {
+                throw new SteamUiUnansweredException(
+                    new InvalidDataException("Steam UI evaluation response lacked a result."));
+            }
+
+            try
+            {
+                return await ReadEvaluationValueAsync(result, timeout, deadline.Token).ConfigureAwait(false);
+            }
+            catch (SteamUiUnansweredException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // The expression has already run. Losing its completion never permits replay.
+                throw new SteamUiUnansweredException(ex);
+            }
         }
-        catch (Exception ex) when (sent && !replied)
+        catch (Exception ex) when (sent && (!replied || ex is InvalidDataException))
         {
             // A started frame is always finished, so Steam may run it even though this caller stopped
             // waiting or never read the reply.
             throw new SteamUiUnansweredException(ex);
         }
-
-        if (response.TryGetProperty("exceptionDetails", out var exception))
+        finally
         {
-            return (null,
-                $"Steam UI JavaScript exception: {exception.GetRawText()}");
+            if (sent)
+            {
+                try
+                {
+                    // Release promises, their results and inspection handles on every exit, even
+                    // when the caller cancelled. A closed session already releases the whole group.
+                    await InvokeAsync("Runtime.releaseObjectGroup",
+                        writer => writer.WriteString("objectGroup", objectGroup),
+                        TimeSpan.FromSeconds(1), CancellationToken.None).ConfigureAwait(false);
+                }
+                catch
+                {
+                }
+            }
+        }
+    }
+
+    private async Task<(string? Value, string? Error)> ReadEvaluationValueAsync(
+        JsonElement result, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        while (result.TryGetProperty("subtype", out var subtype) && subtype.GetString() == "promise")
+        {
+            var promiseId = result.GetProperty("objectId").GetString();
+            JsonElement settled;
+            while (true)
+            {
+                var properties = await InvokeAsync("Runtime.getProperties", writer =>
+                {
+                    writer.WriteString("objectId", promiseId);
+                    writer.WriteBoolean("ownProperties", true);
+                }, timeout, cancellationToken).ConfigureAwait(false);
+                string? state = null;
+                settled = default;
+                if (properties.TryGetProperty("internalProperties", out var internals))
+                {
+                    foreach (var property in internals.EnumerateArray())
+                    {
+                        var name = property.GetProperty("name").GetString();
+                        if (name == "[[PromiseState]]")
+                        {
+                            state = property.GetProperty("value").GetProperty("value").GetString();
+                        }
+                        else if (name == "[[PromiseResult]]")
+                        {
+                            settled = property.GetProperty("value");
+                        }
+                    }
+                }
+
+                if (state == "fulfilled" && settled.ValueKind == JsonValueKind.Object)
+                {
+                    break;
+                }
+
+                if (state == "rejected" && settled.ValueKind == JsonValueKind.Object)
+                {
+                    return (null, "Steam UI JavaScript promise rejected: " + settled.GetRawText());
+                }
+
+                if (state != "pending")
+                {
+                    throw new InvalidDataException("Steam UI promise completion was not inspectable.");
+                }
+
+                // Inspect the same retained promise under the original budget; never re-evaluate
+                // its producer or attach another reaction to CEF's stalled inspector queue.
+                await Task.Delay(TimeSpan.FromMilliseconds(50), cancellationToken).ConfigureAwait(false);
+            }
+
+            result = settled;
         }
 
-        if (!response.TryGetProperty("result", out var result))
+        if (result.TryGetProperty("objectId", out var objectId))
         {
-            throw new SteamUiUnansweredException(
-                new InvalidDataException("Steam UI evaluation response lacked a result."));
+            var serialized = await InvokeAsync("Runtime.callFunctionOn", writer =>
+            {
+                writer.WriteString("objectId", objectId.GetString());
+                writer.WriteString("functionDeclaration", "function(){return this;}");
+                writer.WriteBoolean("awaitPromise", false);
+                writer.WriteBoolean("returnByValue", true);
+            }, timeout, cancellationToken).ConfigureAwait(false);
+            if (serialized.TryGetProperty("exceptionDetails", out var exception))
+            {
+                return (null, $"Steam UI JavaScript exception: {exception.GetRawText()}");
+            }
+
+            result = serialized.GetProperty("result");
         }
 
         if (result.TryGetProperty("value", out var value))

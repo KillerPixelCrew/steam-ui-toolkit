@@ -22,9 +22,10 @@ public sealed class SteamUiCdpConnectionTests
         connection.Start();
         if (protocol)
         {
-            var error = await Assert.ThrowsAsync<InvalidDataException>(() =>
+            var error = await Assert.ThrowsAsync<SteamUiUnansweredException>(() =>
                 connection.EvaluateAsync("throw Error()", TimeSpan.FromSeconds(1), CancellationToken.None));
-            Assert.Contains(detail, error.Message, StringComparison.Ordinal);
+            var protocolError = Assert.IsType<InvalidDataException>(error.InnerException);
+            Assert.Contains(detail, protocolError.Message, StringComparison.Ordinal);
         }
         else
         {
@@ -35,6 +36,131 @@ public sealed class SteamUiCdpConnectionTests
 
     private const string ConsoleNotification =
         "{\"method\":\"Runtime.consoleAPICalled\",\"params\":{}}";
+
+    [Fact]
+    public async Task SynchronousResultsDoNotEnterTheInspectorPromiseQueue()
+    {
+        var wire = new QueueWire();
+        var methods = new List<string>();
+        string? group = null;
+        wire.Sent = request =>
+        {
+            using var document = JsonDocument.Parse(request);
+            var root = document.RootElement;
+            var method = root.GetProperty("method").GetString()!;
+            methods.Add(method);
+            var id = QueueWire.RequestId(request);
+            if (method == "Runtime.evaluate")
+            {
+                var parameters = root.GetProperty("params");
+                Assert.False(parameters.GetProperty("awaitPromise").GetBoolean());
+                group = parameters.GetProperty("objectGroup").GetString();
+                wire.Enqueue(StringResult(id, "ready"));
+            }
+            else
+            {
+                Assert.Equal("Runtime.releaseObjectGroup", method);
+                Assert.Equal(group, root.GetProperty("params").GetProperty("objectGroup").GetString());
+                wire.Enqueue($"{{\"id\":{id},\"result\":{{}}}}");
+            }
+        };
+        await using var connection = new SteamUiCdpConnection(wire, (_, _) => { }, (_, _) => { });
+        connection.Start();
+
+        Assert.Equal("ready", (await connection.EvaluateAsync("'ready'", TimeSpan.FromSeconds(1),
+            CancellationToken.None)).Value);
+        Assert.Equal(["Runtime.evaluate", "Runtime.releaseObjectGroup"], methods);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RetainedPromiseCompletionDoesNotReExecuteItsProducer(bool rejected)
+    {
+        var wire = new QueueWire();
+        var evaluations = 0;
+        var inspections = 0;
+        var released = false;
+        wire.Sent = request =>
+        {
+            using var document = JsonDocument.Parse(request);
+            var method = document.RootElement.GetProperty("method").GetString();
+            var id = QueueWire.RequestId(request);
+            if (method == "Runtime.evaluate")
+            {
+                evaluations++;
+                wire.Enqueue($"{{\"id\":{id},\"result\":{{\"result\":{{\"type\":\"object\",\"subtype\":\"promise\",\"objectId\":\"owned-promise\"}}}}}}");
+            }
+            else if (method == "Runtime.getProperties")
+            {
+                Assert.Equal("owned-promise", document.RootElement.GetProperty("params").GetProperty("objectId").GetString());
+                var state = ++inspections == 1 ? "pending" : rejected ? "rejected" : "fulfilled";
+                wire.Enqueue($"{{\"id\":{id},\"result\":{{\"internalProperties\":[{{\"name\":\"[[PromiseState]]\",\"value\":{{\"type\":\"string\",\"value\":\"{state}\"}}}},{{\"name\":\"[[PromiseResult]]\",\"value\":{{\"type\":\"string\",\"value\":\"completion detail\"}}}}]}}}}");
+            }
+            else
+            {
+                Assert.Equal("Runtime.releaseObjectGroup", method);
+                released = true;
+                wire.Enqueue($"{{\"id\":{id},\"result\":{{}}}}");
+            }
+        };
+        await using var connection = new SteamUiCdpConnection(wire, (_, _) => { }, (_, _) => { });
+        connection.Start();
+
+        var (value, error) = await connection.EvaluateAsync("producer()", TimeSpan.FromSeconds(1),
+            CancellationToken.None);
+        if (rejected)
+        {
+            Assert.Null(value);
+            Assert.Contains("completion detail", error, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Equal("completion detail", value);
+            Assert.Null(error);
+        }
+
+        Assert.Equal(1, evaluations);
+        Assert.Equal(2, inspections);
+        Assert.True(released);
+    }
+
+    [Fact]
+    public async Task PendingPromiseTimeoutReleasesHandlesAndRemainsUnanswered()
+    {
+        var wire = new QueueWire();
+        var evaluations = 0;
+        var released = false;
+        wire.Sent = request =>
+        {
+            using var document = JsonDocument.Parse(request);
+            var method = document.RootElement.GetProperty("method").GetString();
+            var id = QueueWire.RequestId(request);
+            if (method == "Runtime.evaluate")
+            {
+                evaluations++;
+                wire.Enqueue($"{{\"id\":{id},\"result\":{{\"result\":{{\"type\":\"object\",\"subtype\":\"promise\",\"objectId\":\"pending-promise\"}}}}}}");
+            }
+            else if (method == "Runtime.getProperties")
+            {
+                wire.Enqueue($"{{\"id\":{id},\"result\":{{\"internalProperties\":[{{\"name\":\"[[PromiseState]]\",\"value\":{{\"type\":\"string\",\"value\":\"pending\"}}}}]}}}}");
+            }
+            else
+            {
+                Assert.Equal("Runtime.releaseObjectGroup", method);
+                released = true;
+                wire.Enqueue($"{{\"id\":{id},\"result\":{{}}}}");
+            }
+        };
+        await using var connection = new SteamUiCdpConnection(wire, (_, _) => { }, (_, _) => { });
+        connection.Start();
+
+        var failure = await Assert.ThrowsAsync<SteamUiUnansweredException>(() =>
+            connection.EvaluateAsync("producer()", TimeSpan.FromMilliseconds(125), CancellationToken.None));
+        Assert.IsAssignableFrom<OperationCanceledException>(failure.InnerException);
+        Assert.Equal(1, evaluations);
+        Assert.True(released);
+    }
 
     [Fact]
     public async Task EvaluationIgnoresOrphanAndCompletesMatchingRequest()
