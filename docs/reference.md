@@ -423,8 +423,8 @@ everything that talks to Steam's client API (§16).
 no size limit of its own. Registration refuses a missing id or target, a timeout outside (0, 30 s]
 and a duplicate id, and may happen at any time; a patch registered later joins the next pass.
 `UnregisterAsync(id)` removes the patch from the page under the scheduler and then forgets it, its
-switch and any fault with it. Patches are kept sorted by id; there are no declared dependencies
-between patches, and every pass runs under one scheduler gate.
+switch and any fault with it. Patches are kept sorted by id; the one dependency is the bridge, which
+every SharedJSContext patch lives in, and every pass runs under one scheduler gate.
 
 ### States
 
@@ -436,6 +436,8 @@ between patches, and every pass runs under one scheduler gate.
 A pass first removes every patch that should be off, in id order with the bridge last, because a
 gate's removal goes through the bridge. Then it synchronizes every patch that should be on, the
 bridge first. A patch should be on when the global switch, its own switch and no fault say so.
+While the bridge is wanted and does not hold, every SharedJSContext patch is left untouched as
+`Retrying` with `Waiting for the Steam UI bridge.` instead of being applied against nothing.
 
 1. Off (global switch, its switch, or faulted): remove unless already `Disabled`; end in `Disabled`
    or `RemoveFailed` (`Patch removal timed out after <n> s.` on timeout); release the transport
@@ -444,10 +446,7 @@ bridge first. A patch should be on when the global switch, its own switch and no
    patch was applied under, bump the patch's epoch and move `Applying`/`Applied`/`Verified` to
    `Retrying` with `Steam UI generation changed; reapply required.`. This catches a snapshot
    observed before its event arrives.
-3. Probe under its own phase timeout. Exception: `Degraded`. Target absent: `AbsentTarget`, probed
-   again 1, 2, 4, 8 and 16 s later within the same generation, because a window that has just loaded
-   is probed before it has mounted everything. A target that appears after those 31 s stays
-   `AbsentTarget` until the next generation change, registration or switch queues a pass. A probe
+3. Probe under its own phase timeout. Exception: `Degraded`. Target absent: `AbsentTarget`. A probe
    the page answered with an error is `Incompatible` with that error. Not compatible or no
    fingerprint: if the patch was applied, retract it (`Incompatible`, or `RemoveFailed` when removal
    also failed); otherwise `Incompatible`.
@@ -461,12 +460,28 @@ bridge first. A patch should be on when the global switch, its own switch and no
 8. A cancelled phase says why: `Patch operation cancelled by its switch.` (the removal pass the
    switch queued takes it off), `Steam UI generation changed during the operation.`, or
    `Patch operation timed out after <n> s.`. A timeout after the apply started removes what was
-   applied and is `Retrying`, probed again on the settle schedule above rather than reapplied
-   blindly. Any other exception after the apply started removes it too; every exception is
-   `Degraded`.
+   applied and is `Retrying`, probed again by the retry pass below rather than reapplied blindly.
+   Any other exception after the apply started removes it too; every exception is `Degraded`.
 
 Every phase gets its own cancellation source: one budget across probe, apply and verify once
 cancelled an in-budget apply with nothing wrong.
+
+### Retry passes and the health check
+
+A pass that leaves a wanted patch not `Verified`, whatever its state, or an unwanted one
+`RemoveFailed`, is followed by a retry pass 1, 2, 4, 8, 16, 30, 30 and 30 s later, then the sequence
+ends with one warning. A window that has just loaded or woken is probed before it has mounted
+everything, and a bridge handshake that failed in the last pass of a reload otherwise left every
+gate off until the next reload. A retry pass skips patches that hold, except the SharedJSContext
+patches after the bridge was applied again in the same pass. `QueueSynchronization`, the awaited
+switches and `SynchronizeAsync` start a new sequence.
+
+`QueueHealthCheck` verifies a holding bridge with one evaluation and stops there when it still
+holds; a host calls it periodically while the transport is open, because Steam can lose page state
+without a new generation and a transport only finds a dead socket when it asks something. A bridge
+that no longer verifies is `Retrying` with `Bridge health check failed: …`, and a retry pass with a
+new sequence applies it and every SharedJSContext patch again. A health check that found the bridge
+holding does not raise `Synchronized`.
 
 ### Generation events and kill switches
 
@@ -834,7 +849,7 @@ runs while the bundle is evaluated and its place among the discovered fragments 
 | Domain enable timeout                                                                 | 5 s each                                                       |
 | Transport event channels                                                              | 256 bindings (refused when full), latest generation per role   |
 | Patch operation timeout default                                                       | 8 s                                                            |
-| Absent-target re-probes within one generation                                         | 1, 2, 4, 8, 16 s                                               |
+| Retry passes after a pass that left a patch not holding                               | 1, 2, 4, 8, 16, 30, 30, 30 s                                   |
 | Bridge schema, delivery part, operation timeout, request channel                      | 1, 262,144 UTF-16 characters, 5 s, 64                          |
 | Injected `maximumPending`, `timeoutMilliseconds`                                      | 32, 5000                                                       |
 | Bridge namespace, binding                                                             | `__steamUi_v1_28d7c54a`, `__steamUiBridge_v1_7b24d11c`         |

@@ -11,13 +11,13 @@ internal sealed class FakePatch(string id = "fixture.patch") : ISteamUiPatch
 
     internal bool TargetPresent { get; set; } = true;
 
-    internal bool ThrowOnApply { get; init; }
+    internal bool ThrowOnApply { get; set; }
 
     internal bool Mutated { get; private set; }
 
     internal bool BlockVerification { get; init; }
 
-    internal bool VerifySucceeds { get; init; } = true;
+    internal bool VerifySucceeds { get; set; } = true;
 
     internal bool RemoveSucceeds { get; init; } = true;
 

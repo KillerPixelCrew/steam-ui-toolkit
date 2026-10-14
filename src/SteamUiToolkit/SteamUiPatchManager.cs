@@ -160,13 +160,21 @@ public sealed record SteamUiPatchSnapshot(
 /// <remarks>
 ///     One synchronization pass, under one scheduler gate, first removes every patch that should be
 ///     off, gates before the bridge they live in, then applies every patch that should be on, the
-///     bridge first. Shutdown removes in the same order.
+///     bridge first. A SharedJSContext patch waits while the bridge does not hold. Shutdown removes in
+///     the same order.
 /// </remarks>
 public sealed class SteamUiPatchManager : IAsyncDisposable
 {
-    /// <summary>How many times an absent target is probed again within one generation: 1, 2, 4, 8 and 16 s after.</summary>
-    private const int SettleRetryLimit = 5;
-    private readonly TimeSpan _settleRetryDelay;
+    /// <summary>How many retry passes follow a pass that left a patch not holding: 1, 2, 4, 8, 16, 30, 30 and 30 s after.</summary>
+    private const int RetryLimit = 8;
+
+    /// <summary>What a SharedJSContext patch reports while the bridge it lives in does not hold.</summary>
+    private const string WaitingForBridge = "Waiting for the Steam UI bridge.";
+
+    /// <summary>The longest wait between two retry passes.</summary>
+    private static readonly TimeSpan RetryDelayCeiling = TimeSpan.FromSeconds(30);
+
+    private readonly TimeSpan _retryDelay;
 
     // The manager subscribes to transport events in its constructor, so a generation change can be
     // enumerating patches on the pump thread while the host is still registering them. Registration
@@ -181,8 +189,14 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
     private volatile ImmutableSortedDictionary<string, PatchEntry> _patches =
         ImmutableSortedDictionary.Create<string, PatchEntry>(StringComparer.Ordinal);
 
-    private int _queuedSynchronizationPending;
+    // The strongest pass asked for since the queued pass last started, as a PassKind.
+    private int _queuedPass;
     private int _queuedSynchronizationRunning;
+
+    // The retry sequence of the current episode: how many retry passes were scheduled, and whether
+    // one is waiting. A full pass or a failed health check starts a new episode.
+    private int _retryAttempt;
+    private int _retryPending;
 
     /// <summary>Creates a registry over the single process-owned Steam UI transport.</summary>
     /// <param name="transport">Persistent Steam UI transport.</param>
@@ -193,17 +207,17 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
 
     /// <summary>Creates a patch scheduler and subscribes to the borrowed transport generations.</summary>
     /// <param name="transport">Host-owned transport; manager disposal releases its event subscription and patch leases.</param>
-    /// <param name="settleRetryDelay">Positive base delay for bounded within-generation compatibility retries.</param>
+    /// <param name="retryDelay">Positive base delay of the bounded retry passes.</param>
     /// <exception cref="ArgumentOutOfRangeException">The retry delay is not positive.</exception>
     /// <exception cref="ArgumentNullException">The transport is null.</exception>
-    internal SteamUiPatchManager(ISteamUiTransport transport, TimeSpan settleRetryDelay)
+    internal SteamUiPatchManager(ISteamUiTransport transport, TimeSpan retryDelay)
     {
-        if (settleRetryDelay <= TimeSpan.Zero)
+        if (retryDelay <= TimeSpan.Zero)
         {
-            throw new ArgumentOutOfRangeException(nameof(settleRetryDelay));
+            throw new ArgumentOutOfRangeException(nameof(retryDelay));
         }
 
-        _settleRetryDelay = settleRetryDelay;
+        _retryDelay = retryDelay;
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         _transport.GenerationChanged += OnGenerationChanged;
     }
@@ -212,8 +226,9 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
     public static TimeSpan DefaultOperationTimeout { get; } = TimeSpan.FromSeconds(8);
 
     /// <summary>
-    ///     Raised after each queued synchronization pass, once the pass has released the scheduler, on
-    ///     a thread of its own.
+    ///     Raised after each queued synchronization pass that touched a patch, once the pass has
+    ///     released the scheduler, on a thread of its own. A health check that found everything
+    ///     holding does not raise it.
     /// </summary>
     /// <remarks>
     ///     A handler may await <see cref="SetGlobalEnabledAsync" /> or another awaited switch; that runs
@@ -475,16 +490,48 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
     /// <remarks>
     ///     The pass runs on a thread of its own and raises <see cref="Synchronized" /> when it is done.
     ///     Hosts call this when something a probe depends on may have changed, such as a new target
-    ///     generation.
+    ///     generation. It starts a new retry sequence: a pass that leaves a wanted patch not holding is
+    ///     followed by retry passes 1, 2, 4, 8, 16, 30, 30 and 30 s later, whatever the patch's state.
     /// </remarks>
     public void QueueSynchronization()
+    {
+        Interlocked.Exchange(ref _retryAttempt, 0);
+        QueuePass(PassKind.Full);
+    }
+
+    /// <summary>Asks the page whether the bridge still holds, and repairs what it finds missing.</summary>
+    /// <remarks>
+    ///     One evaluation while the bridge is <see cref="SteamUiPatchState.Verified" />. Steam can lose
+    ///     its page state without a new target generation, and a transport only notices a dead socket
+    ///     when something asks it a question, so a host calls this periodically while the transport is
+    ///     open. A bridge that no longer verifies is applied again, every SharedJSContext patch with it,
+    ///     and a new retry sequence starts. A holding bridge ends the check: patches Steam does not
+    ///     support are left to the retry sequence, so a frequent check costs one evaluation.
+    /// </remarks>
+    public void QueueHealthCheck()
+    {
+        QueuePass(PassKind.Health);
+    }
+
+    private void QueuePass(PassKind kind)
     {
         if (Volatile.Read(ref _disposed) != 0)
         {
             return;
         }
 
-        Interlocked.Exchange(ref _queuedSynchronizationPending, 1);
+        var queued = Volatile.Read(ref _queuedPass);
+        while (queued < (int)kind)
+        {
+            var observed = Interlocked.CompareExchange(ref _queuedPass, (int)kind, queued);
+            if (observed == queued)
+            {
+                break;
+            }
+
+            queued = observed;
+        }
+
         StartQueuedSynchronizationIfNeeded();
     }
 
@@ -563,11 +610,13 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
     {
         try
         {
-            while (Interlocked.Exchange(ref _queuedSynchronizationPending, 0) != 0)
+            PassKind kind;
+            while ((kind = (PassKind)Interlocked.Exchange(ref _queuedPass, (int)PassKind.None)) != PassKind.None)
             {
+                var touched = true;
                 try
                 {
-                    await SynchronizeAsync().ConfigureAwait(false);
+                    touched = await RunPassAsync(kind, CancellationToken.None).ConfigureAwait(false);
                 }
                 catch (ObjectDisposedException) when (Volatile.Read(ref _disposed) != 0)
                 {
@@ -580,7 +629,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
 
                 // After the pass released the scheduler, and never inline: a handler that awaits a
                 // switch takes the scheduler like any other caller.
-                if (Synchronized is not null)
+                if (touched && Synchronized is not null)
                 {
                     _ = Task.Run(RaiseSynchronized);
                 }
@@ -589,7 +638,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
         finally
         {
             Volatile.Write(ref _queuedSynchronizationRunning, 0);
-            if (Volatile.Read(ref _queuedSynchronizationPending) != 0)
+            if (Volatile.Read(ref _queuedPass) != (int)PassKind.None)
             {
                 StartQueuedSynchronizationIfNeeded();
             }
@@ -613,29 +662,178 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
     /// <returns>A task that completes once the pass ran.</returns>
     public async Task SynchronizeAsync(CancellationToken cancellationToken = default)
     {
+        Interlocked.Exchange(ref _retryAttempt, 0);
+        await RunPassAsync(PassKind.Full, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Runs one pass of the given kind under the scheduler.</summary>
+    /// <param name="kind">
+    ///     Full redoes every patch. Retry skips the patches that hold, unless the bridge they live in was
+    ///     applied again in the same pass. Health verifies a holding bridge and stops there when it still
+    ///     holds; otherwise it continues as a retry pass.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the synchronization.</param>
+    /// <returns>False only for a health check that found the bridge holding.</returns>
+    private async Task<bool> RunPassAsync(PassKind kind, CancellationToken cancellationToken)
+    {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         await _schedulerGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
             var entries = _patches.Values.ToArray();
+            var bridge = entries.FirstOrDefault(entry => entry.Patch.Id == SteamUiBridgePatch.PatchId);
+            var bridgeWanted = bridge is not null && Wanted(bridge);
+            if (kind == PassKind.Health)
+            {
+                if (!bridgeWanted || !Holds(bridge!))
+                {
+                    // Nothing holding to check: the bridge is off, or its retry sequence owns it.
+                    return false;
+                }
+
+                if (await BridgeStillHoldsAsync(bridge!, cancellationToken).ConfigureAwait(false))
+                {
+                    return false;
+                }
+
+                Interlocked.Exchange(ref _retryAttempt, 0);
+                kind = PassKind.Retry;
+            }
+
             // Removal first and the bridge last: a gate's removal goes through the bridge.
             foreach (var entry in RemovalOrder(entries).Where(entry => !Wanted(entry)))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                await RemovePatchAsync(entry, cancellationToken).ConfigureAwait(false);
+                if (kind == PassKind.Full || Snapshot(entry).State != SteamUiPatchState.Disabled)
+                {
+                    await RemovePatchAsync(entry, cancellationToken).ConfigureAwait(false);
+                }
             }
 
-            foreach (var entry in ApplyOrder(entries).Where(Wanted))
+            var bridgeApplied = false;
+            if (bridgeWanted && (kind == PassKind.Full || !Holds(bridge!)))
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                var appliesBefore = AppliesStarted(bridge!);
+                await SynchronizePatchAsync(bridge!, cancellationToken).ConfigureAwait(false);
+                bridgeApplied = AppliesStarted(bridge!) != appliesBefore;
+            }
+
+            var bridgeHolds = !bridgeWanted || Holds(bridge!);
+            foreach (var entry in ApplyOrder(entries).Where(entry => entry != bridge && Wanted(entry)))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var insideBridge = bridgeWanted && entry.Patch.TargetRole == SteamUiTargetRole.SharedJsContext;
+                if (insideBridge && !bridgeHolds)
+                {
+                    // Every gate and row lives in the bridge: one applied without it fails against
+                    // nothing and is torn down again (2026-10-13, every Quick Access row "bridge
+                    // unavailable"). It waits, untouched, and comes back with the bridge's retry.
+                    MarkWaitingForBridge(entry);
+                    continue;
+                }
+
+                if (kind == PassKind.Retry && Holds(entry) && !(insideBridge && bridgeApplied))
+                {
+                    continue;
+                }
+
                 await SynchronizePatchAsync(entry, cancellationToken).ConfigureAwait(false);
             }
+
+            if (NeedsRetry(entries))
+            {
+                ScheduleRetry();
+            }
+            else
+            {
+                Interlocked.Exchange(ref _retryAttempt, 0);
+            }
+
+            return true;
         }
         finally
         {
             _schedulerGate.Release();
         }
+    }
+
+    /// <summary>Runs the holding bridge's verification once, outside a synchronization of it.</summary>
+    /// <param name="bridge">The bridge entry.</param>
+    /// <param name="cancellationToken">The pass's cancellation.</param>
+    /// <returns>Whether the page still has the bridge; false also marks it for reapplication.</returns>
+    private static async Task<bool> BridgeStillHoldsAsync(PatchEntry bridge, CancellationToken cancellationToken)
+    {
+        long epoch;
+        lock (bridge.Sync)
+        {
+            epoch = bridge.GenerationEpoch;
+        }
+
+        SteamUiPatchOperationResult verified;
+        try
+        {
+            verified = await RunPhaseAsync(bridge, bridge.Patch.VerifyAsync, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            verified = new SteamUiPatchOperationResult(false,
+                $"timed out after {bridge.Patch.OperationTimeout.TotalSeconds:0.#} s.");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            verified = new SteamUiPatchOperationResult(false, ex.Message);
+        }
+
+        if (verified.Succeeded)
+        {
+            return true;
+        }
+
+        TrySetStateForGeneration(bridge, epoch, SteamUiPatchState.Retrying, Snapshot(bridge).Fingerprint,
+            "Bridge health check failed: " + (verified.Diagnostic ?? "no detail"));
+        return false;
+    }
+
+    /// <summary>Whether a patch is verified in its current generation.</summary>
+    private static bool Holds(PatchEntry entry)
+    {
+        return Snapshot(entry).State == SteamUiPatchState.Verified;
+    }
+
+    private static long AppliesStarted(PatchEntry entry)
+    {
+        lock (entry.Sync)
+        {
+            return entry.AppliesStarted;
+        }
+    }
+
+    /// <summary>Whether a wanted patch does not hold or an unwanted one may still be in the page.</summary>
+    private bool NeedsRetry(IEnumerable<PatchEntry> entries)
+    {
+        return entries.Any(entry => Wanted(entry)
+            ? !Holds(entry)
+            : Snapshot(entry).State == SteamUiPatchState.RemoveFailed);
+    }
+
+    /// <summary>Records that a SharedJSContext patch waits for the bridge, without touching the page.</summary>
+    private static void MarkWaitingForBridge(PatchEntry entry)
+    {
+        StateLine? line = null;
+        lock (entry.Sync)
+        {
+            if (entry.Snapshot.State != SteamUiPatchState.Retrying
+                || !string.Equals(entry.Snapshot.LastFailure, WaitingForBridge, StringComparison.Ordinal))
+            {
+                line = SetStateLocked(entry, SteamUiPatchState.Retrying, entry.Snapshot.Fingerprint,
+                    WaitingForBridge);
+            }
+        }
+
+        Write(line);
     }
 
     /// <summary>Every patch in id order, except that the bridge comes first.</summary>
@@ -775,7 +973,6 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
                     SteamUiPatchState.AbsentTarget,
                     null,
                     probe.Diagnostic);
-                ScheduleSettleRetry(entry, generationEpoch);
                 return;
             }
 
@@ -845,6 +1042,11 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
 
             appliedFingerprint = probe.Fingerprint;
             applyStarted = true;
+            lock (entry.Sync)
+            {
+                entry.AppliesStarted++;
+            }
+
             var applied = await RunPhaseAsync(
                     entry, patch.ApplyAsync, cancellationToken, operation)
                 .ConfigureAwait(false);
@@ -928,26 +1130,19 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
                 var timedOut = $"Patch operation timed out after {patch.OperationTimeout.TotalSeconds:0.#} s.";
                 if (applyStarted && activeGenerationEpoch is { } epoch)
                 {
-                    // Removed, then probed again on the settle schedule rather than reapplied blindly.
-                    if (await RemoveAfterFailedApplyAsync(
-                                entry,
-                                epoch,
-                                appliedFingerprint,
-                                timedOut,
-                                SteamUiPatchState.Retrying,
-                                cancellationToken)
-                            .ConfigureAwait(false))
-                    {
-                        ScheduleSettleRetry(entry, epoch);
-                    }
+                    // Removed, then probed again by the retry pass rather than reapplied blindly.
+                    await RemoveAfterFailedApplyAsync(
+                            entry,
+                            epoch,
+                            appliedFingerprint,
+                            timedOut,
+                            SteamUiPatchState.Retrying,
+                            cancellationToken)
+                        .ConfigureAwait(false);
                 }
                 else
                 {
                     SetOutcome(entry, activeGenerationEpoch, SteamUiPatchState.Retrying, timedOut);
-                    if (activeGenerationEpoch is { } probed)
-                    {
-                        ScheduleSettleRetry(entry, probed);
-                    }
                 }
             }
         }
@@ -1185,40 +1380,47 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
     }
 
     /// <summary>
-    ///     Probes a patch whose target was absent again a few times, backing off, within the same
-    ///     generation. A Steam window that has just loaded is probed before it has mounted everything:
-    ///     the custom pages' router was absent three seconds into a reload on 2026-09-28, the patch
-    ///     was refused as incompatible, and nothing asked again until the next reload, so every custom
-    ///     page stayed blank. A probe now says so with <c>notReady</c> and is recorded as an absent
-    ///     target; an incompatible verdict stands for the generation. A timed-out apply that was
-    ///     removed again is probed on the same schedule.
+    ///     Schedules the next retry pass of the current episode: 1, 2, 4, 8, 16, 30, 30 and 30 s after
+    ///     the passes that left a patch not holding, then nothing until a full pass or a failed health
+    ///     check starts a new episode.
     /// </summary>
-    /// <param name="entry">The patch.</param>
-    /// <param name="generationEpoch">The generation the retries belong to.</param>
-    private void ScheduleSettleRetry(PatchEntry entry, long generationEpoch)
+    /// <remarks>
+    ///     Every state that does not hold is retried, not only an absent target. A window that has just
+    ///     loaded or woken is probed before it has mounted everything: the custom pages' router was
+    ///     absent three seconds into a reload on 2026-09-28, a Quick Access module can be missing just as
+    ///     long, and a bridge handshake that failed in the last pass of a reload took every gate with it.
+    ///     None of those states asked again before the next reload, so a Quick Access panel could stay
+    ///     stock for the rest of the session. A retry pass skips what already holds, so a patch Steam no
+    ///     longer supports costs one probe per retry and nothing once the sequence ends.
+    /// </remarks>
+    private void ScheduleRetry()
     {
-        int attempt;
-        lock (entry.Sync)
+        if (Interlocked.CompareExchange(ref _retryPending, 1, 0) != 0)
         {
-            if (entry.SettleEpoch != generationEpoch)
-            {
-                entry.SettleEpoch = generationEpoch;
-                entry.SettleAttempts = 0;
-            }
-
-            if (entry.SettleAttempts >= SettleRetryLimit)
-            {
-                return;
-            }
-
-            attempt = ++entry.SettleAttempts;
+            return;
         }
 
-        var delay = _settleRetryDelay * (1 << (attempt - 1));
+        var attempt = Interlocked.Increment(ref _retryAttempt);
+        if (attempt > RetryLimit)
+        {
+            Volatile.Write(ref _retryPending, 0);
+            if (attempt == RetryLimit + 1)
+            {
+                SteamUiLog.Warn(
+                    $"Steam UI patches still do not all hold after {RetryLimit} retries; waiting for the "
+                    + "next reload, switch change or failed health check.");
+            }
+
+            return;
+        }
+
+        var exponential = _retryDelay * (1L << Math.Min(attempt - 1, 16));
+        var delay = exponential < RetryDelayCeiling ? exponential : RetryDelayCeiling;
         _ = Task.Run(async () =>
         {
             await Task.Delay(delay).ConfigureAwait(false);
-            QueueSynchronization();
+            Volatile.Write(ref _retryPending, 0);
+            QueuePass(PassKind.Retry);
         });
     }
 
@@ -1380,6 +1582,15 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
 
     private readonly record struct StateLine(string Key, string Text, bool Warning);
 
+    /// <summary>What a queued pass redoes, weakest first, so a stronger request absorbs a weaker one.</summary>
+    private enum PassKind
+    {
+        None,
+        Health,
+        Retry,
+        Full
+    }
+
     private sealed class PatchEntry(ISteamUiPatch patch, SteamUiPatchContext context)
     {
         internal object Sync { get; } = new();
@@ -1404,10 +1615,8 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
 
         internal long GenerationEpoch { get; set; }
 
-        // The generation the refusal retries below belong to, and how many were scheduled for it.
-        internal long SettleEpoch { get; set; } = -1;
-
-        internal int SettleAttempts { get; set; }
+        // How many applies this patch has started, so a pass can tell a re-applied bridge from a kept one.
+        internal long AppliesStarted { get; set; }
 
         internal CancellationTokenSource? ActiveOperationCancellation { get; set; }
 

@@ -399,7 +399,10 @@ it through `window[namespace].gate(name)`, declared in a module like any other.
 Which patches are on when stays yours, because that is application policy and every host's rules
 differ. `SteamUiPatchManager.SetGlobalEnabled` and `SetPatchEnabled` queue a synchronization when
 the switch moves, `QueueSynchronization` asks for one directly, and `Synchronized` tells you when a
-queued pass is done. The `Async` counterparts wait until retraction or reapplication has finished.
+queued pass is done. A pass that leaves a patch not holding is retried on its own for about two
+minutes. Call `QueueHealthCheck` every few seconds while your transport is open: it costs one
+evaluation and reapplies everything when Steam lost the bridge without reloading. The `Async`
+counterparts wait until retraction or reapplication has finished.
 Use the awaited forms when a settings confirmation or an emergency kill switch has to know cleanup
 is done, and `ShutdownAsync` with your deadline at shutdown. Give the runtime the manager too: a
 module whose callback throws has its patches faulted there, so they come off and stay off.

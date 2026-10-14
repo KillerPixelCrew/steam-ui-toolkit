@@ -123,6 +123,89 @@ public sealed class SteamUiPatchManagerTests
     }
 
     [Fact]
+    public async Task ADegradedPatchIsAppliedAgainWithoutAnotherReload()
+    {
+        // A failed apply asked nothing again until the next reload, so a Quick Access panel whose last
+        // pass failed stayed stock for the rest of the session (issue #226).
+        await using var transport = new FakeSteamUiTransport();
+        await using var manager = new SteamUiPatchManager(transport, TimeSpan.FromMilliseconds(10));
+        var patch = new FakePatch { OperationTimeout = FixtureTimeout, ThrowOnApply = true };
+        manager.Register(patch);
+
+        await manager.SynchronizeAsync();
+        Assert.Equal(SteamUiPatchState.Degraded, Assert.Single(manager.GetSnapshots()).State);
+        patch.ThrowOnApply = false;
+
+        await TestJson.WaitUntilAsync(() => Assert.Single(manager.GetSnapshots()).State == SteamUiPatchState.Verified);
+    }
+
+    [Fact]
+    public async Task GatesWaitForTheBridgeInsteadOfFailingAgainstIt()
+    {
+        await using var transport = new FakeSteamUiTransport();
+        await using var manager = new SteamUiPatchManager(transport, TimeSpan.FromMilliseconds(10));
+        var bridge = new FakePatch(SteamUiBridgePatch.PatchId) { OperationTimeout = FixtureTimeout, ThrowOnApply = true };
+        var gate = new FakePatch("steam-ui.gate") { OperationTimeout = FixtureTimeout };
+        manager.Register(bridge);
+        manager.Register(gate);
+
+        await manager.SynchronizeAsync();
+        var waiting = manager.GetSnapshots().Single(snapshot => snapshot.Id == gate.Id);
+
+        Assert.Equal(SteamUiPatchState.Retrying, waiting.State);
+        Assert.Equal("Waiting for the Steam UI bridge.", waiting.LastFailure);
+        Assert.Equal(0, gate.ApplyCalls);
+        bridge.ThrowOnApply = false;
+
+        await TestJson.WaitUntilAsync(() =>
+            manager.GetSnapshots().All(snapshot => snapshot.State == SteamUiPatchState.Verified));
+        Assert.Equal(1, gate.ApplyCalls);
+    }
+
+    [Fact]
+    public async Task AHealthCheckReappliesALostBridgeAndEveryGateInIt()
+    {
+        await using var transport = new FakeSteamUiTransport();
+        await using var manager = new SteamUiPatchManager(transport, TimeSpan.FromMilliseconds(10));
+        var bridge = new FakePatch(SteamUiBridgePatch.PatchId) { OperationTimeout = FixtureTimeout };
+        var gate = new FakePatch("steam-ui.gate") { OperationTimeout = FixtureTimeout };
+        manager.Register(bridge);
+        manager.Register(gate);
+        await manager.SynchronizeAsync();
+        bridge.VerifySucceeds = false;
+
+        manager.QueueHealthCheck();
+        await TestJson.WaitUntilAsync(() => bridge.ApplyCalls >= 2);
+        Assert.Equal(1, gate.ApplyCalls);
+        bridge.VerifySucceeds = true;
+
+        await TestJson.WaitUntilAsync(() =>
+            gate.ApplyCalls == 2
+            && manager.GetSnapshots().All(snapshot => snapshot.State == SteamUiPatchState.Verified));
+    }
+
+    [Fact]
+    public async Task AHealthCheckOfAHoldingBridgeTouchesNothingElse()
+    {
+        await using var transport = new FakeSteamUiTransport();
+        await using var manager = new SteamUiPatchManager(transport, TimeSpan.FromMilliseconds(10));
+        var bridge = new FakePatch(SteamUiBridgePatch.PatchId) { OperationTimeout = FixtureTimeout };
+        var gate = new FakePatch("steam-ui.gate") { OperationTimeout = FixtureTimeout };
+        manager.Register(bridge);
+        manager.Register(gate);
+        await manager.SynchronizeAsync();
+        var gateVerifications = gate.VerifyCalls;
+        var bridgeVerifications = bridge.VerifyCalls;
+
+        manager.QueueHealthCheck();
+        await TestJson.WaitUntilAsync(() => bridge.VerifyCalls == bridgeVerifications + 1);
+
+        Assert.Equal(gateVerifications, gate.VerifyCalls);
+        Assert.Equal(1, bridge.ApplyCalls);
+        Assert.Equal(1, gate.ApplyCalls);
+    }
+
+    [Fact]
     public void AProbeThatSaysSteamIsStillLoadingIsNotAVerdict()
     {
         Assert.True(SteamUiPatchEvaluation.NotReady(TestJson.Parse("{\"notReady\":1,\"routerFound\":0}")));
