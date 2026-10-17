@@ -435,9 +435,9 @@ every SharedJSContext patch lives in, and every pass runs under one scheduler ga
 
 A pass first removes every patch that should be off, in id order with the bridge last, because a
 gate's removal goes through the bridge. Then it synchronizes every patch that should be on, the
-bridge first. A patch should be on when the global switch, its own switch and no fault say so.
-While the bridge is wanted and does not hold, every SharedJSContext patch is left untouched as
-`Retrying` with `Waiting for the Steam UI bridge.` instead of being applied against nothing.
+bridge first. A patch should be on when the global switch, its own switch and no fault say so. While
+the bridge is wanted and does not hold, every SharedJSContext patch is left untouched as `Retrying`
+with `Waiting for the Steam UI bridge.` instead of being applied against nothing.
 
 1. Off (global switch, its switch, or faulted): remove unless already `Disabled`; end in `Disabled`
    or `RemoveFailed` (`Patch removal timed out after <n> s.` on timeout); release the transport
@@ -2043,3 +2043,10 @@ endpoint and its offered choices before a write.
 has an error. It preserves shortcut identities and validates entries before parsing/sorting.
 `ReadCollectionsAsync` and `ReadStoreTagsAsync` are typed the same way, so a caller keeps its last
 good answer instead of caching a failure as an empty library.
+
+## Unknown numeric settings
+
+A `SteamSettingsRow` of kind `range` may have `Number = null` when its value is unreadable. The
+renderer keeps the control writable, suppresses the numeric value and explains that the value is
+unknown. The minimum positions the editing thumb only; it is never sent during publication or
+mounting. A staged user edit displays its chosen number and reaches the backend on completion.

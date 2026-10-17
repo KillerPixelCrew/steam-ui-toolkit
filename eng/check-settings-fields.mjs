@@ -187,6 +187,15 @@ const pages = [
                         maximum: 10,
                         step: 1,
                     },
+                    {
+                        key: "unknown-clock",
+                        kind: "range",
+                        label: "GPU clock",
+                        number: null,
+                        minimum: 100,
+                        maximum: 2900,
+                        step: 1,
+                    },
                     { key: "name", kind: "text", label: "Name", text: "old" },
                     { key: "key", kind: "secret", label: "Key", text: "Set" },
                     {
@@ -302,6 +311,19 @@ assert.deepEqual(row(tree, "mode").props.rgOptions, [
     { data: "b", label: "B" },
 ]);
 assert.equal(row(tree, "level").type, Slider);
+assert.equal(row(tree, "unknown-clock").props.value, 100);
+assert.equal(
+    row(tree, "unknown-clock").props.showValue,
+    false,
+    "an unknown clock must not claim to be 100 MHz",
+);
+assert.match(JSON.stringify(row(tree, "unknown-clock").props.description), /Unknown/);
+assert.equal(
+    row(tree, "unknown-clock").props.disabled,
+    false,
+    "missing readback must not block an explicit write",
+);
+assert.deepEqual(changes, [], "mounting an unknown slider must not write its placeholder");
 assert.equal(row(tree, "name").type, TextField);
 assert.equal(row(tree, "run").type, ValueField);
 assert.equal(row(tree, "run").props.value.type, Button, "an action is Steam's dialog button");
