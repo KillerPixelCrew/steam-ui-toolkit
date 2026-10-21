@@ -105,13 +105,15 @@ const SteamUiKitStyles = `
 .steam-ui-kit-select-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;width:100%;min-width:0;text-align:left;box-sizing:border-box}
 .steam-ui-kit-select-row-title{min-width:0;overflow-wrap:anywhere}
 .steam-ui-kit-select-row-detail{grid-column:1 / -1;min-width:0;font-size:13px;color:#8b929a;white-space:normal;overflow-wrap:anywhere}
-.steam-ui-kit-picker{display:flex;flex-direction:column;gap:12px;min-width:0;width:min(900px,100%);max-width:100%;box-sizing:border-box}
-.steam-ui-kit-picker-body{display:grid;grid-template-columns:minmax(140px,1fr) minmax(0,2fr);gap:16px;min-height:0;height:min(360px,48vh)}
+.steam-ui-kit-picker{display:flex;flex-direction:column;gap:12px;min-width:0;width:900px;max-width:100%;box-sizing:border-box}
+.steam-ui-kit-picker-title{font-size:22px;line-height:30px;font-weight:700;color:#fff;min-width:0;overflow-wrap:anywhere}
+.steam-ui-kit-picker-body{display:grid;grid-template-columns:minmax(140px,1fr) minmax(0,2fr);gap:16px;min-height:0;height:clamp(200px,90vh - 310px,520px)}
 .steam-ui-kit-picker-places,.steam-ui-kit-picker-files{min-width:0;min-height:0;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:6px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.12);border-radius:4px;padding:8px;box-sizing:border-box}
 .steam-ui-kit-picker-heading{padding:4px 8px 8px;border-bottom:1px solid #3d4450;font-size:12px;font-weight:600;color:#8b929a;text-transform:uppercase;letter-spacing:.06em}
 .steam-ui-kit-picker .steam-ui-kit-select-row{padding:4px 0;border-bottom:1px solid rgba(255,255,255,.14)}
 .steam-ui-kit-picker .DialogButton{min-width:0!important;max-width:100%;width:100%;box-sizing:border-box!important;white-space:normal;margin:0}
-.steam-ui-kit-picker-path{font-size:14px;color:#b8bcbf;overflow-wrap:anywhere}
+.steam-ui-kit-picker-path{flex:1 1 12em;min-width:0;align-self:center;font-size:14px;color:#b8bcbf;overflow-wrap:anywhere}
+.steam-ui-kit-picker-count{text-align:center}
 .steam-ui-kit-picker-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
 .steam-ui-kit-picker-actions .DialogButton{width:auto}
 .steam-ui-kit-muted{color:rgb(124,142,163);font-size:13px}

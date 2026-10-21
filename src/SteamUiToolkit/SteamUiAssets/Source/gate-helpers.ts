@@ -340,13 +340,25 @@ const renderSteamDropdown = (ui, props) =>
 
 /**
  * Opens a native modal and supplies a close callback to its content.
+ *
+ * Steam's dialog keeps its body to 600px unless the dialog is allowed its full size, in which case
+ * the body may grow to the content it holds, within 88% of the viewport. `wide` asks for that
+ * through the dialog's own `bAllowFullSize` prop, so a two-pane body is not folded into a column;
+ * the backdrop, focus, B and dismissal are the same dialog's either way.
  * @param ui Steam's resolved React and native control components.
- * @param options Optional title/class, content renderer and cancellation callback.
+ * @param options Optional title/class, content renderer, cancellation callback and whether the
+ * dialog may take its full size.
  * @returns True when shown, false when modal components are unavailable.
  */
 const showSteamModal = (
     ui,
-    options: {title?: string; className?: string; render: (close: () => void) => any; onCancel?: () => void},
+    options: {
+        title?: string;
+        className?: string;
+        wide?: boolean;
+        render: (close: () => void) => any;
+        onCancel?: () => void;
+    },
 ) => {
     if (!ui?.showModal || !ui?.modalRoot) return false;
     const react = ui.react;
@@ -359,7 +371,13 @@ const showSteamModal = (
         };
         return react.createElement(
             ui.modalRoot,
-            {className: options.className, onCancel: cancel, closeModal: cancel, strTitle: title},
+            {
+                className: options.className,
+                onCancel: cancel,
+                closeModal: cancel,
+                strTitle: title,
+                ...(options.wide ? {bAllowFullSize: true} : {}),
+            },
             options.render(close),
         );
     }

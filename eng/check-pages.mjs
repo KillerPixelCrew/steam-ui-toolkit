@@ -7,15 +7,15 @@
 // that removal hands the router back untouched.
 import assert from "node:assert/strict";
 import {
-  assertRemoveRetries,
-  createReact,
-  element,
-  failingHost,
-  fragment,
-  gateSource,
-  instantiate,
-  loadAsset,
-  sharedFragments,
+    assertRemoveRetries,
+    createReact,
+    element,
+    failingHost,
+    fragment,
+    gateSource,
+    instantiate,
+    loadAsset,
+    sharedFragments,
 } from "./check-harness.mjs";
 
 const asset = loadAsset();
@@ -24,100 +24,100 @@ const react = createReact();
 // Steam's back-stack Route, with the body read from the client on 2026-09-24, minified locals and
 // all. The gate borrows it from the route list and verifies it against the markers.
 const SteamRoute = function () {
-  return null;
+    return null;
 };
 Object.defineProperty(SteamRoute, "toString", {
-  value: () =>
-    'function Y(he){const{children:Z,...q}=he,pe=be=>typeof Z==="function"?Z(be):Z;' +
-    "return(0,h.jsx)(D.qh,{...q,children:be=>(0,h.jsx)(Q,{routePath:be.match?.path," +
-    "disabled:!be.match,children:pe(be)})})}",
+    value: () =>
+        'function Y(he){const{children:Z,...q}=he,pe=be=>typeof Z==="function"?Z(be):Z;' +
+        "return(0,h.jsx)(D.qh,{...q,children:be=>(0,h.jsx)(Q,{routePath:be.match?.path," +
+        "disabled:!be.match,children:pe(be)})})}",
 });
 
 const route = (path) => element(SteamRoute, { path }, path);
 const stockRoutes = [
-  route("/library/home"),
-  route("/library"),
-  route("/settings"),
-  route("/media"),
+    route("/library/home"),
+    route("/library"),
+    route("/settings"),
+    route("/media"),
 ];
 
 // Steam's switch: takes the FIRST matching child. The fixture reproduces that rule, because it is
 // the reason override and addition are different operations.
 function RouteSwitch(props) {
-  const first = props.children.find((child) => child.props?.path === props.location);
-  return first ?? null;
+    const first = props.children.find((child) => child.props?.path === props.location);
+    return first ?? null;
 }
 Object.defineProperty(RouteSwitch, "toString", {
-  value: () => 'function fd(){ "computedMatch"; "TopLevelTransition"; }',
+    value: () => 'function fd(){ "computedMatch"; "TopLevelTransition"; }',
 });
 // One intermediate component, so the gate has to descend rather than read a fixed index.
 const Middle = (props) => element("div", { children: [element(RouteSwitch, props)] });
 function Router(props) {
-  return element(Middle, { location: props.location, children: stockRoutes.slice() });
+    return element(Middle, { location: props.location, children: stockRoutes.slice() });
 }
 Object.defineProperty(Router, "toString", {
-  value: () => 'function(){ "Settings.Root()"; "TopLevelTransition"; }',
+    value: () => 'function(){ "Settings.Root()"; "TopLevelTransition"; }',
 });
 
 const { host: memo, failNext } = failingHost({
-  $$typeof: Symbol.for("react.memo"),
-  type: Router,
-  compare: null,
+    $$typeof: Symbol.for("react.memo"),
+    type: Router,
+    compare: null,
 });
 // The gate finds the router through the React root, so the fixture provides one.
 const routeSwitchNode = {
-  type: RouteSwitch,
-  elementType: RouteSwitch,
-  child: null,
-  sibling: null,
-  alternate: { type: RouteSwitch },
+    type: RouteSwitch,
+    elementType: RouteSwitch,
+    child: null,
+    sibling: null,
+    alternate: { type: RouteSwitch },
 };
 const rootNode = { type: Router, elementType: memo, child: routeSwitchNode, sibling: null };
 globalThis.document = {
-  getElementById: (id) => (id === "root" ? { __reactContainer$fixture: rootNode } : null),
+    getElementById: (id) => (id === "root" ? { __reactContainer$fixture: rootNode } : null),
 };
 
 const globals = {
-  getWebpackRuntime: () => {
-    const require = () => react;
-    require.findUnique = (tokens) =>
-      tokens.includes("TopLevelTransition") && tokens.includes("Settings.Root()")
-        ? ["router"]
-        : ["react"];
-    require.count = () => 1;
-    return require;
-  },
-  createIconRenderer: () => () => null,
-  request: () => Promise.resolve(),
-  subscribe: (patchId, listener) => {
-    globals.publish = listener;
-    return () => {
-      globals.publish = null;
-    };
-  },
-  publish: null,
+    getWebpackRuntime: () => {
+        const require = () => react;
+        require.findUnique = (tokens) =>
+            tokens.includes("TopLevelTransition") && tokens.includes("Settings.Root()")
+                ? ["router"]
+                : ["react"];
+        require.count = () => 1;
+        return require;
+    },
+    createIconRenderer: () => () => null,
+    request: () => Promise.resolve(),
+    subscribe: (patchId, listener) => {
+        globals.publish = listener;
+        return () => {
+            globals.publish = null;
+        };
+    },
+    publish: null,
 };
 
-const gate = instantiate(
-  globals,
-  `${sharedFragments(asset)}\n${gateSource(asset, "gates/pages.ts")}`,
-  "createPageHost()",
+const { gate, registerSteamPageRenderer } = instantiate(
+    globals,
+    `${sharedFragments(asset)}\n${gateSource(asset, "gates/pages.ts")}`,
+    "({ gate: createPageHost(), registerSteamPageRenderer })",
 );
 
 // Resolves a location through the claimed router the way React would, stopping at the Route the
 // switch selected — a Route renders its own page content, which is not what is being asserted here.
 const selected = (location) => {
-  const render = (node, depth = 0) => {
-    if (!react.isValidElement(node) || depth > 24) return null;
-    if (node.type === SteamRoute) return node;
-    if (typeof node.type === "function") return render(node.type(node.props), depth + 1);
-    for (const kid of react.Children.toArray(node.props?.children)) {
-      const found = render(kid, depth + 1);
-      if (found) return found;
-    }
-    return null;
-  };
-  return render(element(memo.type, { location }));
+    const render = (node, depth = 0) => {
+        if (!react.isValidElement(node) || depth > 24) return null;
+        if (node.type === SteamRoute) return node;
+        if (typeof node.type === "function") return render(node.type(node.props), depth + 1);
+        for (const kid of react.Children.toArray(node.props?.children)) {
+            const found = render(kid, depth + 1);
+            if (found) return found;
+        }
+        return null;
+    };
+    return render(element(memo.type, { location }));
 };
 
 assert.equal(selected("/settings")?.props.path, "/settings", "the fixture router must resolve");
@@ -139,7 +139,11 @@ assert.equal(selected("/settings")?.props.path, "/settings", "an empty claim mus
 
 // That render went through the claimed router, so the Route was borrowed from Steam's own route
 // list and its source carries the back-stack markers.
-assert.equal(gate.status().routeSource, "borrowed", "the Route must be borrowed once Steam renders");
+assert.equal(
+    gate.status().routeSource,
+    "borrowed",
+    "the Route must be borrowed once Steam renders",
+);
 
 // An addition.
 globals.publish({ pages: [{ id: "artwork", path: "/wsgm/artwork", title: "Artwork" }] });
@@ -147,38 +151,79 @@ const added = selected("/wsgm/artwork");
 assert.ok(added, "a registered page must resolve");
 assert.equal(added.type, SteamRoute, "a page must be built with Steam's own back-stack Route");
 assert.equal(
-  selected("/settings")?.props.path,
-  "/settings",
-  "an addition must not shadow Steam's routes",
+    selected("/settings")?.props.path,
+    "/settings",
+    "an addition must not shadow Steam's routes",
 );
 assert.match(gate.status().lastOutcome, /additions=1/);
+
+// Steam's real back-stack Route invokes function children with its match (see its source above).
+// Every invocation must forward that match's params, without mutating its page or match objects.
+registerSteamPageRenderer("identity-fixture", (_react, page) => page);
+const identityPage = {
+    id: "identity",
+    path: "/wsgm/launch-actions/:appid",
+    title: "Launch Actions",
+    template: "identity-fixture",
+};
+globals.publish({ pages: [identityPage] });
+const identityRoute = selected(identityPage.path);
+assert.equal(
+    identityRoute.type,
+    SteamRoute,
+    "identity pages must retain Steam's native back-stack Route",
+);
+const renderMatch = react.Children.toArray(identityRoute.props.children)[0];
+assert.equal(typeof renderMatch, "function", "the native Route must supply its own matched params");
+const match = { params: { appid: "4294967295" } };
+const body = renderMatch({ match });
+const projected = body.type(body.props);
+assert.deepEqual(
+    projected,
+    { ...identityPage, params: match.params },
+    "all descriptor fields and exact AppID must survive",
+);
+projected.params.appid = "changed by consumer";
+assert.equal(match.params.appid, "4294967295", "a consumer must not mutate Steam's route match");
+assert.equal(identityPage.params, undefined, "the published descriptor must remain unchanged");
+const reopened = renderMatch({ match: { params: { appid: "440" } } });
+assert.equal(
+    reopened.type(reopened.props).params.appid,
+    "440",
+    "a new match must not reuse the previous game identity",
+);
+assert.equal(
+    renderMatch({ match: null }),
+    null,
+    "an unmatched route must not render a stale identity",
+);
 
 // An addition must NOT win against a Steam route of the same path, because it goes behind them.
 globals.publish({ pages: [{ id: "shadow", path: "/settings", title: "Not Settings" }] });
 assert.equal(
-  selected("/settings").key,
-  "/settings",
-  "an addition must lose to Steam's own route under a first-match switch",
+    selected("/settings").key,
+    "/settings",
+    "an addition must lose to Steam's own route under a first-match switch",
 );
 
 // An override must win, because it goes in front.
 globals.publish({ pages: [{ id: "mine", path: "/settings", title: "Mine", override: true }] });
 assert.notEqual(
-  selected("/settings").key,
-  "/settings",
-  "an override must win against Steam's own route",
+    selected("/settings").key,
+    "/settings",
+    "an override must win against Steam's own route",
 );
 assert.match(gate.status().lastOutcome, /overrides=1/);
 
 // Malformed declarations are dropped rather than registered.
 globals.publish({
-  pages: [
-    { id: "ok", path: "/wsgm/ok", title: "Fine" },
-    { id: "relative", path: "wsgm/no-slash", title: "Relative" },
-    { id: "catchall", path: "/", title: "Everything" },
-    { id: 7, path: "/wsgm/bad-id", title: "Bad id" },
-    { id: "no-title", path: "/wsgm/no-title" },
-  ],
+    pages: [
+        { id: "ok", path: "/wsgm/ok", title: "Fine" },
+        { id: "relative", path: "wsgm/no-slash", title: "Relative" },
+        { id: "catchall", path: "/", title: "Everything" },
+        { id: 7, path: "/wsgm/bad-id", title: "Bad id" },
+        { id: "no-title", path: "/wsgm/no-title" },
+    ],
 });
 assert.equal(gate.status().pages, 1, "only the well-formed page may register");
 assert.ok(selected("/wsgm/ok"), "the well-formed page must still resolve");
@@ -195,9 +240,9 @@ assert.equal(gate.status().mounted.adopted, 0);
 assert.ok(!gate.status().claimed);
 assert.equal(selected("/wsgm/ok"), null, "removal must unregister every page");
 assert.equal(
-  selected("/settings")?.props.path,
-  "/settings",
-  "removal must restore Steam's routing",
+    selected("/settings")?.props.path,
+    "/settings",
+    "removal must restore Steam's routing",
 );
 
 assert.ok(gate.install().ok, "the gate must be reinstallable");
@@ -209,84 +254,91 @@ assert.equal(gate.status().routeSource, "none", "removal must drop the borrowed 
 // says which are missing, follows the host's state and refusals while installed, and its frame stops
 // drawing the page once the gate is removed.
 {
-  const registered = new Map();
-  let published = null;
-  let refused = null;
-  let components = null;
-  let released = 0;
-  const pageReact = createReact({ useState: (initial) => [initial, () => {}], useEffect: () => {} });
-  const { registerSteamPage, steamPageRenderers } = instantiate(
-    {
-      getWebpackRuntime: () => () => null,
-      createIconRenderer: () => () => null,
-      request: () => Promise.resolve(),
-      subscribe: (_patchId, listener) => {
-        published = listener;
-        return () => {
-          published = null;
-        };
-      },
-      subscribeRefusal: (_patchId, listener) => {
-        refused = listener;
-        return () => {
-          refused = null;
-        };
-      },
-      registerGate: (name, value) => registered.set(name, value),
-    },
-    `${sharedFragments(asset)}\n${fragment(asset, "page-gate.ts")}\n${gateSource(asset, "gates/pages.ts")}`,
-    "{ registerSteamPage, steamPageRenderers }",
-  );
-  const Page = () => null;
-  const definition = {
-    template: "fixture-page",
-    gate: "fixturePage",
-    patchId: "fixture.page",
-    components: () => components,
-    required: ["react", "field"],
-    release: () => {
-      released++;
-    },
-    Page,
-  };
-  const context = registerSteamPage(definition);
-  const pageGate = registered.get("fixturePage");
-  assert.ok(pageGate, "a declared page must register its gate under its name");
-  const render = steamPageRenderers.get("fixture-page");
-  assert.equal(typeof render, "function", "a declared page must register its renderer");
-  assert.throws(() => registerSteamPage(definition), /already registered/u);
+    const registered = new Map();
+    let published = null;
+    let refused = null;
+    let components = null;
+    let released = 0;
+    const pageReact = createReact({
+        useState: (initial) => [initial, () => {}],
+        useEffect: () => {},
+    });
+    const { registerSteamPage, steamPageRenderers } = instantiate(
+        {
+            getWebpackRuntime: () => () => null,
+            createIconRenderer: () => () => null,
+            request: () => Promise.resolve(),
+            subscribe: (_patchId, listener) => {
+                published = listener;
+                return () => {
+                    published = null;
+                };
+            },
+            subscribeRefusal: (_patchId, listener) => {
+                refused = listener;
+                return () => {
+                    refused = null;
+                };
+            },
+            registerGate: (name, value) => registered.set(name, value),
+        },
+        `${sharedFragments(asset)}\n${fragment(asset, "page-gate.ts")}\n${gateSource(asset, "gates/pages.ts")}`,
+        "{ registerSteamPage, steamPageRenderers }",
+    );
+    const Page = () => null;
+    const definition = {
+        template: "fixture-page",
+        gate: "fixturePage",
+        patchId: "fixture.page",
+        components: () => components,
+        required: ["react", "field"],
+        release: () => {
+            released++;
+        },
+        Page,
+    };
+    const context = registerSteamPage(definition);
+    const pageGate = registered.get("fixturePage");
+    assert.ok(pageGate, "a declared page must register its gate under its name");
+    const render = steamPageRenderers.get("fixture-page");
+    assert.equal(typeof render, "function", "a declared page must register its renderer");
+    assert.throws(() => registerSteamPage(definition), /already registered/u);
 
-  const frame = render(pageReact, { id: "fixture" });
-  components = { react: pageReact };
-  const refusedInstall = pageGate.install();
-  assert.equal(refusedInstall.ok, false);
-  assert.equal(refusedInstall.error, "Native Steam components unavailable: field");
-  const waiting = frame.type(frame.props);
-  assert.equal(waiting.props.role, "status", "a page that cannot resolve says why");
-  assert.deepEqual(waiting.props.children, ["Native Steam components unavailable: field"]);
+    const frame = render(pageReact, { id: "fixture" });
+    components = { react: pageReact };
+    const refusedInstall = pageGate.install();
+    assert.equal(refusedInstall.ok, false);
+    assert.equal(refusedInstall.error, "Native Steam components unavailable: field");
+    const waiting = frame.type(frame.props);
+    assert.equal(waiting.props.role, "status", "a page that cannot resolve says why");
+    assert.deepEqual(waiting.props.children, ["Native Steam components unavailable: field"]);
 
-  components = { react: pageReact, field: () => null };
-  assert.deepEqual(pageGate.install(), { ok: true, installed: true });
-  assert.equal(pageGate.status().subscribed, true);
-  published({ value: 1 });
-  refused("too large");
-  assert.deepEqual(context.state(), { value: 1 });
-  assert.equal(context.refusal(), "too large");
-  const drawn = frame.type(frame.props);
-  assert.equal(drawn.type, Page, "an installed page draws the host's component");
-  assert.equal(drawn.props.context, context);
-  assert.deepEqual(drawn.props.page, { id: "fixture" });
+    components = { react: pageReact, field: () => null };
+    assert.deepEqual(pageGate.install(), { ok: true, installed: true });
+    assert.equal(pageGate.status().subscribed, true);
+    published({ value: 1 });
+    refused("too large");
+    assert.deepEqual(context.state(), { value: 1 });
+    assert.equal(context.refusal(), "too large");
+    const drawn = frame.type(frame.props);
+    assert.equal(drawn.type, Page, "an installed page draws the host's component");
+    assert.equal(drawn.props.context, context);
+    assert.deepEqual(drawn.props.page, { id: "fixture" });
 
-  assert.deepEqual(pageGate.remove(), { ok: true, removed: true });
-  assert.equal(released, 1, "removal releases what the page prepared");
-  assert.equal(published, null, "removal ends the state subscription");
-  assert.equal(refused, null, "removal ends the refusal subscription");
-  assert.equal(context.state(), null);
-  assert.equal(context.refusal(), null);
-  assert.equal(frame.type(frame.props).props.role, "status", "a removed page draws nothing of its own");
+    assert.deepEqual(pageGate.remove(), { ok: true, removed: true });
+    assert.equal(released, 1, "removal releases what the page prepared");
+    assert.equal(published, null, "removal ends the state subscription");
+    assert.equal(refused, null, "removal ends the refusal subscription");
+    assert.equal(context.state(), null);
+    assert.equal(context.refusal(), null);
+    assert.equal(
+        frame.type(frame.props).props.role,
+        "status",
+        "a removed page draws nothing of its own",
+    );
 }
 
 console.log(
-  "Custom pages: borrowed Route, route-list discovery, override vs addition, validation, " +
-    "restoration and the registerSteamPage lifecycle passed.",
+    "Custom pages: borrowed Route, route-list discovery, override vs addition, validation, " +
+        "restoration and the registerSteamPage lifecycle passed.",
 );

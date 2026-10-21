@@ -882,6 +882,7 @@ runs while the bundle is evaluated and its place among the discovered fragments 
 | `SteamStorageTests`, `eng/check-storage.mjs`                     | the storage probe's service and transport facts and every action having a command; the emitted gate's availability answer, Steam's own state field names, action forwarding, unrelated service traffic passing through with its arguments and receiver, and restoration putting Valve's method back                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `SteamHomeCarouselTests`, `eng/check-home-carousel.mjs`          | the Home probe's separate facts, finding Home by content rather than name, the mounted count, already-claimed compatibility, the published wire shape, the exact report payload; the emitted gate finding Home through the route list from the root's `current`, adopting a mounted Home on both fibers and asking the switch to render, replacing `games` for the carousel and the background, clearing the whole-list overscan, the documented order, disconnected games leaving, uninstalled games greyed, no rebuild or report without a change, the fallback to Steam's list, bounded publications, a mounted wrapper passing through after removal, exact restoration of the memo and the adopted fibers, reinstall adopting again |
 | `SteamScreensaverTests`, `eng/check-screensaver.mjs`             | the probe's separate facts and that it names no module id or export, the published wire shape, the exact report and choice payloads and their refusals; the emitted gate wrapping only the customization page and only its Screensaver section, appending the rows after Steam's own, reporting on first read, on change and on page open, sending a choice once and disabling the row while pending, refusing a malformed state whole, the bounded first-report retry, keeping the shared `useMemo` claim for another surface on removal and handing it back with the last                                                                                                                                                              |
+| `SteamFilePickerSurfaceTests`, `eng/check-file-picker.mjs`      | the host side: the all-files and folders-only filters, folders before files in name order with hidden and system entries skipped, extended, slashed, trailing-separator and `..` paths listed as one ordinary form, device paths and legacy device names refused before anything is opened, partial paths refused instead of resolved against the working directory, Downloads and Documents as the known folders Windows reports, a 3,050-entry folder answered whole past the part size, a denied folder refused rather than shown empty, a gone folder and a gone drive told apart, links marked and entered under their own path, a cancelled listing stopping, a chosen file or folder revalidated for existence, kind and type and a folder replaced by a file refused, the exact `resolve` payload and the module's three commands; the emitted picker: places then the start folder, file and folder choices answered only as the host resolves them, a late listing never replacing the folder on screen and the superseded listing cancelled at the host, a refused choice shown with the folder listed again and nothing settled, a listing error re-listing the places and refusing "Use this folder", an unlistable start falling back to the first place, AbortSignal, Steam's modal cancel and unmount each settling null once, a missing modal reported as failed, and a 407-row folder paged by buttons and triggers with every row reachable, the page keyed for fresh focus and a junction shown as a link |
 | `eng/check-startup.mjs` (resolver)                               | missing factories staying uncached, unique resolution, and `exported` counting aliases once, refusing two distinct fits, no fit, a missing module and an invalid predicate                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `SteamLibraryBadgeTests`, `eng/check-library.mjs` (details)      | the stat patch's compatibility, its Valve-named row lookup and shared runtime resource, the module declaring both patches under one publication; the emitted stat only on the stats row, Valve's classes and the localized label, the badge's naming rules and dimming, no duplicate, an `elements` gate transform coexisting on the one claim, a throwing transform skipped, and `jsx` and `jsxs` handed back only with the last transform                                                                                                                                                                                                                                                                                              |
 | `eng/check-ui-kit.mjs`                                           | every kit element: the stylesheet's rules, the header's fold and its own caret, the group's body and hidden state, the action grid and its wide label, the card's parts and activation, the banner's dismiss, the toolbar, chips, box and gallery, a confirm sending only on OK, a prompt sending only a trimmed non-empty answer                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -1377,26 +1378,37 @@ by, and takes the dropdown's own props: `rgOptions`, `selectedOption`, `onChange
 `renderSteamDropdown(ui, {label, rgOptions, selectedOption, onChange, disabled})` draws it where the
 client has it and the labelled field otherwise.
 
-`showSteamModal(ui, {title, className, render, onCancel})` opens a Steam modal around a body
+`showSteamModal(ui, {title, className, wide, render, onCancel})` opens a Steam modal around a body
 `render(close)` draws, calling `onCancel` when the user dismisses it; it answers false on a client
-with no modal manager. `resolveSteamPanelComponents(runtime)` answers Valve's `PanelSection` and
+with no modal manager. Optional `wide: true` requests Steam's native full-size modal through
+`bAllowFullSize`; omitting it preserves the normal modal size.
+`resolveSteamPanelComponents(runtime)` answers Valve's `PanelSection` and
 `PanelSectionRow`, the pieces every Quick Access tab is built from, for the Quick Access row host
 and the Extensions tab alike. `SteamGamepadButton` names the button codes a Focusable's
 `onButtonDown` reports, and `onSteamTriggers(step)` turns LT and RT into a step of -1 and +1 and
 stops a trigger it handled, so the same press does not also scroll the page.
 
-`showSteamFilePicker(ui, {title, mode, extensions, start})` opens a folder or file picker as a Steam
-modal and resolves with the chosen path, or null when cancelled or when the modal goes away any
-other way; it settles once. A opens a folder or chooses a file, X uses the current folder, Y goes up
-a level and B cancels. A listing that answers after a later one was asked for is dropped, and the
-drive list opens the start folder only while nothing else was asked for, so the folder on screen is
-always the one "Use this folder" accepts. It lists through the `steam-ui.file-picker` commands;
+`showSteamFilePicker(ui, {title, mode, extensions, start, signal})` opens a folder or file picker as
+a Steam modal and resolves with the chosen path, or null when cancelled, aborted or closed any other
+way; it settles once. `runSteamFilePicker` takes the same options and resolves with the outcome
+instead: `{outcome: "selected", path, folder}`, `{outcome: "cancelled"}` or
+`{outcome: "failed", reason}`. `mode` is `file`, `folder` or `any`; `extensions` carry their dot and
+an empty list offers every file type; `start` is a preference that falls back to the first drive;
+aborting `signal` closes the picker. A opens a folder or chooses a file, X uses the current folder,
+Y goes up a level, LT/RT turn pages and B cancels. A choice is sent to the host's `resolve` first and
+returned only as the host answers it, so a file deleted or a card pulled after the listing shows a
+reason instead of a stale path. A listing that answers after a later one was asked for is dropped and
+the listing it superseded is cancelled at the host, so the folder on screen is always the one asked
+for last. A folder with more rows than `SteamFilePickerPageSize` is drawn in pages that reach every
+row; the host answers the folder whole and the bridge delivers it in parts. A listing error lists the
+places again, so a removed drive leaves them. It lists through the `steam-ui.file-picker` commands;
 register `SteamFilePickerSurface.Module(enabled)` to answer them. The module has no patch and
-publishes nothing. Both commands run on a worker, so a drive that stops answering never holds the
-bridge; a request the page's timeout cancelled returns without an answer. It lists names only, skips
-hidden and system entries, never opens a file, and answers a folder's whole listing. A `\\?\` path
-is listed in its ordinary form, and Downloads is the user's known folder, wherever it was
-redirected.
+publishes nothing. The commands run on a worker, so a drive that stops answering never holds the
+bridge; a request the page cancelled returns without an answer. It lists names only, skips hidden and
+system entries, marks junctions and symbolic links, never opens a file, and refuses a relative path
+or a device path (`\\.\`, `GLOBALROOT`, a volume GUID, `CON`) before anything is opened. A `\\?\`
+path is listed in its ordinary form, and the user folders are Windows' known folders, wherever they
+were redirected. [file-picker.md](file-picker.md) has the contract and the audit behind it.
 
 The capsule, the checkbox and the picker were mapped from the installed client offline on
 2026-09-27; the capsule and the checkbox have had a live pass in a host's import page since.
@@ -1474,7 +1486,8 @@ adjacent spans are not a multi-column button layout.
 File pickers size against their modal parent, never a viewport-derived minimum width. Their rail and
 file list scroll independently; actions remain outside the scroll region. A file picker with no
 extension filter sends `.*`, the one explicit all-files filter. An empty extension list still means
-folders only to `SteamFilePickerSurface.ListFolder`. Other wildcard patterns are rejected.
+folders only to `SteamFilePickerSurface.ListFolder` and `Resolve`. Other wildcard patterns are
+rejected.
 
 `ui-kit.ts` is what a host draws around Steam's fields: the elements Steam ships none of, drawn once
 from plain elements and one stylesheet in the vocabulary of Steam's own panels, so a host's page and

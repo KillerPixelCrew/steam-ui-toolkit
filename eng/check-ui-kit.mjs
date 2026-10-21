@@ -57,7 +57,7 @@ const kit = instantiate(
         " renderSteamUiSwatch, renderSteamUiCard, renderSteamUiGrid, renderSteamUiEmpty, renderSteamUiBanner," +
         " renderSteamUiToolbar, renderSteamUiTool, renderSteamUiChips, renderSteamUiBox, renderSteamUiGallery, renderSteamUiVideo," +
         " renderSteamUiTabbedPage, renderSteamUiDetail, SteamUiTabbedPageRequired," +
-        " renderSteamUiChoice, renderSteamUiSelectRow, showSteamUiConfirm, showSteamUiPrompt, SteamUiKitStyles})",
+        " renderSteamUiChoice, renderSteamUiSelectRow, showSteamUiConfirm, showSteamUiPrompt, showSteamModal, SteamUiKitStyles})",
 );
 
 // The stylesheet is one element a root renders, and every class an element uses has a rule.
@@ -89,12 +89,36 @@ for (const cls of [
     "page-banner",
     "modal-body",
     "more",
+    "picker",
+    "picker-title",
+    "picker-body",
+    "picker-places",
+    "picker-files",
+    "picker-path",
+    "picker-count",
+    "picker-actions",
 ]) {
     assert.ok(
         kit.SteamUiKitStyles.includes(`.steam-ui-kit-${cls}`),
         `a rule for steam-ui-kit-${cls}`,
     );
 }
+
+// The picker sits in a Steam dialog allowed its full size, which sizes itself to its content. So
+// the picker names its width as a length, not as a share of that parent, and a dialog that stays
+// narrow (a client without the full-size prop, a small viewport) clamps it through max-width. Its
+// panes keep a floor each and scroll on their own, and the kit styles none of Steam's dialog frame.
+const pickerRule = kit.SteamUiKitStyles.match(/\.steam-ui-kit-picker\{([^}]*)\}/u)?.[1] ?? "";
+assert.match(pickerRule, /(?:^|;)width:\d+px(?:;|$)/u, "the picker asks for a fixed width");
+assert.match(pickerRule, /(?:^|;)max-width:100%(?:;|$)/u, "a narrower dialog clamps the picker");
+assert.match(pickerRule, /(?:^|;)min-width:0(?:;|$)/u, "the picker can shrink to a narrow dialog");
+const pickerBody = kit.SteamUiKitStyles.match(/\.steam-ui-kit-picker-body\{([^}]*)\}/u)?.[1] ?? "";
+assert.match(pickerBody, /grid-template-columns:minmax\(\d+px,1fr\) minmax\(0,2fr\)/u, "two columns, the places with a floor");
+assert.match(pickerBody, /(?:^|;)height:clamp\([^)]*vh[^)]*\)(?:;|$)/u, "the panes take a height bounded by the viewport");
+const pickerPanes = kit.SteamUiKitStyles.match(/\.steam-ui-kit-picker-places,\.steam-ui-kit-picker-files\{([^}]*)\}/u)?.[1] ?? "";
+assert.match(pickerPanes, /(?:^|;)overflow-y:auto(?:;|$)/u, "each pane scrolls on its own");
+assert.match(pickerPanes, /(?:^|;)overflow-x:hidden(?:;|$)/u, "a long name never scrolls a pane sideways");
+assert.doesNotMatch(kit.SteamUiKitStyles, /ModalPosition|DialogContent|GenericDialog|FullModalOverlay/u, "the kit leaves Steam's dialog frame alone");
 
 // The beta slider keeps 24px notch containers and a 100px track minimum. A shrink rule on
 // every descendant div erased both, spreading zero-width ticks past the track's endpoints.
@@ -461,6 +485,12 @@ const renderModal = (modal) => {
     assert.equal(frame.type, Modal, "the body sits in Steam's dialog");
     return frame.props.children[0];
 };
+hooks.index = 0;
+assert.equal(
+    "bAllowFullSize" in shown[0].type({ closeModal: () => {} }).props,
+    false,
+    "a confirm is Steam's ordinary dialog size",
+);
 let body = renderModal(shown[0]);
 const [cancel, ok] = body.props.children[1].props.children;
 cancel.props.onClick();
@@ -486,6 +516,27 @@ promptBody = prompt.type(prompt.props);
 promptBody.props.children[2].props.children[1].props.onClick();
 assert.deepEqual(answers, ["Night"], "the answer is sent trimmed");
 
+// A body that asks to be wide gets Steam's own full-size dialog, through the prop the dialog's
+// author named; the rest of the frame (cancel, close, title) is the same, and nothing else changes
+// for a dialog that did not ask.
+let wideCancelled = 0;
+assert.equal(kit.showSteamModal(ui, { title: "Wide", wide: true, render: () => null, onCancel: () => wideCancelled++ }), true);
+hooks.index = 0;
+const wideFrame = shown[2].type({ closeModal: () => closed++ });
+assert.equal(wideFrame.type, Modal, "a wide body still sits in Steam's dialog");
+assert.equal(wideFrame.props.bAllowFullSize, true, "a wide body asks Steam's dialog for its full size");
+assert.equal(wideFrame.props.strTitle, "Wide");
+wideFrame.props.onCancel();
+assert.equal(wideCancelled, 1, "cancelling a wide dialog still reaches the body's onCancel");
+assert.equal(kit.showSteamModal(ui, { title: "Plain", render: () => null }), true);
+hooks.index = 0;
+assert.equal(
+    "bAllowFullSize" in shown[3].type({ closeModal: () => {} }).props,
+    false,
+    "a body that did not ask stays Steam's ordinary size",
+);
+assert.equal(kit.showSteamModal({ react }, { wide: true, render: () => null }), false, "no modal manager, no dialog, wide or not");
+
 console.log(
-    "UI kit: stylesheet, header, actions, card, banner, toolbar, chips, gallery, confirm and prompt passed.",
+    "UI kit: stylesheet, header, actions, card, banner, toolbar, chips, gallery, confirm, prompt and the wide dialog passed.",
 );

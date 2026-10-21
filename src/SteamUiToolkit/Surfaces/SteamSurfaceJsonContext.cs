@@ -49,6 +49,7 @@ namespace SteamUiToolkit;
 [JsonSerializable(typeof(SteamScreensaverState))]
 [JsonSerializable(typeof(SteamFilePlaces))]
 [JsonSerializable(typeof(SteamFileListing))]
+[JsonSerializable(typeof(SteamFileSelection))]
 [JsonSerializable(typeof(IReadOnlyList<SteamSettingsPage>))]
 [JsonSerializable(typeof(IReadOnlyList<string>))]
 internal sealed partial class SteamSurfaceJsonContext : JsonSerializerContext;

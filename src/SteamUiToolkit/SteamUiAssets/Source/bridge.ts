@@ -90,11 +90,13 @@
      * @param command Allowlisted command name.
      * @param payload JSON-serializable payload; undefined becomes null.
      * @param requestedGeneration Optional positive action generation; otherwise a new one is allocated.
-     * @returns A promise for the backend payload; rejects on refusal, overload, timeout, disposal or send failure.
+     * @param signal Optional AbortSignal; aborting sends the host a cancel for this request and rejects locally.
+     * @returns A promise for the backend payload; rejects on refusal, overload, timeout, abort, disposal or send failure.
      */
-    const request = (patchId, command, payload, requestedGeneration?: number) => {
+    const request = (patchId, command, payload, requestedGeneration?: number, signal?: AbortSignal) => {
         if (!allowed(patchId, command)) return Promise.reject(new Error("command not allowlisted"));
         if (pending.size >= config.maximumPending) return Promise.reject(new Error("bridge busy"));
+        if (signal?.aborted) return Promise.reject(new Error("Steam UI bridge request cancelled"));
         const actionGeneration = validActionGeneration(patchId, requestedGeneration);
         const sequence = ++nextSequence;
         const envelope = {
@@ -109,20 +111,28 @@
             payload: payload ?? null,
         };
         return new Promise((resolve, reject) => {
-            const timer = setTimeout(() => {
-                pending.delete(sequence);
+            // The page gave up on the request, by its timeout or by the caller's signal: the host is
+            // told so its worker stops, and whatever it answers afterwards finds no pending entry.
+            const giveUp = (reason: string) => {
+                if (!pending.delete(sequence)) return;
+                clearTimeout(timer);
+                signal?.removeEventListener("abort", onAbort);
                 try {
                     send({...envelope, type: "cancel"});
                 } catch {
                 }
-                reject(new Error("Steam UI bridge request timed out"));
-            }, config.timeoutMilliseconds);
-            pending.set(sequence, {resolve, reject, timer, patchId, command});
+                reject(new Error(reason));
+            };
+            const onAbort = () => giveUp("Steam UI bridge request cancelled");
+            const timer = setTimeout(() => giveUp("Steam UI bridge request timed out"), config.timeoutMilliseconds);
+            pending.set(sequence, {resolve, reject, timer, patchId, command, onAbort, signal});
+            signal?.addEventListener("abort", onAbort, {once: true});
             try {
                 send(envelope);
             } catch (error) {
                 clearTimeout(timer);
                 pending.delete(sequence);
+                signal?.removeEventListener("abort", onAbort);
                 reject(error);
             }
         });
@@ -196,6 +206,7 @@
             if (!item || item.patchId !== envelope.patchId || item.command !== envelope.command)
                 return false;
             clearTimeout(item.timer);
+            item.signal?.removeEventListener("abort", item.onAbort);
             pending.delete(envelope.sequence);
             if (envelope.ok) item.resolve(envelope.payload);
             else item.reject(new Error(String(envelope.error || "command rejected")));
@@ -290,6 +301,7 @@
         gates.clear();
         for (const item of pending.values()) {
             clearTimeout(item.timer);
+            item.signal?.removeEventListener("abort", item.onAbort);
             item.reject(new Error(reason || "Steam UI bridge disposed"));
         }
         pending.clear();
