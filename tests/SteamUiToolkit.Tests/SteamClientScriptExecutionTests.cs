@@ -56,7 +56,8 @@ public sealed class SteamClientScriptExecutionTests
                 };
                 const SteamClient={Apps},window={SteamClient,collectionStore:{allAppsCollection:{allApps:[app,app]}},
                   App:{m_CurrentUser:{strSteamID:'76561197960265770'}},
-                  appStore:{GetAppOverviewByAppID:id=>id===test.appId?app:null,GetIconURLForApp:()=>"https://fixture/icon's.png"},
+                  appStore:{m_bIsInitialized:true,allApps:[app,app],
+                    GetAppOverviewByAppID:id=>id===test.appId?app:null,GetIconURLForApp:()=>"https://fixture/icon's.png"},
                   appDetailsStore:{SaveCustomLogoPosition:async(a,value)=>{assert.equal(a,app);logo=value},
                     GetCustomLogoPosition:a=>{assert.equal(a,app);return logo},
                     ClearCustomLogoPosition:async a=>{assert.equal(a,app);logo=null}}};
@@ -99,7 +100,18 @@ public sealed class SteamClientScriptExecutionTests
                 assert.equal(unregistered,2);
                 detailMode='timeout';assert.equal((await run('details')).ok,false);assert.equal(unregistered,3);
                 detailMode='throws';assert.equal((await run('shortcuts')).ok,false);
-                delete window.collectionStore;assert.equal((await run('shortcuts')).ok,false);
+                detailMode='ready';
+                delete window.collectionStore;assert.equal((await run('shortcuts')).ok,true);
+                const library=window.appStore.allApps;
+                window.appStore.m_bIsInitialized=false;
+                Object.defineProperty(window.appStore,'allApps',{configurable:true,get(){throw Error('incomplete store read')}});
+                assert.equal((await run('shortcuts')).ok,false);
+                Object.defineProperty(window.appStore,'allApps',{configurable:true,writable:true,value:[]});
+                assert.equal((await run('shortcuts')).ok,false);
+                window.appStore.m_bIsInitialized=true;
+                assert.deepEqual((await run('shortcuts')).shortcuts,[]);
+                window.appStore.allApps=undefined;assert.equal((await run('shortcuts')).ok,false);
+                window.appStore.allApps=library;
                 delete window.App;assert.equal((await run('account')).ok,false);
                 delete window.appStore;assert.equal((await run('officialIcon')).ok,false);
                 assert.equal((await run('saveLogo')).ok,false);
@@ -134,7 +146,7 @@ public sealed class SteamClientScriptExecutionTests
                       if(field==='display_name')app[field]=text;else detail[field]=text;};
                   if(mode==='unsupported')delete Apps.AddShortcut;
                   const window={collectionStore:mode==='unloaded'?{}:{allAppsCollection:{allApps:all}},
-                    appStore:{GetAppOverviewByAppID:()=>app}};
+                    appStore:{m_bIsInitialized:mode!=='unloaded',allApps:all,GetAppOverviewByAppID:()=>app}};
                   const result=JSON.parse(await vm.runInNewContext(test.expression,{window,SteamClient:{Apps},queueMicrotask,
                     clearTimeout(){},setTimeout:()=>1}));
                   if(['confirmed','no-id'].includes(mode)){

@@ -1475,6 +1475,16 @@ export by shape; it does not sweep the registry or invoke unknown exports.
 
 ### The UI kit
 
+Full-page manager workflows opt into `renderSteamUiHeader(ui, {title, detail, page:true})` for a
+readable page title and wrapping description. Section and QAM headers keep their existing
+appearance. `renderSteamUiPane` and `renderSteamUiLevel` accept `bounded:true` for a centered 960px
+content column with responsive side padding; focus acquisition and nested Back are unchanged.
+`renderSteamUiActions(ui, actions, {compact:true})` draws content-sized buttons in a wrapping
+toolbar rather than expanding long labels into full-width rows. The default action grid remains
+unchanged. `showSteamModal(ui, {wide:true, ...})` marks only that dialog with
+`steam-ui-kit-modal-wide`, carries its stylesheet into the modal document and requests a width
+capped at 1000px and the viewport minus 64px. Other Steam dialogs retain their native sizing.
+
 `renderSteamUiChoice(ui, {label, showLabel, rgOptions, selectedOption, disabled, onChange})`
 contains Steam's bare dropdown in narrow columns, with a below-layout full-field fallback. Use
 `showLabel:false` when a table already names the row; the accessible label remains. The shared
@@ -1934,6 +1944,10 @@ it is passed and call the entry after its executable. The fields are read back u
 two seconds pass, and `Mismatch` names any that Steam still holds differently. Each setter is
 guarded by its own `typeof` check, as `AddShortcut` itself is: a missing export is reported as a
 refusal, never assumed present.
+
+`ListShortcutsAsync` requires the app store's complete overview update, then reads its full app list
+without collection visibility or family-sharing filters. An uninitialized store is a failed read,
+including when its current app list is empty.
 
 `ListShortcutsAsync` reads every shortcut in the library with its Target, start directory and
 arguments in one evaluation, in batches of 32 detail reads. It is all or nothing: a shortcut whose

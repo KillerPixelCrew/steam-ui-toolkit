@@ -286,6 +286,8 @@ public sealed class SteamApps
     ///     appearing with empty fields: a caller comparing what it wrote against what Steam holds would
     ///     read an empty Target as somebody else's entry. An empty list means the library has none; it
     ///     never stands in for a read that failed.
+    ///     The app store must have received its complete overview update; collection visibility and
+    ///     family-sharing filters do not limit the shortcut list.
     /// </remarks>
     public async Task<SteamReadResult<IReadOnlyList<SteamShortcut>>> ListShortcutsAsync(
         CancellationToken cancellationToken = default)

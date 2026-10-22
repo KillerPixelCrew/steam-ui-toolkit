@@ -4,6 +4,11 @@
 const SteamUiKitStyles = `
 .steam-ui-kit-page{margin-top:var(--basicui-header-height,40px);height:calc(100% - var(--basicui-header-height,40px));display:flex;flex-direction:column;background:var(--gpSystemDarkestGrey,#0e141b);color:#dcdedf}
 .steam-ui-kit-pane{display:flex;flex-direction:column;gap:14px;padding:12px 4px 72px}
+.steam-ui-kit-content{display:flex;flex-direction:column;gap:20px;width:min(100%,960px);max-width:100%;min-width:0;box-sizing:border-box;margin-inline:auto;padding:24px clamp(20px,4vw,48px) 72px}
+.steam-ui-kit-content>*{min-width:0;flex-shrink:0}
+.steam-ui-kit-content .steam-ui-kit-toolbar{flex-wrap:wrap}
+/* Valve's dropdown uses two fixed-width wrappers; constrain the whole field inside narrow QAM groups. */
+.steam-ui-kit-group .DialogButton[role="combobox"],.steam-ui-kit-group div:has(>.DialogButton[role="combobox"]),.steam-ui-kit-group div:has(>div>.DialogButton[role="combobox"]){min-width:0!important;max-width:100%!important;box-sizing:border-box}
 .steam-ui-kit-sheet{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0;max-height:min(70vh,calc(100vh - 160px));overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-gutter:stable}
 .steam-ui-kit-sheet>*{min-width:0;max-width:100%;box-sizing:border-box;flex-shrink:0}
 .steam-ui-kit-sheet .DialogInput,.steam-ui-kit-sheet .DialogInputWrapper,.steam-ui-kit-sheet .DialogButton{min-width:0;max-width:100%;box-sizing:border-box}
@@ -17,6 +22,7 @@ const SteamUiKitStyles = `
 .steam-ui-kit-detail{display:flex;gap:32px;padding:12px 4px 72px}
 .steam-ui-kit-detail-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:10px}
 .steam-ui-kit-detail-aside{width:300px;flex:0 0 auto;display:flex;flex-direction:column;gap:14px}
+@media(max-width:760px){.steam-ui-kit-detail{flex-direction:column;gap:20px}.steam-ui-kit-detail-aside{width:100%;flex:0 0 auto}}
 .steam-ui-kit-detail-heading{display:flex;align-items:baseline;gap:12px}
 .steam-ui-kit-detail-heading h2{margin:0;font-size:30px;font-weight:700;color:#fff}
 .steam-ui-kit-detail-heading span{font-size:16px;font-weight:700;color:#fff}
@@ -32,6 +38,9 @@ const SteamUiKitStyles = `
 .steam-ui-kit-header.sub .steam-ui-kit-header-title{font-size:13px;font-weight:600;letter-spacing:0;text-transform:none;color:rgba(255,255,255,.75)}
 .steam-ui-kit-header.sub.open .steam-ui-kit-header-title{color:#fff}
 .steam-ui-kit-header-detail{font-size:12px;color:rgba(255,255,255,.55);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.steam-ui-kit-header.page{padding:0 0 4px;margin:0}
+.steam-ui-kit-header.page .steam-ui-kit-header-title{margin:0;font-size:28px;line-height:1.2;font-weight:700;letter-spacing:0;text-transform:none;white-space:normal;overflow-wrap:anywhere}
+.steam-ui-kit-header.page .steam-ui-kit-header-detail{margin-top:8px;font-size:14px;line-height:1.5;white-space:normal;overflow-wrap:anywhere}
 .steam-ui-kit-header-caret{flex:0 0 auto;color:rgba(255,255,255,.7);display:flex}
 .steam-ui-kit-group,.steam-ui-kit-blocks > div:not(:empty),.steam-ui-kit-valve > div:not(:empty){border-radius:4px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);padding:4px 12px 8px!important;margin:0 0 10px!important;box-sizing:border-box}
 .steam-ui-kit-group.plain{padding:8px 12px!important}
@@ -57,6 +66,8 @@ const SteamUiKitStyles = `
 .steam-ui-kit-actions button.DialogButton{display:block!important;width:auto!important;min-width:0!important;height:36px!important;line-height:36px!important;padding:0 10px!important;box-sizing:border-box!important;font-size:13px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .steam-ui-kit-actions button.DialogButton:last-child:nth-child(odd){grid-column:1 / -1}
 .steam-ui-kit-actions .DialogButton.steam-ui-kit-wide{grid-column:1 / -1}
+.steam-ui-kit-actions.compact{display:flex;flex-wrap:wrap;gap:8px}
+.steam-ui-kit-actions.compact button.DialogButton{flex:0 1 auto;max-width:100%;min-height:36px;height:auto!important;line-height:1.4!important;padding:8px 18px!important;white-space:normal;overflow-wrap:anywhere}
 .steam-ui-kit-nested{margin-left:2px;padding-left:12px;border-left:2px solid rgba(255,255,255,.12);box-sizing:border-box}
 .steam-ui-kit-nested .DialogToggle_Label{font-size:14px}
 .steam-ui-kit-nested .DialogToggle_Description{font-size:12px}
@@ -131,7 +142,9 @@ const SteamUiKitStyles = `
 .steam-ui-kit-hero.video img{object-fit:contain}
 .steam-ui-kit-modal-body{display:flex;flex-direction:column;gap:12px}
 .steam-ui-kit-modal-body p{margin:0}
+.steam-ui-kit-modal-title{margin:0 0 12px;font-size:24px;line-height:1.25;color:#fff}
 .steam-ui-kit-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
+.steam-ui-kit-modal-wide{width:min(1000px,calc(100vw - 64px))!important;max-width:calc(100vw - 64px)!important;min-width:0!important;box-sizing:border-box;padding:clamp(16px,3vw,32px)!important}
 `;
 
 // One stylesheet element and one icon renderer per React, so a root re-rendering on every host
@@ -235,7 +248,7 @@ const renderSteamUiSelectRow = (
 /**
  * Creates a section heading with optional controller-accessible folding.
  * @param ui Steam's resolved React and native control components.
- * @param props Title, optional icon/detail, fold state and toggle callback; sub selects nested styling.
+ * @param props Title, optional icon/detail, fold state and toggle callback; sub selects nested styling and page selects a full-page heading.
  * @returns A heading element; without onToggle it is not a focusable fold control.
  */
 const renderSteamUiHeader = (
@@ -247,6 +260,7 @@ const renderSteamUiHeader = (
         collapsed?: boolean;
         onToggle?: () => void;
         sub?: boolean;
+        page?: boolean;
     },
 ) => {
     const h = ui.react.createElement;
@@ -258,7 +272,7 @@ const renderSteamUiHeader = (
         h(
             "div",
             { className: "steam-ui-kit-header-text" },
-            h("div", { className: "steam-ui-kit-header-title" }, props.title),
+            h(props.page ? "h1" : "div", { className: "steam-ui-kit-header-title" }, props.title),
             props.detail
                 ? h("div", { className: "steam-ui-kit-header-detail" }, props.detail)
                 : null,
@@ -271,7 +285,7 @@ const renderSteamUiHeader = (
               )
             : null,
     ].filter((child) => child !== null);
-    const className = `steam-ui-kit-header${collapsed ? "" : " open"}${folds ? "" : " plain"}${props.sub ? " sub" : ""}`;
+    const className = `steam-ui-kit-header${collapsed ? "" : " open"}${folds ? "" : " plain"}${props.sub ? " sub" : ""}${props.page ? " page" : ""}`;
     return folds
         ? h(
               ui.focusable ?? "div",
@@ -342,7 +356,8 @@ const renderSteamUiGroup = (
  * Creates a controller-navigable grid of native action buttons.
  * @param ui Steam's resolved React and native control components.
  * @param actions Stable ids, visible labels and activation callbacks in display order.
- * @returns A two-column grid; long labels span both columns.
+ * @param options Compact selects a wrapping toolbar of content-sized buttons instead of a grid.
+ * @returns A two-column grid or compact toolbar of native buttons.
  */
 const renderSteamUiActions = (
     ui,
@@ -353,17 +368,18 @@ const renderSteamUiActions = (
         primary?: boolean;
         disabled?: boolean;
     }[],
+    options: { compact?: boolean } = {},
 ) => {
     const h = ui.react.createElement;
     return h(
         ui.focusable,
-        { "flow-children": "row", className: "steam-ui-kit-actions" },
+        { "flow-children": "row", className: `steam-ui-kit-actions${options.compact ? " compact" : ""}` },
         ...actions.map((action) =>
             h(
                 action.primary ? (ui.dialogButtonPrimary ?? ui.dialogButton) : ui.dialogButton,
                 {
                     key: action.id,
-                    className: action.label.length > 18 ? "steam-ui-kit-wide" : undefined,
+                    className: !options.compact && action.label.length > 18 ? "steam-ui-kit-wide" : undefined,
                     onClick: action.onClick,
                     disabled: !!action.disabled,
                 },
@@ -491,13 +507,13 @@ const renderSteamUiMore = (
 /**
  * Creates a page column that acquires controller focus when mounted.
  * @param ui Steam's resolved React and native control components.
- * @param props Optional React key and additional class name.
+ * @param props Optional React key, additional class name and bounded full-page content layout.
  * @param children Toolbar, list or other page content in navigation order.
  * @returns The focusable pane, or a plain container when Focusable is unavailable.
  */
-const renderSteamUiPane = (ui, props: { key?: string; className?: string }, ...children) => {
+const renderSteamUiPane = (ui, props: { key?: string; className?: string; bounded?: boolean }, ...children) => {
     const h = ui.react.createElement;
-    const className = ["steam-ui-kit-pane", props.className].filter(Boolean).join(" ");
+    const className = ["steam-ui-kit-pane", props.bounded ? "steam-ui-kit-content" : "", props.className].filter(Boolean).join(" ");
     return ui.focusable
         ? h(
               ui.focusable,
@@ -510,15 +526,15 @@ const renderSteamUiPane = (ui, props: { key?: string; className?: string }, ...c
 /**
  * Creates a nested page level that handles Back before Steam leaves the route.
  * @param ui Steam's resolved React and native control components.
- * @param props Optional class and callback returning to the previous level.
+ * @param props Optional class, bounded full-page content layout and callback returning to the previous level.
  * @param children Content of the nested level.
  * @returns A focusable level with initial focus and the supplied Back action.
  */
-const renderSteamUiLevel = (ui, props: { className?: string; onBack?: () => void }, ...children) =>
+const renderSteamUiLevel = (ui, props: { className?: string; bounded?: boolean; onBack?: () => void }, ...children) =>
     ui.react.createElement(
         ui.focusable,
         {
-            className: props.className,
+            className: [props.bounded ? "steam-ui-kit-content" : "", props.className].filter(Boolean).join(" ") || undefined,
             autoFocus: true,
             onCancelButton: props.onBack,
             onCancelActionDescription: "Back",
@@ -896,13 +912,14 @@ const renderSteamUiDetail = (
         ui.focusable,
         {
             className: "steam-ui-kit-detail",
+            "flow-children": "grid",
             autoFocus: true,
             onCancelButton: props.onBack,
             onCancelActionDescription: "Back",
         },
         h(
-            "div",
-            { className: "steam-ui-kit-detail-main" },
+            ui.focusable,
+            { className: "steam-ui-kit-detail-main", "flow-children": "column" },
             props.media ?? null,
             h(
                 "div",
@@ -913,8 +930,8 @@ const renderSteamUiDetail = (
             ...props.main,
         ),
         h(
-            "div",
-            { className: "steam-ui-kit-detail-aside" },
+            ui.focusable,
+            { className: "steam-ui-kit-detail-aside", "flow-children": "column" },
             ...props.aside,
             h(ui.dialogButton, { onClick: props.onBack }, "Back"),
         ),
@@ -939,6 +956,7 @@ const showSteamUiConfirm = (
             h(
                 "div",
                 { className: "steam-ui-kit-modal-body" },
+                h("h2", { className: "steam-ui-kit-modal-title" }, props.title),
                 h("p", null, props.text),
                 h(
                     ui.focusable,
@@ -969,6 +987,7 @@ function SteamUiPromptBody(props: any) {
     return h(
         "div",
         { className: "steam-ui-kit-modal-body" },
+        h("h2", { className: "steam-ui-kit-modal-title" }, props.title),
         props.text ? h("p", null, props.text) : null,
         h(ui.textField, {
             label: props.label,

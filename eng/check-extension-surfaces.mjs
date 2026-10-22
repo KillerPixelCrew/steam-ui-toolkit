@@ -117,6 +117,7 @@ const jsx = {
     jsxs: (type, props) => element(type, props),
 };
 const originalJsx = jsx.jsx;
+const originalReactCreate = react.createElement;
 let nativeAvailable = true;
 const modules = {
     react: {
@@ -189,13 +190,21 @@ const code =
     ) +
     gateSource(asset, "gates/extensions-tab.ts") +
     gateSource(asset, "gates/game-context-menu.ts");
-const { extensions, menu, createMenu, createExtensions, unclaimedValue, pluginFrontendSlots } =
-    instantiate(
-        globals,
-        code,
-        "({extensions:createExtensionsTab(),menu:createGameContextMenu()," +
-            "createMenu:createGameContextMenu,createExtensions:createExtensionsTab,unclaimedValue,pluginFrontendSlots})",
-    );
+const {
+    extensions,
+    menu,
+    createMenu,
+    createExtensions,
+    unclaimedValue,
+    pluginFrontendSlots,
+    registerMenuRenderer,
+} = instantiate(
+    globals,
+    code,
+    "({extensions:createExtensionsTab(),menu:createGameContextMenu()," +
+        "createMenu:createGameContextMenu,createExtensions:createExtensionsTab,unclaimedValue,pluginFrontendSlots," +
+        "registerMenuRenderer:registerSteamGameContextMenuRenderer})",
+);
 assert.equal(extensions.install().ok, true);
 assert.equal(memo.type.__steamUiExtensionsTabOriginal.kind, "steam-ui-property-snapshot-v1");
 assert.equal(memo.type.__steamUiExtensionsTabOriginal.value, originalRoot);
@@ -706,7 +715,14 @@ class GameMenu {
     GetTargetApps() {
         return this.targetApps;
     }
-    BuildManageSubmenu() {}
+    BuildManageSubmenu() {
+        return element("native-submenu", {
+            label: "Manage",
+            children: [
+                this.primaryAvailable ? element("item", { onSelected: () => "Hide" }) : null,
+            ],
+        });
+    }
     GetCollectionManagementActions() {
         return {
             rgCanAdd: this.primaryAvailable
@@ -720,6 +736,7 @@ class GameMenu {
     }
     render() {
         const collections = this.GetCollectionManagementActions();
+        this.BuildManageSubmenu();
         return element("menu", {
             children: [
                 !this.props.omitPrimaryAction && this.GetPrimaryActionMenuItem(),
@@ -757,6 +774,12 @@ GameMenu.prototype.render = function () {
     return this.render();
 };
 const originalRender = GameMenu.prototype.render;
+// An observer may expose render through an accessor. Looking only for a
+// value descriptor silently misses the entire menu even though all native methods are present.
+Object.defineProperty(GameMenu.prototype, "render", {
+    configurable: true,
+    get: () => originalRender,
+});
 assert.equal(menu.install().ok, true);
 assert.equal(
     runtime.findUnique(["GetTargetApps", "BuildManageSubmenu", "GetPrimaryActionMenuItem"]),
@@ -770,7 +793,7 @@ assert.equal(
 subscriptions.get("steam-ui.game-context-menu")({ items: [{ id: "art", label: "Artwork" }] });
 const nativeAction = element("item", { children: "Native action", onSelected: () => {} });
 const refCalls = [];
-const menuElement = jsx.jsx(GameMenu, {
+const menuElement = react.createElement(GameMenu, {
     omitPrimaryAction: true,
     additionalActions: nativeAction,
     ref: (instance) => refCalls.push(instance),
@@ -848,6 +871,30 @@ assert.equal(
 );
 subscriptions.get("steam-ui.game-context-menu")({ items: [{ id: "art", label: "New artwork" }] });
 assert.equal(laterActions.type(laterActions.props)[0].props.children[0], "New artwork");
+registerNativeSubmenuCheck();
+function registerNativeSubmenuCheck() {
+    // The trusted renderer receives Valve's actual submenu/item types and selected identity.
+    let captured;
+    registerMenuRenderer("test-native-submenu", (context) => {
+        captured = context;
+        return context.react.createElement(
+            context.submenuType,
+            { label: context.label },
+            context.react.createElement(context.itemType, { onSelected: () => {} }, "Child"),
+        );
+    });
+    subscriptions.get("steam-ui.game-context-menu")({
+        items: [{ id: "launch", label: "Launch Actions", template: "test-native-submenu" }],
+    });
+    const nested = laterActions.type(laterActions.props)[0];
+    assert.equal(nested.type, "native-submenu");
+    assert.equal(nested.props.label, "Launch Actions");
+    assert.equal(captured.appId, 42);
+    assert.equal(captured.currentAppId(), 42);
+    subscriptions.get("steam-ui.game-context-menu")({
+        items: [{ id: "art", label: "New artwork" }],
+    });
+}
 instance.targetApps = [{ appid: 42 }, { appid: 43 }];
 assert.equal(
     laterActions.type(laterActions.props),
@@ -909,6 +956,7 @@ assert.equal(
     "capture never replaces an instance method",
 );
 assert.equal(jsx.jsx, originalJsx);
+assert.equal(react.createElement, originalReactCreate, "the native React constructor is restored");
 assert.equal(
     replacementActions.type(replacementActions.props),
     null,

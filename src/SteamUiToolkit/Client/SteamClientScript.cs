@@ -99,13 +99,15 @@ internal static class SteamClientScript
     ///     client's library, or null when the library is not loaded.
     /// </summary>
     /// <remarks>
-    ///     Read from the all-apps collection, because the games collection leaves shortcuts out. An app
+    ///     Read the app store only after its complete overview update. Collections depend on other
+    ///     stores during startup and can filter the library by visibility or family sharing. An app
     ///     that cannot say whether it is a shortcut is judged by its id, which Steam generates in the top
     ///     half of the unsigned range for every shortcut.
     /// </remarks>
     internal const string ShortcutIdsFunction =
-        "const shortcutApps=()=>{const ac=window.collectionStore?.allAppsCollection;" +
-        "const all=ac&&(ac.allApps||ac.visibleApps);if(!all)return null;" +
+        "const shortcutApps=()=>{const store=window.appStore;" +
+        "if(store?.m_bIsInitialized!==true)return null;" +
+        "const all=store.allApps;if(!Array.isArray(all))return null;" +
         "const out=[];const seen=new Set();" +
         "for(const a of all){const id=a.appid>>>0;" +
         "const sc=typeof a.BIsShortcut==='function'?!!a.BIsShortcut():id>=2147483648;" +

@@ -3,6 +3,13 @@
  * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
  */
 
+// Trusted host renderers receive only the native types observed on this exact menu.
+const steamGameContextMenuRenderers = new Map<string, (context: any) => unknown>();
+const registerSteamGameContextMenuRenderer = (
+    template: string,
+    render: (context: any) => unknown,
+) => steamGameContextMenuRenderers.set(template, render);
+
 function createGameContextMenu() {
     const patchId = "steam-ui.game-context-menu";
     const actionClaimKeys = {
@@ -10,6 +17,11 @@ function createGameContextMenu() {
         original: "__steamUiGameContextMenuActionOriginal",
     } as const;
     const ActionMethod = "GetCollectionManagementActions";
+    const createClaimKeys = {
+        marker: "__steamUiGameContextMenuCreateClaimed",
+        original: "__steamUiGameContextMenuCreateOriginal",
+    } as const;
+    const ManageMethod = "BuildManageSubmenu";
     const MenuTokens = ["GetTargetApps", "BuildManageSubmenu", "GetPrimaryActionMenuItem"];
     // How deep into Steam's own menu tree the item list is looked for; it bounds the walk, not the items.
     const MaximumDepth = 10;
@@ -18,6 +30,7 @@ function createGameContextMenu() {
     let react;
     let menuComponent: any = null;
     let itemType: any = null;
+    let submenuType: any = null;
     let jsxRuntime;
     let installed = false;
     let unsubscribe: (() => void) | null = null;
@@ -78,8 +91,22 @@ function createGameContextMenu() {
         const appId = appIdFor(context.instance);
         if (appId === null) return null;
         lastOutcome = `app=${appId} commands=${desired.items.length} native-additional-actions`;
-        return desired.items.map((item) =>
-            react.createElement(
+        return desired.items.map((item) => {
+            if (item.template) {
+                const render = steamGameContextMenuRenderers.get(item.template);
+                return submenuType && render
+                    ? render({
+                          react,
+                          itemType,
+                          submenuType,
+                          appId,
+                          label: item.label,
+                          key: `steam-ui-game-context-menu-${item.id}`,
+                          currentAppId: () => appIdFor(context.instance),
+                      })
+                    : null;
+            }
+            return react.createElement(
                 itemType,
                 {
                     key: `steam-ui-game-context-menu-${item.id}`,
@@ -103,8 +130,8 @@ function createGameContextMenu() {
                     },
                 },
                 item.label,
-            ),
-        );
+            );
+        });
     }
 
     const resolve = () => {
@@ -153,12 +180,7 @@ function createGameContextMenu() {
     };
 
     const claimMenuAction = (candidate) => {
-        if (
-            !candidate ||
-            !candidate.prototype ||
-            typeof candidate.prototype.render !== "function" ||
-            menuComponent === candidate
-        ) {
+        if (!candidate || !candidate.prototype || menuComponent === candidate) {
             return;
         }
         if (menuComponent) {
@@ -178,6 +200,33 @@ function createGameContextMenu() {
             lastError = "Game context menu action claim failed: " + claim.error;
             return;
         }
+        const manageClaim = claimMember(
+            candidate.prototype,
+            ManageMethod,
+            actionClaimKeys,
+            (original: any) =>
+                function SteamUiGameContextMenuManage(this: any, ...args: any[]) {
+                    const result = original.apply(this, args);
+                    if (
+                        installed &&
+                        react.isValidElement(result) &&
+                        typeof result.props?.label === "string"
+                    ) {
+                        const found = findItemType(result);
+                        if (submenuType !== result.type || (found && itemType !== found)) {
+                            submenuType = result.type;
+                            if (found) itemType = found;
+                            notifyAfterRender();
+                        }
+                    }
+                    return result;
+                },
+        );
+        if (!manageClaim.ok) {
+            releaseMember(candidate.prototype, ActionMethod, actionClaimKeys);
+            lastError = "Game context submenu claim failed: " + manageClaim.error;
+            return;
+        }
         menuComponent = candidate;
         lastError = "";
     };
@@ -187,18 +236,24 @@ function createGameContextMenu() {
     const captureMenu = (create, candidate, props, key) => {
         if (typeof candidate !== "function") return;
         const prototype = candidate.prototype;
-        if (
-            !prototype ||
-            typeof Object.getOwnPropertyDescriptor(prototype, "render")?.value !== "function"
-        )
-            return;
-        const methods = MenuTokens.map((name) => Object.getOwnPropertyDescriptor(prototype, name));
+        if (!prototype) return;
+        // MobX may put render on an accessor or an observer superclass. Do not read it: that
+        // executes the observer getter before React supplies an instance. Match authored methods.
+        const descriptor = (name) => {
+            let owner = prototype;
+            while (owner && owner !== Object.prototype) {
+                const value = Object.getOwnPropertyDescriptor(owner, name);
+                if (value) return value;
+                owner = Object.getPrototypeOf(owner);
+            }
+        };
+        const methods = MenuTokens.map(descriptor);
         if (
             !methods.every(
                 (method) =>
                     typeof method?.value === "function" || typeof method?.get === "function",
             ) ||
-            typeof Object.getOwnPropertyDescriptor(prototype, ActionMethod)?.value !== "function"
+            typeof descriptor(ActionMethod)?.value !== "function"
         )
             return;
         if (menuComponent && candidate !== menuComponent) {
@@ -257,6 +312,37 @@ function createGameContextMenu() {
             lastError = claim.error ?? "Game context menu JSX interception failed";
             return { ok: false, error: lastError };
         }
+        // Popup hosts may construct native menu classes through React instead of JSX.
+        const createClaim = claimMember(
+            react,
+            "createElement",
+            createClaimKeys,
+            (original: any) =>
+                function SteamUiGameContextMenuCreate(type, props, ...children) {
+                    const supplied = children.length
+                        ? { ...props, children: children.length === 1 ? children[0] : children }
+                        : props;
+                    const replacement = captureMenu(
+                        (candidate, next, key) =>
+                            original.call(
+                                react,
+                                candidate,
+                                key === undefined ? next : { ...next, key },
+                            ),
+                        type,
+                        supplied,
+                        props?.key,
+                    );
+                    return replacement === undefined
+                        ? original.call(react, type, props, ...children)
+                        : replacement;
+                },
+        );
+        if (!createClaim.ok) {
+            releaseElements(jsxRuntime, patchId);
+            lastError = "Game context menu React interception failed: " + createClaim.error;
+            return { ok: false, error: lastError };
+        }
         installed = true;
         lastError = "";
         unsubscribe = subscribe(patchId, (state) => {
@@ -281,10 +367,23 @@ function createGameContextMenu() {
             ActionMethod,
             actionClaimKeys,
         );
-        if (!releasedAction.ok || !releasedElements.ok) {
+        const releasedManage = releaseMember(
+            menuComponent?.prototype,
+            ManageMethod,
+            actionClaimKeys,
+        );
+        const releasedCreate = releaseMember(react, "createElement", createClaimKeys);
+        if (
+            !releasedAction.ok ||
+            !releasedElements.ok ||
+            !releasedManage.ok ||
+            !releasedCreate.ok
+        ) {
             lastError =
                 releasedAction.error ??
                 releasedElements.error ??
+                releasedManage.error ??
+                releasedCreate.error ??
                 "Game context menu release failed";
             return { ok: false, error: lastError };
         }
@@ -293,6 +392,7 @@ function createGameContextMenu() {
         desired = { items: [], revision: 0 };
         menuComponent = null;
         itemType = null;
+        submenuType = null;
         ambiguous = false;
         nativeObserved = false;
         nativeRefused = false;
@@ -305,11 +405,15 @@ function createGameContextMenu() {
         ok: true,
         installed,
         resolved: !!runtime && !!react,
-        observing: installed && elementsIntercepted(jsxRuntime, patchId),
+        observing:
+            installed &&
+            elementsIntercepted(jsxRuntime, patchId) &&
+            memberClaimed(react, "createElement", createClaimKeys),
         ambiguous,
         nativeObserved,
         nativeRefused,
         itemTypeResolved: !!itemType,
+        submenuTypeResolved: !!submenuType,
         nativeMenuState: !installed
             ? "removed"
             : ambiguous || nativeRefused

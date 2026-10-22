@@ -372,12 +372,15 @@ const showSteamModal = (
         return react.createElement(
             ui.modalRoot,
             {
-                className: options.className,
+                className: [options.className, options.wide ? "steam-ui-kit-modal-wide" : ""]
+                    .filter(Boolean).join(" ") || undefined,
                 onCancel: cancel,
                 closeModal: cancel,
                 strTitle: title,
                 ...(options.wide ? {bAllowFullSize: true} : {}),
             },
+            // Modal portals do not inherit the originating document's toolkit stylesheet.
+            steamUiKitStyle(react),
             options.render(close),
         );
     }

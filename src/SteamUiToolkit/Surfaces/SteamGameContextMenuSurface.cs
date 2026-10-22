@@ -9,7 +9,8 @@ namespace SteamUiToolkit;
 /// <summary>One host-owned command added to a game's Steam context menu.</summary>
 /// <param name="Id">Stable command identity, unique in one publication.</param>
 /// <param name="Label">Plain visible menu text.</param>
-public sealed record SteamGameContextMenuItem(string Id, string Label);
+/// <param name="Template">Optional trusted host renderer for a native nested menu.</param>
+public sealed record SteamGameContextMenuItem(string Id, string Label, string? Template = null);
 
 /// <summary>The host-owned commands exposed for every applicable game context menu.</summary>
 /// <param name="Items">Commands in their rendered order.</param>
@@ -31,10 +32,11 @@ public interface ISteamGameContextMenuBackend
 /// Adds host-owned commands to Steam's per-game gear and library context menu.
 /// </summary>
 /// <remarks>
-/// The shared JSX interceptor recognizes the actual native menu class before its first render
-/// and observes its native action method to capture the actual instance and item type. Commands use Steam's
+/// JSX and React construction interceptors recognize the actual native menu class before its first render
+/// and observe its native action methods to capture the actual instance, item and submenu types. Commands use Steam's
 /// additional-actions slot, which survives the observer's instance-bound renders. It never constructs
-/// an unknown export or accepts a package-supplied React element.
+/// an unknown export or accepts a package-supplied React element. Trusted host templates may render
+/// nested menus with those observed native types instead of navigating away from the game.
 /// </remarks>
 public static class SteamGameContextMenuSurface
 {
@@ -48,7 +50,7 @@ public static class SteamGameContextMenuSurface
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
         "gameContextMenu",
-        "steam-game-context-menu-v7:unique-react-jsx+observed-native-menu",
+        "steam-game-context-menu-v8:observer-methods+native-submenu",
         $$"""
           {{SteamUiProbeJs.Preamble("steam_ui_game_context_menu_probe_")}}
             return JSON.stringify({

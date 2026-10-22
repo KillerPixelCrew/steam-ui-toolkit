@@ -60,11 +60,12 @@ public sealed class SteamGameContextMenuTests
     public void ItemsReachTheWire()
     {
         var wire = SteamGameContextMenuSurface.Serialize(new SteamGameContextMenuState(
-            [new SteamGameContextMenuItem("org.example.artwork", "Change Artwork…")], 3));
+            [new SteamGameContextMenuItem("org.example.artwork", "Change Artwork…", "native-actions")], 3));
 
         Assert.Equal("org.example.artwork", wire.GetProperty("items")[0].GetProperty("id").GetString());
         Assert.Equal("Change Artwork…", wire.GetProperty("items")[0].GetProperty("label").GetString());
         Assert.Equal(3, wire.GetProperty("revision").GetInt64());
+        Assert.Equal("native-actions", wire.GetProperty("items")[0].GetProperty("template").GetString());
     }
 
     [Fact]
