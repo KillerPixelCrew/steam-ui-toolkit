@@ -114,6 +114,8 @@ function createGameContextMenu() {
                         if (!installed || ambiguous || nativeRefused) return;
                         const currentAppId = appIdFor(context.instance);
                         if (currentAppId === null) return;
+                        // The window the menu was used in; a game's overlay opens the page itself.
+                        const owner = steamInteractionWindow();
                         void request(
                             patchId,
                             "activate",
@@ -121,7 +123,7 @@ function createGameContextMenu() {
                             nextActionGeneration(patchId),
                         ).then(
                             (answer: any) => {
-                                if (answer?.route) navigateSteamRoute(answer.route);
+                                if (answer?.route) navigateSteamRoute(answer.route, owner);
                             },
                             () => {
                                 // A refusal stays host-authoritative and must not make Steam's menu fail.

@@ -415,12 +415,41 @@ const onSteamTriggers = (step: (delta: number) => void) => (event: any) => {
     step(button === SteamGamepadButton.TriggerRight ? 1 : -1);
 };
 
+/**
+ * The Steam window an interaction happened in: Big Picture's main window or one game's overlay window.
+ * In a game, Quick Access and the side menus are drawn in that game's overlay window, so a page opened
+ * from them belongs there rather than in the hidden main window. Resolve it when the user acts: the
+ * window that holds the element, else the one with a side menu open, else the one whose document has
+ * focus.
+ * @param element An element of the control that was used, when the caller has one.
+ * @returns The window instance, or null when none can be told, which keeps the main window.
+ */
+const steamInteractionWindow = (element?) => {
+    const windows = window.SteamUIStore?.WindowStore?.SteamUIWindows;
+    if (!Array.isArray(windows)) return null;
+    const find = (test) =>
+        windows.find((candidate) => {
+            try {
+                return !!candidate && test(candidate);
+            } catch (_) {
+                return false;
+            }
+        }) ?? null;
+    const view = element?.ownerDocument?.defaultView;
+    return (
+        (view ? find((candidate) => candidate.BrowserWindow === view) : null) ??
+        find((candidate) => (candidate.MenuStore?.GetOpenSideMenu?.() ?? 0) !== 0) ??
+        find((candidate) => candidate.BrowserWindow?.document?.hasFocus?.() === true)
+    );
+};
+
 // Closes whichever side panel is open, so a route followed from inside one is not rendered behind
-// it. Valve's own main-window instance owns the operation; SteamNativeSurfaceCommands drives the
-// same MenuStore.CloseSideMenus for the keyboard overlay. Reports whether the panel is now closed,
-// which for a caller that was never in a panel is trivially true.
-const closeSteamSideMenus = () => {
-    const menus = window.SteamUIStore?.WindowStore?.MainWindowInstance?.MenuStore;
+// it. Valve's own window instance owns the operation: the given one (see steamInteractionWindow),
+// else the main window; SteamNativeSurfaceCommands drives the same MenuStore.CloseSideMenus for the
+// keyboard overlay. Reports whether the panel is now closed, which for a caller that was never in a
+// panel is trivially true.
+const closeSteamSideMenus = (owner?) => {
+    const menus = (owner ?? window.SteamUIStore?.WindowStore?.MainWindowInstance)?.MenuStore;
     if (typeof menus?.CloseSideMenus !== "function") return false;
     try {
         menus.CloseSideMenus();
@@ -449,11 +478,18 @@ const isNavigableRoute = (route) =>
 /**
  * Pushes an absolute non-root route through the existing Steam history.
  * @param route Route without control characters; no length bound is imposed.
+ * @param owner The window the request came from (steamInteractionWindow). A game's gamepad overlay
+ * window navigates itself, as Steam opens its own pages over a game; any other or none uses the main
+ * window's history.
  * @returns False for an invalid route or missing history; true after push. History exceptions propagate.
  */
-const navigateSteamRoute = (route) => {
+const navigateSteamRoute = (route, owner?) => {
     if (!isNavigableRoute(route)) {
         return false;
+    }
+    if (owner?.IsGamepadUIOverlayWindow?.() === true && typeof owner.Navigate === "function") {
+        owner.Navigate(route);
+        return true;
     }
     const history = window.tempNavStore?.m_history;
     if (!history || typeof history.push !== "function") return false;

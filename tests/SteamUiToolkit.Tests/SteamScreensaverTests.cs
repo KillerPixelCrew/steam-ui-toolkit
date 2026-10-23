@@ -92,6 +92,20 @@ public sealed class SteamScreensaverTests
         Assert.Equal(7, wire.GetProperty("revision").GetInt64());
     }
 
+    [Fact]
+    public void SessionActivityDoesNotReplaceTimeoutsOrInventActivityWhenUnknown()
+    {
+        var state = new SteamScreensaverState([], Activity: new SteamScreensaverActivity(12, 250, true));
+        var wire = SteamScreensaverSurface.Serialize(state);
+        var activity = wire.GetProperty("activity");
+        Assert.Equal(12, activity.GetProperty("revision").GetInt64());
+        Assert.Equal(250u, activity.GetProperty("ageMilliseconds").GetUInt32());
+        Assert.True(activity.GetProperty("onBattery").GetBoolean());
+        Assert.Empty(wire.GetProperty("rows").EnumerateArray());
+        Assert.Equal(JsonValueKind.Null,
+            SteamScreensaverSurface.Serialize(new SteamScreensaverState([])).GetProperty("activity").ValueKind);
+    }
+
     [Theory]
     [InlineData("""{"acSeconds":300,"batterySeconds":600,"battery":true}""", true, 300, 600, true)]
     [InlineData("""{"acSeconds":0,"batterySeconds":null,"battery":false}""", true, 0, null, false)]

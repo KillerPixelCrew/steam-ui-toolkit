@@ -49,7 +49,7 @@ function createNavigationPanel() {
             position?: "start" | "end";
         }[];
         hidden: string[];
-    } = {items: [], hidden: []};
+    } = { items: [], hidden: [] };
 
     const descendCache = new Map();
     const panelCache = new Map();
@@ -62,7 +62,7 @@ function createNavigationPanel() {
         // Children.toArray prefixes keys with their nested array path, e.g. .0:$power.
         const rawKey = typeof element?.key === "string" ? element.key : "";
         const key = rawKey.slice(rawKey.lastIndexOf("$") + 1);
-        return {key, route, label: textOf(element?.props?.label) ?? ""};
+        return { key, route, label: textOf(element?.props?.label) ?? "" };
     };
 
     const matchesAnchor = (element, anchor) => {
@@ -98,7 +98,7 @@ function createNavigationPanel() {
                 onGamepadFocus = props.onGamepadFocus;
             }
         }
-        return {route, action, onGamepadFocus};
+        return { route, action, onGamepadFocus };
     };
 
     // The row's glyph: the host's own path data, or a toolkit glyph by name, or none.
@@ -107,11 +107,14 @@ function createNavigationPanel() {
         (item.icon && icon ? icon(item.icon) : null);
 
     const activate = (id) => {
-        void request(patchId, "activate", {id}, nextActionGeneration(patchId)).then(
+        // Read while the menu is open: over a game the menu, and the page, are the game overlay's.
+        const owner = steamInteractionWindow();
+        void request(patchId, "activate", { id }, nextActionGeneration(patchId)).then(
             (answer: any) => {
                 // An action may answer with a page to open. The menu is a side panel, so it is
                 // closed first; a page opened behind it is, on a controller, a dead button.
-                if (answer?.route && closeSteamSideMenus()) navigateSteamRoute(answer.route);
+                if (answer?.route && closeSteamSideMenus(owner))
+                    navigateSteamRoute(answer.route, owner);
             },
             () => {
                 // The host's refusal is already logged; a rejected press must not break the menu.
@@ -140,7 +143,10 @@ function createNavigationPanel() {
             });
         }
         if (!item.route && native.action) {
-            return react.createElement(native.action, {...common, action: item.frontendAction ?? (() => activate(item.id))});
+            return react.createElement(native.action, {
+                ...common,
+                action: item.frontendAction ?? (() => activate(item.id)),
+            });
         }
         return null;
     };
@@ -169,7 +175,10 @@ function createNavigationPanel() {
             kept.push(child);
         }
 
-        const pending = [...desired.items, ...pluginFrontendItems("menu").map((slot) => slot.value)];
+        const pending = [
+            ...desired.items,
+            ...pluginFrontendItems("menu").map((slot) => slot.value),
+        ];
         // From every child, hidden ones included: hiding Power must not cost the action entry.
         const native = nativeEntries(children);
         const placed = new Set<string>();
@@ -300,11 +309,11 @@ function createNavigationPanel() {
     );
 
     const install = () => {
-        if (installed) return {ok: true, alreadyInstalled: true};
+        if (installed) return { ok: true, alreadyInstalled: true };
         const resolved = attemptResolution(resolve, (error) => {
             lastError = "navigation panel resolution failed: " + String(error);
         });
-        if (!resolved) return {ok: false, error: lastError};
+        if (!resolved) return { ok: false, error: lastError };
 
         // The memo object is the public handle, and every consumer holds the same one, so claiming its
         // `type` reaches the panel wherever it is rendered without patching a single caller.
@@ -316,7 +325,7 @@ function createNavigationPanel() {
         });
         if (!claim.ok) {
             lastError = claim.error;
-            return {ok: false, error: lastError};
+            return { ok: false, error: lastError };
         }
 
         installed = true;
@@ -330,7 +339,9 @@ function createNavigationPanel() {
             const named = items.filter(
                 (item) => item && typeof item.id === "string" && typeof item.label === "string",
             );
-            const routable = named.filter((item) => item.route == null || isNavigableRoute(item.route));
+            const routable = named.filter(
+                (item) => item.route == null || isNavigableRoute(item.route),
+            );
             rejectedRoutes = named.length - routable.length;
             const next = {
                 items: routable,
@@ -346,31 +357,31 @@ function createNavigationPanel() {
             mounted.rerender();
         });
         unsubscribePlugins = subscribePluginFrontends(() => mounted.rerender());
-        return {ok: true, installed: true, reclaimed: claim.reclaimed};
+        return { ok: true, installed: true, reclaimed: claim.reclaimed };
     };
 
     const remove = () => {
-        if (!installed) return {ok: true, absent: true};
+        if (!installed) return { ok: true, absent: true };
 
         // Released before anything is forgotten, so a failed release stays installed and the next
         // remove retries it.
         const released = releaseMember(memo, "type", claimKeys);
         if (!released.ok) {
             lastError = released.error ?? "navigation panel release failed";
-            return {ok: false, error: lastError};
+            return { ok: false, error: lastError };
         }
         installed = false;
         unsubscribe = endSubscription(unsubscribe);
         unsubscribePlugins = endSubscription(unsubscribePlugins);
 
-        desired = {items: [], hidden: []};
+        desired = { items: [], hidden: [] };
         descendCache.clear();
         panelCache.clear();
         mounted.release(memo.type);
         hosts.release();
 
         lastOutcome = "removed";
-        return {ok: true, removed: true};
+        return { ok: true, removed: true };
     };
 
     const status = () => ({
@@ -384,14 +395,14 @@ function createNavigationPanel() {
         items: desired.items.length,
         // Whether the claim reached the panels already on screen, and how many popup menu hosts are
         // adopted by source, the path the memo claim never reaches. Nothing adopted is inert.
-        mounted: {...mounted.status(), hosts: hosts.count()},
+        mounted: { ...mounted.status(), hosts: hosts.count() },
         rejectedRoutes,
         hidden: desired.hidden.length,
         lastOutcome,
         lastError,
     });
 
-    return {install, remove, status};
+    return { install, remove, status };
 }
 
 registerGate("navigationPanel", createNavigationPanel());

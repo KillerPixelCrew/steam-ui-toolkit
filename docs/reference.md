@@ -1233,6 +1233,18 @@ occurs in one module, the route table's customization route is `/settings/custom
 screensaver's own services are `Screensaver.GetActiveState`, `ForceScreensaver`,
 `GetLocalScreensavers` and `NotifyActiveStateChanged`.
 
+Hosts may publish `SteamScreensaverState.Activity` with a `SteamScreensaverActivity`: a revision
+which changes only for real session input, its unsigned wrap-safe age in milliseconds, and the
+current nullable `OnBattery` observation. Null means unknown, never fresh activity. The host owns
+sampling; the gate adds no input poller or synthetic controller input. `screensaver-activity.ts`
+combines this producer with native active-state notifications, including subscribers registered
+before installation and future active-state reads. It uses the configured native AC/battery timeout
+and preserves explicit preview and native controller/touch dismissal. It changes no timeout
+preference. A five-second observation lease expires to native behavior on lost host contact; removal
+restores exact claimed methods and native active state. The gate's `inputActivity` status reports
+installation, native/effective active state, preview and contract failures. The helper is optional
+for settings-row compatibility with clients whose service contract no longer matches.
+
 ### Custom pages
 
 Steam's router renders its routes as the children of its own switch, so registering a page is a list
@@ -1339,7 +1351,8 @@ hidden ones included, so hiding Power does not cost the action entry.
   not asked. The route is held to `navigateSteamRoute`'s bounds where it is published, and is only
   followed when the user selects the row.
 - An item without one is drawn by the action entry, and selecting it sends `activate`. An answer
-  carrying a `route` is followed after `closeSteamSideMenus()`, as the Extensions tab does.
+  carrying a `route` is followed after `closeSteamSideMenus(owner)`, as the Extensions tab does.
+  `steamInteractionWindow` captures the window from which the action was invoked.
 - An item whose component is not in the panel is not drawn, and `lastOutcome` counts it as
   `unrendered`.
 - An item whose `route` is not a route (relative, `/`, or carrying a control character) is refused
@@ -1814,11 +1827,12 @@ wrapper.
 
 An `activate` answer carrying a `route` opens that page, the same contract the game context menu
 follows, and the only way a host can navigate from this tab. The panel is closed first through
-`closeSteamSideMenus`: this tab renders inside the Quick Access flyout, so navigating with it open
-leaves the page behind the panel, which on a controller is indistinguishable from a dead button. The
-route itself goes through the shared `navigateSteamRoute` bound, so a host that answers with
-something unusable navigates nowhere rather than handing it to Steam's router. An answer without a
-route, and a refusal, both navigate nowhere and leave the panel open.
+`closeSteamSideMenus(owner)`: this tab renders inside the Quick Access flyout, so navigating with it
+open leaves the page behind the panel, which on a controller is indistinguishable from a dead
+button. The route itself goes through the shared `navigateSteamRoute(route, owner)` bound. A game's
+gamepad overlay window navigates itself; the main window retains its own history. A host that
+answers with something unusable navigates nowhere rather than handing it to Steam's router. An
+answer without a route, and a refusal, both navigate nowhere and leave the panel open.
 
 `SteamGameContextMenuSurface` publishes `SteamGameContextMenuState` under
 `steam-ui.game-context-menu`. It renders every `Id`/`Label` command and accepts exactly

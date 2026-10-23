@@ -38,6 +38,12 @@ function createScreensaverSettings() {
     let lastReport = "";
     let unsubscribe: (() => void) | null = null;
     let reportTimer: ReturnType<typeof setTimeout> | null = null;
+    const content = createScreensaverContent(() => settings?.clientSettings);
+    const inputActivity = createScreensaverActivity(
+        () => settings?.clientSettings,
+        () => (window as any).SystemPowerStore?.batteryState?.bHasBattery === true,
+        (active) => content.active(active),
+    );
 
     // The host's rows, replaced whole on each publication.
     let rows: Row[] = [];
@@ -72,7 +78,7 @@ function createScreensaverSettings() {
                 const optionSeconds = seconds(option?.seconds);
                 const label = text(option?.label);
                 if (optionSeconds === null || !label) return null;
-                options.push({data: optionSeconds, label});
+                options.push({ data: optionSeconds, label });
             }
             ids.add(id);
             next.push({
@@ -124,7 +130,7 @@ function createScreensaverSettings() {
         if (!installed || chosen === null || chosen === row.seconds || pending.has(row.id)) return;
         pending.add(row.id);
         local.changed();
-        request(patchId, "setTimeout", {row: row.id, seconds: chosen})
+        request(patchId, "setTimeout", { row: row.id, seconds: chosen })
             .catch((error) => {
                 lastError = "timeout change failed: " + String(error);
             })
@@ -147,7 +153,8 @@ function createScreensaverSettings() {
             report(readScreensaver(), false);
         }, [signature]);
         if (!installed) return null;
-        if (!rows.length) {
+        const custom = content.render();
+        if (!rows.length && !custom) {
             lastOutcome = "no rows published";
             return null;
         }
@@ -167,6 +174,7 @@ function createScreensaverSettings() {
                     onChange: (option) => select(row, option?.data),
                 }),
             ),
+            ...(custom ? [custom] : []),
         );
     }
 
@@ -191,7 +199,9 @@ function createScreensaverSettings() {
                 section,
                 undefined,
                 ...childrenOf(section),
-                react.createElement(SteamUiScreensaverTimeouts, {key: "steam-ui-screensaver-timeouts"}),
+                react.createElement(SteamUiScreensaverTimeouts, {
+                    key: "steam-ui-screensaver-timeouts",
+                }),
             );
         };
         sectionCache.set(original, wrapped);
@@ -202,13 +212,20 @@ function createScreensaverSettings() {
         let wrapped = pageCache.get(original);
         if (wrapped) return wrapped;
         wrapped = function SteamUiCustomizationPage(props) {
+            const catalogRevision = react.useSyncExternalStore(
+                content.catalog.subscribe,
+                content.catalog.revision,
+            );
             const tree = original(props);
             if (!installed || !react.isValidElement(tree)) return tree;
             let found = 0;
             const children = childrenOf(tree).map((child) => {
                 if (!react.isValidElement(child) || !isSection(child.type)) return child;
                 found += 1;
-                return react.createElement(sectionFor(child.type), keyed(child));
+                return react.createElement(sectionFor(child.type), {
+                    ...keyed(child),
+                    key: `${child.key ?? "screensaver"}:sources:${catalogRevision}`,
+                });
             });
             if (found !== 1) {
                 lastOutcome = found
@@ -227,13 +244,19 @@ function createScreensaverSettings() {
     const transformPages = (value) => {
         if (!installed || !Array.isArray(value) || !value.length) return value;
         const first = value[0];
-        if (!first || typeof first !== "object" || !("route" in first) || !("content" in first)) return value;
+        if (!first || typeof first !== "object" || !("route" in first) || !("content" in first))
+            return value;
         const cached = listCache.get(value);
         if (cached) return cached;
         let index = -1;
         for (let at = 0; at < value.length; at++) {
             const item = value[at];
-            if (item && typeof item === "object" && item.route === route && react.isValidElement(item.content)) {
+            if (
+                item &&
+                typeof item === "object" &&
+                item.route === route &&
+                react.isValidElement(item.content)
+            ) {
                 if (index >= 0) return value;
                 index = at;
             }
@@ -257,7 +280,10 @@ function createScreensaverSettings() {
             lastError = "React unavailable";
             return false;
         }
-        if (typeof react.useSyncExternalStore !== "function" || typeof react.useEffect !== "function") {
+        if (
+            typeof react.useSyncExternalStore !== "function" ||
+            typeof react.useEffect !== "function"
+        ) {
             lastError = "React runtime lacks useSyncExternalStore or useEffect";
             return false;
         }
@@ -281,7 +307,8 @@ function createScreensaverSettings() {
         }
         settings = runtime.exported(
             [...SettingsTokens],
-            (value) => !!value && typeof value === "object" && typeof value.clientSettings === "object",
+            (value) =>
+                !!value && typeof value === "object" && typeof value.clientSettings === "object",
         );
 
         // Wanted, not required: without it the rows still follow the host, and a change to Steam's
@@ -291,18 +318,25 @@ function createScreensaverSettings() {
     };
 
     const install = () => {
-        if (installed) return {ok: true, alreadyInstalled: true};
+        if (installed) return { ok: true, alreadyInstalled: true };
         const resolved = attemptResolution(resolve, (error) => {
             lastError = "screensaver settings resolution failed: " + String(error);
         });
-        if (!resolved) return {ok: false, error: lastError};
+        if (!resolved) return { ok: false, error: lastError };
 
         installed = true;
+        content.start(runtime);
+        const activity = inputActivity.start(runtime);
+        if (!activity.ok) {
+            lastError = activity.error ?? "Steam screensaver activity contract unavailable";
+        }
         const intercepted = interceptMemo(react, MemoName, transformPages);
         if (!intercepted.ok) {
             installed = false;
+            inputActivity.stop();
+            content.stop();
             lastError = intercepted.error ?? "React useMemo could not be intercepted";
-            return {ok: false, error: lastError};
+            return { ok: false, error: lastError };
         }
         lastError = "";
         unsubscribe = subscribe(patchId, (published) => {
@@ -312,21 +346,27 @@ function createScreensaverSettings() {
                 return;
             }
             rows = next;
+            content.update(published?.content);
+            inputActivity.observe(published?.activity);
             local.changed();
         });
         reportWhenReady(0);
-        return {ok: true, installed: true};
+        return { ok: true, installed: true };
     };
 
     const remove = () => {
-        if (!installed) return {ok: true, absent: true};
+        if (!installed) return { ok: true, absent: true };
         // Released first: a failed release keeps the gate installed with its rows, so the next
         // remove retries it instead of answering absent over a claim still in place.
         const released = releaseMemo(react, MemoName);
         if (!released.ok) {
             lastError = released.error ?? "React useMemo could not be released";
-            return {ok: false, error: lastError};
+            return { ok: false, error: lastError };
         }
+        const sources = content.stop();
+        if (!sources.ok) return { ok: false, error: sources.error };
+        const activity = inputActivity.stop();
+        if (!activity.ok) return { ok: false, error: activity.error };
         installed = false;
         unsubscribe = endSubscription(unsubscribe);
         if (reportTimer) {
@@ -340,7 +380,7 @@ function createScreensaverSettings() {
         local.changed();
         pageCache.clear();
         sectionCache.clear();
-        return {ok: true, removed: true};
+        return { ok: true, removed: true };
     };
 
     const status = () => ({
@@ -351,13 +391,15 @@ function createScreensaverSettings() {
         route,
         settings: !!settings,
         tracking: !!useObserver,
+        inputActivity: inputActivity.status(),
+        content: content.status(),
         rows: rows.length,
         lastOutcome,
         lastReport,
         lastError,
     });
 
-    return {install, remove, status};
+    return { install, remove, status };
 }
 
 registerGate("screensaver", createScreensaverSettings());

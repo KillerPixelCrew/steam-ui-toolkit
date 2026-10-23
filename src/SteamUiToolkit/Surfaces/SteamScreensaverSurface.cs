@@ -33,7 +33,19 @@ public sealed record SteamTimeoutRow(
 /// <summary>What the host adds to Steam's Screensaver settings.</summary>
 /// <param name="Rows">The rows, in order, appended after Steam's own.</param>
 /// <param name="Revision">Monotonic host observation revision.</param>
-public sealed record SteamScreensaverState(IReadOnlyList<SteamTimeoutRow> Rows, long Revision = 0);
+/// <param name="Activity">Real session input, or null when the host cannot observe it.</param>
+/// <param name="Content">Host-owned sources and their controls, or null without a content backend.</param>
+public sealed record SteamScreensaverState(
+    IReadOnlyList<SteamTimeoutRow> Rows,
+    long Revision = 0,
+    SteamScreensaverActivity? Activity = null,
+    SteamScreensaverContentState? Content = null);
+
+/// <summary>One observation of real keyboard, mouse or touch activity outside Steam's window.</summary>
+/// <param name="Revision">Changes only when the operating system reports a different last-input tick.</param>
+/// <param name="AgeMilliseconds">Unsigned, wrap-safe age of that input at publication.</param>
+/// <param name="OnBattery">The current Windows power source, or null when unknown.</param>
+public sealed record SteamScreensaverActivity(long Revision, uint AgeMilliseconds, bool? OnBattery = null);
 
 /// <summary>Steam's own screensaver timeouts, as its client settings hold them.</summary>
 /// <param name="PluggedInSeconds">
@@ -203,12 +215,14 @@ public static class SteamScreensaverSurface
     /// <param name="read">The rows, or null when there is nothing to say yet.</param>
     /// <param name="backend">What hears the report and applies the choices.</param>
     /// <param name="id">The module id, for diagnostics and duplicate detection.</param>
+    /// <param name="content">Optional local-source discovery, configuration and playback owner.</param>
     /// <returns>The module to register.</returns>
     public static ISteamUiModule Module(
         Func<bool> enabled,
         Func<ValueTask<SteamScreensaverState?>> read,
         ISteamScreensaverBackend backend,
-        string id = "screensaver")
+        string id = "screensaver",
+        ISteamScreensaverContentBackend? content = null)
     {
         ArgumentNullException.ThrowIfNull(backend);
         return SteamUiModuleBuilder.Module(
@@ -236,7 +250,16 @@ public static class SteamScreensaverSurface
                     },
                     (timeout, cancellationToken) =>
                         backend.SetTimeoutAsync(timeout.Row, timeout.Seconds, cancellationToken),
-                    "The timeout payload is invalid.")
+                    "The timeout payload is invalid."),
+                .. content is null ? Array.Empty<SteamUiCommandHandler>() : new[]
+                {
+                    SteamUiModuleBuilder.Command<SteamScreensaverContentCommand>(
+                        PatchId,
+                        "content",
+                        SteamScreensaverContent.TryRead,
+                        content.ExecuteAsync,
+                        "The screensaver source command is invalid.")
+                }
             ]);
     }
 }

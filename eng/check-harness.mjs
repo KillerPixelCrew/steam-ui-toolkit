@@ -18,7 +18,7 @@ export const readSource = (path) => readFileSync(join(repositoryRoot, path), "ut
 
 /** The asset named on the command line, or the prelude this repository builds. */
 export const loadAsset = (path = process.argv[2]) =>
-  readFileSync(path ?? join(repositoryRoot, "dist", "prelude.js"), "utf8");
+    readFileSync(path ?? join(repositoryRoot, "dist", "prelude.js"), "utf8");
 
 const fragmentMarkers = (asset) => [...asset.matchAll(/^[ \t]*\/\/ @fragment (\S+)[ \t]*$/gmu)];
 
@@ -31,25 +31,25 @@ export const fragmentLabels = (asset) => fragmentMarkers(asset).map((marker) => 
  * IIFE it opens is left open.
  */
 export const fragment = (asset, label) => {
-  const markers = fragmentMarkers(asset);
-  if (label === "bridge.ts") {
-    assert.ok(markers.length > 0, "the emitted asset must contain fragments after the bridge");
-    return asset.slice(0, markers[0].index);
-  }
-  const at = markers.findIndex((marker) => marker[1] === label);
-  assert.ok(at >= 0, `the emitted asset must contain the ${label} fragment`);
-  const end = at + 1 < markers.length ? markers[at + 1].index : asset.length;
-  return asset.slice(markers[at].index, end);
+    const markers = fragmentMarkers(asset);
+    if (label === "bridge.ts") {
+        assert.ok(markers.length > 0, "the emitted asset must contain fragments after the bridge");
+        return asset.slice(0, markers[0].index);
+    }
+    const at = markers.findIndex((marker) => marker[1] === label);
+    assert.ok(at >= 0, `the emitted asset must contain the ${label} fragment`);
+    const end = at + 1 < markers.length ? markers[at + 1].index : asset.length;
+    return asset.slice(markers[at].index, end);
 };
 
 const parses = (code) => {
-  try {
-    new Function(code);
-    return true;
-  } catch (error) {
-    if (error instanceof SyntaxError) return false;
-    throw error;
-  }
+    try {
+        new Function(code);
+        return true;
+    } catch (error) {
+        if (error instanceof SyntaxError) return false;
+        throw error;
+    }
 };
 
 /**
@@ -58,13 +58,13 @@ const parses = (code) => {
  * leaves a bracket, string or comment open and does not parse.
  */
 export const statement = (source, from) => {
-  const start = source.indexOf(from);
-  assert.ok(start >= 0, `the emitted asset must contain ${from}`);
-  for (const end of source.slice(start).matchAll(/[;}](?=[ \t]*(?:\r?\n|$))/gu)) {
-    const text = source.slice(start, start + end.index + 1);
-    if (parses(text)) return text;
-  }
-  assert.fail(`${from} must open a complete statement`);
+    const start = source.indexOf(from);
+    assert.ok(start >= 0, `the emitted asset must contain ${from}`);
+    for (const end of source.slice(start).matchAll(/[;}](?=[ \t]*(?:\r?\n|$))/gu)) {
+        const text = source.slice(start, start + end.index + 1);
+        if (parses(text)) return text;
+    }
+    assert.fail(`${from} must open a complete statement`);
 };
 
 /**
@@ -72,14 +72,16 @@ export const statement = (source, from) => {
  * depth that declares it, which must be unique there.
  */
 export const declaration = (source, name) => {
-  const found = [
-    ...source.matchAll(new RegExp(`^([ \\t]*)(?:(?:const|let) ${name} =|function ${name}\\()`, "gmu")),
-  ];
-  assert.ok(found.length > 0, `the emitted asset must declare ${name}`);
-  const depth = Math.min(...found.map((match) => match[1].length));
-  const outermost = found.filter((match) => match[1].length === depth);
-  assert.equal(outermost.length, 1, `${name} must be declared once at its depth`);
-  return statement(source.slice(outermost[0].index + depth), outermost[0][0].slice(depth));
+    const found = [
+        ...source.matchAll(
+            new RegExp(`^([ \\t]*)(?:(?:const|let) ${name} =|function ${name}\\()`, "gmu"),
+        ),
+    ];
+    assert.ok(found.length > 0, `the emitted asset must declare ${name}`);
+    const depth = Math.min(...found.map((match) => match[1].length));
+    const outermost = found.filter((match) => match[1].length === depth);
+    assert.equal(outermost.length, 1, `${name} must be declared once at its depth`);
+    return statement(source.slice(outermost[0].index + depth), outermost[0][0].slice(depth));
 };
 
 /**
@@ -88,38 +90,39 @@ export const declaration = (source, name) => {
  * reads, and one it names that is gone fails by name.
  */
 export const declarations = (asset, label, names) => {
-  const source = fragment(asset, label);
-  return names.map((name) => declaration(source, name)).join("\n");
+    const source = fragment(asset, label);
+    return names.map((name) => declaration(source, name)).join("\n");
 };
 
 /** Several whole fragments, joined in the order given. */
-export const fragments = (asset, labels) => labels.map((label) => fragment(asset, label)).join("\n");
+export const fragments = (asset, labels) =>
+    labels.map((label) => fragment(asset, label)).join("\n");
 
 /**
  * The labels of the toolkit's top-level helper fragments in emitted order: everything after the
  * bridge that is not a gate, the component host, the epilogue or a consumer's fragment.
  */
 export const helperLabels = (asset) =>
-  fragmentLabels(asset).filter(
-    (label) => !label.includes("/") && label !== "components.ts" && label !== "epilogue.ts",
-  );
+    fragmentLabels(asset).filter(
+        (label) => !label.includes("/") && label !== "components.ts" && label !== "epilogue.ts",
+    );
 
 const withoutGateRegistrations = (source) =>
-  source.replace(/^[ \t]*registerGate\("[^"]+", [A-Za-z]+\(\)\);[ \t]*\r?$/gmu, "");
+    source.replace(/^[ \t]*registerGate\("[^"]+", [A-Za-z]+\(\)\);[ \t]*\r?$/gmu, "");
 
 /** Helper definitions for inert fixtures, without automatically constructing a helper-owned gate. */
 export const helperFragments = (asset, labels = helperLabels(asset)) =>
-  withoutGateRegistrations(fragments(asset, labels));
+    withoutGateRegistrations(fragments(asset, labels));
 
 /**
  * One gate fragment, whole, without its top-level registrations, so a check constructs each gate
  * itself over its own fixtures.
  */
 export const gateSource = (asset, label) => {
-  const source = fragment(asset, label);
-  const gates = withoutGateRegistrations(source);
-  assert.notEqual(gates, source, `the ${label} fragment must register its gate`);
-  return gates;
+    const source = fragment(asset, label);
+    const gates = withoutGateRegistrations(source);
+    assert.notEqual(gates, source, `the ${label} fragment must register its gate`);
+    return gates;
 };
 
 /**
@@ -128,14 +131,22 @@ export const gateSource = (asset, label) => {
  * asset actually makes.
  */
 export const sharedFragments = (asset) =>
-  helperFragments(asset, ["ownership.ts", "rpc.ts", "file-picker.ts", "gate-helpers.ts", "plugin-frontends"]);
+    helperFragments(asset, [
+        "ownership.ts",
+        "rpc.ts",
+        "file-picker.ts",
+        "gate-helpers.ts",
+        "plugin-frontends",
+        "screensaver-activity.ts",
+        "screensaver-content.ts",
+    ]);
 
 /**
  * Evaluates emitted code with named globals in scope and returns an expression over it. A global must
  * not share a name with anything the code declares.
  */
 export const instantiate = (globals, code, result) =>
-  new Function(...Object.keys(globals), `${code}\nreturn ${result};`)(...Object.values(globals));
+    new Function(...Object.keys(globals), `${code}\nreturn ${result};`)(...Object.values(globals));
 
 export const ElementMarker = Symbol("element");
 export const MemoType = Symbol.for("react.memo");
@@ -143,10 +154,10 @@ export const Fragment = Symbol.for("react.fragment");
 
 /** A plain element the stand-in React recognizes. */
 export const element = (type, props, key = null) => ({
-  [ElementMarker]: true,
-  type,
-  props: props ?? {},
-  key,
+    [ElementMarker]: true,
+    type,
+    props: props ?? {},
+    key,
 });
 
 /**
@@ -154,80 +165,88 @@ export const element = (type, props, key = null) => ({
  * type. `singleChild` keeps one child unwrapped as React does; `cloneReplacesChildren` gives a clone
  * an empty child list when none is passed, which some fixtures were written against.
  */
-export const createReact = ({ singleChild = false, cloneReplacesChildren = false, ...extra } = {}) => ({
-  Fragment,
-  createElement(type, props, ...children) {
-    const { key = null, ...rest } = props ?? {};
-    if (children.length) rest.children = singleChild && children.length === 1 ? children[0] : children;
-    return element(type, rest, key);
-  },
-  cloneElement: (source, props, ...children) =>
-    element(
-      source.type,
-      children.length || cloneReplacesChildren
-        ? { ...source.props, ...props, children }
-        : { ...source.props, ...props },
-      source.key,
-    ),
-  isValidElement: (value) => !!value && typeof value === "object" && value[ElementMarker] === true,
-  Children: {
-    toArray: (children) =>
-      (Array.isArray(children) ? children : children === undefined ? [] : [children]).filter(
-        (child) => child !== null && child !== undefined && child !== false,
-      ),
-  },
-  memo: (type, compare) => ({ $$typeof: MemoType, type, compare: compare ?? null }),
-  ...extra,
+export const createReact = ({
+    singleChild = false,
+    cloneReplacesChildren = false,
+    ...extra
+} = {}) => ({
+    Fragment,
+    createElement(type, props, ...children) {
+        const { key = null, ...rest } = props ?? {};
+        if (children.length)
+            rest.children = singleChild && children.length === 1 ? children[0] : children;
+        return element(type, rest, key);
+    },
+    cloneElement: (source, props, ...children) =>
+        element(
+            source.type,
+            children.length || cloneReplacesChildren
+                ? { ...source.props, ...props, children }
+                : { ...source.props, ...props },
+            source.key,
+        ),
+    isValidElement: (value) =>
+        !!value && typeof value === "object" && value[ElementMarker] === true,
+    Children: {
+        toArray: (children) =>
+            (Array.isArray(children) ? children : children === undefined ? [] : [children]).filter(
+                (child) => child !== null && child !== undefined && child !== false,
+            ),
+    },
+    memo: (type, compare) => ({ $$typeof: MemoType, type, compare: compare ?? null }),
+    ...extra,
 });
 
 /** Gives a function the source text a gate fingerprints it by. */
 export const withSource = (fn, source) => {
-  Object.defineProperty(fn, "toString", { value: () => source });
-  return fn;
+    Object.defineProperty(fn, "toString", { value: () => source });
+    return fn;
 };
 
 /** Every element under a node, in order, that satisfies a predicate. */
 export const find = (react, node, predicate, found = []) => {
-  if (!react.isValidElement(node)) return found;
-  if (predicate(node)) found.push(node);
-  react.Children.toArray(node.props?.children).forEach((child) => find(react, child, predicate, found));
-  return found;
+    if (!react.isValidElement(node)) return found;
+    if (predicate(node)) found.push(node);
+    react.Children.toArray(node.props?.children).forEach((child) =>
+        find(react, child, predicate, found),
+    );
+    return found;
 };
 
 /** Whether an element's function type, or the type a memo wraps, has this name. */
 export const named = (name) => (node) =>
-  !!node &&
-  typeof node === "object" &&
-  ((typeof node.type === "function" && node.type.name === name) ||
-    (node.type?.$$typeof === MemoType && node.type.type?.name === name));
+    !!node &&
+    typeof node === "object" &&
+    ((typeof node.type === "function" && node.type.name === name) ||
+        (node.type?.$$typeof === MemoType && node.type.type?.name === name));
 
 /** Lets pending promise continuations and immediates run. */
 export const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 /** Hook slots that persist across renders, reset to the first slot before each render. */
 export const createHooks = () => {
-  const slots = [];
-  let cursor = 0;
-  return {
-    useState(initial) {
-      const index = cursor++;
-      if (!(index in slots)) slots[index] = initial;
-      return [
-        slots[index],
-        (value) => {
-          slots[index] = value;
+    const slots = [];
+    let cursor = 0;
+    return {
+        useState(initial) {
+            const index = cursor++;
+            if (!(index in slots)) slots[index] = initial;
+            return [
+                slots[index],
+                (value) => {
+                    slots[index] = value;
+                },
+            ];
         },
-      ];
-    },
-    useRef(initial) {
-      const index = cursor++;
-      if (!(index in slots)) slots[index] = { current: initial };
-      return slots[index];
-    },
-    reset() {
-      cursor = 0;
-    },
-  };
+        useRef(initial) {
+            const index = cursor++;
+            if (!(index in slots)) slots[index] = { current: initial };
+            return slots[index];
+        },
+        reset() {
+            cursor = 0;
+        },
+    };
 };
 
 /**
@@ -235,27 +254,27 @@ export const createHooks = () => {
  * check builds the object a gate claims on with it, so the gate's release can be made to fail.
  */
 export const failingHost = (target = {}) => {
-  let fail = false;
-  const refuse = () => {
-    fail = false;
-    throw new TypeError("release refused by the fixture");
-  };
-  const host = new Proxy(target, {
-    defineProperty(object, key, descriptor) {
-      if (fail) refuse();
-      return Reflect.defineProperty(object, key, descriptor);
-    },
-    deleteProperty(object, key) {
-      if (fail) refuse();
-      return Reflect.deleteProperty(object, key);
-    },
-  });
-  return {
-    host,
-    failNext() {
-      fail = true;
-    },
-  };
+    let fail = false;
+    const refuse = () => {
+        fail = false;
+        throw new TypeError("release refused by the fixture");
+    };
+    const host = new Proxy(target, {
+        defineProperty(object, key, descriptor) {
+            if (fail) refuse();
+            return Reflect.defineProperty(object, key, descriptor);
+        },
+        deleteProperty(object, key) {
+            if (fail) refuse();
+            return Reflect.deleteProperty(object, key);
+        },
+    });
+    return {
+        host,
+        failNext() {
+            fail = true;
+        },
+    };
 };
 
 /**
@@ -264,16 +283,20 @@ export const failingHost = (target = {}) => {
  * second has to release what is left and succeed.
  */
 export const assertRemoveRetries = (gate, failOnce, name = "gate") => {
-  failOnce();
-  const first = gate.remove();
-  assert.equal(first.ok, false, `${name}: a failed release must be reported`);
-  if (typeof gate.status === "function" && "installed" in gate.status()) {
-    assert.equal(gate.status().installed, true, `${name}: a failed release must leave the gate installed`);
-  }
-  const second = gate.remove();
-  assert.equal(second.ok, true, `${name}: the next remove must retry the release`);
-  assert.notEqual(second.absent, true, `${name}: the retry must not answer absent`);
-  if (typeof gate.status === "function" && "installed" in gate.status()) {
-    assert.equal(gate.status().installed, false, `${name}: a successful retry must uninstall`);
-  }
+    failOnce();
+    const first = gate.remove();
+    assert.equal(first.ok, false, `${name}: a failed release must be reported`);
+    if (typeof gate.status === "function" && "installed" in gate.status()) {
+        assert.equal(
+            gate.status().installed,
+            true,
+            `${name}: a failed release must leave the gate installed`,
+        );
+    }
+    const second = gate.remove();
+    assert.equal(second.ok, true, `${name}: the next remove must retry the release`);
+    assert.notEqual(second.absent, true, `${name}: the retry must not answer absent`);
+    if (typeof gate.status === "function" && "installed" in gate.status()) {
+        assert.equal(gate.status().installed, false, `${name}: a successful retry must uninstall`);
+    }
 };
