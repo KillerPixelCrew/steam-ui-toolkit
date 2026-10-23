@@ -1265,6 +1265,12 @@ addresses, and retains Steam's own route/history state for Resume. Replacement h
 disposal release the helper's subscriptions. Arbitrary content stays in Steam's external browser
 view and receives no host bridge from this helper.
 
+`installChrome(ui, searchPrefix)` enables Valve's address editor only in the identified ExternalWeb
+frame and normalizes explicit submissions as safe URLs or searches. An optional game-search action
+fills a local draft without navigating. Passing `replace: true` to `open` replaces an entry route so
+native Back returns to its caller. Disposal restores mounted chrome's original props and refs, makes
+stale callbacks inert, and releases both element transforms and history subscriptions.
+
 Steam's router renders its routes as the children of its own switch, so registering a page is a list
 operation on props rather than DOM work — unlike the navigation panel, whose entries do not exist
 until its root renders.
