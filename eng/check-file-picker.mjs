@@ -170,12 +170,21 @@ const rows = (tree, pane) => {
     return find(list, (node) => node.type === Button && node.props["data-title"] !== undefined);
 };
 const button = (tree, label) => {
-    const found = find(tree, (node) => (node.type === Button || node.type === Primary) && node.props.children?.[0] === label)[0];
+    const found = find(
+        tree,
+        (node) =>
+            (node.type === Button || node.type === Primary) && node.props.children?.[0] === label,
+    )[0];
     assert.ok(found, `a "${label}" button is drawn`);
     return found;
 };
-const root = (tree) => find(tree, (node) => node.type === Focusable && node.props.className === "steam-ui-kit-picker")[0];
-const alertText = (tree) => find(tree, (node) => node.props?.role === "alert")[0]?.props.children?.[0] ?? "";
+const root = (tree) =>
+    find(
+        tree,
+        (node) => node.type === Focusable && node.props.className === "steam-ui-kit-picker",
+    )[0];
+const alertText = (tree) =>
+    find(tree, (node) => node.props?.role === "alert")[0]?.props.children?.[0] ?? "";
 
 // Opens a picker: the modal's render is mounted with a close that unmounts, as Steam's would.
 const open = (options, run = picker.showSteamFilePicker) => {
@@ -204,40 +213,68 @@ const open = (options, run = picker.showSteamFilePicker) => {
     };
 };
 
-const places = { places: [{ path: "C:\\", name: "Local disk (C:)", kind: "drive", detail: "" }, { path: "E:\\", name: "SD card (E:)", kind: "drive", detail: "" }] };
+const places = {
+    places: [
+        { path: "C:\\", name: "Local disk (C:)", kind: "drive", detail: "" },
+        { path: "E:\\", name: "SD card (E:)", kind: "drive", detail: "" },
+    ],
+};
 const listing = (path, entries, parent = "", error = null) => ({ path, parent, entries, error });
 
-// The title a page asked for, or the mode's own, is drawn by the picker: Steam's dialog shows none
-// of its own in Big Picture.
-const titleText = (tree) => find(tree, (node) => node.type === "div" && node.props.className === "steam-ui-kit-picker-title")[0]?.props.children?.[0];
+// The picker passes its title to the shared modal frame; check-ui-kit covers the visible heading.
 
 // Opening lists the places, then the start folder; the extensions a file picker asked for travel
 // with every listing, and a folder picker asks for folders only. The modal is asked for its full
 // size, Steam's own way of letting a dialog body grow past 600px, so the two panes keep their width.
 {
-    const session = open({ mode: "file", extensions: [".exe", ".bat"], start: "D:\\Games", title: "Choose a program" });
+    const session = open({
+        mode: "file",
+        extensions: [".exe", ".bat"],
+        start: "D:\\Games",
+        title: "Choose a program",
+    });
     assert.equal(session.modal.wide, true, "the picker asks Steam's dialog for its full size");
     assert.equal(session.modal.title, "Choose a program");
-    assert.equal(titleText(renderer.tree), "Choose a program", "the picker draws the page's title");
     assert.equal(last("listPlaces").command, "listPlaces");
     last("listPlaces").resolve(places);
     await tick();
     const first = last("listFolder");
     assert.deepEqual(first.payload, { path: "D:\\Games", extensions: [".exe", ".bat"] });
-    first.resolve(listing("D:\\Games", [{ name: "Doom", path: "D:\\Games\\Doom", folder: true }, { name: "run.bat", path: "D:\\Games\\run.bat", folder: false }], "D:\\"));
+    first.resolve(
+        listing(
+            "D:\\Games",
+            [
+                { name: "Doom", path: "D:\\Games\\Doom", folder: true },
+                { name: "run.bat", path: "D:\\Games\\run.bat", folder: false },
+            ],
+            "D:\\",
+        ),
+    );
     await tick();
-    assert.equal(rows(renderer.tree, "steam-ui-kit-picker-places").length, 2, "both places are drawn");
+    assert.equal(
+        rows(renderer.tree, "steam-ui-kit-picker-places").length,
+        2,
+        "both places are drawn",
+    );
     assert.deepEqual(
         rows(renderer.tree, "steam-ui-kit-picker-files").map((row) => row.props["data-title"]),
         ["Doom", "run.bat"],
     );
-    assert.equal(root(renderer.tree).props.onSecondaryButton, undefined, "a file picker has no 'use this folder'");
+    assert.equal(
+        root(renderer.tree).props.onSecondaryButton,
+        undefined,
+        "a file picker has no 'use this folder'",
+    );
 
     // Choosing a file asks the host whether it can still be returned, then settles with the host's
     // ordinary form of the path, not the row's text.
     rows(renderer.tree, "steam-ui-kit-picker-files")[1].props.onClick();
     const resolve = last("resolve");
-    assert.deepEqual(resolve.payload, { path: "D:\\Games\\run.bat", kind: "file", extensions: [".exe", ".bat"] });
+    assert.deepEqual(resolve.payload, {
+        path: "D:\\Games\\run.bat",
+        kind: "file",
+        extensions: [".exe", ".bat"],
+    });
     resolve.resolve({ path: "D:\\Games\\run.bat", folder: false, error: null });
     assert.equal(await session.promise, "D:\\Games\\run.bat");
     assert.equal(session.settledTimes, 1);
@@ -249,19 +286,35 @@ const titleText = (tree) => find(tree, (node) => node.type === "div" && node.pro
 // A folder picker lists folders only, and "Use this folder" returns the validated folder on screen.
 {
     const session = open({ mode: "folder" });
-    assert.equal(titleText(renderer.tree), "Choose a folder", "a folder picker without a title names its mode");
+    assert.equal(session.modal.title, "Choose a folder", "the shared modal names the picker mode");
     last("listPlaces").resolve(places);
     await tick();
-    assert.deepEqual(last("listFolder").payload, { path: "C:\\", extensions: [] }, "without a start the first place opens, folders only");
-    last("listFolder").resolve(listing("C:\\", [{ name: "Emulation", path: "C:\\Emulation", folder: true }]));
+    assert.deepEqual(
+        last("listFolder").payload,
+        { path: "C:\\", extensions: [] },
+        "without a start the first place opens, folders only",
+    );
+    last("listFolder").resolve(
+        listing("C:\\", [{ name: "Emulation", path: "C:\\Emulation", folder: true }]),
+    );
     await tick();
     rows(renderer.tree, "steam-ui-kit-picker-files")[0].props.onClick();
     assert.equal(last("listFolder").payload.path, "C:\\Emulation");
     last("listFolder").resolve(listing("C:\\Emulation", [], "C:\\"));
     await tick();
-    assert.equal(find(renderer.tree, (node) => node.type === "p" && node.props.children?.[0] === "This folder is empty.").length, 1);
+    assert.equal(
+        find(
+            renderer.tree,
+            (node) => node.type === "p" && node.props.children?.[0] === "This folder is empty.",
+        ).length,
+        1,
+    );
     root(renderer.tree).props.onSecondaryButton();
-    assert.deepEqual(last("resolve").payload, { path: "C:\\Emulation", kind: "folder", extensions: [] });
+    assert.deepEqual(last("resolve").payload, {
+        path: "C:\\Emulation",
+        kind: "folder",
+        extensions: [],
+    });
     last("resolve").resolve({ path: "C:\\Emulation", folder: true, error: null });
     assert.equal(await session.promise, "C:\\Emulation");
 }
@@ -273,7 +326,12 @@ const titleText = (tree) => find(tree, (node) => node.type === "div" && node.pro
     last("listPlaces").resolve(places);
     await tick();
     const a = last("listFolder");
-    a.resolve(listing("C:\\", [{ name: "A", path: "C:\\A", folder: true }, { name: "B", path: "C:\\B", folder: true }]));
+    a.resolve(
+        listing("C:\\", [
+            { name: "A", path: "C:\\A", folder: true },
+            { name: "B", path: "C:\\B", folder: true },
+        ]),
+    );
     await tick();
     rows(renderer.tree, "steam-ui-kit-picker-files")[0].props.onClick();
     const slow = last("listFolder");
@@ -282,14 +340,28 @@ const titleText = (tree) => find(tree, (node) => node.type === "div" && node.pro
     const fast = last("listFolder");
     assert.equal(fast.payload.path, "C:\\B");
     assert.equal(slow.cancelled, true, "moving on cancels the listing in flight at the host");
-    fast.resolve(listing("C:\\B", [{ name: "b.txt", path: "C:\\B\\b.txt", folder: false }], "C:\\"));
+    fast.resolve(
+        listing("C:\\B", [{ name: "b.txt", path: "C:\\B\\b.txt", folder: false }], "C:\\"),
+    );
     await tick();
-    assert.deepEqual(rows(renderer.tree, "steam-ui-kit-picker-files").map((row) => row.props["data-title"]), ["b.txt"]);
+    assert.deepEqual(
+        rows(renderer.tree, "steam-ui-kit-picker-files").map((row) => row.props["data-title"]),
+        ["b.txt"],
+    );
     // The slow host answers anyway, as a worker that did not see the cancel would.
-    slow.resolve(listing("C:\\A", [{ name: "a.txt", path: "C:\\A\\a.txt", folder: false }], "C:\\"));
+    slow.resolve(
+        listing("C:\\A", [{ name: "a.txt", path: "C:\\A\\a.txt", folder: false }], "C:\\"),
+    );
     await tick();
-    assert.deepEqual(rows(renderer.tree, "steam-ui-kit-picker-files").map((row) => row.props["data-title"]), ["b.txt"], "a stale listing never replaces the folder on screen");
-    assert.equal(find(renderer.tree, (node) => node.props?.role === "status")[0].props.children[0], "C:\\B");
+    assert.deepEqual(
+        rows(renderer.tree, "steam-ui-kit-picker-files").map((row) => row.props["data-title"]),
+        ["b.txt"],
+        "a stale listing never replaces the folder on screen",
+    );
+    assert.equal(
+        find(renderer.tree, (node) => node.props?.role === "status")[0].props.children[0],
+        "C:\\B",
+    );
     // B settles as cancelled, once, and the modal closes.
     root(renderer.tree).props.onCancelButton();
     assert.equal(await session.promise, null);
@@ -303,13 +375,22 @@ const titleText = (tree) => find(tree, (node) => node.type === "div" && node.pro
     const session = open({ mode: "file", start: "C:\\" }, picker.runSteamFilePicker);
     last("listPlaces").resolve(places);
     await tick();
-    last("listFolder").resolve(listing("C:\\", [{ name: "gone.exe", path: "C:\\gone.exe", folder: false }, { name: "here.exe", path: "C:\\here.exe", folder: false }]));
+    last("listFolder").resolve(
+        listing("C:\\", [
+            { name: "gone.exe", path: "C:\\gone.exe", folder: false },
+            { name: "here.exe", path: "C:\\here.exe", folder: false },
+        ]),
+    );
     await tick();
     rows(renderer.tree, "steam-ui-kit-picker-files")[0].props.onClick();
     // A second press while the first is checked asks nothing more.
     rows(renderer.tree, "steam-ui-kit-picker-files")[0].props.onClick();
     assert.equal(requests.filter((entry) => entry.command === "resolve").length, 1);
-    last("resolve").resolve({ path: "C:\\gone.exe", folder: false, error: "This file no longer exists." });
+    last("resolve").resolve({
+        path: "C:\\gone.exe",
+        folder: false,
+        error: "This file no longer exists.",
+    });
     await tick();
     assert.equal(session.settledTimes, 0, "a refused choice settles nothing");
     assert.equal(alertText(renderer.tree), "This file no longer exists.");
@@ -319,7 +400,11 @@ const titleText = (tree) => find(tree, (node) => node.type === "div" && node.pro
     await tick();
     rows(renderer.tree, "steam-ui-kit-picker-files")[0].props.onClick();
     last("resolve").resolve({ path: "C:\\here.exe", folder: false, error: null });
-    assert.deepEqual(await session.promise, { outcome: "selected", path: "C:\\here.exe", folder: false });
+    assert.deepEqual(await session.promise, {
+        outcome: "selected",
+        path: "C:\\here.exe",
+        folder: false,
+    });
 }
 
 // A choice still being checked when the user moves on belongs to the folder left behind: the host
@@ -330,7 +415,10 @@ const titleText = (tree) => find(tree, (node) => node.type === "div" && node.pro
     const session = open({ mode: "file", start: "C:\\" }, picker.runSteamFilePicker);
     last("listPlaces").resolve(places);
     await tick();
-    const rootEntries = [{ name: "A", path: "C:\\A", folder: true }, { name: "a.exe", path: "C:\\a.exe", folder: false }];
+    const rootEntries = [
+        { name: "A", path: "C:\\A", folder: true },
+        { name: "a.exe", path: "C:\\a.exe", folder: false },
+    ];
     last("listFolder").resolve(listing("C:\\", rootEntries));
     await tick();
     rows(renderer.tree, "steam-ui-kit-picker-files")[1].props.onClick();
@@ -338,34 +426,63 @@ const titleText = (tree) => find(tree, (node) => node.type === "div" && node.pro
     assert.equal(lateSuccess.payload.path, "C:\\a.exe");
     rows(renderer.tree, "steam-ui-kit-picker-files")[0].props.onClick();
     assert.equal(lateSuccess.cancelled, true, "moving on cancels the choice at the host");
-    last("listFolder").resolve(listing("C:\\A", [{ name: "b.exe", path: "C:\\A\\b.exe", folder: false }], "C:\\"));
+    last("listFolder").resolve(
+        listing("C:\\A", [{ name: "b.exe", path: "C:\\A\\b.exe", folder: false }], "C:\\"),
+    );
     await tick();
     // The new folder takes a choice although the old one has not answered yet.
     rows(renderer.tree, "steam-ui-kit-picker-files")[0].props.onClick();
     const lateRefusal = last("resolve");
-    assert.notEqual(lateRefusal, lateSuccess, "a choice in the new folder is asked while the old one is pending");
+    assert.notEqual(
+        lateRefusal,
+        lateSuccess,
+        "a choice in the new folder is asked while the old one is pending",
+    );
     assert.equal(lateRefusal.payload.path, "C:\\A\\b.exe");
     lateSuccess.resolve({ path: "C:\\a.exe", folder: false, error: null });
     await tick();
-    assert.equal(session.settledTimes, 0, "a late success from the folder left behind settles nothing");
+    assert.equal(
+        session.settledTimes,
+        0,
+        "a late success from the folder left behind settles nothing",
+    );
     assert.ok(root(renderer.tree), "the picker stays open");
-    assert.equal(find(renderer.tree, (node) => node.props?.role === "status")[0].props.children[0], "C:\\A");
+    assert.equal(
+        find(renderer.tree, (node) => node.props?.role === "status")[0].props.children[0],
+        "C:\\A",
+    );
     button(renderer.tree, "Up").props.onClick();
     assert.equal(lateRefusal.cancelled, true, "going up cancels the pending choice at the host");
     const listings = requests.filter((entry) => entry.command === "listFolder").length;
     last("listFolder").resolve(listing("C:\\", rootEntries));
     await tick();
-    lateRefusal.resolve({ path: "C:\\A\\b.exe", folder: false, error: "This file no longer exists." });
+    lateRefusal.resolve({
+        path: "C:\\A\\b.exe",
+        folder: false,
+        error: "This file no longer exists.",
+    });
     await tick();
-    assert.equal(alertText(renderer.tree), "", "a late refusal never lands over the folder that replaced it");
-    assert.equal(requests.filter((entry) => entry.command === "listFolder").length, listings, "a late refusal lists nothing again");
+    assert.equal(
+        alertText(renderer.tree),
+        "",
+        "a late refusal never lands over the folder that replaced it",
+    );
+    assert.equal(
+        requests.filter((entry) => entry.command === "listFolder").length,
+        listings,
+        "a late refusal lists nothing again",
+    );
     assert.equal(session.settledTimes, 0);
     // A choice in the folder on screen goes through as before.
     rows(renderer.tree, "steam-ui-kit-picker-files")[1].props.onClick();
     const valid = last("resolve");
     assert.notEqual(valid, lateRefusal, "a dropped choice no longer blocks the next one");
     valid.resolve({ path: "C:\\a.exe", folder: false, error: null });
-    assert.deepEqual(await session.promise, { outcome: "selected", path: "C:\\a.exe", folder: false });
+    assert.deepEqual(await session.promise, {
+        outcome: "selected",
+        path: "C:\\a.exe",
+        folder: false,
+    });
     await tick();
     assert.equal(session.settledTimes, 1);
 }
@@ -376,7 +493,9 @@ const titleText = (tree) => find(tree, (node) => node.type === "div" && node.pro
     const session = open({ mode: "file", start: "C:\\" });
     last("listPlaces").resolve(places);
     await tick();
-    last("listFolder").resolve(listing("C:\\", [{ name: "a.exe", path: "C:\\a.exe", folder: false }]));
+    last("listFolder").resolve(
+        listing("C:\\", [{ name: "a.exe", path: "C:\\a.exe", folder: false }]),
+    );
     await tick();
     rows(renderer.tree, "steam-ui-kit-picker-files")[0].props.onClick();
     const pending = last("resolve");
@@ -390,10 +509,15 @@ const titleText = (tree) => find(tree, (node) => node.type === "div" && node.pro
 }
 {
     const controller = new AbortController();
-    const session = open({ mode: "file", start: "C:\\", signal: controller.signal }, picker.runSteamFilePicker);
+    const session = open(
+        { mode: "file", start: "C:\\", signal: controller.signal },
+        picker.runSteamFilePicker,
+    );
     last("listPlaces").resolve(places);
     await tick();
-    last("listFolder").resolve(listing("C:\\", [{ name: "a.exe", path: "C:\\a.exe", folder: false }]));
+    last("listFolder").resolve(
+        listing("C:\\", [{ name: "a.exe", path: "C:\\a.exe", folder: false }]),
+    );
     await tick();
     rows(renderer.tree, "steam-ui-kit-picker-files")[0].props.onClick();
     const pending = last("resolve");
@@ -417,16 +541,26 @@ const titleText = (tree) => find(tree, (node) => node.type === "div" && node.pro
     sd.resolve(listing("E:\\", [{ name: "roms", path: "E:\\roms", folder: true }]));
     await tick();
     rows(renderer.tree, "steam-ui-kit-picker-files")[0].props.onClick();
-    last("listFolder").resolve(listing("E:\\roms", [], "E:\\", "This drive is no longer available."));
+    last("listFolder").resolve(
+        listing("E:\\roms", [], "E:\\", "This drive is no longer available."),
+    );
     await tick();
     assert.equal(alertText(renderer.tree), "This drive is no longer available.");
     const refreshed = last("listPlaces");
     assert.notEqual(refreshed, requests[0], "the places are asked for again after a listing error");
     refreshed.resolve({ places: places.places.slice(0, 1) });
     await tick();
-    assert.equal(rows(renderer.tree, "steam-ui-kit-picker-places").length, 1, "the pulled card is gone from the places");
+    assert.equal(
+        rows(renderer.tree, "steam-ui-kit-picker-places").length,
+        1,
+        "the pulled card is gone from the places",
+    );
     button(renderer.tree, "Use this folder").props.onClick();
-    assert.equal(last("resolve"), undefined, "an unlistable folder is never offered to the host as a choice");
+    assert.equal(
+        last("resolve"),
+        undefined,
+        "an unlistable folder is never offered to the host as a choice",
+    );
     assert.equal(session.settledTimes, 0);
     rows(renderer.tree, "steam-ui-kit-picker-places")[0].props.onClick();
     assert.equal(last("listFolder").payload.path, "C:\\", "another place can still be opened");
@@ -439,7 +573,9 @@ const titleText = (tree) => find(tree, (node) => node.type === "div" && node.pro
     const session = open({ mode: "folder", start: "Z:\\missing" });
     last("listPlaces").resolve(places);
     await tick();
-    last("listFolder").resolve(listing("Z:\\missing", [], "", "This drive is no longer available."));
+    last("listFolder").resolve(
+        listing("Z:\\missing", [], "", "This drive is no longer available."),
+    );
     await tick();
     assert.equal(last("listFolder").payload.path, "C:\\");
     last("listFolder").resolve(listing("C:\\", []));
@@ -498,28 +634,55 @@ const titleText = (tree) => find(tree, (node) => node.type === "div" && node.pro
     }));
     last("listFolder").resolve(listing("D:\\roms", entries, "D:\\"));
     await tick();
-    const pane = () => find(renderer.tree, (node) => node.type === Focusable && node.props.className === "steam-ui-kit-picker-files")[0];
+    const pane = () =>
+        find(
+            renderer.tree,
+            (node) =>
+                node.type === Focusable && node.props.className === "steam-ui-kit-picker-files",
+        )[0];
     assert.equal(rows(renderer.tree, "steam-ui-kit-picker-files").length, size);
     assert.equal(pane().key, "D:\\roms#0");
     assert.equal(pane().props.autoFocus, true, "a new listing takes focus at its first row");
     button(renderer.tree, "Next page").props.onClick();
-    assert.equal(rows(renderer.tree, "steam-ui-kit-picker-files")[0].props["data-title"], entries[size].name);
+    assert.equal(
+        rows(renderer.tree, "steam-ui-kit-picker-files")[0].props["data-title"],
+        entries[size].name,
+    );
     assert.equal(pane().key, "D:\\roms#1");
     root(renderer.tree).props.onButtonDown({ detail: { button: 8 } });
-    assert.equal(rows(renderer.tree, "steam-ui-kit-picker-files").length, 7, "the last page holds the rest");
-    assert.equal(rows(renderer.tree, "steam-ui-kit-picker-files")[6].props["data-title"], entries[entries.length - 1].name);
+    assert.equal(
+        rows(renderer.tree, "steam-ui-kit-picker-files").length,
+        7,
+        "the last page holds the rest",
+    );
+    assert.equal(
+        rows(renderer.tree, "steam-ui-kit-picker-files")[6].props["data-title"],
+        entries[entries.length - 1].name,
+    );
     root(renderer.tree).props.onButtonDown({ detail: { button: 8 } });
     assert.equal(pane().key, "D:\\roms#2", "the last page stays");
-    const status = find(renderer.tree, (node) => node.props?.role === "status").map((node) => node.props.children[0]);
-    assert.ok(status.includes(`Showing ${size * 2 + 1}-${entries.length} of ${entries.length}`), status.join(" | "));
+    const status = find(renderer.tree, (node) => node.props?.role === "status").map(
+        (node) => node.props.children[0],
+    );
+    assert.ok(
+        status.includes(`Showing ${size * 2 + 1}-${entries.length} of ${entries.length}`),
+        status.join(" | "),
+    );
     button(renderer.tree, "Previous page").props.onClick();
     assert.equal(pane().key, "D:\\roms#1");
     // Entering a folder resets to its first page.
     button(renderer.tree, "Up").props.onClick();
-    last("listFolder").resolve(listing("D:\\", [{ name: "roms", path: "D:\\roms", folder: true, link: true }]));
+    last("listFolder").resolve(
+        listing("D:\\", [{ name: "roms", path: "D:\\roms", folder: true, link: true }]),
+    );
     await tick();
     assert.equal(pane().key, "D:\\#0");
-    assert.equal(find(renderer.tree, (node) => node.type === "span" && node.props.children?.[0] === "Link").length, 1, "a junction is shown as a link");
+    assert.equal(
+        find(renderer.tree, (node) => node.type === "span" && node.props.children?.[0] === "Link")
+            .length,
+        1,
+        "a junction is shown as a link",
+    );
     renderer.unmount();
     await session.promise;
 }

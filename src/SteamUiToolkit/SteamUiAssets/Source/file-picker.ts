@@ -20,12 +20,13 @@ type SteamFilePickerOptions = {
 
 /** How a picker settled: once, with exactly one of these. */
 type SteamFilePickerResult =
-    | {outcome: "selected"; path: string; folder: boolean}
-    | {outcome: "cancelled"}
-    | {outcome: "failed"; reason: string};
+    | { outcome: "selected"; path: string; folder: boolean }
+    | { outcome: "cancelled" }
+    | { outcome: "failed"; reason: string };
 
 const steamFilePickerFailure = (failure: any) => String(failure?.message ?? failure);
-const steamFilePickerCancelled = (failure: any) => /cancelled/u.test(steamFilePickerFailure(failure));
+const steamFilePickerCancelled = (failure: any) =>
+    /cancelled/u.test(steamFilePickerFailure(failure));
 
 /**
  * Opens a contained two-pane file picker using native Steam controls and reports how it settled.
@@ -38,7 +39,11 @@ const runSteamFilePicker = (ui, options: SteamFilePickerOptions = {}) =>
         const react = ui?.react;
         const mode = options.mode === "file" || options.mode === "any" ? options.mode : "folder";
         const extensions: string[] =
-            mode === "folder" ? [] : Array.isArray(options.extensions) && options.extensions.length ? options.extensions : [".*"];
+            mode === "folder"
+                ? []
+                : Array.isArray(options.extensions) && options.extensions.length
+                  ? options.extensions
+                  : [".*"];
         const title = options.title ?? (mode === "folder" ? "Choose a folder" : "Choose a file");
         let settled = false;
         const settle = (value: SteamFilePickerResult) => {
@@ -48,11 +53,11 @@ const runSteamFilePicker = (ui, options: SteamFilePickerOptions = {}) =>
             }
         };
         if (options.signal?.aborted) {
-            settle({outcome: "cancelled"});
+            settle({ outcome: "cancelled" });
             return;
         }
 
-        function Picker({close}: {close: () => void}) {
+        function Picker({ close }: { close: () => void }) {
             const h = react.createElement;
             const [places, setPlaces] = react.useState([] as any[]);
             const [listing, setListing] = react.useState(null as any);
@@ -69,7 +74,9 @@ const runSteamFilePicker = (ui, options: SteamFilePickerOptions = {}) =>
             // second press on that listing does nothing. Moving on cancels it at the host and leaves
             // its ticket behind, so a late answer neither returns a path from a folder no longer on
             // screen nor shows its refusal over the folder that replaced it.
-            const choosing = react.useRef(null as {ticket: number; controller: AbortController} | null);
+            const choosing = react.useRef(
+                null as { ticket: number; controller: AbortController } | null,
+            );
             const dropChoice = () => {
                 choosing.current?.controller.abort();
                 choosing.current = null;
@@ -79,7 +86,7 @@ const runSteamFilePicker = (ui, options: SteamFilePickerOptions = {}) =>
                 settle(result);
                 close();
             };
-            const cancel = () => finish({outcome: "cancelled"});
+            const cancel = () => finish({ outcome: "cancelled" });
             const refreshPlaces = (thenOpen: boolean) => {
                 void request(SteamFilePickerPatchId, "listPlaces", {}).then(
                     (answer: any) => {
@@ -107,7 +114,13 @@ const runSteamFilePicker = (ui, options: SteamFilePickerOptions = {}) =>
                 inFlight.current = controller;
                 setLoading(true);
                 setError(notice);
-                void request(SteamFilePickerPatchId, "listFolder", {path, extensions}, undefined, controller.signal).then(
+                void request(
+                    SteamFilePickerPatchId,
+                    "listFolder",
+                    { path, extensions },
+                    undefined,
+                    controller.signal,
+                ).then(
                     (answer: any) => {
                         if (ticket !== requested.current) return;
                         inFlight.current = null;
@@ -125,7 +138,8 @@ const runSteamFilePicker = (ui, options: SteamFilePickerOptions = {}) =>
                         }
                     },
                     (failure: any) => {
-                        if (ticket !== requested.current || steamFilePickerCancelled(failure)) return;
+                        if (ticket !== requested.current || steamFilePickerCancelled(failure))
+                            return;
                         inFlight.current = null;
                         setLoading(false);
                         setError(steamFilePickerFailure(failure));
@@ -141,12 +155,18 @@ const runSteamFilePicker = (ui, options: SteamFilePickerOptions = {}) =>
                 const ticket = requested.current;
                 if (settled || ticket < 0 || choosing.current?.ticket === ticket) return;
                 const controller = new AbortController();
-                choosing.current = {ticket, controller};
+                choosing.current = { ticket, controller };
                 const done = () => {
                     if (choosing.current?.ticket === ticket) choosing.current = null;
                     return ticket === requested.current && !settled;
                 };
-                void request(SteamFilePickerPatchId, "resolve", {path, kind, extensions}, undefined, controller.signal).then(
+                void request(
+                    SteamFilePickerPatchId,
+                    "resolve",
+                    { path, kind, extensions },
+                    undefined,
+                    controller.signal,
+                ).then(
                     (answer: any) => {
                         if (!done()) return;
                         if (!answer || answer.error) {
@@ -155,10 +175,11 @@ const runSteamFilePicker = (ui, options: SteamFilePickerOptions = {}) =>
                             else setError(reason);
                             return;
                         }
-                        finish({outcome: "selected", path: answer.path, folder: !!answer.folder});
+                        finish({ outcome: "selected", path: answer.path, folder: !!answer.folder });
                     },
                     (failure: any) => {
-                        if (done() && !steamFilePickerCancelled(failure)) setError(steamFilePickerFailure(failure));
+                        if (done() && !steamFilePickerCancelled(failure))
+                            setError(steamFilePickerFailure(failure));
                     },
                 );
             };
@@ -166,14 +187,14 @@ const runSteamFilePicker = (ui, options: SteamFilePickerOptions = {}) =>
                 refreshPlaces(true);
                 const signal = options.signal;
                 const onAbort = () => cancel();
-                signal?.addEventListener("abort", onAbort, {once: true});
+                signal?.addEventListener("abort", onAbort, { once: true });
                 return () => {
                     requested.current = -1;
                     inFlight.current?.abort();
                     inFlight.current = null;
                     dropChoice();
                     signal?.removeEventListener("abort", onAbort);
-                    settle({outcome: "cancelled"});
+                    settle({ outcome: "cancelled" });
                 };
             }, []);
             const current: string = listing?.path ?? "";
@@ -203,7 +224,8 @@ const runSteamFilePicker = (ui, options: SteamFilePickerOptions = {}) =>
             const shown = Math.min(page, pages - 1);
             const first = shown * SteamFilePickerPageSize;
             const visible = entries.slice(first, first + SteamFilePickerPageSize);
-            const turn = (delta: number) => setPage(Math.min(pages - 1, Math.max(0, shown + delta)));
+            const turn = (delta: number) =>
+                setPage(Math.min(pages - 1, Math.max(0, shown + delta)));
             const kindOf = (entry: any) => (entry.link ? "Link" : entry.folder ? "Folder" : "File");
             return h(
                 ui.focusable,
@@ -218,23 +240,24 @@ const runSteamFilePicker = (ui, options: SteamFilePickerOptions = {}) =>
                     onButtonDown: pages > 1 ? onSteamTriggers(turn) : undefined,
                 },
                 steamUiKitStyle(react),
-                // The dialog Steam draws around the picker shows no title of its own in Big Picture,
-                // so the picker draws the one the page asked for.
-                h("div", {className: "steam-ui-kit-picker-title"}, title),
                 h(
                     ui.focusable,
-                    {className: "steam-ui-kit-picker-actions", "flow-children": "row"},
-                    h(ui.dialogButton, {onClick: up}, "Up"),
-                    h(ui.dialogButton, {onClick: refresh}, "Refresh"),
-                    h("div", {className: "steam-ui-kit-picker-path", role: "status"}, loading ? (current || "Places") + " (loading)" : current),
+                    { className: "steam-ui-kit-picker-actions", "flow-children": "row" },
+                    h(ui.dialogButton, { onClick: up }, "Up"),
+                    h(ui.dialogButton, { onClick: refresh }, "Refresh"),
+                    h(
+                        "div",
+                        { className: "steam-ui-kit-picker-path", role: "status" },
+                        loading ? (current || "Places") + " (loading)" : current,
+                    ),
                 ),
                 h(
                     "div",
-                    {className: "steam-ui-kit-picker-body"},
+                    { className: "steam-ui-kit-picker-body" },
                     h(
                         ui.focusable,
-                        {className: "steam-ui-kit-picker-places", "flow-children": "column"},
-                        h("div", {className: "steam-ui-kit-picker-heading"}, "Places"),
+                        { className: "steam-ui-kit-picker-places", "flow-children": "column" },
+                        h("div", { className: "steam-ui-kit-picker-heading" }, "Places"),
                         ...places.map((place: any) =>
                             renderSteamUiSelectRow(ui, {
                                 key: place.path,
@@ -249,38 +272,60 @@ const runSteamFilePicker = (ui, options: SteamFilePickerOptions = {}) =>
                     // first row, while a refresh of the same folder keeps the row that had it.
                     h(
                         ui.focusable,
-                        {key: current + "#" + shown, className: "steam-ui-kit-picker-files", "flow-children": "column", autoFocus: !!current},
-                        h("div", {className: "steam-ui-kit-picker-heading"}, "Files and folders"),
+                        {
+                            key: current + "#" + shown,
+                            className: "steam-ui-kit-picker-files",
+                            "flow-children": "column",
+                            autoFocus: !!current,
+                        },
+                        h("div", { className: "steam-ui-kit-picker-heading" }, "Files and folders"),
                         ...visible.map((entry: any) =>
                             renderSteamUiSelectRow(ui, {
                                 key: entry.path,
                                 title: entry.name,
-                                status: h("span", {className: "steam-ui-kit-muted"}, kindOf(entry)),
+                                status: h(
+                                    "span",
+                                    { className: "steam-ui-kit-muted" },
+                                    kindOf(entry),
+                                ),
                                 onClick: () => activate(entry),
                             }),
                         ),
-                        entries.length === 0 && !loading && !error && current ? h("p", {}, "This folder is empty.") : null,
+                        entries.length === 0 && !loading && !error && current
+                            ? h("p", {}, "This folder is empty.")
+                            : null,
                     ),
                 ),
                 pages > 1
                     ? h(
                           ui.focusable,
-                          {className: "steam-ui-kit-picker-actions", "flow-children": "row"},
-                          h(ui.dialogButton, {onClick: () => turn(-1)}, "Previous page"),
+                          { className: "steam-ui-kit-picker-actions", "flow-children": "row" },
+                          h(ui.dialogButton, { onClick: () => turn(-1) }, "Previous page"),
                           h(
                               "div",
-                              {className: "steam-ui-kit-picker-path steam-ui-kit-picker-count", role: "status"},
+                              {
+                                  className: "steam-ui-kit-picker-path steam-ui-kit-picker-count",
+                                  role: "status",
+                              },
                               `Showing ${first + 1}-${first + visible.length} of ${entries.length}`,
                           ),
-                          h(ui.dialogButton, {onClick: () => turn(1)}, "Next page"),
+                          h(ui.dialogButton, { onClick: () => turn(1) }, "Next page"),
                       )
                     : null,
-                error ? h("p", {className: "steam-ui-kit-sheet-error", role: "alert"}, error) : null,
+                error
+                    ? h("p", { className: "steam-ui-kit-sheet-error", role: "alert" }, error)
+                    : null,
                 h(
                     ui.focusable,
-                    {className: "steam-ui-kit-picker-actions", "flow-children": "row"},
-                    h(ui.dialogButton, {onClick: cancel}, "Cancel"),
-                    mode === "file" ? null : h(ui.dialogButtonPrimary ?? ui.dialogButton, {onClick: useCurrent}, "Use this folder"),
+                    { className: "steam-ui-kit-picker-actions", "flow-children": "row" },
+                    h(ui.dialogButton, { onClick: cancel }, "Cancel"),
+                    mode === "file"
+                        ? null
+                        : h(
+                              ui.dialogButtonPrimary ?? ui.dialogButton,
+                              { onClick: useCurrent },
+                              "Use this folder",
+                          ),
                 ),
             );
         }
@@ -290,11 +335,11 @@ const runSteamFilePicker = (ui, options: SteamFilePickerOptions = {}) =>
             !showSteamModal(ui, {
                 title,
                 wide: true,
-                render: (close) => react.createElement(Picker, {close}),
-                onCancel: () => settle({outcome: "cancelled"}),
+                render: (close) => react.createElement(Picker, { close }),
+                onCancel: () => settle({ outcome: "cancelled" }),
             })
         ) {
-            settle({outcome: "failed", reason: "Steam's modal components are unavailable."});
+            settle({ outcome: "failed", reason: "Steam's modal components are unavailable." });
         }
     });
 
@@ -306,4 +351,6 @@ const runSteamFilePicker = (ui, options: SteamFilePickerOptions = {}) =>
  * @returns The validated path or null; it settles exactly once.
  */
 const showSteamFilePicker = (ui, options: SteamFilePickerOptions = {}) =>
-    runSteamFilePicker(ui, options).then((result) => (result.outcome === "selected" ? result.path : null));
+    runSteamFilePicker(ui, options).then((result) =>
+        result.outcome === "selected" ? result.path : null,
+    );

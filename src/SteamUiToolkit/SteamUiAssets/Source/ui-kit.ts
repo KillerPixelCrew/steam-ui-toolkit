@@ -20,7 +20,10 @@ const SteamUiKitStyles = `
 .steam-ui-kit-content .steam-ui-kit-toolbar{flex-wrap:wrap}
 /* Valve's dropdown uses two fixed-width wrappers; constrain the whole field inside narrow QAM groups. */
 .steam-ui-kit-group .DialogButton[role="combobox"],.steam-ui-kit-group div:has(>.DialogButton[role="combobox"]),.steam-ui-kit-group div:has(>div>.DialogButton[role="combobox"]){min-width:0!important;max-width:100%!important;box-sizing:border-box}
-.steam-ui-kit-sheet{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0;max-height:min(70vh,calc(100vh - 160px));overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-gutter:stable}
+.steam-ui-kit-sheet{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0;max-height:min(70vh,calc(100vh - 160px));overflow:hidden}
+.steam-ui-kit-sheet-content{display:flex;flex-direction:column;gap:6px;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-gutter:stable}
+.steam-ui-kit-sheet-content>*{min-width:0;max-width:100%;box-sizing:border-box;flex-shrink:0}
+.steam-ui-kit-sheet>.steam-ui-kit-sheet-content{flex-shrink:1}
 .steam-ui-kit-sheet>*{min-width:0;max-width:100%;box-sizing:border-box;flex-shrink:0}
 .steam-ui-kit-sheet .DialogInput,.steam-ui-kit-sheet .DialogInputWrapper,.steam-ui-kit-sheet .DialogButton{min-width:0;max-width:100%;box-sizing:border-box}
 .steam-ui-kit-sheet-note{font-size:14px;color:#8b929a;line-height:1.45;margin:0 0 12px}
@@ -128,7 +131,6 @@ const SteamUiKitStyles = `
 .steam-ui-kit-select-row-title{min-width:0;overflow-wrap:anywhere}
 .steam-ui-kit-select-row-detail{grid-column:1 / -1;min-width:0;font-size:13px;color:#8b929a;white-space:normal;overflow-wrap:anywhere}
 .steam-ui-kit-picker{display:flex;flex-direction:column;gap:12px;min-width:0;width:900px;max-width:100%;box-sizing:border-box}
-.steam-ui-kit-picker-title{font-size:22px;line-height:30px;font-weight:700;color:#fff;min-width:0;overflow-wrap:anywhere}
 .steam-ui-kit-picker-body{display:grid;grid-template-columns:minmax(140px,1fr) minmax(0,2fr);gap:16px;min-height:0;height:clamp(200px,90vh - 310px,520px)}
 .steam-ui-kit-picker-places,.steam-ui-kit-picker-files{min-width:0;min-height:0;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:6px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.12);border-radius:4px;padding:8px;box-sizing:border-box}
 .steam-ui-kit-picker-heading{padding:4px 8px 8px;border-bottom:1px solid #3d4450;font-size:12px;font-weight:600;color:#8b929a;text-transform:uppercase;letter-spacing:.06em}
@@ -384,15 +386,24 @@ const renderSteamUiActions = (
     const h = ui.react.createElement;
     return h(
         ui.focusable,
-        { "flow-children": "row", className: `steam-ui-kit-actions${options.compact ? " compact" : ""}` },
+        {
+            "flow-children": "row",
+            className: `steam-ui-kit-actions${options.compact ? " compact" : ""}`,
+        },
         ...actions.map((action) =>
             h(
                 action.primary ? (ui.dialogButtonPrimary ?? ui.dialogButton) : ui.dialogButton,
                 {
                     key: action.id,
-                    className: !options.compact && action.label.length > 18 ? "steam-ui-kit-wide" : undefined,
-                    onClick: action.onClick,
+                    className:
+                        !options.compact && action.label.length > 18
+                            ? "steam-ui-kit-wide"
+                            : undefined,
+                    onClick: () => {
+                        if (!action.disabled) action.onClick();
+                    },
                     disabled: !!action.disabled,
+                    "aria-disabled": !!action.disabled,
                 },
                 action.label,
             ),
@@ -426,9 +437,13 @@ const renderSteamUiSheet = (
             "flow-children": "column",
         },
         steamUiKitStyle(ui.react),
-        props.note ? h("p", { className: "steam-ui-kit-sheet-note" }, props.note) : null,
-        ...children,
-        props.error ? h("p", { className: "steam-ui-kit-sheet-error" }, props.error) : null,
+        h(
+            ui.focusable ?? "div",
+            { className: "steam-ui-kit-sheet-content", "flow-children": "column" },
+            props.note ? h("p", { className: "steam-ui-kit-sheet-note" }, props.note) : null,
+            ...children,
+            props.error ? h("p", { className: "steam-ui-kit-sheet-error" }, props.error) : null,
+        ),
         props.actions?.length
             ? h(
                   "div",
@@ -522,9 +537,19 @@ const renderSteamUiMore = (
  * @param children Toolbar, list or other page content in navigation order.
  * @returns The focusable pane, or a plain container when Focusable is unavailable.
  */
-const renderSteamUiPane = (ui, props: { key?: string; className?: string; bounded?: boolean }, ...children) => {
+const renderSteamUiPane = (
+    ui,
+    props: { key?: string; className?: string; bounded?: boolean },
+    ...children
+) => {
     const h = ui.react.createElement;
-    const className = ["steam-ui-kit-pane", props.bounded ? "steam-ui-kit-content" : "", props.className].filter(Boolean).join(" ");
+    const className = [
+        "steam-ui-kit-pane",
+        props.bounded ? "steam-ui-kit-content" : "",
+        props.className,
+    ]
+        .filter(Boolean)
+        .join(" ");
     return ui.focusable
         ? h(
               ui.focusable,
@@ -541,11 +566,18 @@ const renderSteamUiPane = (ui, props: { key?: string; className?: string; bounde
  * @param children Content of the nested level.
  * @returns A focusable level with initial focus and the supplied Back action.
  */
-const renderSteamUiLevel = (ui, props: { className?: string; bounded?: boolean; onBack?: () => void }, ...children) =>
+const renderSteamUiLevel = (
+    ui,
+    props: { className?: string; bounded?: boolean; onBack?: () => void },
+    ...children
+) =>
     ui.react.createElement(
         ui.focusable,
         {
-            className: [props.bounded ? "steam-ui-kit-content" : "", props.className].filter(Boolean).join(" ") || undefined,
+            className:
+                [props.bounded ? "steam-ui-kit-content" : "", props.className]
+                    .filter(Boolean)
+                    .join(" ") || undefined,
             autoFocus: true,
             onCancelButton: props.onBack,
             onCancelActionDescription: "Back",
@@ -967,7 +999,6 @@ const showSteamUiConfirm = (
             h(
                 "div",
                 { className: "steam-ui-kit-modal-body" },
-                h("h2", { className: "steam-ui-kit-modal-title" }, props.title),
                 h("p", null, props.text),
                 h(
                     ui.focusable,
@@ -998,7 +1029,6 @@ function SteamUiPromptBody(props: any) {
     return h(
         "div",
         { className: "steam-ui-kit-modal-body" },
-        h("h2", { className: "steam-ui-kit-modal-title" }, props.title),
         props.text ? h("p", null, props.text) : null,
         h(ui.textField, {
             label: props.label,

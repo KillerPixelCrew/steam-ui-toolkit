@@ -1486,6 +1486,11 @@ unchanged. `showSteamModal(ui, {wide:true, ...})` marks only that dialog with
 `steam-ui-kit-modal-wide`, carries its stylesheet into the modal document and requests a width
 capped at 1000px and the viewport minus 64px. Other Steam dialogs retain their native sizing.
 
+`showSteamModal` renders its title once above the body. `renderSteamUiSheet` keeps its action row
+visible while the fields scroll. Disabled actions supply Steam's native `disabled` prop and
+`aria-disabled` state and refuse activation callbacks while disabled. Steam may retain focus on a
+disabled button without setting the HTML `disabled` attribute.
+
 `renderSteamUiChoice(ui, {label, showLabel, rgOptions, selectedOption, disabled, onChange})`
 contains Steam's bare dropdown in narrow columns, with a below-layout full-field fallback. Use
 `showLabel:false` when a table already names the row; the accessible label remains. The shared

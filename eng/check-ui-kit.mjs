@@ -92,7 +92,6 @@ for (const cls of [
     "modal-wide",
     "more",
     "picker",
-    "picker-title",
     "picker-body",
     "picker-places",
     "picker-files",
@@ -326,6 +325,13 @@ assert.equal(actions.props.children[0].props.className, undefined);
 assert.equal(actions.props.children[1].props.className, "steam-ui-kit-wide");
 actions.props.children[0].props.onClick();
 assert.deepEqual(ran, ["a"]);
+const disabledAction = kit.renderSteamUiActions(ui, [
+    { id: "disabled", label: "Unavailable", disabled: true, onClick: () => ran.push("disabled") },
+]).props.children[0];
+assert.equal(disabledAction.props.disabled, true);
+assert.equal(disabledAction.props["aria-disabled"], true);
+disabledAction.props.onClick();
+assert.deepEqual(ran, ["a"]);
 const compact = kit.renderSteamUiActions(
     ui,
     [
@@ -554,6 +560,11 @@ const renderModal = (modal) => {
     hooks.index = 0;
     const frame = modal.type({ closeModal: () => closed++ });
     assert.equal(frame.type, Modal, "the body sits in Steam's dialog");
+    assert.equal(
+        frame.props.children[1].props.children[0],
+        frame.props.strTitle,
+        "the dialog title is visible",
+    );
     return frame.props.children.at(-1);
 };
 hooks.index = 0;
@@ -563,8 +574,7 @@ assert.equal(
     "a confirm is Steam's ordinary dialog size",
 );
 let body = renderModal(shown[0]);
-assert.equal(body.props.children[0].props.children[0], "Delete Theme", "confirm title is visible");
-const [cancel, ok] = body.props.children[2].props.children;
+const [cancel, ok] = body.props.children[1].props.children;
 cancel.props.onClick();
 assert.equal(confirmed, 0);
 assert.equal(closed, 1);
@@ -580,13 +590,12 @@ kit.showSteamUiPrompt(ui, {
 });
 const prompt = renderModal(shown[1]);
 let promptBody = prompt.type(prompt.props);
-assert.equal(promptBody.props.children[0].props.children[0], "Create Profile", "prompt title is visible");
-promptBody.props.children[3].props.children[1].props.onClick();
+promptBody.props.children[2].props.children[1].props.onClick();
 assert.deepEqual(answers, [], "an empty answer is not sent");
-promptBody.props.children[2].props.onChange({ target: { value: "  Night " } });
+promptBody.props.children[1].props.onChange({ target: { value: "  Night " } });
 hooks.index = 0;
 promptBody = prompt.type(prompt.props);
-promptBody.props.children[3].props.children[1].props.onClick();
+promptBody.props.children[2].props.children[1].props.onClick();
 assert.deepEqual(answers, ["Night"], "the answer is sent trimmed");
 
 // A body that asks to be wide gets Steam's own full-size dialog, through the prop the dialog's
@@ -621,6 +630,8 @@ assert.equal(
     "the width rule follows the modal into its portal document",
 );
 assert.equal(wideFrame.props.strTitle, "Wide");
+assert.equal(wideFrame.props.children[1].type, "h2");
+assert.deepEqual(wideFrame.props.children[1].props.children, ["Wide"]);
 wideFrame.props.onCancel();
 assert.equal(wideCancelled, 1, "cancelling a wide dialog still reaches the body's onCancel");
 assert.equal(kit.showSteamModal(ui, { title: "Plain", render: () => null }), true);

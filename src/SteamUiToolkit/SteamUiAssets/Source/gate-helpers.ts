@@ -148,8 +148,12 @@ const resolveSteamFieldComponents = (runtime) => {
         const source = sourceOfSteamComponent(value);
         return source.includes("OnToggleChange") && source.includes("this.Toggle()");
     });
-    const dialogButton = uniqueSteamExport(fields, (value) => isSteamDialogButton(value, "Secondary"));
-    const dialogButtonPrimary = uniqueSteamExport(fields, (value) => isSteamDialogButton(value, "Primary"));
+    const dialogButton = uniqueSteamExport(fields, (value) =>
+        isSteamDialogButton(value, "Secondary"),
+    );
+    const dialogButtonPrimary = uniqueSteamExport(fields, (value) =>
+        isSteamDialogButton(value, "Primary"),
+    );
     // The class that DEFINES the validators, not one that merely inherits them. A class extending
     // TextField answers `typeof validateUrl === "function"` through its prototype chain, and the
     // 2026-09-24 client exports such a subclass beside the base: two fits, no unique match, no
@@ -216,9 +220,9 @@ const resolveSteamUiComponents = (runtime) => {
                   modal,
                   parent,
                   props.strTitle ?? "",
-                  {bHideMainWindowForPopouts: false, ...props},
+                  { bHideMainWindowForPopouts: false, ...props },
                   undefined,
-                  {bHideActions: props.bHideActionIcons},
+                  { bHideActions: props.bHideActionIcons },
               )
         : null;
 
@@ -269,9 +273,12 @@ const resolveSteamPanelComponents = (runtime) => {
     const row = uniqueSteamExport(
         layout,
         (value) =>
-            !!value && typeof value === "object" && !!value.$$typeof && typeof value.render === "function",
+            !!value &&
+            typeof value === "object" &&
+            !!value.$$typeof &&
+            typeof value.render === "function",
     );
-    return section && row ? {section, row} : null;
+    return section && row ? { section, row } : null;
 };
 
 // The folds of the Quick Access tabs' sections, one mechanism for all of them. The host publishes
@@ -296,13 +303,12 @@ const createSteamFolds = () => {
             }
             return open;
         },
-        isFolded: (open, id) =>
-            overrides.has(id) ? overrides.get(id) : !(open && open.has(id)),
+        isFolded: (open, id) => (overrides.has(id) ? overrides.get(id) : !(open && open.has(id))),
         // `changed` redraws the root that asked, at once and again if the host refuses.
         setFolded(id, folded, changed) {
             overrides.set(id, folded);
             changed();
-            void request(SteamFoldsPatchId, "setFolded", {id, folded}).catch(() => {});
+            void request(SteamFoldsPatchId, "setFolded", { id, folded }).catch(() => {});
         },
     };
 };
@@ -372,24 +378,29 @@ const showSteamModal = (
         return react.createElement(
             ui.modalRoot,
             {
-                className: [options.className, options.wide ? "steam-ui-kit-modal-wide" : ""]
-                    .filter(Boolean).join(" ") || undefined,
+                className:
+                    [options.className, options.wide ? "steam-ui-kit-modal-wide" : ""]
+                        .filter(Boolean)
+                        .join(" ") || undefined,
                 onCancel: cancel,
                 closeModal: cancel,
                 strTitle: title,
-                ...(options.wide ? {bAllowFullSize: true} : {}),
+                ...(options.wide ? { bAllowFullSize: true } : {}),
             },
             // Modal portals do not inherit the originating document's toolkit stylesheet.
             steamUiKitStyle(react),
+            title
+                ? react.createElement("h2", { className: "steam-ui-kit-modal-title" }, title)
+                : null,
             options.render(close),
         );
     }
-    ui.showModal(react.createElement(SteamModal, {}), window, {strTitle: title});
+    ui.showModal(react.createElement(SteamModal, {}), window, { strTitle: title });
     return true;
 };
 
 // Steam's gamepad button codes, as a Focusable's onButtonDown reports them in event.detail.button.
-const SteamGamepadButton = Object.freeze({TriggerLeft: 7, TriggerRight: 8} as const);
+const SteamGamepadButton = Object.freeze({ TriggerLeft: 7, TriggerRight: 8 } as const);
 
 /**
  * Creates a handler that consumes LT/RT and leaves other buttons to Steam.
@@ -398,7 +409,8 @@ const SteamGamepadButton = Object.freeze({TriggerLeft: 7, TriggerRight: 8} as co
  */
 const onSteamTriggers = (step: (delta: number) => void) => (event: any) => {
     const button = event?.detail?.button;
-    if (button !== SteamGamepadButton.TriggerLeft && button !== SteamGamepadButton.TriggerRight) return;
+    if (button !== SteamGamepadButton.TriggerLeft && button !== SteamGamepadButton.TriggerRight)
+        return;
     event?.stopPropagation?.();
     step(button === SteamGamepadButton.TriggerRight ? 1 : -1);
 };
@@ -429,7 +441,10 @@ const isSteamRouteList = (react, value, knownRoute: string) =>
 // Absolute, not the root, and free of control characters, as the C# side refuses them too. No length
 // limit: a long route is still a route.
 const isNavigableRoute = (route) =>
-    typeof route === "string" && route.startsWith("/") && route !== "/" && !/[\u0000-\u001f\u007f]/u.test(route);
+    typeof route === "string" &&
+    route.startsWith("/") &&
+    route !== "/" &&
+    !/[\u0000-\u001f\u007f]/u.test(route);
 
 /**
  * Pushes an absolute non-root route through the existing Steam history.
@@ -491,7 +506,11 @@ const resolveSteamLocalizer = (runtime): ((token: string) => unknown) | null => 
 };
 
 // Steam's string for a token, or the fallback when the localizer is absent or has no string.
-const localizedOr = (localize: ((token: string) => unknown) | null, token: string, fallback: string) => {
+const localizedOr = (
+    localize: ((token: string) => unknown) | null,
+    token: string,
+    fallback: string,
+) => {
     try {
         const text = localize?.(token);
         if (typeof text === "string" && text && text !== token) return text;
@@ -522,8 +541,7 @@ const createLocalStore = () => {
             for (const listener of [...listeners]) {
                 try {
                     listener();
-                } catch {
-                }
+                } catch {}
             }
         },
         subscribe(listener: () => void) {
@@ -560,7 +578,9 @@ const SteamAccentColor = "#1a9fff";
 // A description, as one span in the accent colour when the host marks the row, and as its plain
 // text otherwise. The words are the host's; an empty unmarked description draws nothing.
 const steamAccentDescription = (react, text, accent) =>
-    accent ? react.createElement("span", {style: {color: SteamAccentColor}}, text) : text || undefined;
+    accent
+        ? react.createElement("span", { style: { color: SteamAccentColor } }, text)
+        : text || undefined;
 
 /**
  * Builds props that retain an existing React element's key.
@@ -569,7 +589,7 @@ const steamAccentDescription = (react, text, accent) =>
  * @returns Original props for a null key; otherwise a shallow props copy containing the key.
  */
 const keyed = (element, props = element.props) =>
-    element.key === null ? props : {...props, key: element.key};
+    element.key === null ? props : { ...props, key: element.key };
 
 // A portal is not an element: isValidElement answers false, and its children sit on the portal
 // itself rather than under props. Steam's Quick Access menu draws its whole body through one into
@@ -598,7 +618,7 @@ const mapEach = (react, children, map: (child: any) => unknown) => {
 
 const mapPortalChildren = (react, portal, map: (child: any) => unknown) => {
     const next = mapEach(react, portal.children, map);
-    return next ? {...portal, children: next} : portal;
+    return next ? { ...portal, children: next } : portal;
 };
 
 // Maps an element's children and clones it only when one changed. An element with no children is
@@ -689,10 +709,10 @@ const walkFibers = (roots, bound: number, visit: (fiber: any) => boolean | void)
         const node = queue[head];
         if (!node) continue;
         visited++;
-        if (visit(node) === true) return {visited, stopped: true};
+        if (visit(node) === true) return { visited, stopped: true };
         queue.push(node.child, node.sibling);
     }
-    return {visited, stopped: false};
+    return { visited, stopped: false };
 };
 
 // The mounted fibers drawing one component: those whose element type is the memo or function that
@@ -739,7 +759,7 @@ const requestRender = (fiber) => {
 //   - a render requested from the nearest class ancestor (requestRender), so it happens now.
 const invalidateFiberProps = (fiber) => {
     for (const side of [fiber, fiber.alternate]) {
-        if (side) side.memoizedProps = {[AdoptedPropsKey]: side.memoizedProps};
+        if (side) side.memoizedProps = { [AdoptedPropsKey]: side.memoizedProps };
     }
 };
 const retargetFiber = (fiber, type) => {
@@ -770,7 +790,7 @@ const adoptMountedType = (roots, elementType, replacement, bound: number) => {
         fibers.push(fiber);
         scheduled = requestRender(fiber) || scheduled;
     }
-    return {fibers, adopted: fibers.length, scheduled};
+    return { fibers, adopted: fibers.length, scheduled };
 };
 
 // The node bound mounted trees are walked under. The router sits about a hundred levels down the
@@ -799,18 +819,18 @@ const publicationChanged = (previous, next) => JSON.stringify(previous) !== JSON
 // reaches any instance mounted after adoption on its own.
 const createMountedAdoption = (bound = MaximumMountedNodes) => {
     // Each adopted fiber with whether it had a parent when adopted; see fiberAttached.
-    let entries: {fiber: any; hadParent: boolean}[] = [];
+    let entries: { fiber: any; hadParent: boolean }[] = [];
     let replacement = null;
     let scheduled = false;
     const live = () => {
-        entries = entries.filter(({fiber, hadParent}) => !hadParent || fiberAttached(fiber));
-        return entries.map(({fiber}) => fiber);
+        entries = entries.filter(({ fiber, hadParent }) => !hadParent || fiberAttached(fiber));
+        return entries.map(({ fiber }) => fiber);
     };
     return {
         adopt: (elementType, wrapper) => {
             replacement = wrapper;
             const result = adoptMountedType(reactRootFibers(), elementType, wrapper, bound);
-            entries = result.fibers.map((fiber) => ({fiber, hadParent: fiberAttached(fiber)}));
+            entries = result.fibers.map((fiber) => ({ fiber, hadParent: fiberAttached(fiber) }));
             scheduled = result.scheduled;
             return result;
         },
@@ -823,7 +843,7 @@ const createMountedAdoption = (bound = MaximumMountedNodes) => {
             return asked;
         },
         release: (original) => {
-            for (const {fiber} of entries) {
+            for (const { fiber } of entries) {
                 if (fiber.type === replacement) retargetFiber(fiber, original);
             }
             entries = [];
@@ -872,9 +892,9 @@ const createSourceAdoption = (
 ) => {
     // Each adopted fiber's original, the wrapper it was given and whether it had a parent when
     // adopted; see fiberAttached.
-    const adopted = new Map<any, {original: any; wrapper: any; hadParent: boolean}>();
+    const adopted = new Map<any, { original: any; wrapper: any; hadParent: boolean }>();
     const prune = () => {
-        for (const [fiber, {hadParent}] of [...adopted]) {
+        for (const [fiber, { hadParent }] of [...adopted]) {
             if (hadParent && !fiberAttached(fiber)) adopted.delete(fiber);
         }
     };
@@ -887,7 +907,7 @@ const createSourceAdoption = (
                 const type = fiber.type;
                 if (adopted.has(fiber) || !sourceMatches(type, tokens)) return false;
                 const wrapper = wrapFor(type);
-                adopted.set(fiber, {original: type, wrapper, hadParent: fiberAttached(fiber)});
+                adopted.set(fiber, { original: type, wrapper, hadParent: fiberAttached(fiber) });
                 retargetFiber(fiber, wrapper);
                 invalidateFiberProps(fiber);
                 requestRender(fiber);
@@ -899,7 +919,7 @@ const createSourceAdoption = (
         release: () => {
             // Only a fiber still drawing our wrapper is handed back; a type something else set since
             // is not ours to overwrite.
-            for (const [fiber, {original, wrapper}] of adopted) {
+            for (const [fiber, { original, wrapper }] of adopted) {
                 if (fiber.type === wrapper) retargetFiber(fiber, original);
             }
             adopted.clear();
