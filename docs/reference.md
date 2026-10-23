@@ -1257,6 +1257,14 @@ the host's isolated player, never in this trusted configuration UI.
 
 ### Custom pages
 
+`resolveSteamOverlayBrowser` in `overlay-browser.ts` supplies a window-scoped native browser handoff
+for trusted lookup pages. It accepts a unique registered Big Picture main window or an identified
+game overlay. Desktop and gamepad overlays for the same game remain distinct contexts; duplicates of
+the same kind are refused. The helper creates no browser until `open`, validates HTTP/HTTPS
+addresses, and retains Steam's own route/history state for Resume. Replacement histories and
+disposal release the helper's subscriptions. Arbitrary content stays in Steam's external browser
+view and receives no host bridge from this helper.
+
 Steam's router renders its routes as the children of its own switch, so registering a page is a list
 operation on props rather than DOM work — unlike the navigation panel, whose entries do not exist
 until its root renders.

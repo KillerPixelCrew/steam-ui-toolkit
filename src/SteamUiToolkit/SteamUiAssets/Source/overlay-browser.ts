@@ -1,4 +1,4 @@
-/** Resolves trusted lookup chrome's handoff to the actual game's Steam-owned browser. */
+/** Resolves trusted lookup chrome's handoff to a Steam-owned Big Picture or game browser. */
 function resolveSteamOverlayBrowser(runtime) {
     const useWindow = runtime.exported(
         ["createContext(null)", "VirtualKeyboardManager", "instance"],
@@ -23,8 +23,20 @@ function resolveSteamOverlayBrowser(runtime) {
     const validId = (value) => Number.isInteger(value) && value > 0 && value <= 0xffffffff;
     const identify = (instance) => {
         if (disposed) return null;
-        const windows = (window as any).SteamUIStore?.WindowStore?.OverlayWindows;
-        if (!instance || !Array.isArray(windows) || !windows.includes(instance)) return null;
+        const store = (window as any).SteamUIStore?.WindowStore;
+        if (!instance || !store) return null;
+        if (instance.IsMainGamepadUIWindow?.() === true) {
+            const windows = store.SteamUIWindows;
+            if (!Array.isArray(windows) || instance.IsOverlayWindow?.() === true) return null;
+            const matches = windows.filter(
+                (candidate) => candidate?.IsMainGamepadUIWindow?.() === true,
+            );
+            return matches.length === 1 && matches[0] === instance
+                ? { appId: null, processId: null, gameId: null, title: "", kind: "main" }
+                : null;
+        }
+        const windows = store.OverlayWindows;
+        if (!Array.isArray(windows) || !windows.includes(instance)) return null;
         const gamepad = instance.IsGamepadUIOverlayWindow?.() === true;
         const desktop = instance.IsDesktopOverlayWindow?.() === true;
         if (gamepad === desktop) return null;
@@ -42,7 +54,9 @@ function resolveSteamOverlayBrowser(runtime) {
             return (
                 other?.m_unPID === info.m_unPID &&
                 other?.m_unAppID === info.m_unAppID &&
-                other?.m_gameID === info.m_gameID
+                other?.m_gameID === info.m_gameID &&
+                (candidate.IsGamepadUIOverlayWindow?.() === true) === gamepad &&
+                (candidate.IsDesktopOverlayWindow?.() === true) === desktop
             );
         });
         if (matches.length !== 1 || matches[0] !== instance) return null;
@@ -152,7 +166,7 @@ function resolveSteamOverlayBrowser(runtime) {
     const open = (instance, url?: string, home = "about:blank") => {
         const target = identify(instance);
         if (!target || (url !== undefined && !allowed(url)) || !allowed(home)) return false;
-        if (target.kind === "gamepad") {
+        if (target.kind === "gamepad" || target.kind === "main") {
             if (typeof instance.Navigator?.ExternalWeb !== "function") return false;
             const entry = watch(instance, target);
             if (!entry) return false;
