@@ -123,8 +123,8 @@ public static class SteamNativeSettingsSurface
             || !SteamUiPayload.TryReadNonBlankString(payload, "key", out var key)
             || key.Length > 1024
             || !payload.TryGetProperty("value", out var setting)
-            || setting.ValueKind is not (JsonValueKind.True or JsonValueKind.False or JsonValueKind.Number
-                or JsonValueKind.String)
+            || (setting.ValueKind is not (JsonValueKind.True or JsonValueKind.False or JsonValueKind.Number
+                or JsonValueKind.String) && !IsResolutionEdit(setting))
             || (setting.ValueKind == JsonValueKind.String && setting.GetString()!.Length > 4096))
         {
             return false;
@@ -135,4 +135,17 @@ public static class SteamNativeSettingsSurface
     }
 
     private readonly record struct SetRequest(string Key, JsonElement Value);
+
+    private static bool IsResolutionEdit(JsonElement value)
+    {
+        if (!SteamUiPayload.TryReadNonBlankString(value, "operation", out var operation))
+        {
+            return false;
+        }
+
+        return operation is "refresh" or "restore" ? SteamUiPayload.HasExactly(value, 1)
+            : operation is "add" or "remove" or "steps" && SteamUiPayload.HasExactly(value, 3)
+                && SteamUiPayload.TryReadInt(value, "width", minimum: 100, maximum: 15999, out _)
+                && SteamUiPayload.TryReadInt(value, "height", minimum: 100, maximum: 15999, out _);
+    }
 }

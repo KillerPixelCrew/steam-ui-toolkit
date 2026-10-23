@@ -28,6 +28,11 @@ const resolveSteamSettingsComponents = (runtime) => {
         return ["inlineWrap", '"shift-children-below"', "focusable"].every((token) => source.includes(token));
     });
     const smallButton = uniqueSteamExport(fields, (value) => isSteamDialogButton(value, "Small"));
+    // Steam's inline list-builder input is independent of the popup menu lifecycle.
+    const listBuilder = uniqueSteamExport(fields, (value) => {
+        const source = sourceOfSteamComponent(value);
+        return source.includes("DialogListBuilderInput_List") && source.includes("OnBackgroundClick");
+    });
     const routedPages = optionalSteamExport(
         runtime,
         [...SteamRoutedPagesTokens],
@@ -41,7 +46,7 @@ const resolveSteamSettingsComponents = (runtime) => {
         return SteamConfirmModalTokens.every((token) => source.includes(token));
     });
 
-    return {...ui, settingsSection, valueField, smallButton, routedPages, confirmModal};
+    return {...ui, settingsSection, valueField, smallButton, listBuilder, routedPages, confirmModal};
 };
 
 /**
@@ -248,6 +253,8 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
     };
 
     switch (row.kind) {
+        case "resolution-list":
+            return h(SteamUiResolutionEditor, {key, ui, row, send, busy: draft !== undefined});
         case "curve": {
             const points = draft !== undefined ? draft : (row.curve ?? []);
             return h(ui.react.Fragment, {key},

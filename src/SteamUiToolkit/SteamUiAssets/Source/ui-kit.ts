@@ -2,6 +2,17 @@
 // stylesheet in each consuming document. CSS selectors preserve Valve layout and focus behavior.
 
 const SteamUiKitStyles = `
+.steam-ui-kit-resolution-editor{display:flex;flex-direction:column;gap:10px;padding:12px 0;min-width:0;max-width:100%;box-sizing:border-box}
+.steam-ui-kit-resolution-actions .DialogButton{width:auto;min-width:80px;flex:0 0 auto}
+.steam-ui-kit-resolution-list .DialogListBuilderInput_List{max-height:240px;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;gap:6px}
+.steam-ui-kit-resolution-list .DialogListBuilderInput_ListItem{width:100%;min-width:0;box-sizing:border-box}
+.steam-ui-kit-resolution-items{display:flex;flex-direction:column;gap:4px;width:100%;min-width:0}
+.steam-ui-kit-resolution-list .DialogButton{width:100%;min-width:0;box-sizing:border-box;text-align:left}
+.steam-ui-kit-resolution-list .DialogButton[aria-pressed=true]{box-shadow:inset 3px 0 0 var(--gpColorBlue,#1a9fff)}
+.steam-ui-kit-resolution-list .DialogListBuilderInput_Input{order:-1;position:sticky;top:0;width:100%;min-width:0;max-width:none!important;box-sizing:border-box;min-height:36px;background:var(--gpSystemDarkGrey,#23262e);z-index:1}
+.steam-ui-kit-resolution-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.steam-ui-kit-resolution-actions>.DialogButton:last-child{margin-left:auto}
+.steam-ui-kit-resolution-note{margin:0;font-size:14px;color:#8b929a;line-height:1.4}
 .steam-ui-kit-page{margin-top:var(--basicui-header-height,40px);height:calc(100% - var(--basicui-header-height,40px));display:flex;flex-direction:column;background:var(--gpSystemDarkestGrey,#0e141b);color:#dcdedf}
 .steam-ui-kit-pane{display:flex;flex-direction:column;gap:14px;padding:12px 4px 72px}
 .steam-ui-kit-content{display:flex;flex-direction:column;gap:20px;width:min(100%,960px);max-width:100%;min-width:0;box-sizing:border-box;margin-inline:auto;padding:24px clamp(20px,4vw,48px) 72px}

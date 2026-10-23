@@ -7,6 +7,7 @@
 import assert from "node:assert/strict";
 import {
     createReact,
+    find,
     helperFragments,
     instantiate,
     loadAsset,
@@ -70,6 +71,7 @@ const FieldLayout = withSource(
     'const {label, inlineWrap, focusable} = props; inlineWrap === "shift-children-below"',
 );
 const SmallButton = named("SmallButton", '"DialogButton _DialogLayout Small"');
+const ListBuilder = named("ListBuilder", "DialogListBuilderInput_List OnBackgroundClick");
 const Focusable = named("Focusable", "focusableIfEmpty onActivate onCancel focusClassName");
 const RoutedPages = named("RoutedPages", "function(e){const{pages:t,disableRouteReporting:c}=e}");
 const Confirm = named("Confirm", "strMiddleButtonText bProgressDialog bAlertDialog");
@@ -98,6 +100,7 @@ const modules = {
             ValueField,
             FieldLayout,
             SmallButton,
+            ListBuilder,
         },
     },
     focusable: { tokens: ["focusableIfEmpty", "onActivate", '"Panel"'], exports: { Focusable } },
@@ -141,6 +144,11 @@ assert.equal(resolved.confirmModal, Confirm, "the confirmation must be Steam's c
 assert.equal(resolved.settingsSection, Section);
 assert.equal(resolved.valueField, ValueField);
 assert.equal(resolved.smallButton, SmallButton);
+assert.equal(
+    resolved.listBuilder,
+    ListBuilder,
+    "the list editor must be Steam's inline list builder",
+);
 
 // The host's page, one row of every kind.
 const ui = {
@@ -471,7 +479,7 @@ const renderModal = () => {
     hooks.index = 100; // its own hook slots, apart from the page's
     const frame = shown[0].type(shown[0].props);
     assert.equal(frame.type, Dialog, "the editor sits in Steam's dialog");
-    const editor = frame.props.children[0];
+    const [editor] = find(react, frame, (node) => node.type?.name === "SteamColorEditor");
     return editor.type(editor.props);
 };
 let editorTree = renderModal();

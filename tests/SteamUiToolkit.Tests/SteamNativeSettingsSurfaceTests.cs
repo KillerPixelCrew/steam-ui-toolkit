@@ -37,6 +37,25 @@ public sealed class SteamNativeSettingsSurfaceTests
         Assert.Equal(("device/lighting", value), Assert.Single(backend.Calls));
     }
 
+    [Theory]
+    [InlineData("{\"operation\":\"add\",\"width\":1760,\"height\":1100}", true)]
+    [InlineData("{\"operation\":\"remove\",\"width\":1760,\"height\":1100}", true)]
+    [InlineData("{\"operation\":\"steps\",\"width\":2560,\"height\":1600}", true)]
+    [InlineData("{\"operation\":\"refresh\"}", true)]
+    [InlineData("{\"operation\":\"restore\"}", true)]
+    [InlineData("{\"operation\":\"restart\"}", false)]
+    [InlineData("{\"operation\":\"add\",\"width\":\"1760\",\"height\":1100}", false)]
+    [InlineData("{\"operation\":\"add\",\"width\":99,\"height\":1100}", false)]
+    [InlineData("{\"operation\":\"refresh\",\"extra\":1}", false)]
+    public async Task ResolutionEditsKeepABoundedClosedVocabulary(string value, bool accepted)
+    {
+        Backend backend = new();
+        var result = await DispatchAsync(Modules(backend), SteamNativeSettingsSurface.PatchId, "set",
+            "{\"key\":\"resolutions\",\"value\":" + value + "}");
+        Assert.Equal(accepted, result.Succeeded);
+        Assert.Equal(accepted ? 1 : 0, backend.Calls.Count);
+    }
+
     [Fact]
     public async Task BoundariesRefuseOversizedKeysAndStrings()
     {

@@ -19,7 +19,7 @@ function createNativeSettings() {
     audio: "Audio",
     controller: "Controller",
   };
-  const RowKinds = new Set(["boolean", "choice", "range", "text", "color", "action", "note"]);
+  const RowKinds = new Set(["boolean", "choice", "range", "text", "color", "action", "note", "resolution-list"]);
 
   let ui: any = null;
   let react: any = null;
@@ -69,13 +69,22 @@ function createNativeSettings() {
           )
             return null;
           if (
-            row.kind === "choice" &&
+            (row.kind === "choice" || row.kind === "resolution-list") &&
             (!Array.isArray(row.choices) ||
               row.choices.some(
                 (choice) => typeof choice?.value !== "string" || typeof choice.label !== "string",
               ))
           )
             return null;
+          if (row.kind === "resolution-list") {
+            const editor = row.resolutionEditor;
+            const validDimension = (value) => Number.isSafeInteger(value) && value >= 100 && value <= 15999;
+            if (!editor || row.choices.length > 512 || !Array.isArray(editor.removable)
+                || (editor.restoreAvailable != null && typeof editor.restoreAvailable !== "boolean")
+                || editor.removable.some((value) => !row.choices.some((item) => item.value === value))
+                || !((editor.nativeWidth == null && editor.nativeHeight == null)
+                    || (validDimension(editor.nativeWidth) && validDimension(editor.nativeHeight)))) return null;
+          }
           if (
             row.kind === "range" &&
             (!Number.isFinite(row.number) ||

@@ -42,7 +42,18 @@ public static class SteamSettingsRowKind
 
     /// <summary>A fixed-breakpoint curve edited with native sliders and an explicit Apply button.</summary>
     public const string Curve = "curve";
+
+    /// <summary>A native selectable resolution list with custom-size and percentage-step actions.</summary>
+    public const string ResolutionList = "resolution-list";
 }
+
+/// <summary>Editing capabilities for a resolution list; entries and labels use the row's choices.</summary>
+/// <param name="Removable">Choice values the host permits removing.</param>
+/// <param name="NativeWidth">Native pixel width for 5% steps, or null when unavailable.</param>
+/// <param name="NativeHeight">Native pixel height for 5% steps, or null when unavailable.</param>
+/// <param name="RestoreAvailable">Whether the host has an original driver list to restore.</param>
+public sealed record SteamSettingsResolutionEditor(IReadOnlyList<string> Removable, int? NativeWidth, int? NativeHeight,
+    bool RestoreAvailable = false);
 
 /// <summary>One host-declared curve breakpoint.</summary>
 /// <param name="Input">Fixed input, such as temperature in degrees Celsius.</param>
@@ -102,6 +113,7 @@ public sealed record SteamSettingsConfirmation(
 /// <param name="ColorAlpha">Whether the color editor offers opacity; false keeps the value opaque.</param>
 /// <param name="Curve">Fixed curve inputs and current output values.</param>
 /// <param name="CurvePresets">Host-sampled presets using the same fixed inputs.</param>
+/// <param name="ResolutionEditor">Resolution-list editing capabilities.</param>
 public sealed record SteamSettingsRow(
     string Key,
     string Kind,
@@ -124,7 +136,8 @@ public sealed record SteamSettingsRow(
     bool Accent = false,
     bool ColorAlpha = true,
     IReadOnlyList<SteamSettingsCurvePoint>? Curve = null,
-    IReadOnlyList<SteamSettingsCurvePreset>? CurvePresets = null);
+    IReadOnlyList<SteamSettingsCurvePreset>? CurvePresets = null,
+    SteamSettingsResolutionEditor? ResolutionEditor = null);
 
 /// <summary>A titled group of rows: one of Steam's settings sections.</summary>
 /// <param name="Title">The section heading, or null for an untitled section.</param>

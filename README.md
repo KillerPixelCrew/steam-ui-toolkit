@@ -358,6 +358,11 @@ resolver's `resolve(tokens)` loads a module by a unique source fingerprint, and
 never enter webpack's loader, and ambiguous or failed resolution is explicit. Feature scripts must
 not implement their own registry scan; the bridge and the built-in probes use this same source.
 
+`SteamSettingsRowKind.ResolutionList` draws an editable source-size list with Steam's inline
+list-builder. Hosts supply the entries, removable values, native dimensions and whether an original
+list can be restored; the host retains write policy. See
+[Settings pages](docs/reference.md#settings-pages).
+
 Consumer-owned native pages can use the public `SteamUiProbeJs` token constants for preflight and
 the composed asset's shared `resolveSteamUiComponents` helper for Steam's focusable, tabs, dialog
 buttons, fields, checkbox and modal manager. Missing or ambiguous controls are capabilities to
@@ -402,10 +407,10 @@ the switch moves, `QueueSynchronization` asks for one directly, and `Synchronize
 queued pass is done. A pass that leaves a patch not holding is retried on its own for about two
 minutes. Call `QueueHealthCheck` every few seconds while your transport is open: it costs one
 evaluation and reapplies everything when Steam lost the bridge without reloading. The `Async`
-counterparts wait until retraction or reapplication has finished.
-Use the awaited forms when a settings confirmation or an emergency kill switch has to know cleanup
-is done, and `ShutdownAsync` with your deadline at shutdown. Give the runtime the manager too: a
-module whose callback throws has its patches faulted there, so they come off and stay off.
+counterparts wait until retraction or reapplication has finished. Use the awaited forms when a
+settings confirmation or an emergency kill switch has to know cleanup is done, and `ShutdownAsync`
+with your deadline at shutdown. Give the runtime the manager too: a module whose callback throws has
+its patches faulted there, so they come off and stay off.
 
 ## Status
 
