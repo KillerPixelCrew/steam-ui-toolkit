@@ -442,6 +442,7 @@ function createScreensaverLibrary({ getUi, getState, local, act, ready }) {
                 "flow-children": "column",
             },
             toolbar,
+            state.error ? renderSteamUiBanner(ui, { text: state.error, error: true }) : null,
             !source && !adding && state.sources.length > 5
                 ? h(ui.textField, {
                       label: "Search sources",

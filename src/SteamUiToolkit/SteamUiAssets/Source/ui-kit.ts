@@ -712,14 +712,16 @@ const renderSteamUiEmpty = (react, text: string, error = false) =>
  */
 const renderSteamUiBanner = (
     ui,
-    props: { text: string; error?: boolean; onDismiss: () => void },
+    props: { text: string; error?: boolean; onDismiss?: () => void },
 ) => {
     const h = ui.react.createElement;
     return h(
         "div",
         { className: `steam-ui-kit-banner${props.error ? " error" : ""}` },
         h("span", null, props.text),
-        h(ui.smallButton ?? ui.dialogButton, { onClick: props.onDismiss }, "Dismiss"),
+        props.onDismiss
+            ? h(ui.smallButton ?? ui.dialogButton, { onClick: props.onDismiss }, "Dismiss")
+            : null,
     );
 };
 

@@ -183,6 +183,9 @@ assert.ok(
     "nested Back returns to the source library",
 );
 assert.equal(closed, 0);
+state = { ...state, error: "Scene playback failed. Steam's stock screensaver is active." };
+tree = draw(manager.type, manager.props);
+assert.equal(nodes(tree).find((node) => node.type === "banner").props.text, state.error);
 library.dispose();
 assert.equal(closed, 1);
 assert.ok(
