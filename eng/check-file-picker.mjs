@@ -305,7 +305,9 @@ const listing = (path, entries, parent = "", error = null) => ({ path, parent, e
     assert.equal(
         find(
             renderer.tree,
-            (node) => node.type === "p" && node.props.children?.[0] === "This folder is empty.",
+            (node) =>
+                node.type === "p" &&
+                node.props.children?.[0] === "No subfolders. Use this folder to select it.",
         ).length,
         1,
     );

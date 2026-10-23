@@ -23,7 +23,15 @@ function createScreensaverContent(readSettings: () => any) {
     let pendingSelection: any = null;
     let generation = 0;
 
-    const act = (action, payload = {}) => request(patchId, "content", { action, ...payload });
+    const act = (action, payload = {}, signal?: AbortSignal) =>
+        request(patchId, "content", { action, ...payload }, undefined, signal);
+    const library = createScreensaverLibrary({
+        getUi: () => ui,
+        getState: () => state,
+        local,
+        act,
+        ready: () => installed && !retiring,
+    });
     const selected = () => String(readSettings()?.screensaver_current_id || "steam-gameslideshow");
     const currentSource = () => state?.sources?.find((source) => source.selectorId === selected());
     const reportPlayback = () => {
@@ -168,243 +176,9 @@ function createScreensaverContent(readSettings: () => any) {
     };
 
     function Controls() {
-        const react = ui.react;
-        const h = react.createElement;
-        react.useSyncExternalStore(local.subscribe, local.revision);
-        const [name, setName] = react.useState("");
-        const [editing, setEditing] = react.useState("");
-        const [busy, setBusy] = react.useState(false);
-        if (!installed || !state) return null;
-        const row = (props, change = (_value) => {}, action = () => {}) =>
-            renderSteamSettingRow(ui, props, undefined, (_row, value) => change(value), action);
-        const perform = async (action, payload = {}) => {
-            setBusy(true);
-            try {
-                await act(action, payload);
-                lastError = "";
-            } catch (error) {
-                lastError = String(error);
-            } finally {
-                setBusy(false);
-                local.changed();
-            }
-        };
-        const add = async (pack) => {
-            const current = generation;
-            const chosen = await runSteamFilePicker(ui, {
-                mode: "folder",
-                title: pack ? "Choose screensaver pack" : "Choose image folder",
-            });
-            if (!installed || current !== generation || chosen.outcome !== "selected") return;
-            const label =
-                name.trim() ||
-                chosen.path
-                    .replace(/[\\/]+$/u, "")
-                    .split(/[\\/]/u)
-                    .pop() ||
-                "Screensaver";
-            await perform(pack ? "addPack" : "addImages", { name: label, folder: chosen.path });
-        };
-        const source =
-            state.sources.find((item) => item.id === editing) ??
-            state.sources.find((item) => item.id === state.selectedId) ??
-            state.sources[0];
-        const configure = (option, value) =>
-            void perform("configure", { id: source.id, option, value });
-        const controls: any[] = [
-            row({
-                key: "sources-policy",
-                kind: "note",
-                label: "Custom sources",
-                text: state.error || lastError || state.status,
-            }),
-            row(
-                {
-                    key: "source-name",
-                    kind: "text",
-                    label: "New source name",
-                    text: name,
-                    maximumLength: 128,
-                    description: "Optional; the folder name is used when this is empty.",
-                    disabled: busy,
-                },
-                (value) => setName(String(value)),
-            ),
-            row(
-                {
-                    key: "add-images",
-                    kind: "action",
-                    label: "Image folder",
-                    description: "PNG, JPEG, WebP, GIF and BMP; files are read in place.",
-                    buttonLabel: "Add folder",
-                    disabled: busy,
-                },
-                undefined,
-                () => void add(false),
-            ),
-            row(
-                {
-                    key: "add-pack",
-                    kind: "action",
-                    label: "Local scene or image pack",
-                    description:
-                        "A folder containing screensaver.json. Scenes run in an isolated browser without system access.",
-                    buttonLabel: "Add pack",
-                    disabled: busy,
-                },
-                undefined,
-                () => void add(true),
-            ),
-            row(
-                {
-                    key: "refresh-sources",
-                    kind: "action",
-                    label: "Refresh sources",
-                    description: "Reload changed files and retry unavailable or repaired sources.",
-                    buttonLabel: "Refresh",
-                    disabled: busy,
-                },
-                undefined,
-                () => void perform("refresh"),
-            ),
-        ];
-        if (source) {
-            controls.push(
-                row(
-                    {
-                        key: "edit-source",
-                        kind: "choice",
-                        label: "Source options",
-                        text: source.id,
-                        choices: state.sources.map((item) => ({
-                            value: item.id,
-                            label: item.name,
-                        })),
-                        disabled: busy,
-                    },
-                    (value) => setEditing(String(value)),
-                ),
-                row({
-                    key: "source-detail",
-                    kind: "note",
-                    label: source.name,
-                    text: source.detail + " · " + source.folder,
-                }),
-                row(
-                    {
-                        key: "use-source",
-                        kind: "action",
-                        label: "Use " + source.name,
-                        buttonLabel: "Select",
-                        disabled: busy,
-                    },
-                    undefined,
-                    () => void perform("select", { id: source.id }),
-                ),
-                row(
-                    {
-                        key: "preview-source",
-                        kind: "action",
-                        label: "Preview " + source.name,
-                        buttonLabel: "Preview",
-                        disabled: busy || !source.available,
-                    },
-                    undefined,
-                    () => void perform("preview", { id: source.id }),
-                ),
-            );
-            if (source.type !== "scene") {
-                controls.push(
-                    row(
-                        {
-                            key: "shuffle-source",
-                            kind: "boolean",
-                            label: "Shuffle images",
-                            checked: source.shuffle,
-                            disabled: busy,
-                        },
-                        (value) => configure("shuffle", !!value),
-                    ),
-                    row(
-                        {
-                            key: "fill-source",
-                            kind: "boolean",
-                            label: "Fill display",
-                            description: "Crop to fill; off fits the whole image.",
-                            checked: source.fill,
-                            disabled: busy,
-                        },
-                        (value) => configure("fill", !!value),
-                    ),
-                    row(
-                        {
-                            key: "interval-source",
-                            kind: "choice",
-                            label: "Image interval",
-                            text: String(source.intervalSeconds),
-                            disabled: busy,
-                            choices: [
-                                ...new Set([
-                                    2,
-                                    5,
-                                    10,
-                                    15,
-                                    30,
-                                    60,
-                                    120,
-                                    300,
-                                    900,
-                                    3600,
-                                    source.intervalSeconds,
-                                ]),
-                            ]
-                                .sort((a, b) => a - b)
-                                .map((value) => ({
-                                    value: String(value),
-                                    label:
-                                        value < 60 ? `${value} seconds` : `${value / 60} minutes`,
-                                })),
-                        },
-                        (value) => configure("intervalSeconds", Number(value)),
-                    ),
-                );
-            } else {
-                controls.push(
-                    row(
-                        {
-                            key: "scene-rate",
-                            kind: "choice",
-                            label: "Scene animation rate",
-                            text: String(source.framesPerSecond),
-                            disabled: busy,
-                            description:
-                                "Limits animation callbacks to reduce idle rendering work.",
-                            choices: [...new Set([10, 15, 24, 30, 60, source.framesPerSecond])]
-                                .sort((a, b) => a - b)
-                                .map((value) => ({ value: String(value), label: `${value} fps` })),
-                        },
-                        (value) => configure("framesPerSecond", Number(value)),
-                    ),
-                );
-            }
-            controls.push(
-                row(
-                    {
-                        key: "remove-source",
-                        kind: "action",
-                        label: "Remove source",
-                        description: "Remove it from the chooser; keep its files.",
-                        buttonLabel: "Remove",
-                        disabled: busy,
-                    },
-                    undefined,
-                    () => void perform("remove", { id: source.id }),
-                ),
-            );
-        }
-        return h(react.Fragment, null, ...controls);
+        ui.react.useSyncExternalStore(local.subscribe, local.revision);
+        return library.render();
     }
-
     const start = (runtime) => {
         if (installed) return { ok: true };
         try {
@@ -475,6 +249,7 @@ function createScreensaverContent(readSettings: () => any) {
         }
     };
     const stop = () => {
+        library.dispose();
         retiring = true;
         generation++;
         pendingSelection = null;

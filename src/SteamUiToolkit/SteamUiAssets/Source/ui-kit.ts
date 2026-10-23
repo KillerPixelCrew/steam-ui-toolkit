@@ -92,6 +92,19 @@ const SteamUiKitStyles = `
 .steam-ui-kit-card.gpfocus,.steam-ui-kit-card:hover{background:#ACB2C947;outline-color:#fff}
 .steam-ui-kit-card-shot{position:relative;aspect-ratio:16 / 10;background:#10151c;overflow:hidden}
 .steam-ui-kit-card-shot img{width:100%;height:100%;object-fit:cover;display:block}
+.steam-ui-kit-card-placeholder{height:100%;display:grid;place-items:center;background:linear-gradient(135deg,#26374a,#10151c);color:#aebdcd;font-size:18px;font-weight:600}
+.steam-ui-kit-library{display:flex;flex-direction:column;gap:16px;min-width:0}
+.steam-ui-kit-library-body{overflow-y:auto;max-height:calc(100vh - 300px);min-height:160px;padding:3px 4px 8px;scrollbar-gutter:stable}
+.steam-ui-kit-library-footer .steam-ui-kit-actions{justify-content:flex-end;width:100%}
+.steam-ui-kit-library-footer.with-back .steam-ui-kit-actions>:first-child{margin-right:auto}
+.steam-ui-kit-library .steam-ui-kit-detail{padding:0 0 8px;gap:24px}
+.steam-ui-kit-library .steam-ui-kit-detail-aside{min-width:0}
+.steam-ui-kit-library .steam-ui-kit-card-meta{font-size:12px}
+.steam-ui-kit-library-empty{padding:40px 24px;text-align:center;border:1px dashed rgba(255,255,255,.2);border-radius:6px;background:rgba(255,255,255,.025)}
+.steam-ui-kit-library-empty h3{margin:0 0 12px;font-size:22px;color:#fff}
+.steam-ui-kit-library-empty p{max-width:480px;margin:0 auto;color:#aeb8c4;line-height:1.5}
+.steam-ui-kit-image-preview{aspect-ratio:16 / 10;background:#080c12;overflow:hidden;border-radius:4px;min-width:0}
+.steam-ui-kit-image-preview img{display:block;width:100%;height:100%}
 .steam-ui-kit-card-stats{position:absolute;left:0;right:0;bottom:0;display:flex;gap:12px;padding:6px 8px;font-size:12px;color:#fff;background:linear-gradient(180deg,transparent,rgba(0,0,0,.75))}
 .steam-ui-kit-card-stats span{display:inline-flex;align-items:center;gap:4px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .steam-ui-kit-card-stats svg{width:13px;height:13px;flex:0 0 auto}
@@ -605,6 +618,7 @@ const renderSteamUiCard = (
     props: {
         key?: string;
         image?: string | null;
+        placeholder?: string;
         stats?: { glyph?: any; text: string }[];
         badge?: { text: string; warn?: boolean } | null;
         title: string;
@@ -624,7 +638,11 @@ const renderSteamUiCard = (
         h(
             "div",
             { className: "steam-ui-kit-card-shot" },
-            props.image ? h("img", { src: props.image, alt: "", loading: "lazy" }) : null,
+            props.image
+                ? h("img", { src: props.image, alt: "", loading: "lazy" })
+                : props.placeholder
+                  ? h("div", { className: "steam-ui-kit-card-placeholder" }, props.placeholder)
+                  : null,
             props.stats?.length
                 ? h(
                       "div",
@@ -660,6 +678,20 @@ const renderSteamUiGrid = (ui, cards: any[]) =>
         ui.focusable,
         { className: "steam-ui-kit-grid", "flow-children": "grid" },
         ...cards,
+    );
+
+/** Draws a still-image preview in a display-shaped frame, including aspect fit/fill. */
+const renderSteamUiImagePreview = (ui, image: string | null, fill = false, empty = "No preview") =>
+    ui.react.createElement(
+        "div",
+        { className: "steam-ui-kit-image-preview" },
+        image
+            ? ui.react.createElement("img", {
+                  src: image,
+                  alt: "",
+                  style: { objectFit: fill ? "cover" : "contain" },
+              })
+            : ui.react.createElement("div", { className: "steam-ui-kit-card-placeholder" }, empty),
     );
 
 /**
@@ -948,6 +980,7 @@ const renderSteamUiDetail = (
         main: any[];
         aside: any[];
         onBack: () => void;
+        showBack?: boolean;
     },
 ) => {
     const h = ui.react.createElement;
@@ -976,7 +1009,7 @@ const renderSteamUiDetail = (
             ui.focusable,
             { className: "steam-ui-kit-detail-aside", "flow-children": "column" },
             ...props.aside,
-            h(ui.dialogButton, { onClick: props.onBack }, "Back"),
+            props.showBack === false ? null : h(ui.dialogButton, { onClick: props.onBack }, "Back"),
         ),
     );
 };

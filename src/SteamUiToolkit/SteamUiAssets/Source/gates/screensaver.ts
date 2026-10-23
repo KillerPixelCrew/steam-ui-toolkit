@@ -346,8 +346,8 @@ function createScreensaverSettings() {
                 return;
             }
             rows = next;
-            content.update(published?.content);
             inputActivity.observe(published?.activity);
+            content.update(published?.content);
             local.changed();
         });
         reportWhenReady(0);

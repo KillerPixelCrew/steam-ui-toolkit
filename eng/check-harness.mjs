@@ -139,6 +139,7 @@ export const sharedFragments = (asset) =>
         "plugin-frontends",
         "screensaver-activity.ts",
         "screensaver-content.ts",
+        "screensaver-library.ts",
     ]);
 
 /**

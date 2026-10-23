@@ -22,6 +22,14 @@ public sealed record SteamScreensaverSource
     public bool Available { get; init; }
     /// <summary>Content count, compatibility or missing-source reason.</summary>
     public required string Detail { get; init; }
+    /// <summary>Whether the source is a manifest pack rather than a plain image folder.</summary>
+    public bool Pack { get; init; }
+    /// <summary>Number of playable images, zero for scenes or unavailable folders.</summary>
+    public int ImageCount { get; init; }
+    /// <summary>Whether a cover image can be requested lazily.</summary>
+    public bool HasPreview { get; init; }
+    /// <summary>Identity of the current cover, used to invalidate surface-local image caches.</summary>
+    public string PreviewRevision { get; init; } = "";
     /// <summary>Shuffle images instead of sorting by filename.</summary>
     public bool Shuffle { get; init; }
     /// <summary>Image transition interval in seconds.</summary>
@@ -110,6 +118,24 @@ internal static class SteamScreensaverContent
 
         switch (action)
         {
+            case "rename":
+                if (!SteamUiPayload.HasExactly(payload, 3) || !Text(payload, "id", 64, out var renamed)
+                    || !Text(payload, "name", 128, out var newName))
+                {
+                    return false;
+                }
+
+                command = new SteamScreensaverContentCommand { Action = action, Id = renamed, Name = newName };
+                return true;
+            case "relocate":
+                if (!SteamUiPayload.HasExactly(payload, 3) || !Text(payload, "id", 64, out var relocated)
+                    || !Text(payload, "folder", 4096, out var newFolder))
+                {
+                    return false;
+                }
+
+                command = new SteamScreensaverContentCommand { Action = action, Id = relocated, Folder = newFolder };
+                return true;
             case "addImages":
             case "addPack":
                 if (!SteamUiPayload.HasExactly(payload, 3)
@@ -159,6 +185,7 @@ internal static class SteamScreensaverContent
             case "remove":
             case "select":
             case "preview":
+            case "thumbnail":
                 if (!SteamUiPayload.HasExactly(payload, 2) || !Text(payload, "id", 64, out var id))
                 {
                     return false;

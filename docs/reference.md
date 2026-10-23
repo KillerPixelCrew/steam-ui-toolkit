@@ -1245,6 +1245,16 @@ restores exact claimed methods and native active state. The gate's `inputActivit
 installation, native/effective active state, preview and contract failures. The helper is optional
 for settings-row compatibility with clients whose service contract no longer matches.
 
+Optional `Content` adds host sources to `GetLocalScreensavers` while retaining native choices.
+`screensaver-library.ts` renders one settings action opening a native wide modal with source cards,
+folder-first image/pack import, a still preview and per-source settings. Each source carries `Pack`,
+`ImageCount`, `HasPreview` and `PreviewRevision`; image bytes are absent from publications. Mounted
+cards request `content { action: "thumbnail", id }` and cancel on unmount. The host returns a
+bounded JPEG data URI or null for that registered source. `rename { id, name }` and
+`relocate { id, folder }` retain source identity and preferences. Commands reject extra fields. The
+modal owns picker and cover cancellation and closes on gate removal. Scene scripts execute only in
+the host's isolated player, never in this trusted configuration UI.
+
 ### Custom pages
 
 Steam's router renders its routes as the children of its own switch, so registering a page is a list
@@ -1534,6 +1544,7 @@ in that root's document.
 | `renderSteamUiActions`                      | Steam's buttons in a two-column grid; a label over eighteen characters, or `wide`, takes a row                                                                                        |
 | `renderSteamUiSwatch`                       | a colour square                                                                                                                                                                       |
 | `renderSteamUiCard`, `renderSteamUiGrid`    | a focusable card (16:10 image, stats strip, badge, title, meta) and the grid it sits in                                                                                               |
+| `renderSteamUiImagePreview`                 | a display-shaped still preview with Fit/Fill sizing and a placeholder when no cover is available                                                                                      |
 | `renderSteamUiEmpty`                        | what an empty list says, or why it failed                                                                                                                                             |
 | `renderSteamUiBanner`                       | a notice or error with a Dismiss button                                                                                                                                               |
 | `renderSteamUiToolbar`, `renderSteamUiTool` | a focusable row of labelled controls; a `grow` tool takes what is left                                                                                                                |
@@ -1542,7 +1553,7 @@ in that root's document.
 | `renderSteamUiGallery`                      | one large image, thumbnails that pick it, and a counter                                                                                                                               |
 | `renderSteamUiVideo`                        | a movie preview on the gallery's frame, muted on a loop over its still                                                                                                                |
 | `renderSteamUiTabbedPage`                   | a host page's frame: the stylesheets, a banner, and Steam's tabs with only the active one drawn                                                                                       |
-| `renderSteamUiDetail`                       | one item's media, heading and text beside its boxes, with Back, left with B                                                                                                           |
+| `renderSteamUiDetail`                       | one item's media, heading and text beside its boxes, with Back, left with B; `showBack: false` lets a modal footer provide the button                                                 |
 | `renderSteamUiMore`                         | a paged list's foot: one centred Load More button, since a list of thousands of cards stalls Steam's renderer                                                                         |
 | `renderSteamUiPane`, `renderSteamUiLevel`   | a page's pane and a level over it, each taking the controller's focus when it appears, so B goes back a level instead of leaving the page from focus left on nothing                  |
 | `renderSteamUiGlyph`, `SteamUiGlyphs`       | the store glyphs a card or box carries: download, star, heart, target                                                                                                                 |

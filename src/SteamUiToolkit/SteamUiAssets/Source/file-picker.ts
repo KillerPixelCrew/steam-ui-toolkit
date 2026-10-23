@@ -292,7 +292,13 @@ const runSteamFilePicker = (ui, options: SteamFilePickerOptions = {}) =>
                             }),
                         ),
                         entries.length === 0 && !loading && !error && current
-                            ? h("p", {}, "This folder is empty.")
+                            ? h(
+                                  "p",
+                                  {},
+                                  mode === "folder"
+                                      ? "No subfolders. Use this folder to select it."
+                                      : "No files match this filter.",
+                              )
                             : null,
                     ),
                 ),

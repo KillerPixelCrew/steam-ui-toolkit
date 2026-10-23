@@ -17,6 +17,12 @@ public sealed class ScreensaverContentCommandTests
     [InlineData("""{"action":"selectionResult","revision":"1","error":null}""", false)]
     [InlineData("""{"action":"selectionResult","revision":1,"error":null}""", true)]
     [InlineData("""{"action":"playback","active":false,"id":"","selectorId":"steam-gameslideshow"}""", true)]
+    [InlineData("""{"action":"thumbnail","id":"photos"}""", true)]
+    [InlineData("""{"action":"thumbnail","id":"photos","folder":"C:/"}""", false)]
+    [InlineData("""{"action":"rename","id":"photos","name":"Travel"}""", true)]
+    [InlineData("""{"action":"rename","id":"photos","name":"Travel","shuffle":true}""", false)]
+    [InlineData("""{"action":"relocate","id":"photos","folder":"C:/Photos"}""", true)]
+    [InlineData("""{"action":"relocate","id":"photos","folder":"C:/Photos","pack":true}""", false)]
     public void OnlyExactClosedOperationsCrossTheTrustedConfigurationBoundary(string json, bool accepted)
     {
         using var document = JsonDocument.Parse(json);
