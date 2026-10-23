@@ -618,6 +618,7 @@ const renderSteamUiCard = (
     props: {
         key?: string;
         image?: string | null;
+        media?: any;
         placeholder?: string;
         stats?: { glyph?: any; text: string }[];
         badge?: { text: string; warn?: boolean } | null;
@@ -638,11 +639,12 @@ const renderSteamUiCard = (
         h(
             "div",
             { className: "steam-ui-kit-card-shot" },
-            props.image
-                ? h("img", { src: props.image, alt: "", loading: "lazy" })
-                : props.placeholder
-                  ? h("div", { className: "steam-ui-kit-card-placeholder" }, props.placeholder)
-                  : null,
+            props.media ??
+                (props.image
+                    ? h("img", { src: props.image, alt: "", loading: "lazy" })
+                    : props.placeholder
+                      ? h("div", { className: "steam-ui-kit-card-placeholder" }, props.placeholder)
+                      : null),
             props.stats?.length
                 ? h(
                       "div",

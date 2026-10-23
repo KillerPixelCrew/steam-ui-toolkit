@@ -380,6 +380,15 @@ assert.equal(card.props.children.length, 4);
 card.props.onActivate();
 assert.equal(opened, 1);
 assert.equal(kit.renderSteamUiGrid(ui, [card]).props.className, "steam-ui-kit-grid");
+const preview = { type: "p", props: { children: ["Plain note preview"] } };
+const noteCard = kit.renderSteamUiCard(ui, {
+    title: "Notebook page",
+    media: preview,
+    onActivate: () => opened++,
+});
+assert.equal(noteCard.props.children[0].props.children[0], preview);
+noteCard.props.onActivate();
+assert.equal(opened, 2, "supplied card content retains the same single activation target");
 assert.equal(
     kit.renderSteamUiEmpty(react, "Nothing", true).props.className,
     "steam-ui-kit-empty error",
