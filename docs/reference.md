@@ -1711,8 +1711,9 @@ The shared row host draws its rows in the kit's groups (`renderSteamUiGroup`), e
 subtle fill and border under a heading that carries the section's glyph. The sections are the
 host's: `SteamQuickAccessLayoutSurface` publishes `SteamQuickAccessLayout` under
 `steam-ui.quick-access-layout`, and each `SteamQuickAccessSection` names its id, title, glyph,
-whether it folds and the row kinds drawn in it. Rows keep the toolkit's order within a section, and
-a kind no section names is not drawn while a layout is published. Without a layout each tab draws
+whether it folds and the row kinds drawn in it. Rows draw in the order the section names their
+kinds, rows sharing a kind keep the toolkit's order, and a kind no section names is not drawn while
+a layout is published. Without a layout each tab draws
 its rows in one untitled group. Performance draws `Performance` after Steam's battery line, then the
 host's settings sections, then `PerformanceEnd`. Quick Settings draws `QuickSettings` before Valve's
 common controls; the device controls draw their two groups, the kinds `charging` and `lighting`,

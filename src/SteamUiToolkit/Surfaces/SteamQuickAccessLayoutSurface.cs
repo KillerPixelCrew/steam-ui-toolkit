@@ -14,9 +14,9 @@ namespace SteamUiToolkit;
 /// <param name="Icon">The name of the toolkit glyph beside the heading, or empty for none.</param>
 /// <param name="Folds">Whether the section folds under its heading; false keeps it open.</param>
 /// <param name="Kinds">
-///     The row kinds drawn in it, such as <c>frameLimit</c> or <c>powerLimit</c>. Rows keep the
-///     toolkit's own order within a section; a kind no section names is not drawn while a layout is
-///     published. The device controls' two groups are the kinds <c>charging</c> and <c>lighting</c>;
+///     The row kinds drawn in it, such as <c>frameLimit</c> or <c>powerLimit</c>, in the order they are
+///     drawn; rows that share a kind keep the toolkit's order. A kind no section names is not drawn
+///     while a layout is published. The device controls' two groups are the kinds <c>charging</c> and <c>lighting</c>;
 ///     they draw after Steam's own Quick Settings sections, in whichever Quick Settings section names
 ///     each.
 /// </param>
