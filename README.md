@@ -447,5 +447,13 @@ items; see the reference's library-read contract.
 
 Hosts can publish managed shortcut availability through `SteamLibraryBadgeState.Shortcuts` to keep
 missing content visible with a location and reason. The same card owner updates normal and Big Art
-layouts; the host's launcher performs the final content check. Explicit title edits use
+layouts. An unavailable managed shortcut is greyed, its page names the storage with a Recheck
+action, its play bar's primary action becomes Recheck (sent as `recheck` to
+`ISteamLibraryBadgeBackend.RecheckAsync`), and the library's Installed and Ready to Play filters
+leave it out while All Games and Non-Steam keep it. An available one joins Big Picture's Installed
+tab. The third patch, `AvailabilityPatchId`, owns the play bar and filters; `PatchIds` lists all
+three for a host that switches them together. `SteamLibraryBadgeState.ShowBadges` turns the
+decorative badges off without turning availability off, so keep the module enabled while managed
+shortcuts exist. The toolkit changes no Steam-owned state and no launch path outside the play bar;
+the host's launcher performs the final content check. Explicit title edits use
 `SteamClient.Apps.SetShortcutNameAsync`, which writes the name while preserving AppId.

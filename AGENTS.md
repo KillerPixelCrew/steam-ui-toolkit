@@ -44,7 +44,7 @@ enabled; this repository supplies mechanisms and truthful state.
   `check-power-profile` (row dropdowns, glyphs, device controls, sections, power sliders and the
   slider echo), `check-service-gates` (Bluetooth and brightness), `check-navigation-panel`,
   `check-settings-fields` (the settings renderer), `check-pages`, `check-storage`, `check-library`
-  (library badge, details stat and the JSX claim), `check-extension-surfaces` (the Extensions tab
+  (library badge, details stat, managed-shortcut availability and the JSX claim), `check-extension-surfaces` (the Extensions tab
   and the game context menu), `check-home-carousel`, `check-screensaver`, `check-power-menu`,
   `check-theme-styles`, `check-sound-overrides` and `check-ui-kit`.
 - `tests/SteamUiToolkit.Tests`: transport, bridge, lifecycle, extension, and surface contracts, with

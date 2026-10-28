@@ -15,6 +15,14 @@
 // a library that is not installed; it is added once; another element transform registered through
 // the "elements" gate coexists on the one claim; and the runtime is handed back only when the last
 // transform leaves.
+//
+// Badges off: no library is named, while a managed shortcut still carries its availability.
+//
+// Availability: an unavailable managed shortcut's play bar keeps Valve's Focusable and sends
+// `recheck` instead of launching; the Installed tab gains the available managed shortcut and loses
+// the unavailable one; the library filter's installed-only options leave it out while a dynamic
+// collection's base filter, ordinary shortcuts and Steam games are untouched; reinsertion and
+// removal restore Valve's elements, collections and filter methods.
 import assert from "node:assert/strict";
 import {
     assertRemoveRetries,
@@ -35,7 +43,11 @@ const shared = sharedFragments(asset);
 
 // A publication changes only the subscribed app's visible badge, including a first publication.
 {
-    const local = instantiate({}, `${shared}\n${gateSource(asset, "gates/library-badge.ts")}`, "createLibraryBadgeReading()");
+    const local = instantiate(
+        {},
+        `${shared}\n${gateSource(asset, "gates/library-badge.ts")}`,
+        "createLibraryBadgeReading()",
+    );
     let first = 0;
     let second = 0;
     local.storeFor(70).subscribe(() => first++);
@@ -47,7 +59,9 @@ const shared = sharedFragments(asset);
     assert.deepEqual([first, second], [1, 0], "identical visible state refreshes nothing");
     local.publish({ libraries: [{ name: "Blue card", connected: true, appIds: [70] }] });
     assert.deepEqual([first, second], [2, 0], "a storage change leaves unrelated apps alone");
-    local.publish({ shortcuts: [{ appId: 71, available: false, location: "", reason: "Missing game" }] });
+    local.publish({
+        shortcuts: [{ appId: 71, available: false, location: "", reason: "Missing game" }],
+    });
     assert.deepEqual([first, second], [3, 1], "managed availability updates the right app");
     assert.equal(local.read().shortcuts.get(71).reason, "Missing game");
 }
@@ -387,7 +401,7 @@ const shared = sharedFragments(asset);
         });
     const statOf = (tree) => {
         const stat = tree.props.children.find((child) => child?.key === "steam-ui-library-details");
-        return stat?.type?.name === "LiveLibraryStat" ? stat.type(stat.props) ?? undefined : stat;
+        return stat?.type?.name === "LiveLibraryStat" ? (stat.type(stat.props) ?? undefined) : stat;
     };
     const describe = (stat) => {
         const right = stat.props.children;
@@ -396,7 +410,9 @@ const shared = sharedFragments(asset);
             stat: stat.props.className,
             right: right.props.className,
             label: `${label.props.className}:${label.props.children}`,
-            value: `${value.props.className}:${react.Children.toArray(value.props.children).filter((child) => typeof child === "string").join("")}`,
+            value: `${value.props.className}:${react.Children.toArray(value.props.children)
+                .filter((child) => typeof child === "string")
+                .join("")}`,
             dimmed: value.props.style?.opacity === 0.55,
         };
     };
@@ -516,5 +532,329 @@ const shared = sharedFragments(asset);
 
     console.log(
         "Library details: stat on the stats row only, badge rules, one shared JSX claim, restored with the last transform.",
+    );
+}
+
+// --- badge preference ------------------------------------------------------------------------------
+// With badges off no library is named, while managed availability still is.
+{
+    const built = instantiate(
+        {},
+        `${shared}\n${gateSource(asset, "gates/library-badge.ts")}`,
+        "{ local: createLibraryBadgeReading(), libraryForOverview, unavailableShortcut }",
+    );
+    const { local, libraryForOverview, unavailableShortcut } = built;
+    let changes = 0;
+    local.storeFor(70).subscribe(() => changes++);
+    const libraries = [{ name: "Blue card", connected: true, appIds: [70, 71] }];
+    const shortcuts = [
+        { appId: 71, available: false, location: "Blue card", reason: "Insert it." },
+    ];
+    local.publish({ libraries, shortcuts });
+    assert.equal(local.read().showBadges, true, "badges are shown unless the host says otherwise");
+    assert.equal(
+        libraryForOverview({ appid: 70, installed: true }, local.read()).name,
+        "Blue card",
+    );
+    local.publish({ libraries, shortcuts, showBadges: false });
+    assert.equal(changes, 2, "turning badges off redraws a named game");
+    assert.equal(
+        libraryForOverview({ appid: 70, installed: true }, local.read()),
+        null,
+        "badges off: an unmanaged game names no library",
+    );
+    const managed = libraryForOverview({ appid: 71, installed: true }, local.read());
+    assert.deepEqual(
+        [managed.managed, managed.installed, managed.reason],
+        [true, false, "Insert it."],
+        "badges off: a managed shortcut still carries its availability",
+    );
+    assert.equal(unavailableShortcut(71, local.read()).location, "Blue card");
+    assert.equal(
+        unavailableShortcut(70, local.read()),
+        null,
+        "an unmanaged app is never unavailable",
+    );
+}
+
+// --- managed availability: play bar, Installed tab and library filter -----------------------------
+{
+    const libraries = gateSource(asset, "gates/library-badge.ts");
+    const react = createReact({
+        singleChild: true,
+        useSyncExternalStore: (_subscribe, snapshot) => snapshot(),
+        useState: (initial) => [initial, () => {}],
+        useMemo: (factory) => factory(),
+    });
+    function jsxProduction(type, props, key) {
+        return element(type, props, key ?? null);
+    }
+    const runtime = { jsx: jsxProduction, jsxs: jsxProduction };
+    const classMap = {
+        PlayButtonContainer: "container-hash",
+        PlayButton: "button-hash",
+        ButtonText: "text-hash",
+        Green: "green-hash",
+        Disabled: "disabled-hash",
+    };
+
+    // Steam's app filter: the base class users' dynamic collections hold, and the library's subclass.
+    class AppFilter {
+        MatchesImpl(overview) {
+            return overview.local_per_client_data?.installed === true;
+        }
+        MatchesScoredImpl(overview) {
+            return overview.installed ? 1 : 0;
+        }
+    }
+    class LibraryFilter extends AppFilter {
+        MatchesImpl(overview) {
+            return overview.appid > 0 && super.MatchesImpl(overview);
+        }
+        MatchesScoredImpl(overview) {
+            return overview.appid > 0 ? super.MatchesScoredImpl(overview) : 0;
+        }
+    }
+    const baseMatches = AppFilter.prototype.MatchesImpl;
+    const libraryMatches = LibraryFilter.prototype.MatchesImpl;
+    const libraryScored = LibraryFilter.prototype.MatchesScoredImpl;
+
+    const overview = (appid, shortcut, installed = true) => ({
+        appid,
+        installed,
+        local_per_client_data: { installed },
+        per_client_data: [{ installed }],
+        BIsShortcut: () => shortcut,
+    });
+    const steamGame = overview(10, false);
+    const missing = overview(71, true);
+    const ready = overview(72, true);
+    const ordinary = overview(73, true);
+    const games = { id: "type-games", allApps: [steamGame, missing, ready, ordinary] };
+    // The desktop window's Installed collection keeps installed shortcuts; the gamepad window's
+    // drops every one. This one keeps the missing card to show that the view drops it.
+    const installedCollection = {
+        id: "local-install",
+        apps: new Set([10, 71]),
+        allApps: [steamGame, missing],
+        visibleApps: [steamGame, missing],
+        GetAppCountWithToolsFilter: () => 2,
+    };
+    const allGames = {
+        id: "all-games",
+        apps: new Set([10]),
+        allApps: [steamGame],
+        visibleApps: [steamGame],
+    };
+    const store = {
+        GetCollection: (id) => (id === "type-games" ? games : null),
+        BIsVisible: () => true,
+    };
+    const modules = {
+        react,
+        runtime,
+        classes: classMap,
+        filters: { E6: AppFilter, zG: LibraryFilter, n: 1 },
+        store: { md: store, A8: { LocalGames: "local-install" } },
+    };
+    const moduleFor = (tokens) =>
+        tokens.includes("useState")
+            ? "react"
+            : tokens.includes(".jsxs")
+              ? "runtime"
+              : tokens.some((token) => token.startsWith("PlayButtonContainer"))
+                ? "classes"
+                : tokens.includes("MatchesImpl")
+                  ? "filters"
+                  : tokens.includes("Computing localGamesCollection")
+                    ? "store"
+                    : null;
+
+    let publish = null;
+    const requests = [];
+    const globals = {
+        window: {},
+        getWebpackRuntime: () => {
+            const require = (id) => modules[id];
+            require.findUnique = (tokens) => (moduleFor(tokens) ? [moduleFor(tokens), ""] : null);
+            require.resolve = (tokens) => {
+                const id = moduleFor(tokens);
+                if (!id) throw new Error(`absent: ${tokens}`);
+                return modules[id];
+            };
+            require.exported = (tokens, predicate) => {
+                const fits = new Set(Object.values(require.resolve(tokens)).filter(predicate));
+                if (fits.size !== 1)
+                    throw new Error(`export ${fits.size ? "ambiguous" : "absent"}`);
+                return [...fits][0];
+            };
+            return require;
+        },
+        subscribe: (patchId, listener) => {
+            assert.equal(
+                patchId,
+                "steam-ui.library-badge",
+                "availability reads the badge's publication",
+            );
+            publish = listener;
+            return () => {
+                publish = null;
+            };
+        },
+        request: (patchId, command, payload) => {
+            requests.push(`${patchId} ${command} ${JSON.stringify(payload)}`);
+            return Promise.resolve();
+        },
+    };
+    const gate = instantiate(globals, `${shared}\n${libraries}`, "createLibraryAvailability()");
+
+    // Valve's play bar, created through the runtime as the play button's render does.
+    const Explainer = () => null;
+    const Focusable = () => null;
+    const launches = [];
+    const playBar = (app, green = true) =>
+        runtime.jsxs(Focusable, {
+            className: `outer container-hash${green ? " green-hash" : ""}`,
+            children: [
+                runtime.jsxs(Focusable, {
+                    className: "button-hash child-hash",
+                    autoFocus: true,
+                    onClick: () => launches.push(app.appid),
+                    children: [
+                        element("svg", {}),
+                        element("div", { className: "text-hash", children: "Play" }),
+                    ],
+                }),
+                false,
+                runtime.jsx(Explainer, { overview: app, active: false }),
+            ],
+        });
+    // A live wrapper draws what it renders; anything else is Valve's element.
+    const render = (node) =>
+        typeof node.type === "function" && node.type.name.startsWith("LiveAvailability")
+            ? node.type(node.props)
+            : node;
+    const isLive = (node) =>
+        typeof node.type === "function" && node.type.name.startsWith("LiveAvailability");
+    const Grid = () => null;
+    const grid = (collection) => runtime.jsx(Grid, { collection, eSortBy: 1 });
+    const ids = (list) => list.map((app) => app.appid);
+
+    let result = gate.install();
+    assert.ok(result.ok, `install failed: ${result.error}`);
+    assert.ok(gate.status().resolved && gate.status().claimed, "the gate must hold its claims");
+    assert.equal(LibraryFilter.prototype.MatchesImpl.name, "SteamUiLibraryAvailabilityFilter");
+    assert.equal(
+        AppFilter.prototype.MatchesImpl,
+        baseMatches,
+        "the base filter class is never claimed",
+    );
+
+    // Nothing managed: a shortcut's play bar renders Valve's element and no grid is wrapped.
+    assert.equal(isLive(playBar(steamGame)), false, "a Steam game's play bar is never wrapped");
+    const before = playBar(missing);
+    assert.ok(isLive(before), "a shortcut's play bar follows the publication");
+    assert.equal(render(before).props.className, "outer container-hash green-hash");
+    assert.equal(
+        isLive(grid(installedCollection)),
+        false,
+        "no grid changes while nothing is managed",
+    );
+
+    publish({
+        libraries: [],
+        shortcuts: [
+            { appId: 71, available: false, location: "Blue card", reason: "Insert the card." },
+            { appId: 72, available: true, location: "Blue card", reason: "" },
+        ],
+    });
+
+    // The unavailable shortcut's primary action is Recheck, in Valve's own Focusable.
+    const unavailable = render(playBar(missing));
+    assert.equal(unavailable.props.className, "outer container-hash disabled-hash");
+    const [button, gap, explainer] = unavailable.props.children;
+    assert.equal(button.props.autoFocus, true, "focus behavior stays Valve's");
+    assert.equal(button.props.className, "button-hash child-hash");
+    assert.equal(button.props.children[0].props.children, "Recheck");
+    assert.match(
+        button.props["aria-label"],
+        /Recheck\. Blue card is unavailable\. Insert the card\./,
+    );
+    assert.equal(gap, false);
+    assert.equal(explainer.type, Explainer, "every other child stays");
+    button.props.onClick({ stopPropagation() {}, preventDefault() {} });
+    assert.deepEqual(requests, ['steam-ui.library-badge recheck {"appId":71}']);
+    assert.deepEqual(launches, [], "Recheck never launches");
+    assert.equal(gate.status().replaced, 1);
+
+    // An available managed shortcut and an ordinary shortcut keep Valve's play bar.
+    assert.equal(render(playBar(ready)).props.className, "outer container-hash green-hash");
+    assert.equal(render(playBar(ordinary)).props.className, "outer container-hash green-hash");
+
+    // The library filter leaves the unavailable shortcut out of installed-only options; a user's
+    // dynamic collection, an ordinary shortcut and the available one are judged as before.
+    const filter = new LibraryFilter();
+    assert.equal(filter.MatchesImpl(missing), false, "Installed leaves the missing card out");
+    assert.equal(filter.MatchesScoredImpl(missing), 0);
+    assert.equal(filter.MatchesImpl(ready), true);
+    assert.equal(filter.MatchesImpl(ordinary), true);
+    assert.equal(filter.MatchesImpl(steamGame), true);
+    assert.equal(
+        new AppFilter().MatchesImpl(missing),
+        true,
+        "a dynamic collection keeps its member",
+    );
+    assert.equal(
+        missing.local_per_client_data.installed,
+        true,
+        "nothing in Valve's store is written",
+    );
+
+    // The Installed tab adds the available managed shortcut and drops the missing one.
+    const installedGrid = grid(installedCollection);
+    assert.ok(isLive(installedGrid));
+    const view = render(installedGrid).props.collection;
+    assert.notEqual(view, installedCollection);
+    assert.equal(view.id, "local-install");
+    assert.deepEqual(ids(view.allApps), [10, 72]);
+    assert.deepEqual(ids(view.visibleApps), [10, 72]);
+    assert.deepEqual([...view.apps], [10, 72]);
+    assert.equal(
+        view.GetAppCountWithToolsFilter({}),
+        2,
+        "Steam's count with one added and one dropped",
+    );
+    assert.equal(render(installedGrid).props.eSortBy, 1, "every other prop stays");
+    // Other grids keep their collection; they are redrawn so their own filter runs again.
+    assert.equal(render(grid(allGames)).props.collection, allGames);
+
+    // Reinsertion restores the launch, the filters and the Installed tab without a Steam render.
+    publish({
+        libraries: [],
+        shortcuts: [
+            { appId: 71, available: true, location: "Blue card", reason: "" },
+            { appId: 72, available: true, location: "Blue card", reason: "" },
+        ],
+    });
+    const restored = render(before);
+    assert.equal(restored.props.className, "outer container-hash green-hash");
+    restored.props.children[0].props.onClick();
+    assert.deepEqual(launches, [71], "an available shortcut launches through Valve's handler");
+    assert.equal(filter.MatchesImpl(missing), true);
+    assert.deepEqual(ids(render(installedGrid).props.collection.allApps), [10, 71, 72]);
+
+    // Removal hands every claim and element back.
+    result = gate.remove();
+    assert.ok(result.ok, `remove failed: ${result.error}`);
+    assert.equal(gate.status().claimed, false);
+    assert.equal(LibraryFilter.prototype.MatchesImpl, libraryMatches);
+    assert.equal(LibraryFilter.prototype.MatchesScoredImpl, libraryScored);
+    assert.equal(runtime.jsx, jsxProduction, "the runtime is handed back");
+    assert.equal(render(installedGrid).props.collection, installedCollection);
+    assert.ok(gate.install().ok, "the gate must be reinstallable");
+    assert.ok(gate.remove().ok);
+
+    console.log(
+        "Library availability: Recheck on the play bar, managed Installed tab, installed-only filters, restored on return and removal.",
     );
 }

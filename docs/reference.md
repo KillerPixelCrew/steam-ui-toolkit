@@ -1129,6 +1129,60 @@ Read from the Stable client (UI build of 2026-09-06) and the September 2026 beta
 app-details module is the same in both, the class map occurs once, the JSX runtime module occurs
 once, and the probe requires the React, runtime and class map matches while reporting the localizer.
 
+### Badge preference and managed availability
+
+`SteamLibraryBadgeState.ShowBadges` (wire `showBadges`, default true) is the host's decorative
+preference. Off, no library is named: the tile has no badge and the page no library stat for an
+unmanaged game. Managed availability (`shortcuts`) is drawn regardless, so the host keeps the module
+enabled while it manages shortcuts. An unavailable managed shortcut's tile is greyed and its page
+stat names the storage, says Unavailable, gives the reason and offers Recheck. Every other app,
+including an ordinary shortcut and a Steam game, keeps Steam's behavior.
+
+### Managed availability where Steam acts on "installed"
+
+A third patch, `steam-ui.library-availability` (gate `libraryAvailability`), reads the badge's
+publication and sends `recheck`. The client has no shortcut-specific installed setter (offline read
+of the installed `sp.js`, SHA-256
+`692083495994D2B2CF686EFFD89C11FA987AEFA45787CBFA212627C37EDA9C7A`, 2026-10-20; nothing executed, no
+debugger attached), so it writes nothing in Valve's app store and touches no launch path outside the
+play bar. Out-of-surface launches are the host launcher's to refuse. Three paths change, each for
+managed shortcuts alone and only while the host manages at least one:
+
+- **Play bar.** The play button is a mobx observer class whose container is created through the JSX
+  runtime with the play button class map's `PlayButtonContainer` class; its first child is the
+  primary Focusable button (`PlayButton`, autoFocus in the gamepad window) and its last carries the
+  overview. On the shared element claim (§9), the container of a shortcut is wrapped in a live
+  component. For an unavailable managed shortcut it keeps Valve's Focusable, autoFocus and ref,
+  swaps `Green` for Valve's `Disabled` look, and its primary button reads Recheck, labelled with the
+  location and reason, and sends `recheck` from the same click or mouse-up slot Valve launched from,
+  so mouse, touch and gamepad activation reach it unchanged. Checking… shows while the request is
+  pending. Otherwise Valve's element is rendered as created. The classes are read by name from the
+  class map carrying `PlayButtonContainer:"`, `ShutdownAppButton:"` and `ShowingStreaming:"`.
+- **Installed tab.** Steam's `local-install` collection is every installed app of the games type,
+  and while the gamepad window is active it leaves out every shortcut; `all-games` does the same,
+  and Big Picture's Non-Steam tab is a collection of its own. An element given `local-install` as
+  `collection` is given a read-only view instead: the games collection in its own order, keeping
+  Steam's members, adding managed shortcuts the host reports available and Steam reports installed,
+  dropping unavailable ones. Its `allApps`, `visibleApps`, `apps` and `GetAppCountWithToolsFilter`
+  are derived on each read from Steam's collections, so the grid's observer still tracks Steam's
+  state. The collection store is the one export of the module carrying
+  `Computing localGamesCollection` and `local-install` with `GetCollection` and `BIsVisible`.
+- **Library filter.** Steam's library filters (desktop, gamepad and VR) are instances of one
+  subclass of the app filter class; users' dynamic collections hold base-class filters. The
+  subclass's own `MatchesImpl` and `MatchesScoredImpl` are claimed on its prototype, chosen as the
+  one export of the module carrying both names whose prototype and parent prototype own both. An
+  unavailable managed shortcut is evaluated through a read-only view of its overview whose
+  `installed`, client-data `installed` and `per_client_data[].installed` read false, so Installed
+  and Ready to Play leave it out while every other option keeps it, and a dynamic collection keeps
+  its membership. A view Valve's code cannot read falls back to Valve's verdict.
+
+The grids filter inside their render through mobx-react-lite's `useObserver`, so every element given
+a collection is wrapped, while managed shortcuts exist, in a live component that redraws when a
+managed shortcut is added, removed or changes availability; no mobx state is created or written.
+Removal releases the claims and redraws the live components with Valve's elements and collections.
+The probe requires one React, one JSX runtime, one class map, one filter module and class, one store
+module and store, and restorable filter members; it accepts the gate's own claim.
+
 ### The Home carousel
 
 Home's carousel draws one array of app ids, passed as `games` to both the carousel and the hero
@@ -1713,24 +1767,24 @@ host's: `SteamQuickAccessLayoutSurface` publishes `SteamQuickAccessLayout` under
 `steam-ui.quick-access-layout`, and each `SteamQuickAccessSection` names its id, title, glyph,
 whether it folds and the row kinds drawn in it. Rows draw in the order the section names their
 kinds, rows sharing a kind keep the toolkit's order, and a kind no section names is not drawn while
-a layout is published. Without a layout each tab draws
-its rows in one untitled group. Performance draws `Performance` after Steam's battery line, then the
-host's settings sections, then `PerformanceEnd`. Quick Settings draws `QuickSettings` before Valve's
-common controls; the device controls draw their two groups, the kinds `charging` and `lighting`,
-after Valve's sections, in whichever section of `QuickSettings` or `QuickSettingsEnd` names each.
-Valve's own sections between are wrapped in `steam-ui-kit-valve`, which gives their `PanelSection`s
-the same block look and the kit's heading. Steam's own FPS counter rows are hidden only when the
-layout sets `HideValveFpsRows`, for a host whose own overlay replaces them. What remains of Valve's
-Performance tree once they are hidden is the battery line, wrapped in `steam-ui-kit-battery`, which
-draws it at one line's height: the row is found as the element with three children whose middle one,
-the percentage, is not empty (the section around it has three too, two of them empty), so no hashed
-class is named. RGB brightness stays visible; an Edit color toggle reveals the zone and HSV
-controls. If Valve's toggle component is unavailable, the color editor is omitted while charging and
-brightness remain usable. A group with no registered row is omitted. A group whose host rows all
-render nothing, such as Power limits and Controller without a device, stays mounted with the kit's
-`hidden` class so its rows keep their subscriptions. Rows report drawing through `drew` and not
-drawing through `note`, and a change queues one re-render of the panel roots. Valve's own rows
-report nothing and count as drawn. Each control retains the existing bridge and patch ownership.
+a layout is published. Without a layout each tab draws its rows in one untitled group. Performance
+draws `Performance` after Steam's battery line, then the host's settings sections, then
+`PerformanceEnd`. Quick Settings draws `QuickSettings` before Valve's common controls; the device
+controls draw their two groups, the kinds `charging` and `lighting`, after Valve's sections, in
+whichever section of `QuickSettings` or `QuickSettingsEnd` names each. Valve's own sections between
+are wrapped in `steam-ui-kit-valve`, which gives their `PanelSection`s the same block look and the
+kit's heading. Steam's own FPS counter rows are hidden only when the layout sets `HideValveFpsRows`,
+for a host whose own overlay replaces them. What remains of Valve's Performance tree once they are
+hidden is the battery line, wrapped in `steam-ui-kit-battery`, which draws it at one line's height:
+the row is found as the element with three children whose middle one, the percentage, is not empty
+(the section around it has three too, two of them empty), so no hashed class is named. RGB
+brightness stays visible; an Edit color toggle reveals the zone and HSV controls. If Valve's toggle
+component is unavailable, the color editor is omitted while charging and brightness remain usable. A
+group with no registered row is omitted. A group whose host rows all render nothing, such as Power
+limits and Controller without a device, stays mounted with the kit's `hidden` class so its rows keep
+their subscriptions. Rows report drawing through `drew` and not drawing through `note`, and a change
+queues one re-render of the panel roots. Valve's own rows report nothing and count as drawn. Each
+control retains the existing bridge and patch ownership.
 
 A section folds when the layout says so, and one with an empty title is a plain block with no
 heading. A folded group's heading reports what its rows hold: each row leaves a line through

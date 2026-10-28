@@ -29,11 +29,20 @@ public sealed record SteamShortcutAvailability(uint AppId, bool Available, strin
 ///     badge; the toolkit has no name of its own for a library.
 /// </param>
 /// <param name="Revision">Monotonic host observation revision.</param>
-/// <param name="Shortcuts">Host-managed shortcut availability, independent of Steam's installed flag.</param>
+/// <param name="Shortcuts">
+///     Host-managed shortcut availability, independent of Steam's installed flag. An unavailable entry
+///     greys its tile, names its storage on its page, turns its primary action into Recheck and leaves
+///     installed-only filters; an available one, and every app it does not list, keeps Steam's behavior.
+/// </param>
+/// <param name="ShowBadges">
+///     Whether the decorative library badges and library stats are drawn. Managed availability is drawn
+///     either way, so a host keeps publishing while it manages shortcuts with badges turned off.
+/// </param>
 public sealed record SteamLibraryBadgeState(
     IReadOnlyList<SteamLibraryBadgeLibrary> Libraries,
     long Revision = 0,
-    IReadOnlyList<SteamShortcutAvailability>? Shortcuts = null);
+    IReadOnlyList<SteamShortcutAvailability>? Shortcuts = null,
+    bool ShowBadges = true);
 
 /// <summary>What the library badge tells its host.</summary>
 public interface ISteamLibraryBadgeBackend
@@ -87,6 +96,13 @@ public static class SteamLibraryBadgeSurface
     /// <remarks>It sends no commands and reads the badge's publication under <see cref="PatchId" />.</remarks>
     public const string DetailsPatchId = "steam-ui.library-details";
 
+    /// <summary>The patch id of managed-shortcut availability on the play bar and in Steam's app filter.</summary>
+    /// <remarks>It sends <c>recheck</c> and reads the badge's publication under <see cref="PatchId" />.</remarks>
+    public const string AvailabilityPatchId = "steam-ui.library-availability";
+
+    /// <summary>Every patch the module declares, for a host that switches them together.</summary>
+    public static IReadOnlyList<string> PatchIds { get; } = [PatchId, DetailsPatchId, AvailabilityPatchId];
+
     /// <summary>The exact command vocabulary the injected gate sends.</summary>
     public static IReadOnlyList<string> Commands { get; } = ["homeLayout", "recheck"];
 
@@ -125,6 +141,112 @@ public static class SteamLibraryBadgeSurface
         "status.installed&&status.resolved&&status.claimed",
         "!status.claimed",
         "Library details gate");
+
+    /// <summary>
+    ///     The gate that applies managed-shortcut availability where Steam acts on "installed": the play
+    ///     bar's primary action, the library's Installed tab and the play-state options of the library
+    ///     filter.
+    /// </summary>
+    /// <remarks>
+    ///     The client has no shortcut-specific installed setter, so nothing in Valve's app store is
+    ///     written, and every change below applies to managed shortcuts alone; ordinary shortcuts and
+    ///     Steam games keep Steam's behavior, and nothing changes while the host manages none.
+    ///     <list type="bullet">
+    ///         <item>
+    ///             On the play bar of an unavailable managed shortcut, the container whose class is the
+    ///             play button class map's <c>PlayButtonContainer</c> keeps Valve's Focusable, autoFocus
+    ///             and ref, takes Valve's disabled look, and its primary button reads Recheck and sends
+    ///             <c>recheck</c> through the click or mouse-up slot Valve launched from.
+    ///         </item>
+    ///         <item>
+    ///             An element given Steam's <c>local-install</c> collection, the Installed tab, gets a
+    ///             read-only view of it that adds available managed shortcuts Steam reports installed,
+    ///             which the gamepad window otherwise leaves out with every shortcut, and drops
+    ///             unavailable ones, in the games collection's order.
+    ///         </item>
+    ///         <item>
+    ///             The library's filter class, the subclass of Steam's app filter that the desktop,
+    ///             gamepad and VR library filters are made of, has <c>MatchesImpl</c> and
+    ///             <c>MatchesScoredImpl</c> claimed on its prototype. They evaluate an unavailable
+    ///             managed shortcut through a read-only view whose installed fields read false, so
+    ///             Installed and Ready to Play leave it out while All Games, Non-Steam and the other
+    ///             options keep it. Users' dynamic collections hold the base class and keep their
+    ///             membership.
+    ///         </item>
+    ///     </list>
+    ///     Each swap is a live component following the publication, so the play bar and the grids,
+    ///     whose render reruns the library filter through mobx-react-lite's <c>useObserver</c>, redraw
+    ///     when availability moves, and hand Valve's elements back on removal.
+    ///     <para>
+    ///         Read offline from the installed client's <c>sp.js</c> (SHA-256
+    ///         <c>692083495994D2B2CF686EFFD89C11FA987AEFA45787CBFA212627C37EDA9C7A</c>, 2026-10-20) without
+    ///         executing it or attaching to Steam: the class map carrying <c>PlayButtonContainer</c>,
+    ///         <c>ShutdownAppButton</c> and <c>ShowingStreaming</c> occurs once; the module carrying
+    ///         <c>MatchesImpl</c> and <c>MatchesScoredImpl</c> occurs once and exports the base filter
+    ///         class and one subclass, which the library store builds its filters from; and the
+    ///         collection store module, carrying <c>Computing localGamesCollection</c>, exports one store.
+    ///     </para>
+    /// </remarks>
+    public static ISteamUiPatch AvailabilityPatch { get; } = new SteamGatePatch(
+        AvailabilityPatchId,
+        "libraryAvailability",
+        "steam-library-availability-v1:play-button-class-map+library-filter-prototype+collection-store+jsx-runtime",
+        $$"""
+          {{SteamUiProbeJs.Preamble("steam_ui_library_availability_probe_")}}
+            const members=['MatchesImpl','MatchesScoredImpl'];
+            const owns=(host,member)=>!!host&&Object.prototype.hasOwnProperty.call(host,member);
+            const filterModule=count(['MatchesScoredImpl','MatchesImpl']);
+            let filter=null;
+            if(filterModule===1){
+              try{
+                // The library's filter class owns both methods and extends a class owning both too,
+                // chosen by what it is, never by a minified name.
+                filter=req.exported(['MatchesScoredImpl','MatchesImpl'],value=>{
+                  const prototype=value&&value.prototype;
+                  if(typeof value!=='function'||!prototype)return false;
+                  const parent=Object.getPrototypeOf(prototype);
+                  return members.every(member=>owns(prototype,member)&&owns(parent,member));
+                });
+              }catch{filter=null;}
+            }
+            const storeModule=count(['Computing localGamesCollection','local-install']);
+            let store=null;
+            if(storeModule===1){
+              try{
+                store=req.exported(['Computing localGamesCollection','local-install'],value=>
+                  !!value&&typeof value==='object'&&typeof value.GetCollection==='function'
+                    &&typeof value.BIsVisible==='function');
+              }catch{store=null;}
+            }
+            const prototype=filter?filter.prototype:null;
+            const descriptors=members.map(member=>prototype?Object.getOwnPropertyDescriptor(prototype,member):null);
+            return JSON.stringify({
+              react:count({{SteamUiProbeJs.ReactTokens}}),
+              runtime:count({{SteamUiProbeJs.JsxRuntimeTokens}}),
+              classMap:count(['PlayButtonContainer:"','ShutdownAppButton:"','ShowingStreaming:"']),
+              filterModule,
+              filterClass:filter?1:0,
+              storeModule,
+              store:store?1:0,
+              // Writable and configurable, or the claim could neither replace nor restore them.
+              claimable:descriptors.every(descriptor=>{{SteamUiProbeJs.Replaceable("descriptor")}}),
+              // Already ours is compatible, for the reason every gate's own claim is.
+              claimed:!!prototype&&members.every(member=>{{SteamUiProbeJs.Claimed("prototype[member]", "LibraryAvailability")}})
+            });
+          {{SteamUiProbeJs.Close}}
+          """,
+        root =>
+            SteamUiPatchEvaluation.IsOne(root, "react")
+            && SteamUiPatchEvaluation.IsOne(root, "runtime")
+            && SteamUiPatchEvaluation.IsOne(root, "classMap")
+            && SteamUiPatchEvaluation.IsOne(root, "filterModule")
+            && SteamUiPatchEvaluation.IsOne(root, "filterClass")
+            && SteamUiPatchEvaluation.IsOne(root, "storeModule")
+            && SteamUiPatchEvaluation.IsOne(root, "store")
+            && SteamUiPatchEvaluation.Flag(root, "claimable"),
+        "status.installed&&status.resolved&&status.claimed",
+        "!status.claimed",
+        "Library availability gate");
 
     /// <summary>The gate that claims the tile and draws the badge from the published libraries.</summary>
     /// <remarks>
@@ -211,8 +333,15 @@ public static class SteamLibraryBadgeSurface
                && appId > 0;
     }
 
-    /// <summary>Declares the surface as one module: the gate, the libraries, and the layout report.</summary>
-    /// <param name="enabled">Whether the libraries may be published right now.</param>
+    /// <summary>
+    ///     Declares the surface as one module: the badge, details and availability gates, the libraries,
+    ///     the layout report and the managed-shortcut recheck.
+    /// </summary>
+    /// <param name="enabled">
+    ///     Whether the libraries may be published right now. A host that manages shortcuts keeps this
+    ///     true while any exist, even with badges off, and says so through
+    ///     <see cref="SteamLibraryBadgeState.ShowBadges" />.
+    /// </param>
     /// <param name="read">The libraries to name, or null when there is nothing to say yet.</param>
     /// <param name="backend">What hears the Home layout report.</param>
     /// <param name="id">The module id, for diagnostics and duplicate detection.</param>
@@ -230,7 +359,7 @@ public static class SteamLibraryBadgeSurface
             enabled,
             read,
             SteamSurfaceJsonContext.Default.SteamLibraryBadgeState,
-            [Patch, DetailsPatch],
+            [Patch, DetailsPatch, AvailabilityPatch],
             [
                 SteamUiModuleBuilder.Command<bool>(
                     PatchId,

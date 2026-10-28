@@ -6,6 +6,7 @@ public sealed class SteamGatePatchContractTests
     [Theory]
     [InlineData("home-carousel", "status.installed&&status.resolved&&status.claimed", "!status.claimed")]
     [InlineData("library-badge", "status.installed&&status.resolved&&status.claimed", "!status.claimed")]
+    [InlineData("library-availability", "status.installed&&status.resolved&&status.claimed", "!status.claimed")]
     [InlineData("navigation-panel", "status.installed&&status.resolved&&status.claimed", "!status.claimed")]
     // The page gate verifies on the claim alone. Its Route is borrowed from Steam's first render
     // through the claimed switch, which need not have happened yet when verification runs, so
@@ -24,6 +25,7 @@ public sealed class SteamGatePatchContractTests
     [Theory]
     [InlineData("home-carousel", "__steamUiHomeCarouselClaimed")]
     [InlineData("library-badge", "__steamUiLibraryBadgeClaimed")]
+    [InlineData("library-availability", "__steamUiLibraryAvailabilityClaimed")]
     [InlineData("navigation-panel", "__steamUiNavigationPanelClaimed")]
     [InlineData("page", "__steamUiPageHostClaimed")]
     // A probe that recognises a component by its source unwraps the gate's own claim to reach it,
@@ -44,6 +46,7 @@ public sealed class SteamGatePatchContractTests
             "home-carousel" => SteamHomeCarouselSurface.Patch,
             "library-badge" => SteamLibraryBadgeSurface.Patch,
             "library-details" => SteamLibraryBadgeSurface.DetailsPatch,
+            "library-availability" => SteamLibraryBadgeSurface.AvailabilityPatch,
             "navigation-panel" => SteamNavigationPanelSurface.Patch,
             "page" => SteamPageSurface.Patch,
             "screensaver" => SteamScreensaverSurface.Patch,

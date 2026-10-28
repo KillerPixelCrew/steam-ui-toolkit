@@ -19,6 +19,8 @@ public sealed class SteamLibraryBadgeTests
 
     private static SteamGatePatch Details => (SteamGatePatch)SteamLibraryBadgeSurface.DetailsPatch;
 
+    private static SteamGatePatch Availability => (SteamGatePatch)SteamLibraryBadgeSurface.AvailabilityPatch;
+
     [Fact]
     public void TheProbeNamesEveryStructuralFactTheGateResolvesOn()
     {
@@ -103,9 +105,76 @@ public sealed class SteamLibraryBadgeTests
             new RecordingBackend());
 
         Assert.Equal(
-            [SteamLibraryBadgeSurface.PatchId, SteamLibraryBadgeSurface.DetailsPatchId],
+            [
+                SteamLibraryBadgeSurface.PatchId, SteamLibraryBadgeSurface.DetailsPatchId,
+                SteamLibraryBadgeSurface.AvailabilityPatchId
+            ],
             module.Patches.Select(patch => patch.Id));
+        Assert.Equal(SteamLibraryBadgeSurface.PatchIds, module.Patches.Select(patch => patch.Id));
         Assert.Equal(SteamLibraryBadgeSurface.PatchId, Assert.Single(module.Publications).PatchId);
+    }
+
+    [Theory]
+    [InlineData(
+        """{"react":1,"runtime":1,"classMap":1,"filterModule":1,"filterClass":1,"storeModule":1,"store":1,"claimable":true}""",
+        true)]
+    // Each structural fact is required on its own, so an incompatible client says which one moved.
+    [InlineData(
+        """{"react":1,"runtime":1,"classMap":0,"filterModule":1,"filterClass":1,"storeModule":1,"store":1,"claimable":true}""",
+        false)]
+    [InlineData(
+        """{"react":1,"runtime":1,"classMap":1,"filterModule":2,"filterClass":1,"storeModule":1,"store":1,"claimable":true}""",
+        false)]
+    [InlineData(
+        """{"react":1,"runtime":1,"classMap":1,"filterModule":1,"filterClass":0,"storeModule":1,"store":1,"claimable":true}""",
+        false)]
+    [InlineData(
+        """{"react":1,"runtime":1,"classMap":1,"filterModule":1,"filterClass":1,"storeModule":1,"store":0,"claimable":true}""",
+        false)]
+    // Methods that could not be restored are never claimed.
+    [InlineData(
+        """{"react":1,"runtime":1,"classMap":1,"filterModule":1,"filterClass":1,"storeModule":1,"store":1,"claimable":false}""",
+        false)]
+    [InlineData("""{"error":"Steam modules unavailable"}""", false)]
+    public void AvailabilityRequiresThePlayBarTheLibraryFilterAndTheCollectionStore(string json, bool expected)
+    {
+        using var document = JsonDocument.Parse(json);
+
+        Assert.Equal(expected, Availability.Compatible(document.RootElement));
+    }
+
+    [Fact]
+    public void TheAvailabilityProbeFindsItsTargetsByValveNamesAndShape()
+    {
+        var probe = Availability.ProbeExpression;
+
+        Assert.Contains("PlayButtonContainer:\"", probe, StringComparison.Ordinal);
+        Assert.Contains("'MatchesScoredImpl','MatchesImpl'", probe, StringComparison.Ordinal);
+        Assert.Contains("Computing localGamesCollection", probe, StringComparison.Ordinal);
+        Assert.Contains("__steamUiLibraryAvailabilityClaimed", probe, StringComparison.Ordinal);
+        // The play bar's hashes and the filter's minified export names are never written down.
+        Assert.DoesNotContain("_1FnJ6dPuknQFQ2RTpKTI16", probe, StringComparison.Ordinal);
+        Assert.DoesNotContain(".zG", probe, StringComparison.Ordinal);
+        Assert.Equal(SteamLibraryBadgeSurface.AvailabilityPatchId, Availability.Id);
+    }
+
+    [Fact]
+    public void BadgesAreShownUnlessTheHostTurnsThemOffAndShortcutsReachTheWire()
+    {
+        SteamLibraryBadgeState shown = new([]);
+        SteamLibraryBadgeState hidden = new(
+            [],
+            3,
+            [new SteamShortcutAvailability(4000000000, false, "Blue card", "Insert the card.")],
+            ShowBadges: false);
+
+        Assert.True(SteamLibraryBadgeSurface.Serialize(shown).GetProperty("showBadges").GetBoolean());
+        var wire = SteamLibraryBadgeSurface.Serialize(hidden);
+        Assert.False(wire.GetProperty("showBadges").GetBoolean());
+        var shortcut = wire.GetProperty("shortcuts")[0];
+        Assert.Equal(4000000000u, shortcut.GetProperty("appId").GetUInt32());
+        Assert.False(shortcut.GetProperty("available").GetBoolean());
+        Assert.Equal("Blue card", shortcut.GetProperty("location").GetString());
     }
 
     [Fact]
