@@ -149,7 +149,10 @@ public sealed record SteamSettingsSection(string? Title, IReadOnlyList<SteamSett
 /// <param name="Id">The page's path segment below the settings route; stable and URL-safe.</param>
 /// <param name="Title">The sidebar entry and the page heading.</param>
 /// <param name="Sections">The page's sections.</param>
-/// <param name="Glyph">The sidebar icon as SVG path data on a 24x24 grid, or null.</param>
+/// <param name="Glyph">
+///     The sidebar icon, also drawn beside the page's Quick Access heading, as SVG path data on a 24x24
+///     grid, or null.
+/// </param>
 public sealed record SteamSettingsPage(
     string Id,
     string Title,
