@@ -174,7 +174,11 @@ public sealed class SteamServiceProbeExecutionTests
         foreach (var result in results.RootElement.EnumerateArray())
         {
             var gate = gates.Single(item => item.Id == result.GetProperty("id").GetString());
-            Assert.Equal(result.GetProperty("mode").GetString() == "unique", gate.Compatible(result.GetProperty("result")));
+            // The game context menu is recognized when it renders, so its menu-module count is diagnostic
+            // only; its compatibility rests on the unique React and JSX runtimes the fixture always supplies.
+            var expected = result.GetProperty("mode").GetString() == "unique"
+                           || gate.Id == SteamGameContextMenuSurface.PatchId;
+            Assert.Equal(expected, gate.Compatible(result.GetProperty("result")));
         }
     }
 
