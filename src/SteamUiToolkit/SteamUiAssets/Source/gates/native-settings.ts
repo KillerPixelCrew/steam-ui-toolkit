@@ -134,7 +134,6 @@ function createNativeSettings() {
     return react.createElement(
       react.Fragment,
       null,
-      steamUiKitStyle(react),
       ...page.sections
         .filter((section) => section.rows.length)
         .map((section, index) =>
@@ -154,6 +153,11 @@ function createNativeSettings() {
 
   // Match Steam's semantic descriptor keys and the native element handles already in its map.
   // No native component is replaced: the route, label, glyph and content remain Steam's own.
+  // Each native page renders its own scrolling DialogBody. In the desktop client that body is a
+  // flex:1, overflow:auto child of a fixed-height column, so host sections placed beside it took
+  // their full height and squeezed Steam's page into the remainder. The wrapper becomes the page's
+  // one DialogBody instead, and the kit stylesheet lets Steam's body inside it keep its full height
+  // (Big Picture's dialog bodies never scroll, so it lays out as before there).
   const transformDescriptors = (value) => {
     if (!installed || !value || Array.isArray(value) || typeof value !== "object") return value;
     if (
@@ -185,13 +189,14 @@ function createNativeSettings() {
               (value.Display.visible && value.Audio.visible && value.Controller.visible)
             : original.visible,
         content: react.createElement(
-          react.Fragment,
-          null,
+          "div",
+          { className: "DialogBody steam-ui-kit-settings-body" },
           original.content,
           react.createElement(SteamUiNativeSettingsSections, {
             id,
             key: `steam-ui-native-${id}`,
           }),
+          steamUiKitStyle(react),
         ),
       };
     }

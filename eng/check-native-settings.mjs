@@ -131,6 +131,21 @@ assert.equal(
   nativeContent,
   "an empty slot retains native content",
 );
+assert.equal(
+  result.Display.content.type,
+  "div",
+  "native content and host sections share one wrapper instead of sitting side by side",
+);
+assert.equal(
+  result.Display.content.props.className,
+  "DialogBody steam-ui-kit-settings-body",
+  "the wrapper is the page's scrolling body, so Steam's own body inside it keeps its height",
+);
+assert.equal(
+  result.Display.content.props.children.at(-1).type,
+  "style",
+  "the wrapper carries the kit stylesheet even while its page has no host rows",
+);
 assert.equal(result.Internet, map.Internet);
 assert.equal(result.Power.route, map.Power.route, "Steam retains route and navigation ownership");
 assert.equal(

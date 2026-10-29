@@ -463,14 +463,19 @@ changes.length = 0;
 size.props.onChangeComplete(2);
 assert.deepEqual(changes, [["size", 2]]);
 
-// A colour is its swatch and text with an Edit button, which opens Steam's modal of sliders; Save
-// sends the colour once as hsla(), and Cancel sends nothing.
+// A colour is its swatch with an Edit button, which opens Steam's modal of sliders; Save sends the
+// colour once as hsla(), and Cancel sends nothing. No hex text sits beside the swatch: the value is
+// the swatch's accessible name instead.
 const tone = row(tree, "tone");
 assert.equal(tone.type, ValueField, "a colour row is the value field");
-const [swatch, text, edit] = tone.props.value.props.children;
+const toneParts = tone.props.value.props.children.filter(Boolean);
+assert.equal(toneParts.length, 2, "a colour row is its swatch and Edit, without hex text");
+const [swatch, edit] = toneParts;
 assert.equal(swatch.props.style.background, "#ff0000", "the swatch shows the colour");
-assert.deepEqual(text.props.children, ["#ff0000"]);
+assert.equal(swatch.props.role, "img");
+assert.equal(swatch.props["aria-label"], "Tone: #ff0000", "the swatch names the colour");
 assert.equal(edit.type, SmallButton);
+assert.equal(edit.props["aria-label"], "Edit Tone", "Edit names the colour it edits");
 changes.length = 0;
 shown.length = 0;
 edit.props.onClick();

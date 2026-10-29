@@ -77,6 +77,7 @@ for (const cls of [
     "actions",
     "nested",
     "swatch",
+    "settings-body",
     "card",
     "grid",
     "banner",
@@ -354,8 +355,13 @@ assert.equal(
 compact.props.children[0].props.onClick();
 assert.deepEqual(ran, ["a", "order"]);
 
-// A swatch keeps its colour.
+// A swatch keeps its colour, and a label makes it a named image rather than a bare box.
 assert.equal(kit.renderSteamUiSwatch(react, "#ff0000").props.style.background, "#ff0000");
+assert.equal(kit.renderSteamUiSwatch(react, "#ff0000").props.role, undefined);
+assert.equal(
+    kit.renderSteamUiSwatch(react, "#ff0000", "Zone: #ff0000").props["aria-label"],
+    "Zone: #ff0000",
+);
 // The stylesheet element is one per React, so a re-rendering root hands React the same one.
 assert.equal(kit.steamUiKitStyle(react), style);
 

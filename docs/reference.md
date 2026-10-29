@@ -1614,7 +1614,7 @@ in that root's document.
 | `renderSteamUiHeader`                       | a section heading with a glyph, a detail line and, when it folds, Steam's Focusable and the kit's caret; `open` while unfolded, `plain` when fixed, `sub` for a switch's own settings |
 | `renderSteamUiGroup`                        | a block: the heading over a body that stays mounted while folded; `hidden` leaves layout, no title makes a plain box                                                                  |
 | `renderSteamUiActions`                      | Steam's buttons in a two-column grid; a label over eighteen characters, or `wide`, takes a row                                                                                        |
-| `renderSteamUiSwatch`                       | a colour square                                                                                                                                                                       |
+| `renderSteamUiSwatch`                       | a colour square; with a label, a named image for assistive technology                                                                                                                 |
 | `renderSteamUiCard`, `renderSteamUiGrid`    | a focusable card (16:10 image or supplied media, stats strip, badge, title, meta) and its grid                                                                                        |
 | `renderSteamUiImagePreview`                 | a display-shaped still preview with Fit/Fill sizing and a placeholder when no cover is available                                                                                      |
 | `renderSteamUiEmpty`                        | what an empty list says, or why it failed                                                                                                                                             |
@@ -1691,11 +1691,13 @@ The toggle, dropdown, slider, text field, dialog button and `showModal` are the 
   same colour the marked Quick Access rows use. Nothing is added beside the control.
 - A `range` with `labels` is one of them by index: Steam's slider names each notch with a label, the
   bounds are the labels' count, no number is shown beside the track, and the index is sent.
-- `color` is the value field showing the colour's swatch and text with a small Edit button, which
-  opens Steam's modal of four sliders (hue, saturation, lightness, opacity) over the hex or hsl(a)
-  the row holds. Save sends the colour once, as `hsla()`, the form CSSLoader's own picker writes;
-  Cancel and B send nothing. `ColorAlpha = false` hides opacity and keeps the saved color opaque,
-  for hardware RGB controls. On a client without a modal the row is a text field.
+- `color` is the value field showing the colour's swatch with a small Edit button, which opens
+  Steam's modal of four sliders (hue, saturation, lightness, opacity) over the hex or hsl(a) the row
+  holds. Save sends the colour once, as `hsla()`, the form CSSLoader's own picker writes; Cancel and
+  B send nothing. `ColorAlpha = false` hides opacity and keeps the saved color opaque, for hardware
+  RGB controls. No hex text sits beside the swatch, which a narrow row wrapped mid-value; the
+  swatch's accessible name is the row label and value, and the button's is `Edit <label>`. On a
+  client without a modal the row is a text field.
 - A kind the renderer does not know is shown as its label with nothing that sends.
 - A row with `confirm` asks first, in Steam's confirm modal, when the new value equals `when`.
   Cancelling sends nothing, so the row keeps what the host last published.
@@ -2123,11 +2125,19 @@ The gate resolves the native descriptor factory by the four authored localizatio
 `SettingsModal` and `SettingsTitleBar`; its function is selected by `#Settings_Title`, `show-icon`
 and the string `Settings`. No module id or export name is named. The shared `useMemo` transform
 copies the four native descriptors, retaining Steam's original label, route, glyph and content, and
-appends one subscribed host slot to each. An empty slot returns null but stays mounted, so
-Controller capability arrival or removal updates the existing slot without navigating or remounting
-the page. Only the Power descriptor's battery condition is revealed, and only while it has host rows
-and the Display, Audio and Controller descriptors confirm Steam's services are ready. No platform or
-battery value is changed.
+appends one subscribed host slot to each. Steam's content and the slot share one wrapper,
+`div.DialogBody.steam-ui-kit-settings-body`, which also renders the kit stylesheet. Each native page
+renders its own scrolling `DialogBody`; in the desktop client that body is `flex: 1; overflow: auto`
+inside the fixed-height `DialogContent_InnerWidth` column, so sections placed beside it took their
+full height and squeezed Steam's page into a small scroller at the top. The wrapper is now the
+page's one scrolling body, picking up Steam's own desktop body padding, and the kit rule
+`.steam-ui-kit-settings-body > .DialogBody` lets Steam's body keep its full height without its own
+scrollbar or end padding. Big Picture's `GamepadDialogContent` sets every `DialogBody` to
+`overflow: initial`, so its layout is unchanged there. An empty slot returns null but stays mounted,
+so Controller capability arrival or removal updates the existing slot without navigating or
+remounting the page. Only the Power descriptor's battery condition is revealed, and only while it
+has host rows and the Display, Audio and Controller descriptors confirm Steam's services are ready.
+No platform or battery value is changed.
 
 The shared JSX transform reaches future Settings mounts. Mounted root fibers are adopted without
 adding hooks and retain a durable original marker for bridge replacement. Discovery includes

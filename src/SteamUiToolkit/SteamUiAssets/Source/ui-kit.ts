@@ -86,6 +86,8 @@ const SteamUiKitStyles = `
 .steam-ui-kit-nested .DialogToggle_Label{font-size:14px}
 .steam-ui-kit-nested .DialogToggle_Description{font-size:12px}
 .steam-ui-kit-highlight{color:#fca904}
+/* A native Settings page with host sections: the wrapper is the page's scrolling DialogBody, so Steam's own body inside it keeps its full height. */
+.steam-ui-kit-settings-body>.DialogBody{flex:none!important;overflow:visible!important;padding-inline-end:0!important;padding-bottom:0!important}
 .steam-ui-kit-swatch{width:20px;height:20px;border-radius:3px;border:1px solid rgba(255,255,255,.3);flex:0 0 auto}
 .steam-ui-kit-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px}
 .steam-ui-kit-card{display:flex;flex-direction:column;border-radius:4px;overflow:hidden;background:#ACB2C924;outline:2px solid transparent;transition:outline-color 150ms,background 150ms}
@@ -602,10 +604,16 @@ const renderSteamUiLevel = (
  * Creates a noninteractive color preview.
  * @param react Steam's React instance used by the consuming root.
  * @param color CSS color used as the swatch background.
+ * @param label Optional accessible name, such as the row and its value; without one the swatch is decorative.
  * @returns The swatch element.
  */
-const renderSteamUiSwatch = (react, color: string) =>
-    react.createElement("div", { className: "steam-ui-kit-swatch", style: { background: color } });
+const renderSteamUiSwatch = (react, color: string, label?: string) =>
+    react.createElement("div", {
+        className: "steam-ui-kit-swatch",
+        style: { background: color },
+        role: label ? "img" : undefined,
+        "aria-label": label || undefined,
+    });
 
 /**
  * Creates one activatable gallery card using Steam controller focus.

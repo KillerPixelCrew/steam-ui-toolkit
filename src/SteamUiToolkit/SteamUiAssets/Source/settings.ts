@@ -335,7 +335,8 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
             });
         }
         case "color": {
-            // A colour is shown as its swatch and its text, and edited in a modal of Steam's sliders,
+            // A colour is shown as its swatch alone, which carries the value as its accessible name
+            // (hex text beside it wrapped in a narrow row), and edited in a modal of Steam's sliders,
             // the way CSSLoader's colour picker edits a theme's colour. Where this client has no
             // modal, or the value is not a colour the sliders can hold, the text itself is editable,
             // so the value is never out of reach and never replaced by a colour it was not. Text
@@ -361,11 +362,14 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
                 value: h(
                     ui.focusable,
                     {"flow-children": "row", style: {display: "flex", alignItems: "center", gap: "8px"}},
-                    renderSteamUiSwatch(ui.react, current),
-                    h("span", null, current),
+                    renderSteamUiSwatch(ui.react, current, `${row.label}: ${current}`),
                     h(
                         ui.smallButton,
-                        {disabled: !!row.disabled, onClick: () => showSteamColorEditor(ui, row.label, parsed, send, row.colorAlpha !== false)},
+                        {
+                            disabled: !!row.disabled,
+                            "aria-label": `Edit ${row.label}`,
+                            onClick: () => showSteamColorEditor(ui, row.label, parsed, send, row.colorAlpha !== false),
+                        },
                         "Edit",
                     ),
                 ),
