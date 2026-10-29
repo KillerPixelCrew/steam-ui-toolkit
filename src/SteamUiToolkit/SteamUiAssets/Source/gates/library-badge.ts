@@ -837,9 +837,8 @@ function createLibraryAvailability() {
         return null;
     };
 
-    // Valve's container with its primary button turned into Recheck. Every other child stays.
-    const unavailableAction = (container, shortcut, pending: boolean, recheck: () => void) => {
-        const label = pending ? "Checking…" : "Recheck";
+    // Keep Valve's localized Play label, but remove launch activation. Recheck stays in the details stat.
+    const unavailableAction = (container, shortcut) => {
         const description = shortcut.location
             ? `${shortcut.location} is unavailable. ${shortcut.reason}`.trim()
             : shortcut.reason || "This game is unavailable.";
@@ -852,24 +851,16 @@ function createLibraryAvailability() {
             )
                 return child;
             primary = true;
-            // The handler takes whichever slot Valve launched from, so a mouse, touch or gamepad
-            // activation reaches it exactly as it reached the launch.
-            const slot = typeof child.props.onMouseUp === "function" ? "onMouseUp" : "onClick";
-            return react.cloneElement(
-                child,
-                {
-                    onClick: undefined,
-                    onMouseUp: undefined,
-                    [slot]: (event) => {
-                        event?.stopPropagation?.();
-                        event?.preventDefault?.();
-                        recheck();
-                    },
-                    "aria-label": `${label}. ${description}`,
-                    title: description,
-                },
-                react.createElement("div", { key: "text", className: classes!.text }, label),
-            );
+            return react.cloneElement(child, {
+                disabled: true,
+                "aria-disabled": true,
+                onClick: undefined,
+                onMouseUp: undefined,
+                onActivate: undefined,
+                onOKButton: undefined,
+                onButtonDown: undefined,
+                title: description,
+            });
         });
         if (!primary) return container;
         replaced++;
@@ -885,19 +876,12 @@ function createLibraryAvailability() {
         const appId = props.overview?.appid ?? 0;
         const store = local.storeFor(appId);
         react.useSyncExternalStore(store.subscribe, store.revision, store.revision);
-        const [pending, setPending] = react.useState(false);
         if (!installed) return props.element;
         reading = local.read();
         const shortcut = unavailableShortcut(appId, reading);
-        if (!shortcut) return props.element;
-        const recheck = () => {
-            if (pending) return;
-            setPending(true);
-            request(publicationId, "recheck", { appId })
-                .catch(() => {})
-                .finally(() => setPending(false));
-        };
-        return unavailableAction(props.element, shortcut, pending, recheck);
+        // Steam's running status is authoritative. Removing media must leave Stop usable.
+        if (!shortcut || Number(props.overview?.display_status) === 4) return props.element;
+        return unavailableAction(props.element, shortcut);
     }
 
     // Whether the host reports this managed shortcut available and Steam reports it installed:

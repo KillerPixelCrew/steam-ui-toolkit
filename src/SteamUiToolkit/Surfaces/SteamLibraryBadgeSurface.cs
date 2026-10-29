@@ -31,7 +31,7 @@ public sealed record SteamShortcutAvailability(uint AppId, bool Available, strin
 /// <param name="Revision">Monotonic host observation revision.</param>
 /// <param name="Shortcuts">
 ///     Host-managed shortcut availability, independent of Steam's installed flag. An unavailable entry
-///     greys its tile, names its storage on its page, turns its primary action into Recheck and leaves
+///     greys its tile, names its storage on its page, disables its native Play action and leaves
 ///     installed-only filters; an available one, and every app it does not list, keeps Steam's behavior.
 /// </param>
 /// <param name="ShowBadges">
@@ -155,8 +155,9 @@ public static class SteamLibraryBadgeSurface
     ///         <item>
     ///             On the play bar of an unavailable managed shortcut, the container whose class is the
     ///             play button class map's <c>PlayButtonContainer</c> keeps Valve's Focusable, autoFocus
-    ///             and ref, takes Valve's disabled look, and its primary button reads Recheck and sends
-    ///             <c>recheck</c> through the click or mouse-up slot Valve launched from.
+    ///             and ref, takes Valve's disabled look, and disables the native Play button and its
+    ///             launch callbacks. The separate details stat retains <c>recheck</c>; running titles
+    ///             keep their native Stop action.
     ///         </item>
     ///         <item>
     ///             An element given Steam's <c>local-install</c> collection, the Installed tab, gets a

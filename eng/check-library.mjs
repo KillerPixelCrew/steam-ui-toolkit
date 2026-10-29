@@ -769,22 +769,23 @@ const shared = sharedFragments(asset);
         ],
     });
 
-    // The unavailable shortcut's primary action is Recheck, in Valve's own Focusable.
+    // The unavailable shortcut retains its native label but cannot activate Play.
     const unavailable = render(playBar(missing));
     assert.equal(unavailable.props.className, "outer container-hash disabled-hash");
     const [button, gap, explainer] = unavailable.props.children;
     assert.equal(button.props.autoFocus, true, "focus behavior stays Valve's");
     assert.equal(button.props.className, "button-hash child-hash");
-    assert.equal(button.props.children[0].props.children, "Recheck");
-    assert.match(
-        button.props["aria-label"],
-        /Recheck\. Blue card is unavailable\. Insert the card\./,
-    );
+    assert.equal(button.props.disabled, true);
+    assert.equal(button.props["aria-disabled"], true);
+    assert.match(button.props.title, /Blue card is unavailable\. Insert the card\./);
+    assert.equal(button.props.onClick, undefined);
+    assert.equal(button.props.onMouseUp, undefined);
+    assert.equal(button.props.onActivate, undefined);
+    assert.equal(button.props.onOKButton, undefined);
     assert.equal(gap, false);
     assert.equal(explainer.type, Explainer, "every other child stays");
-    button.props.onClick({ stopPropagation() {}, preventDefault() {} });
-    assert.deepEqual(requests, ['steam-ui.library-badge recheck {"appId":71}']);
-    assert.deepEqual(launches, [], "Recheck never launches");
+    assert.deepEqual(requests, []);
+    assert.deepEqual(launches, [], "disabled Play has no launch callback");
     assert.equal(gate.status().replaced, 1);
 
     // An available managed shortcut and an ordinary shortcut keep Valve's play bar.
@@ -855,6 +856,6 @@ const shared = sharedFragments(asset);
     assert.ok(gate.remove().ok);
 
     console.log(
-        "Library availability: Recheck on the play bar, managed Installed tab, installed-only filters, restored on return and removal.",
+        "Library availability: disabled Play, separate Recheck, managed Installed tab, installed-only filters, restored on return and removal.",
     );
 }

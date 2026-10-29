@@ -1153,11 +1153,11 @@ managed shortcuts alone and only while the host manages at least one:
   primary Focusable button (`PlayButton`, autoFocus in the gamepad window) and its last carries the
   overview. On the shared element claim (§9), the container of a shortcut is wrapped in a live
   component. For an unavailable managed shortcut it keeps Valve's Focusable, autoFocus and ref,
-  swaps `Green` for Valve's `Disabled` look, and its primary button reads Recheck, labelled with the
-  location and reason, and sends `recheck` from the same click or mouse-up slot Valve launched from,
-  so mouse, touch and gamepad activation reach it unchanged. Checking… shows while the request is
-  pending. Otherwise Valve's element is rendered as created. The classes are read by name from the
-  class map carrying `PlayButtonContainer:"`, `ShutdownAppButton:"` and `ShowingStreaming:"`.
+  swaps `Green` for Valve's `Disabled` look, preserves the localized Play label, sets `disabled` and
+  `aria-disabled`, and removes its mouse and controller launch callbacks. The separate details stat
+  retains Recheck. A running title keeps its native Stop action. Otherwise Valve's element is
+  rendered as created. The classes are read by name from the class map carrying
+  `PlayButtonContainer:"`, `ShutdownAppButton:"` and `ShowingStreaming:"`.
 - **Installed tab.** Steam's `local-install` collection is every installed app of the games type,
   and while the gamepad window is active it leaves out every shortcut; `all-games` does the same,
   and Big Picture's Non-Steam tab is a collection of its own. An element given `local-install` as
