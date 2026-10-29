@@ -46,7 +46,8 @@ public sealed class SteamLibraryData
 {
     private const string CollectionsExpression =
         "(()=>{try{const cs=collectionStore;" +
-        "const cols=(cs.userCollections||[]).map(c=>({id:c.id,name:c.displayName," +
+        "if(!cs.userCollections)return JSON.stringify({ok:false,err:'Steam collections are not ready.'});" +
+        "const cols=cs.userCollections.map(c=>({id:c.id,name:c.displayName," +
         "appids:(c.allApps||c.visibleApps||[]).map(a=>a.appid>>>0)}));" +
         "return JSON.stringify({ok:true,collections:cols});}" +
         "catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e)});}})()";

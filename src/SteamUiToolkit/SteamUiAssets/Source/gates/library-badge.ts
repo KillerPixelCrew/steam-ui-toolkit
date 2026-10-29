@@ -747,7 +747,8 @@ registerGate("libraryDetails", createLibraryDetails());
 //
 // The action: for a managed shortcut the host reports unavailable, the container keeps Valve's
 // Focusable, autoFocus and ref, trades its green for Valve's disabled look, and its primary button
-// reads Recheck and sends `recheck` instead of launching. Any other app keeps Valve's element.
+// keeps Valve's localized label but is disabled and loses its launch callbacks; Recheck stays in the
+// details stat. Any other app keeps Valve's element.
 //
 // The Installed tab: the collection an element is given is replaced by a read-only view of it that
 // adds the managed shortcuts the host reports available and Steam reports installed, and drops the
@@ -758,8 +759,9 @@ registerGate("libraryDetails", createLibraryDetails());
 // whose installed fields read false, so Installed and Ready to Play leave it out while every other
 // option, All Games and Non-Steam judge it as before.
 //
-// Every swap is a live component following the publication, so a change in availability redraws
-// the play bar and the grids, whose render reruns the filter, without waiting for a Steam render.
+// The play bar and the Installed tab are live components following the publication, so a change in
+// availability redraws them without waiting for a Steam render. Other grids keep Valve's element
+// type and are never remounted; their render reruns the filter on Steam's next redraw.
 // Nothing is drawn differently while the host manages no shortcut.
 function createLibraryAvailability() {
     const publicationId = "steam-ui.library-badge";
@@ -774,13 +776,7 @@ function createLibraryAvailability() {
     const InstalledCollection = "local-install";
     const GamesCollection = "type-games";
     const FilterMembers = ["MatchesImpl", "MatchesScoredImpl"] as const;
-    const RequiredClasses = [
-        "PlayButtonContainer",
-        "PlayButton",
-        "ButtonText",
-        "Green",
-        "Disabled",
-    ];
+    const RequiredClasses = ["PlayButtonContainer", "PlayButton", "Green", "Disabled"];
     const ClientFields = new Set([
         "local_per_client_data",
         "most_available_per_client_data",
@@ -799,7 +795,6 @@ function createLibraryAvailability() {
     let classes: {
         container: string;
         button: string;
-        text: string;
         green: string;
         disabled: string;
     } | null = null;
@@ -899,29 +894,69 @@ function createLibraryAvailability() {
         }
     };
 
-    // A read-only view of Steam's Installed collection. Its lists are derived on each read from the
-    // collections Steam keeps, so the grid's observer still tracks Steam's own state.
+    // A read-only view of Steam's Installed collection. Its lists are derived from the collections
+    // Steam keeps, which are read on every access so the grid's observer still tracks Steam's own
+    // state. A derived list is reused while the lists it came from are the same objects, because a
+    // grid may read the collection once per row.
     const installedView = (collection) => {
+        const same = (key: unknown[], next: unknown[]) =>
+            key.length === next.length && key.every((value, index) => value === next[index]);
+        let allKey: unknown[] = [];
+        let allList: any[] = [];
+        let visibleKey: unknown[] = [];
+        let visibleList: any[] = [];
+        let appsKey: unknown = null;
+        let appsSet: Set<number> = new Set();
         const all = () => {
-            const kept: Set<number> = collection.apps;
+            const own = collection.allApps;
             const games = collections.GetCollection(GamesCollection)?.allApps;
-            if (!Array.isArray(games)) return collection.allApps;
-            return games.filter((overview) =>
+            if (!Array.isArray(games)) return own;
+            const key = [own, games, reading];
+            if (same(allKey, key)) return allList;
+            const kept: Set<number> = collection.apps;
+            allList = games.filter((overview) =>
                 unavailableShortcut(overview?.appid, reading)
                     ? false
                     : kept.has(overview?.appid) || availableManaged(overview),
             );
+            allKey = key;
+            return allList;
         };
-        const visibleOf = () => all().filter(visible);
-        // Steam's count with the same apps added and dropped: the difference is only shortcuts,
-        // which a tools filter never removes.
+        // Steam's visible lists move with its hidden apps, which the derived list alone cannot see.
+        const visibleOf = () => {
+            const list = all();
+            const key = [
+                list,
+                collection.visibleApps,
+                collections.GetCollection(GamesCollection)?.visibleApps,
+            ];
+            if (same(visibleKey, key)) return visibleList;
+            visibleList = list.filter(visible);
+            visibleKey = key;
+            return visibleList;
+        };
+        const apps = () => {
+            const list = all();
+            if (appsKey !== list) {
+                appsSet = new Set(list.map((overview) => overview.appid));
+                appsKey = list;
+            }
+            return appsSet;
+        };
+        // Steam counts its visible apps and leaves tools out unless the filter includes them.
+        const counted = (overview, filter) =>
+            visible(overview) &&
+            !(overview?.app_type === 4 && filter?.BIncludesTools?.() === false);
+        // Steam's count with the same apps added and dropped, each judged as Steam judges its own.
         const count = (filter) => {
             const native = collection.GetAppCountWithToolsFilter(filter);
             const kept: Set<number> = collection.apps;
             let difference = 0;
-            for (const overview of visibleOf()) if (!kept.has(overview.appid)) difference++;
+            for (const overview of all()) {
+                if (!kept.has(overview.appid) && counted(overview, filter)) difference++;
+            }
             for (const overview of collection.allApps) {
-                if (unavailableShortcut(overview?.appid, reading) && visible(overview))
+                if (unavailableShortcut(overview?.appid, reading) && counted(overview, filter))
                     difference--;
             }
             return native + difference;
@@ -935,7 +970,7 @@ function createLibraryAvailability() {
                     case "visibleApps":
                         return visibleOf();
                     case "apps":
-                        return new Set(all().map((overview) => overview.appid));
+                        return apps();
                     case "GetAppCountWithToolsFilter":
                         return count;
                     default:
@@ -945,8 +980,8 @@ function createLibraryAvailability() {
         });
     };
 
-    // A grid, keyed by its collection, redrawn when availability moves. The Installed tab is given
-    // the view; every other grid its own collection, so its render reruns the library filter.
+    // The Installed tab's grid, keyed by its collection, given the view and redrawn when
+    // availability moves.
     function LiveAvailabilityCollection(props) {
         const revision = react.useSyncExternalStore(
             grids.subscribe,
@@ -955,10 +990,7 @@ function createLibraryAvailability() {
         );
         const original = props.props.collection;
         const collection = react.useMemo(
-            () =>
-                installed && original.id === InstalledCollection
-                    ? installedView(original)
-                    : original,
+            () => (installed ? installedView(original) : original),
             [original, revision],
         );
         return props.create(props.type, { ...props.props, collection }, props.elementKey);
@@ -970,8 +1002,8 @@ function createLibraryAvailability() {
         typeof value.id === "string" &&
         "visibleApps" in value;
 
-    // The play bar of a shortcut, and every grid given a collection while the host manages
-    // shortcuts. A Steam game's play bar keeps Valve's element.
+    // The play bar of a shortcut, and the Installed tab's grid while the host manages shortcuts. A
+    // Steam game's play bar and every other grid keep Valve's element, so they are never remounted.
     const transform = (create, type, props, key) => {
         if (!installed || !classes || !props) return undefined;
         if (hasClass(props.className, classes.container)) {
@@ -983,7 +1015,12 @@ function createLibraryAvailability() {
                 element: create(type, props, key),
             });
         }
-        if (!reading.shortcuts.size || !isCollection(props.collection)) return undefined;
+        if (
+            !reading.shortcuts.size ||
+            !isCollection(props.collection) ||
+            props.collection.id !== InstalledCollection
+        )
+            return undefined;
         return react.createElement(LiveAvailabilityCollection, {
             key,
             create,
@@ -1082,7 +1119,6 @@ function createLibraryAvailability() {
         classes = {
             container: map.PlayButtonContainer,
             button: map.PlayButton,
-            text: map.ButtonText,
             green: map.Green,
             disabled: map.Disabled,
         };

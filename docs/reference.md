@@ -1176,12 +1176,16 @@ managed shortcuts alone and only while the host manages at least one:
   and Ready to Play leave it out while every other option keeps it, and a dynamic collection keeps
   its membership. A view Valve's code cannot read falls back to Valve's verdict.
 
-The grids filter inside their render through mobx-react-lite's `useObserver`, so every element given
-a collection is wrapped, while managed shortcuts exist, in a live component that redraws when a
+The grids filter inside their render through mobx-react-lite's `useObserver`. Only the element given
+`local-install` is wrapped, while managed shortcuts exist, in a live component that redraws when a
 managed shortcut is added, removed or changes availability; no mobx state is created or written.
-Removal releases the claims and redraws the live components with Valve's elements and collections.
-The probe requires one React, one JSX runtime, one class map, one filter module and class, one store
-module and store, and restorable filter members; it accepts the gate's own claim.
+Every other grid keeps Valve's element type, so it is never remounted and its focus and scroll stay
+Steam's; its filter sees new availability on Steam's next redraw of that grid. The view reuses each
+derived list while the Steam lists it came from are the same objects, and counts an added or dropped
+app with Steam's own visibility and tools rule. Removal releases the claims and redraws the live
+components with Valve's elements and collections. The probe requires one React, one JSX runtime, one
+class map, one filter module and class, one store module and store, and restorable filter members;
+it accepts the gate's own claim.
 
 ### The Home carousel
 

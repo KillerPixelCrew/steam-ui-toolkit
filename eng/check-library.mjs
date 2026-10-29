@@ -18,9 +18,9 @@
 //
 // Badges off: no library is named, while a managed shortcut still carries its availability.
 //
-// Availability: an unavailable managed shortcut's play bar keeps Valve's Focusable and sends
-// `recheck` instead of launching; the Installed tab gains the available managed shortcut and loses
-// the unavailable one; the library filter's installed-only options leave it out while a dynamic
+// Availability: an unavailable managed shortcut's play bar keeps Valve's Focusable and label but
+// cannot launch; the Installed tab gains the available managed shortcut and loses the unavailable
+// one, reuses its derived lists and counts as Steam does, and no other grid is wrapped; the library filter's installed-only options leave it out while a dynamic
 // collection's base filter, ordinary shortcuts and Steam games are untouched; reinsertion and
 // removal restore Valve's elements, collections and filter methods.
 import assert from "node:assert/strict";
@@ -825,9 +825,21 @@ const shared = sharedFragments(asset);
         2,
         "Steam's count with one added and one dropped",
     );
+    assert.equal(
+        view.allApps,
+        view.allApps,
+        "a derived list is reused while Steam's are unchanged",
+    );
+    assert.equal(view.visibleApps, view.visibleApps);
+    assert.equal(view.apps, view.apps);
+    // An added app is counted as Steam counts its own: a tool only when the filter includes tools.
+    ready.app_type = 4;
+    assert.equal(view.GetAppCountWithToolsFilter({ BIncludesTools: () => false }), 1);
+    assert.equal(view.GetAppCountWithToolsFilter({ BIncludesTools: () => true }), 2);
+    delete ready.app_type;
     assert.equal(render(installedGrid).props.eSortBy, 1, "every other prop stays");
-    // Other grids keep their collection; they are redrawn so their own filter runs again.
-    assert.equal(render(grid(allGames)).props.collection, allGames);
+    // Other grids keep Valve's element, so they are never remounted.
+    assert.equal(isLive(grid(allGames)), false, "an unrelated grid is never wrapped");
 
     // Reinsertion restores the launch, the filters and the Installed tab without a Steam render.
     publish({
