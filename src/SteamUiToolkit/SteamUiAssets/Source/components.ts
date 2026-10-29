@@ -121,6 +121,7 @@ function createNativeComponentHost() {
         autoTdp: Object.freeze({
             patchId: "steam-ui.auto-tdp",
             command: "setAutoTdp",
+            targetCommand: "setAutoTdpTarget",
         }),
         // Two commands, because this is SteamOS's unified row: one slider that is the frame cap while
         // a cap is set and the refresh rate once it is switched off.
@@ -356,6 +357,23 @@ function createNativeComponentHost() {
             typeof value.watts === "number" && Number.isInteger(value.watts) && value.watts >= 1
                 ? value.watts
                 : null;
+        // The target is the slider's whole state. One with unusable bounds is dropped on its own, so a
+        // bad slider never takes the switch with it.
+        const target = value.target;
+        const usableTarget =
+            target &&
+            typeof target === "object" &&
+            [target.fps, target.minimumFps, target.maximumFps].every(Number.isInteger) &&
+            target.minimumFps >= 1 &&
+            target.minimumFps < target.maximumFps
+                ? Object.freeze({
+                      fps: Math.min(target.maximumFps, Math.max(target.minimumFps, target.fps)),
+                      minimumFps: target.minimumFps,
+                      maximumFps: target.maximumFps,
+                      statusText: normalizeText(target.statusText),
+                      accent: target.accent === true,
+                  })
+                : null;
         return Object.freeze({
             available: value.available,
             enabled: value.enabled,
@@ -363,6 +381,7 @@ function createNativeComponentHost() {
             watts,
             progress: normalizeText(value.progress),
             statusText: normalizeText(value.statusText),
+            target: usableTarget,
         });
     };
     const normalizeControllerState = (value) => {
@@ -848,6 +867,9 @@ function createNativeComponentHost() {
         function SteamUiAutoTdpControl() {
             const state = useSemanticState(controlRuntime, "autoTdp", normalizeAutoTdpState);
             const [refusal, setRefusal] = controlRuntime.react.useState("");
+            const [targetRefusal, setTargetRefusal] = controlRuntime.react.useState("");
+            // Unconditional, ahead of every early return: these are hooks.
+            const targetEcho = useEchoedValue(controlRuntime, state?.target?.fps ?? null);
             if (!state) return note("autoTdp", "no state");
             if (!state.available)
                 return note("autoTdp", "unavailable: " + (state.statusText || "no reason"));
@@ -871,7 +893,8 @@ function createNativeComponentHost() {
                 state.controlling && state.watts !== null
                     ? state.watts + " W · " + state.statusText
                     : state.statusText;
-            return controlRuntime.react.createElement(controlRuntime.toggle, {
+            const toggle = controlRuntime.react.createElement(controlRuntime.toggle, {
+                key: "switch",
                 // The host's own control; Valve has no string for it, so no token is passed.
                 label: "Automatic TDP",
                 icon: controlRuntime.icon("auto"),
@@ -884,6 +907,48 @@ function createNativeComponentHost() {
                 disabled: isBusy(state.progress),
                 onChange: toggleCommand(definition, state, setRefusal),
             });
+            // The target only means something while the controller runs, so the slider follows the
+            // switch, the way SteamOS's frame-limit slider follows its own switch.
+            const target = state.enabled ? state.target : null;
+            if (!target || !controlRuntime.slider) return toggle;
+            const commitTarget = (fps) => {
+                if (!Number.isInteger(fps) || fps < target.minimumFps || fps > target.maximumFps)
+                    return;
+                setTargetRefusal("");
+                void sendCommand(definition, definition.targetCommand, { value: fps }).catch(
+                    (reason) => setTargetRefusal(refusalText(reason)),
+                );
+            };
+            const slider = controlRuntime.react.createElement(
+                controlRuntime.row,
+                { key: "target" },
+                controlRuntime.react.createElement(controlRuntime.slider, {
+                    label: "Target frame rate",
+                    icon: controlRuntime.icon("target"),
+                    iconLocation: "front",
+                    min: target.minimumFps,
+                    max: target.maximumFps,
+                    step: 1,
+                    value: targetEcho.value ?? target.fps,
+                    valueSuffix: " FPS",
+                    showValue: true,
+                    showBookendLabels: true,
+                    disabled: isBusy(state.progress),
+                    description: accentDescription(
+                        controlRuntime,
+                        target.accent,
+                        targetRefusal || target.statusText,
+                    ),
+                    onChange: targetEcho.onChange,
+                    onChangeComplete: (next) => targetEcho.onChangeComplete(next, commitTarget),
+                }),
+            );
+            return controlRuntime.react.createElement(
+                controlRuntime.react.Fragment,
+                null,
+                toggle,
+                slider,
+            );
         };
     const normalizePowerProfileState = (value) => {
         if (!value || typeof value.available !== "boolean" || !Array.isArray(value.options))

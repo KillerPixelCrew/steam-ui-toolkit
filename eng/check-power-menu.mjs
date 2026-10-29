@@ -1,6 +1,7 @@
 // Exercise the emitted power menu gate against an inert React fixture shaped like Steam's power
-// menu: a root with a label, onCancel and the Sleep and Shutdown entries, and a fragment section
-// that opens with Valve's separator and holds its plain items.
+// menu as the 2026-10-20 client draws it: a root with a label and no onCancel (the main menu's Power
+// entry passes none), Sleep as a plain item, the confirming Shutdown and Restart entries, and a
+// fragment section that opens with Valve's separator and holds its plain items.
 //
 // What this proves is what the shipped bytes do once they hold the JSX runtime: the entry appears
 // only while the host publishes it, only in the power menu, once, at the end in its own separated
@@ -81,12 +82,14 @@ const Empty = () => null;
 const powerMenu = () =>
   runtime.jsxs(Menu, {
     label: "Power",
-    onCancel() {},
+    onCancel: undefined,
     children: [
+      false,
       [],
       false,
-      runtime.jsx(Confirmed, { strDisplayNameLocToken: "#Quit_Sleep", onSelected() {} }),
+      runtime.jsx(Item, { onSelected() {}, children: "Sleep" }),
       runtime.jsx(Confirmed, { strDisplayNameLocToken: "#Quit_Shutdown", onSelected() {} }),
+      runtime.jsx(Confirmed, { strDisplayNameLocToken: "#Quit_Restart", onSelected() {} }),
       runtime.jsx(Empty, {}),
       runtime.jsxs(Fragment, {
         children: [
@@ -120,6 +123,16 @@ assert.equal(entry.props.tone, "destructive");
 entry.props.onSelected();
 await new Promise((resolve) => setImmediate(resolve));
 assert.deepEqual(requests.at(-1).slice(0, 3), ["steam-ui.power-menu", "switchToDesktop", {}]);
+
+// Valve's root renders an inner menu with the same props. It is not the learned type, so the entry
+// the root received is not appended a second time.
+const Inner = () => null;
+const inner = runtime.jsxs(Inner, { labelId: "id", ...tree.props, onCancel() {} });
+assert.equal(
+  inner.props.children.filter((child) => child?.key === "steam-ui-power-menu-desktop").length,
+  1,
+  "the inner menu keeps the root's single entry",
+);
 
 // Another menu with a label and onCancel but none of the power entries stays Steam's.
 const other = runtime.jsxs(Menu, {

@@ -26,9 +26,11 @@ public interface ISteamPowerMenuBackend
 ///     Valve draws the entry only under gamescope and answers it with SteamOS's session service,
 ///     which does nothing on Windows. The menu is a module-private observer, so the gate appends the
 ///     entry where the menu's root passes through the shared JSX interceptor, built from the item and
-///     separator types that menu rendered and labelled with Steam's own localized string. The module
-///     is proved by <c>#Quit_Shutdown</c>, which occurs once in the client, beside the entry's own
-///     token. Mapped against the installed client on 2026-09-28.
+///     separator types that menu rendered and labelled with Steam's own localized string. The root is
+///     recognised by its label and its Shutdown or Restart entry, not by <c>onCancel</c>: the main
+///     menu's Power entry and Steam's system request open the menu without one. The module is proved
+///     by <c>#Quit_Shutdown</c>, which occurs once in the client, beside the entry's own token. Mapped
+///     against the installed client on 2026-09-28 and rechecked offline against the 2026-10-20 client.
 /// </remarks>
 public static class SteamPowerMenuSurface
 {

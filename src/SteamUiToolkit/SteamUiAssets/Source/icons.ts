@@ -175,6 +175,18 @@ const SteamUiIconShapes: Readonly<Record<string, readonly SteamUiIconShape[]>> =
         ["rect", {x: 10, y: 8, width: 4, height: 13, rx: 1.2}],
         ["rect", {x: 17, y: 3, width: 4, height: 18, rx: 1.2}],
     ],
+    // An automatic controller's frame-rate target: a bullseye, because it is the rate aimed for rather
+    // than a cap the game is held under, which is the frame-rate bars' job.
+    target: [
+        [
+            "path",
+            {
+                d: "M12 1.8a10.2 10.2 0 1 0 0 20.4 10.2 10.2 0 0 0 0-20.4Zm0 2a8.2 8.2 0 1 1 0 16.4 8.2 8.2 0 0 1 0-16.4Zm0 3a5.2 5.2 0 1 0 0 10.4 5.2 5.2 0 0 0 0-10.4Zm0 2a3.2 3.2 0 1 1 0 6.4 3.2 3.2 0 0 1 0-6.4Z",
+                fillRule: "evenodd",
+            },
+        ],
+        ["circle", {cx: 12, cy: 12, r: 1.6}],
+    ],
     // Switching the frame cap off is the slider's own negation, so the glyph is the cap removed
     // rather than a second frame-rate shape.
     infinity: [

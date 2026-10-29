@@ -67,6 +67,11 @@ internal sealed class RecordingBackend :
         return Record($"auto {enabled}", cancellationToken);
     }
 
+    public Task<SteamUiCommandResult> SetAutoTdpTargetAsync(int fps, CancellationToken cancellationToken)
+    {
+        return Record($"auto target {fps}", cancellationToken);
+    }
+
     public Task<SteamUiCommandResult> SetDiscoveringAsync(bool discovering, CancellationToken cancellationToken)
     {
         return Record($"discover {discovering}", cancellationToken);

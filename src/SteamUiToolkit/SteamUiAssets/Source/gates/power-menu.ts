@@ -5,7 +5,16 @@
 
 function createPowerMenu() {
     const patchId = "steam-ui.power-menu";
-    const PowerTokens = new Set(["#Sleep", "#Quit_Sleep", "#Shutdown", "#Quit_Shutdown"]);
+    // The confirming entries carry their token as a prop. In the 2026-10-20 client Sleep is a plain
+    // item, so Shutdown and Restart identify the menu; the Sleep tokens stay for older clients.
+    const PowerTokens = new Set([
+        "#Sleep",
+        "#Quit_Sleep",
+        "#Shutdown",
+        "#Quit_Shutdown",
+        "#Restart",
+        "#Quit_Restart",
+    ]);
     const LabelToken = "#SwitchToDesktop";
     const EntryKey = "steam-ui-power-menu-desktop";
     const MaximumDepth = 4;
@@ -97,7 +106,11 @@ function createPowerMenu() {
         const children = props?.children;
         if (!Array.isArray(children)) return undefined;
         if (menuType === null) {
-            if (typeof props.onCancel !== "function" || typeof props.label !== "string") return undefined;
+            // The root is recognised by its label and power entries alone. Its onCancel is whatever
+            // opened the menu passed, and Steam's main menu Power entry and its system request pass
+            // none; only the controller power chord does. The root is created before the inner menu
+            // it renders with the same props, so the first match is the root.
+            if (typeof props.label !== "string") return undefined;
             if (!learn(type, children)) return undefined;
         } else if (!children.some(isPowerEntry)) {
             // Valve's menu component draws other menus too.

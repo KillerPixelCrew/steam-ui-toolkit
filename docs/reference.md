@@ -929,7 +929,7 @@ for fixtures and diagnostics.
 | `SteamVariableRefreshRow`     | VRR switch                                                | row on Valve's toggle                                                                              | `SteamVariableRefreshState`  | VRR on/off                                                                                 |
 | `SteamResolutionRow`          | resolution dropdown (Quick Settings)                      | row on Valve's dropdown                                                                            | `SteamResolutionState`       | apply a mode                                                                               |
 | `SteamAudioFormatRow`         | channel/default-format and spatial sound (Quick Settings) | rows on Valve's dropdown                                                                           | `SteamAudioFormatState`      | apply a format or spatial sound choice                                                     |
-| `SteamAutoTdpRow`             | automatic power-limit switch                              | row on Valve's toggle                                                                              | `SteamAutoTdpState`          | setting on/off                                                                             |
+| `SteamAutoTdpRow`             | automatic power-limit switch and its frame-rate target    | row on Valve's toggle; target slider on Valve's slider while on                                    | `SteamAutoTdpState`          | setting on/off; set the target                                                             |
 | `SteamControllerTargetRow`    | controller-target dropdown                                | row on Valve's dropdown                                                                            | `SteamControllerTargetState` | choose a target                                                                            |
 | `SteamDeviceControlsRow`      | charge, lighting and host descriptor controls             | native sliders, dropdowns and shared settings rows                                                 | `SteamDeviceControlsState`   | charge/brightness/color writes and `setControl`                                            |
 | `SteamNavigationPanelSurface` | left slideout navigation panel                            | claims the exported memo's `type`, reaches the panel root by rendering                             | `SteamNavigationPanelState`  | activate an added entry                                                                    |
@@ -1929,8 +1929,9 @@ interceptor and the class's render claim.
 `SteamPowerMenuSurface` publishes `SteamPowerMenuState` under `steam-ui.power-menu` and revives
 Steam's own Switch to Desktop in the Big Picture power menu. Valve draws that entry only under
 gamescope and answers it with SteamOS's session service, which does nothing on Windows. The gate
-shares `steam-ui.jsx-runtime` and recognizes the menu root, a module-private observer, by its Sleep
-or Shutdown child as the root passes through the element interceptor; `#Quit_Shutdown` occurs once
+shares `steam-ui.jsx-runtime` and recognizes the menu root, a module-private observer, by its label
+and its Shutdown or Restart child as the root passes through the element interceptor, without
+requiring `onCancel`, which only the controller power chord supplies; `#Quit_Shutdown` occurs once
 in the client. While `Visible` is true it appends one section at the end, where Valve places the
 entry: Valve's separator and a destructive item of the plain type the menu rendered, labelled with
 Steam's localized `#SwitchToDesktop`. Selecting it sends `switchToDesktop` to
