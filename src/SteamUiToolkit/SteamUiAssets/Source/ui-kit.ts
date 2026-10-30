@@ -88,6 +88,9 @@ const SteamUiKitStyles = `
 .steam-ui-kit-highlight{color:#fca904}
 /* A native Settings page with host sections: the wrapper is the page's scrolling DialogBody, so Steam's own body inside it keeps its full height. */
 .steam-ui-kit-settings-body>.DialogBody{flex:none!important;overflow:visible!important;padding-inline-end:0!important;padding-bottom:0!important}
+.steam-ui-kit-meter{height:6px;min-width:0;border-radius:3px;background:rgba(255,255,255,.12);overflow:hidden}
+.steam-ui-kit-meter>div{height:100%;background:var(--gpSystemBlue,#1a9fff)}
+.steam-ui-kit-meter.indeterminate>div{width:100%;opacity:.45}
 .steam-ui-kit-swatch{width:20px;height:20px;border-radius:3px;border:1px solid rgba(255,255,255,.3);flex:0 0 auto}
 .steam-ui-kit-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px}
 .steam-ui-kit-card{display:flex;flex-direction:column;border-radius:4px;overflow:hidden;background:#ACB2C924;outline:2px solid transparent;transition:outline-color 150ms,background 150ms}
@@ -614,6 +617,39 @@ const renderSteamUiSwatch = (react, color: string, label?: string) =>
         role: label ? "img" : undefined,
         "aria-label": label || undefined,
     });
+
+/**
+ * Creates a thin fill meter for an operation's progress or a capacity's use.
+ * @param react Steam's React instance used by the consuming root.
+ * @param props The amount and its whole, where a whole of zero or less draws the indeterminate
+ * track; `usage` marks a capacity reading rather than progress; `label` gives the meter an
+ * accessible name, and without one it is decorative because adjacent text states the amount.
+ * @returns The meter element; the fill is the rounded share, clamped to 0-100%.
+ */
+const renderSteamUiMeter = (
+    react,
+    props: { key?: string; value: number; max: number; usage?: boolean; label?: string },
+) => {
+    const known = props.max > 0;
+    const named = !!props.label;
+    const percent = known
+        ? Math.min(100, Math.max(0, Math.round((props.value / props.max) * 100)))
+        : 0;
+    return react.createElement(
+        "div",
+        {
+            key: props.key,
+            className: `steam-ui-kit-meter${known ? "" : " indeterminate"}`,
+            role: named ? (props.usage ? "meter" : "progressbar") : undefined,
+            "aria-label": named ? props.label : undefined,
+            "aria-valuemin": named && known ? 0 : undefined,
+            "aria-valuemax": named && known ? 100 : undefined,
+            "aria-valuenow": named && known ? percent : undefined,
+            "aria-hidden": named ? undefined : "true",
+        },
+        react.createElement("div", { style: known ? { width: `${percent}%` } : undefined }),
+    );
+};
 
 /**
  * Creates one activatable gallery card using Steam controller focus.

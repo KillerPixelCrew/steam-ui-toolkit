@@ -54,7 +54,7 @@ const kit = instantiate(
     { window: {} },
     helperFragments(asset),
     "({steamUiKitStyle, renderSteamUiHeader, renderSteamUiGroup, renderSteamUiActions, renderSteamUiMore, renderSteamUiPane, renderSteamUiLevel," +
-        " renderSteamUiSwatch, renderSteamUiCard, renderSteamUiGrid, renderSteamUiEmpty, renderSteamUiBanner," +
+        " renderSteamUiSwatch, renderSteamUiMeter, renderSteamUiCard, renderSteamUiGrid, renderSteamUiEmpty, renderSteamUiBanner," +
         " renderSteamUiToolbar, renderSteamUiTool, renderSteamUiChips, renderSteamUiBox, renderSteamUiGallery, renderSteamUiVideo," +
         " renderSteamUiTabbedPage, renderSteamUiDetail, SteamUiTabbedPageRequired," +
         " renderSteamUiChoice, renderSteamUiSelectRow, showSteamUiConfirm, showSteamUiPrompt, showSteamModal, SteamUiKitStyles})",
@@ -77,6 +77,7 @@ for (const cls of [
     "actions",
     "nested",
     "swatch",
+    "meter",
     "settings-body",
     "card",
     "grid",
@@ -361,6 +362,32 @@ assert.equal(kit.renderSteamUiSwatch(react, "#ff0000").props.role, undefined);
 assert.equal(
     kit.renderSteamUiSwatch(react, "#ff0000", "Zone: #ff0000").props["aria-label"],
     "Zone: #ff0000",
+);
+
+// A meter fills to its rounded, clamped share; a missing whole draws the indeterminate track, and
+// only a labelled meter is announced, as progress or, for a capacity reading, as a meter.
+const meterFill = (meter) => meter.props.children[0].props.style?.width;
+const halfway = kit.renderSteamUiMeter(react, { value: 1, max: 3 });
+assert.equal(halfway.props.className, "steam-ui-kit-meter");
+assert.equal(meterFill(halfway), "33%");
+assert.equal(halfway.props.role, undefined);
+assert.equal(halfway.props["aria-hidden"], "true");
+assert.equal(meterFill(kit.renderSteamUiMeter(react, { value: 5, max: 4 })), "100%");
+assert.equal(meterFill(kit.renderSteamUiMeter(react, { value: -1, max: 4 })), "0%");
+const unsized = kit.renderSteamUiMeter(react, { value: 10, max: 0, label: "Download" });
+assert.equal(unsized.props.className, "steam-ui-kit-meter indeterminate");
+assert.equal(meterFill(unsized), undefined);
+assert.equal(unsized.props.role, "progressbar");
+assert.equal(unsized.props["aria-valuenow"], undefined);
+const used = kit.renderSteamUiMeter(react, { value: 3, max: 4, usage: true, label: "Space used" });
+assert.equal(used.props.role, "meter");
+assert.equal(used.props["aria-label"], "Space used");
+assert.equal(used.props["aria-valuenow"], 75);
+assert.equal(used.props["aria-hidden"], undefined);
+assert.match(
+    kit.SteamUiKitStyles,
+    /\.steam-ui-kit-meter\.indeterminate>div\{width:100%;/u,
+    "an indeterminate meter fills its whole track",
 );
 // The stylesheet element is one per React, so a re-rendering root hands React the same one.
 assert.equal(kit.steamUiKitStyle(react), style);
