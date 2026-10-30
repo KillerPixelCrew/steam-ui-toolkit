@@ -198,6 +198,24 @@ internal sealed class RecordingBackend :
         return Record("scan off", cancellationToken);
     }
 
+    Task<SteamUiCommandResult> ISteamNetworkBackend.ConnectAsync(
+        string ssid,
+        string? password,
+        CancellationToken cancellationToken)
+    {
+        return Record($"wifi join {ssid} {(password is null ? "open" : "keyed")}", cancellationToken);
+    }
+
+    Task<SteamUiCommandResult> ISteamNetworkBackend.DisconnectAsync(CancellationToken cancellationToken)
+    {
+        return Record("wifi leave", cancellationToken);
+    }
+
+    Task<SteamUiCommandResult> ISteamNetworkBackend.ForgetAsync(string ssid, CancellationToken cancellationToken)
+    {
+        return Record($"wifi forget {ssid}", cancellationToken);
+    }
+
     public Task<SteamUiCommandResult> ApplyAsync(SteamPerformanceDelta delta, string correlationId,
         CancellationToken cancellationToken)
     {

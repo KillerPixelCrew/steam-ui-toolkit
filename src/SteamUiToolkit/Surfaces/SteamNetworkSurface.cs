@@ -20,15 +20,32 @@ public sealed record SteamNetworkAccessPoint(
     bool Secured,
     bool Connected);
 
+/// <summary>The latest join the host accepted from Steam's page, and how it ended.</summary>
+/// <param name="Attempt">The attempt number the <c>connect</c> answer carried.</param>
+/// <param name="Ssid">The network being joined.</param>
+/// <param name="Pending">Whether the join is still running.</param>
+/// <param name="Joined">Whether it joined; meaningful once <paramref name="Pending" /> is false.</param>
+/// <param name="Error">Why it did not join, when it did not.</param>
+public sealed record SteamNetworkJoin(
+    long Attempt,
+    string Ssid,
+    bool Pending,
+    bool Joined,
+    string? Error);
+
 /// <summary>The networks Steam's Internet page lists and the header indicator reads.</summary>
 /// <param name="Networks">The networks to list, in order.</param>
-public sealed record SteamNetworkState(IReadOnlyList<SteamNetworkAccessPoint> Networks);
+/// <param name="Join">The latest join, or null before the page has asked for one.</param>
+public sealed record SteamNetworkState(
+    IReadOnlyList<SteamNetworkAccessPoint> Networks,
+    SteamNetworkJoin? Join = null);
 
-/// <summary>What answers Steam's Internet page: the scan lifetime.</summary>
+/// <summary>What answers Steam's Internet page: the scan lifetime, joining, leaving and forgetting.</summary>
 /// <remarks>
 ///     Steam's page starts and stops scanning as it opens and closes, and the gate forwards exactly
-///     that. Joining, forgetting and the radio toggle are not on this surface: Steam's Windows client
-///     keeps its own wireless device and drives those itself.
+///     that. The networks it lists are the host's, under access point ids Steam's Windows backend has
+///     never seen, so the gate answers the page's join, disconnect and forget for them through this
+///     backend as well. The radio toggle stays with Steam.
 /// </remarks>
 public interface ISteamNetworkBackend
 {
@@ -41,6 +58,27 @@ public interface ISteamNetworkBackend
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The outcome.</returns>
     Task<SteamUiCommandResult> StopScanAsync(CancellationToken cancellationToken);
+
+    /// <summary>Starts joining a listed network.</summary>
+    /// <param name="ssid">The network the page picked.</param>
+    /// <param name="password">The password the page collected, or null when it collected none.</param>
+    /// <param name="cancellationToken">Cancels the request, not the join it started.</param>
+    /// <returns>
+    ///     <see cref="SteamNetworkSurface.JoinAccepted" /> once the join is running. A join outlasts one
+    ///     request, so its outcome is published as <see cref="SteamNetworkState.Join" />.
+    /// </returns>
+    Task<SteamUiCommandResult> ConnectAsync(string ssid, string? password, CancellationToken cancellationToken);
+
+    /// <summary>Leaves the connected network.</summary>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The outcome.</returns>
+    Task<SteamUiCommandResult> DisconnectAsync(CancellationToken cancellationToken);
+
+    /// <summary>Forgets a listed network's saved credentials.</summary>
+    /// <param name="ssid">The network to forget.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The outcome.</returns>
+    Task<SteamUiCommandResult> ForgetAsync(string ssid, CancellationToken cancellationToken);
 }
 
 /// <summary>Steam's own Wi-Fi surface — the Internet page and the header indicator — revealed and fed.</summary>
@@ -57,7 +95,8 @@ public static class SteamNetworkSurface
     public const string PatchId = "steam-ui.network";
 
     /// <summary>The exact command vocabulary the injected gate sends.</summary>
-    public static IReadOnlyList<string> Commands { get; } = ["startScan", "stopScan"];
+    public static IReadOnlyList<string> Commands { get; } =
+        ["startScan", "stopScan", "connect", "disconnect", "forget"];
 
     /// <summary>The gate that reveals Steam's Wi-Fi surface by overriding one Deck-only store getter.</summary>
     /// <remarks>
@@ -94,6 +133,23 @@ public static class SteamNetworkSurface
         "!status.available",
         "Network gate");
 
+    /// <summary>The answer to <c>connect</c>: the join is running under this attempt number.</summary>
+    /// <param name="attempt">The number the published <see cref="SteamNetworkJoin" /> will carry.</param>
+    /// <returns>An applied result carrying <c>{ attempt }</c>.</returns>
+    public static SteamUiCommandResult JoinAccepted(long attempt)
+    {
+        var buffer = new System.Buffers.ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("attempt", attempt);
+            writer.WriteEndObject();
+        }
+
+        using var document = JsonDocument.Parse(buffer.WrittenMemory);
+        return new SteamUiCommandResult(true, null, document.RootElement.Clone());
+    }
+
     /// <summary>Maps a signal percentage onto the four strength bands Steam draws as arcs.</summary>
     /// <param name="signalPercent">Signal quality, 0-100.</param>
     /// <returns>1 to 4 filled arcs.</returns>
@@ -123,7 +179,7 @@ public static class SteamNetworkSurface
     ///     others.
     /// </param>
     /// <param name="read">The current state, or null to publish nothing this round.</param>
-    /// <param name="backend">What answers the page's scan requests.</param>
+    /// <param name="backend">What answers the page's scan, join, disconnect and forget requests.</param>
     /// <param name="id">The module id, for diagnostics and duplicate detection.</param>
     /// <returns>The module to register.</returns>
     public static ISteamUiModule Module(
@@ -142,7 +198,33 @@ public static class SteamNetworkSurface
             [Patch],
             [
                 SteamUiModuleBuilder.Command(PatchId, "startScan", backend.StartScanAsync),
-                SteamUiModuleBuilder.Command(PatchId, "stopScan", backend.StopScanAsync)
+                SteamUiModuleBuilder.Command(PatchId, "stopScan", backend.StopScanAsync),
+                SteamUiModuleBuilder.Command<(string Ssid, string? Password)>(
+                    PatchId,
+                    "connect",
+                    TryReadJoin,
+                    (join, cancellationToken) => backend.ConnectAsync(join.Ssid, join.Password, cancellationToken),
+                    "The network join payload is invalid."),
+                SteamUiModuleBuilder.Command(PatchId, "disconnect", backend.DisconnectAsync),
+                SteamUiModuleBuilder.Command<string>(
+                    PatchId,
+                    "forget",
+                    static (payload, out ssid) =>
+                        SteamUiPayload.TryReadNonBlankString(payload, "ssid", out ssid)
+                        && SteamUiPayload.HasExactly(payload, 1),
+                    backend.ForgetAsync,
+                    "The network forget payload is invalid.")
             ]);
+    }
+
+    /// <summary>Reads a join: the network, and the password or null when the page collected none.</summary>
+    private static bool TryReadJoin(JsonElement payload, out (string Ssid, string? Password) join)
+    {
+        string? password = null;
+        var read = SteamUiPayload.TryReadNonBlankString(payload, "ssid", out var ssid)
+                   && SteamUiPayload.TryReadNullableString(payload, "password", out password)
+                   && SteamUiPayload.HasExactly(payload, 2);
+        join = (ssid, password);
+        return read;
     }
 }
