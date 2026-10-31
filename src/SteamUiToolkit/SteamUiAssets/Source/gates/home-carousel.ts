@@ -1,6 +1,6 @@
 /**
- * Replaces only the matched home-carousel collection using shared memo ownership.
- * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ * Replaces only the matched home-carousel collection by claiming Home's memo.
+ * @returns The defineGate gate; remove must release it before its bridge is replaced.
  */
 
 function createHomeCarousel() {
@@ -24,13 +24,9 @@ function createHomeCarousel() {
     const MaximumNodesVisited = 250000;
     const ContainerClass = "steam-ui-home-carousel";
 
-    let runtime;
     let react;
     let home: any = null;
     let useObserver: any = null;
-    let installed = false;
-    let lastError = "";
-    let unsubscribe: (() => void) | null = null;
 
     // The host's instruction, replaced whole on each publication.
     let policy = {includeUninstalled: false, disconnected: new Set<number>()};
@@ -38,8 +34,7 @@ function createHomeCarousel() {
 
     let lastOutcome = "never rendered";
     let lastReport = "";
-    // The Homes on screen at install, kept so status counts them without walking the tree.
-    const mounted = createMountedAdoption(MaximumNodesVisited);
+    let lastSearch = { roots: 0, visited: 0, homeRoutes: 0, page: "", mounted: 0 };
     let cached: {
         key: unknown[];
         list: number[];
@@ -317,9 +312,9 @@ function createHomeCarousel() {
             react.useSyncExternalStore(local.subscribe, local.revision);
             const inputs = tracked ? tracked(readInputs, "SteamUiHomeCarousel") : readInputs();
             const tree = inner(props);
-            const output = installed ? retarget(tree, inputs) : tree;
+            const output = gate.installed() ? retarget(tree, inputs) : tree;
             // Reported after the render rather than from it; `report` drops a repeat of the same counts.
-            const counts = installed ? cached?.counts : null;
+            const counts = gate.installed() ? cached?.counts : null;
             react.useEffect(() => {
                 if (counts) report(counts);
             }, [counts]);
@@ -350,14 +345,12 @@ function createHomeCarousel() {
     // Home from the router's route list. The list is found by content — the array holding a route for
     // /library/home — and the page element under that route names the Home memo. Bounded and
     // read-only; the memo is one object whichever window renders it, so claiming it reaches them all.
-    // Until Big Picture has built its tree there is no route list to find, and the patch manager
-    // probes again. What the walk saw is kept for `status` and the refusal, so a miss on a new
-    // client says which assumption failed without anyone attaching to Steam.
-    let lastSearch = {roots: 0, visited: 0, homeRoutes: 0, page: ""};
-    const findHome = () => {
+    // What the walk saw is answered with it, so a miss on a new client says which assumption failed
+    // without anyone attaching to Steam.
+    const findHome = (react) => {
         let found = null;
         const roots = reactRootFibers();
-        const search = {roots: roots.length, visited: 0, homeRoutes: 0, page: ""};
+        const search = { roots: roots.length, visited: 0, homeRoutes: 0, page: "", mounted: 0 };
         const walk = walkFibers(roots, MaximumNodesVisited, (node) => {
             // A Fragment's fiber holds its children array as the props themselves.
             const props = node.memoizedProps;
@@ -374,136 +367,120 @@ function createHomeCarousel() {
             return !!found;
         });
         search.visited = walk.visited;
-        lastSearch = search;
-        return found;
+        // Homes already on screen: Big Picture starts on Home, and install adopts each of them.
+        if (found) {
+            walkFibers(roots, MaximumNodesVisited, (node) => {
+                if (node.elementType === found) search.mounted++;
+            });
+        }
+        return { home: found, search };
     };
 
-    const resolve = () => {
-        runtime = getWebpackRuntime("home-carousel");
-        const resolvedReact = resolveReact(runtime);
-        if (!resolvedReact) {
-            lastError = "React runtime was not a unique match";
-            return false;
-        }
-        react = resolvedReact;
+    // Pure: everything the claim needs, or which fact is missing. A Home that is not mounted is Big
+    // Picture closed or still building its tree, which is not ready; a client without the module, the
+    // stores or a claimable Home is incompatible.
+    const find = (runtime) => {
+        const react = resolveReact(runtime);
+        if (!react) return gateIncompatible("React runtime was not a unique match");
         if (
             typeof react.useSyncExternalStore !== "function" ||
             typeof react.useEffect !== "function" ||
             typeof react.memo !== "function"
         ) {
-            lastError = "React runtime lacks useSyncExternalStore, useEffect or memo";
-            return false;
+            return gateIncompatible("React runtime lacks useSyncExternalStore, useEffect or memo");
         }
-
         if (!runtime.findUnique(["HomeTabsActive", CarouselTokens[0]])) {
-            lastError = "Home module was not a unique match";
-            return false;
+            return gateIncompatible("Home module was not a unique match", { homeModule: 0 });
         }
-        if (
-            typeof collectionStore()?.GetCollection !== "function" ||
-            typeof appStore()?.GetAppOverviewByAppID !== "function"
-        ) {
-            lastError = "collection or app store is unavailable";
-            return false;
-        }
-
         // Wanted, not required: without it the carousel still follows the host and Steam's own list,
         // and an install elsewhere shows on its next render. `status.tracking` says which.
-        useObserver = findUseObserver(runtime);
-
-        home = findHome();
+        const tracking = findUseObserver(runtime);
+        const stores =
+            typeof collectionStore()?.GetCollection === "function" &&
+            typeof appStore()?.GetAppOverviewByAppID === "function";
+        const { home, search } = findHome(react);
+        const facts = { homeModule: 1, homeFound: home ? 1 : 0, stores, observer: tracking ? 1 : 0, ...search };
+        if (!stores) return gateNotReady("collection or app store is unavailable", facts);
         if (!home) {
-            lastError =
-                `Home was not found in the router's route list (roots=${lastSearch.roots} ` +
-                `visited=${lastSearch.visited} homeRoutes=${lastSearch.homeRoutes} page=${lastSearch.page || "-"})`;
-            return false;
+            const where =
+                `roots=${search.roots} visited=${search.visited} homeRoutes=${search.homeRoutes} ` +
+                `page=${search.page || "-"}`;
+            return search.homeRoutes === 0
+                ? gateNotReady(`the router is not mounted (${where})`, facts)
+                : gateIncompatible(`the /library/home route does not draw Home (${where})`, facts);
         }
-        return true;
+        const descriptor = Object.getOwnPropertyDescriptor(home, "type");
+        if (
+            !memberClaimed(home, "type", claimKeys) &&
+            !(descriptor?.writable === true && descriptor.configurable === true)
+        ) {
+            return gateIncompatible("Home's type is not writable and configurable", facts);
+        }
+        return gateReady({ react, home, useObserver: tracking, search }, facts);
     };
 
-    const install = () => {
-        if (installed) return {ok: true, alreadyInstalled: true};
-        const resolved = attemptResolution(resolve, (error) => {
-            lastError = "home carousel resolution failed: " + String(error);
-        });
-        if (!resolved) return {ok: false, error: lastError};
-
-        // Home renders through this memo wherever the router draws it. The wrapper adds no hooks, so
-        // a Home already on screen can be adopted into it without remounting.
-        const claim = claimMember(home, "type", claimKeys, (original: any) => {
-            if (typeof original !== "function") return original;
-            return function SteamUiHome(props) {
-                const tree = original(props);
-                return installed ? decorate(tree, 0) : tree;
-            };
-        });
-        if (!claim.ok) {
-            lastError = claim.error;
-            return {ok: false, error: lastError};
-        }
-
-        installed = true;
-        lastError = "";
-        const {adopted} = mounted.adopt(home, home.type);
-        unsubscribe = subscribe(patchId, (published) => {
-            const ids = Array.isArray(published?.disconnectedAppIds) ? published.disconnectedAppIds : [];
-            const disconnected = new Set<number>();
-            for (const appid of ids) {
-                if (Number.isInteger(appid) && appid > 0) disconnected.add(appid);
-            }
-            policy = {
-                includeUninstalled: published?.includeUninstalled === true,
-                disconnected,
-            };
-            local.changed();
-        });
-        return {ok: true, installed: true, reclaimed: claim.reclaimed, adopted};
-    };
-
-    const remove = () => {
-        if (!installed) return {ok: true, absent: true};
-        // Released before anything is forgotten, so a failed release stays installed and the next
-        // remove retries it.
-        const wrapper = home?.type;
-        const released = releaseMember(home, "type", claimKeys);
-        if (!released.ok) {
-            lastError = released.error ?? "home carousel release failed";
-            return {ok: false, error: lastError};
-        }
-        installed = false;
-        unsubscribe = endSubscription(unsubscribe);
+    let component: ClaimedComponent | null = null;
+    const gate = defineGate({
+        name: "home-carousel",
+        find,
+        bind: (handles, ledger) => {
+            react = handles.react;
+            home = handles.home;
+            useObserver = handles.useObserver;
+            lastSearch = handles.search;
+            // Home renders through this memo wherever the router draws it. The wrapper adds no hooks,
+            // so a Home already on screen is adopted into it without remounting.
+            const claimed = ledger.component({
+                host: home,
+                keys: claimKeys,
+                bound: MaximumNodesVisited,
+                wrap: (original) =>
+                    function SteamUiHome(props) {
+                        const tree = original(props);
+                        return gate.installed() ? decorate(tree, 0) : tree;
+                    },
+            });
+            if (!claimed.ok) return claimed.error;
+            component = claimed;
+            ledger.subscribe(patchId, (published) => {
+                const ids = Array.isArray(published?.disconnectedAppIds) ? published.disconnectedAppIds : [];
+                const disconnected = new Set<number>();
+                for (const appid of ids) {
+                    if (Number.isInteger(appid) && appid > 0) disconnected.add(appid);
+                }
+                policy = {
+                    includeUninstalled: published?.includeUninstalled === true,
+                    disconnected,
+                };
+                local.changed();
+            });
+            return { adopted: claimed.status().adopted };
+        },
         // A carousel on screen re-renders and hands back Steam's own list and overscan.
-        policy = {includeUninstalled: false, disconnected: new Set<number>()};
-        local.changed();
-        cached = null;
-        lastReport = "";
-        carouselCache.clear();
-        recentGamesCache.clear();
-        // Adopted Homes draw the original again on their next render; the memo already does.
-        releaseMountedType(reactRootFibers(), home, wrapper, home.type, MaximumNodesVisited);
-        mounted.release(home.type);
-        lastOutcome = "removed";
-        return {ok: true, removed: true};
-    };
-
-    const status = () => ({
-        ok: true,
-        installed,
-        resolved: !!home,
-        claimed: memberClaimed(home, "type", claimKeys),
-        tracking: !!useObserver,
-        includeUninstalled: policy.includeUninstalled,
-        disconnected: policy.disconnected.size,
-        counts: cached?.counts ?? null,
-        search: lastSearch,
-        // Homes on screen at install, and how many of them still draw something other than the
-        // claim: an adoption whose render is pending, or a type React reset underneath us.
-        mounted: mounted.status(),
-        lastOutcome,
-        lastError,
+        unbind: () => {
+            component = null;
+            policy = { includeUninstalled: false, disconnected: new Set<number>() };
+            local.changed();
+            cached = null;
+            lastReport = "";
+            carouselCache.clear();
+            recentGamesCache.clear();
+            lastOutcome = "removed";
+        },
+        status: () => ({
+            claimed: memberClaimed(home, "type", claimKeys),
+            tracking: !!useObserver,
+            includeUninstalled: policy.includeUninstalled,
+            disconnected: policy.disconnected.size,
+            counts: cached?.counts ?? null,
+            search: lastSearch,
+            // Homes on screen at install, and how many of them still draw something other than the
+            // claim: an adoption whose render is pending, or a type React reset underneath us.
+            mounted: component?.status() ?? { adopted: 0, scheduled: false, stale: 0 },
+            lastOutcome,
+        }),
     });
-
-    return {install, remove, status};
+    return gate;
 }
 
 registerGate("homeCarousel", createHomeCarousel());

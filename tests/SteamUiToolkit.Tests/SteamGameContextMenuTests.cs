@@ -1,61 +1,14 @@
-using System.Text.Json;
 using static SteamUiToolkit.Tests.Fakes.SurfaceDispatch;
 
 namespace SteamUiToolkit.Tests;
 
-/// <summary>The typed per-game context menu command route and its library-menu fingerprint.</summary>
+/// <summary>The typed per-game context menu command route.</summary>
+/// <remarks>
+///     What the probe requires, React and the JSX runtime without any private factory placement, is the
+///     gate's own find, exercised against the emitted asset by <c>eng/check-extension-surfaces.mjs</c>.
+/// </remarks>
 public sealed class SteamGameContextMenuTests
 {
-    private static SteamGatePatch Gate => (SteamGatePatch)SteamGameContextMenuSurface.Patch;
-
-    [Fact]
-    public void ProbeRequiresReactAndJsxForObservationWithoutRequiringPrivateFactoryPlacement()
-    {
-        var probe = Gate.ProbeExpression;
-
-        Assert.Contains("GetTargetApps", probe, StringComparison.Ordinal);
-        Assert.Contains("BuildManageSubmenu", probe, StringComparison.Ordinal);
-        Assert.Contains("GetPrimaryActionMenuItem", probe, StringComparison.Ordinal);
-        Assert.Contains(".jsx", probe, StringComparison.Ordinal);
-        Assert.Contains(".jsxs", probe, StringComparison.Ordinal);
-
-        using var compatible = JsonDocument.Parse(
-            """{"menuModule":1,"react":1,"jsx":1}""");
-        using var relocated = JsonDocument.Parse(
-            """{"menuModule":0,"react":1,"jsx":1}""");
-        using var split = JsonDocument.Parse(
-            """{"menuModule":2,"react":1,"jsx":1}""");
-
-        Assert.True(Gate.Compatible(compatible.RootElement));
-        Assert.True(Gate.Compatible(relocated.RootElement));
-        Assert.True(Gate.Compatible(split.RootElement));
-        Assert.Contains("menuModule:count", probe, StringComparison.Ordinal);
-        Assert.Contains("!status.ambiguous", Gate.VerifyOk, StringComparison.Ordinal);
-        Assert.Contains("!status.nativeRefused", Gate.VerifyOk, StringComparison.Ordinal);
-        Assert.Contains("status.observing", Gate.VerifyOk, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("""{"menuModule":1,"react":1}""")]
-    [InlineData("""{"menuModule":1,"react":1,"jsx":0}""")]
-    [InlineData("""{"menuModule":1,"react":1,"jsx":2}""")]
-    public void ProbeRefusesMissingOrAmbiguousJsxRuntime(string json)
-    {
-        using var probe = JsonDocument.Parse(json);
-
-        Assert.False(Gate.Compatible(probe.RootElement));
-    }
-
-    [Theory]
-    [InlineData("""{"react":0,"jsx":1}""")]
-    [InlineData("""{"react":2,"jsx":1}""")]
-    public void ProbeStillRefusesMissingOrAmbiguousReact(string json)
-    {
-        using var probe = JsonDocument.Parse(json);
-
-        Assert.False(Gate.Compatible(probe.RootElement));
-    }
-
     [Fact]
     public void ItemsReachTheWire()
     {

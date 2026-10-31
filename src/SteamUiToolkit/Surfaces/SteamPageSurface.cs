@@ -53,6 +53,8 @@ public sealed record SteamPageState(IReadOnlyList<SteamPage> Pages, long Revisio
 ///         The probe still reports the module carrying <c>router-backstack</c>, for diagnostics only: the
 ///         gate does not use it, and it is not a condition of installing. A gate that refuses a client
 ///         because one lookup drifted takes every page down with it, which is exactly what happened.
+///         Removal hands back every router and switch drawing the claims, including ones mounted after
+///         install.
 ///     </para>
 ///     <para>
 ///         Mapped against the live client on 2026-09-10: the switch carries 31 route children, its selection
@@ -70,86 +72,21 @@ public static class SteamPageSurface
     public static IReadOnlyList<string> Commands { get; } = [];
 
     /// <summary>The gate that claims Steam's router and inserts the registered pages.</summary>
+    /// <remarks>
+    ///     The probe is the gate's own find. It requires only what the gate cannot work without: the
+    ///     unique router module, the route switch, React, and a router memo whose <c>type</c> it can put
+    ///     back or already holds. A router module with no router or switch mounted is a window still
+    ///     loading or Big Picture closed, which is not ready. The back-stack module and its Route are
+    ///     reported among the facts and deliberately not required: requiring them is what declared an
+    ///     otherwise healthy client incompatible on 2026-09-24 and took every custom page with it. The
+    ///     Route is borrowed from Steam's first render through the claimed switch, which need not have
+    ///     happened when verification runs, so holding the claims is what verify proves; whether a page
+    ///     was built, and with which Route, is reported in the gate's status.
+    /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
         "pages",
         "steam-pages-v2:unique-router-module+claimable-memo+route-switch",
-        $$"""
-          {{SteamUiProbeJs.Preamble("steam_ui_pages_probe_")}}
-            const router=req.findUnique(['Settings.Root()','TopLevelTransition']);
-            if(!router)return JSON.stringify({routerModule:0,backstackModule:0,steamRoute:0});
-            // Steam's own back-stack Route, the one that gives a page native back navigation.
-            // Reported, not required: the gate builds with the Route it borrows from the route list
-            // Steam is rendering, and only falls back to this export when that list cannot be read
-            // from. Counted by value rather than by export name, the way the gate's resolver counts
-            // it, so a module re-exporting the Route under a second name is one match, not ambiguity.
-            const backstack=req.findUnique(['router-backstack']);
-            const markers={{SteamUiProbeJs.BackstackRouteMarkers}};
-            const routes=new Set();
-            if(backstack){
-              const backstackExports=req(backstack[0]);
-              for(const name of Object.keys(backstackExports)){
-                try{
-                  const value=backstackExports[name];
-                  if(typeof value==='function'&&markers.every(marker=>String(value).includes(marker)))
-                    routes.add(value);
-                }catch{
-                  // An export whose getter throws is not the Route.
-                }
-              }
-            }
-            // The router memo is NOT an export: it is built locally inside that module, so the
-            // handle comes from SharedJSContext's own React root, which is the tree every Steam
-            // window renders from. Read-only walk, bounded, matching on component source. It is
-            // breadth-first over an explicit queue, like the Home carousel probe, because recursing
-            // down a long sibling chain can exhaust the stack before the bound is reached.
-            // Through the gate's own claim, or the router disappears the moment the gate holds it.
-            {{SteamUiProbeJs.Unwrap("PageHost")}}
-            const host=document.getElementById('root');
-            const key=host?Object.keys(host).find(n=>n.startsWith('__reactContainer$')):null;
-            let memo=null,visited=0;
-            const queue=key?[host[key]]:[];
-            for(let head=0;head<queue.length&&!memo&&visited<=60000;head++){
-              const node=queue[head];
-              if(!node)continue;
-              visited++;
-              const resolved=unwrap(node.type);
-              if(typeof resolved==='function'&&String(resolved).includes('Settings.Root()')
-                &&node.elementType&&typeof node.elementType==='object'
-                &&node.elementType.type===node.type){memo=node.elementType;break;}
-              queue.push(node.child,node.sibling);
-            }
-            const descriptor=memo?Object.getOwnPropertyDescriptor(memo,'type'):null;
-            return JSON.stringify({
-              routerModule:1,
-              backstackModule:backstack?1:0,
-              steamRoute:routes.size,
-              routerFound:memo?1:0,
-              // The router's module is there and its memo is not mounted yet: a window still loading.
-              notReady:!memo&&host&&key?1:0,
-              claimable:{{SteamUiProbeJs.Replaceable("descriptor")}},
-              claimed:{{SteamUiProbeJs.Claimed("memo?.type", "PageHost")}},
-              // The switch itself, matched the way the gate matches the list it renders.
-              routeSwitch:count(['computedMatch','TopLevelTransition']),
-              react:count({{SteamUiProbeJs.ReactTokens}})
-            });
-          {{SteamUiProbeJs.Close}}
-          """,
-        // Only what the gate cannot work without: the router it claims, the switch it wraps, React,
-        // and a memo whose type it can put back. The back-stack module and its Route export are
-        // reported for diagnostics and deliberately absent here. Requiring them is what declared an
-        // otherwise healthy client incompatible on 2026-09-24 and took every custom page with it.
-        root =>
-            SteamUiPatchEvaluation.IsOne(root, "routerModule")
-            && SteamUiPatchEvaluation.IsOne(root, "routerFound")
-            && SteamUiPatchEvaluation.IsOne(root, "routeSwitch")
-            && SteamUiPatchEvaluation.IsOne(root, "react")
-            && SteamUiPatchEvaluation.ClaimableOrOurs(root),
-        // The Route is borrowed from Steam's first render through the claimed switch, which has not
-        // necessarily happened by the time verification runs, so holding the router is what verify
-        // proves. Whether a page was built, and with which Route, is reported in the gate's status.
-        "status.installed&&status.resolved&&status.claimed",
-        "!status.claimed",
         "Custom page gate");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>

@@ -1,6 +1,6 @@
 /**
  * Supplies Steam networking RPCs and scan notifications from host publications.
- * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ * @returns The defineGate gate; remove must release it before its bridge is replaced.
  */
 
 function createNetworkGate() {
@@ -14,7 +14,7 @@ function createNetworkGate() {
         marker: "__steamUiOwnedNetworkScan",
         original: "__steamUiOriginalNetworkScan",
     };
-    let target: object | null = null;
+    // Why the last forwarded operation, publication or store refresh failed.
     let lastError = "";
     const connect = {
         marker: "__steamUiOwnedNetworkConnect",
@@ -24,12 +24,8 @@ function createNetworkGate() {
         marker: "__steamUiOwnedAccessPointList",
         original: "__steamUiOriginalAccessPointList",
     };
-    let listingTarget: object | null = null;
     // A Windows join waits up to 25 seconds for the WLAN verdict before the host publishes it.
     const joinTimeoutMilliseconds = 40000;
-    let scanWrapped = false;
-    let connectClaimed = false;
-    let unsubscribe: (() => void) | null = null;
     let syntheticKeys: string[] = [];
     // Access point id -> SSID for the networks this gate wrote, which Steam's backend has never seen.
     const syntheticSsids = new Map<number, string>();
@@ -214,9 +210,10 @@ function createNetworkGate() {
 
     // Steam's page joins through the store's Connect, which encodes the access point id for Steam's
     // backend. For a network this gate wrote, or one typed by name, the host joins it instead; every
-    // other call goes through untouched.
-    const wrapConnect = (instance) => {
-        const claim = claimMember(instance, "Connect", connect, (original) => {
+    // other call goes through untouched. Wanted, not required: a store that refuses the claim keeps
+    // joining through Steam's own backend, and the refusal is reported.
+    const wrapConnect = (instance, ledger: GateLedger) => {
+        const claim = ledger.member(instance, "Connect", connect, (original) => {
             const inner = original as (...a: unknown[]) => unknown;
             return function (this: unknown, ...args: unknown[]) {
                 const params = args[0] as {
@@ -232,7 +229,6 @@ function createNetworkGate() {
                 return join(ssid, typeof password === "string" && password !== "" ? password : null);
             };
         });
-        connectClaimed = claim.ok;
         if (!claim.ok) lastError = claim.error;
     };
 
@@ -240,14 +236,14 @@ function createNetworkGate() {
     // name, which the page lists as a second connected network under the generic Wi-Fi label. While
     // this gate feeds the networks, the page's list leaves out the wireless device's own entries;
     // wired and other devices stay.
-    const claimListing = (proto: object) => {
+    const claimListing = (proto: object, ledger: GateLedger) => {
         const current = Object.getOwnPropertyDescriptor(proto, "accessPoints");
         const displaced = claimed(current?.get, listing)
             ? (storedOriginal(current!.get, listing) as PropertyDescriptor | undefined)
             : current;
         const originalGet = displaced?.get;
         if (typeof originalGet !== "function") return;
-        const claim = claimAccessor(proto, "accessPoints", listing, function (this: any) {
+        const claim = ledger.accessor(proto, "accessPoints", listing, function (this: any) {
             const all = originalGet.call(this);
             const wirelessId = this?.m_WirelessDevice?.id;
             if (syntheticSsids.size === 0 || wirelessId == null || !Array.isArray(all)) return all;
@@ -255,39 +251,7 @@ function createNetworkGate() {
                 (entry) => entry?.deviceId !== wirelessId || syntheticSsids.has(Number(entry?.deviceWapId)),
             );
         });
-        if (claim.ok) listingTarget = proto;
-        else lastError = claim.error;
-    };
-
-    const install = () => {
-        if (target) return {ok: true, alreadyInstalled: true};
-        const instance = store();
-        if (!instance) {
-            lastError = "network store unavailable";
-            return {ok: false, error: lastError};
-        }
-
-        // The getter lives on the prototype, so that is what is replaced and restored. Defining it
-        // on the instance would shadow rather than replace, and removal would leave the shadow.
-        //
-        // Marked as ours for the same reason the namespaces are: the compatibility probe checks that
-        // the getter currently reads false, and a successful override makes it read true. Left
-        // unmarked, the patch reads its own success as "the client already reports this available,
-        // stand aside", declares itself incompatible, and tears down — taking the network list with
-        // it. The claim primitive is what keeps that from being re-derived here.
-        const proto = Object.getPrototypeOf(instance);
-        const claim = claimAccessor(proto, property, availability, () => true);
-        if (!claim.ok) {
-            lastError = claim.error;
-            return {ok: false, error: lastError};
-        }
-        target = proto;
-        lastError = "";
-        wrapScanning();
-        wrapConnect(instance);
-        claimListing(proto);
-        unsubscribe = subscribe(patchId, onState);
-        return {ok: true, installed: true, available: instance[property] === true};
+        if (!claim.ok) lastError = claim.error;
     };
 
     // Steam's own UI calls these when its network page opens and closes, so they are exactly the
@@ -297,19 +261,19 @@ function createNetworkGate() {
     //
     // Both originals are always called through: this observes the lifetime, it does not take it
     // over, so a client that grows a working backend keeps behaving exactly as before.
-    const wrapScanning = () => {
+    const wrapScanning = (ledger: GateLedger) => {
         const net = window.SteamClient?.System?.Network;
-        if (!net || scanWrapped) return;
+        if (!net) return;
         const wrap = (name: string, command: string) => {
             // Checked before claiming, not inside the factory: a client without this method is one this
             // gate leaves alone entirely, and claiming would mark and reassign something that is not a
             // method at all.
             const current = net[name];
             const existing = claimed(current, scan) ? storedOriginal(current, scan) : current;
-            if (typeof existing !== "function") return false;
+            if (typeof existing !== "function") return;
 
             let inner: ((...a: unknown[]) => unknown) | null = null;
-            const claim = claimMember(net, name, scan, (original) => {
+            ledger.member(net, name, scan, (original) => {
                 inner = original as (...a: unknown[]) => unknown;
                 return function (this: unknown, ...args: unknown[]) {
                     // A scan request that cannot reach the host must not stop Steam's own call. Promise
@@ -320,78 +284,77 @@ function createNetworkGate() {
                     return inner!.apply(this, args);
                 };
             });
-            return claim.ok;
         };
 
-        const started = wrap("StartScanningForNetworks", "startScan");
-        const stopped = wrap("StopScanningForNetworks", "stopScan");
-        scanWrapped = started || stopped;
+        wrap("StartScanningForNetworks", "startScan");
+        wrap("StopScanningForNetworks", "stopScan");
     };
 
-    const remove = () => {
-        if (!target && !scanWrapped && !connectClaimed && !listingTarget) return {ok: true, absent: true};
-        if (listingTarget) {
-            const released = releaseAccessor(listingTarget, "accessPoints", listing);
-            if (!released.ok) {
-                lastError = released.error ?? "network list release failed";
-                return {ok: false, error: lastError};
-            }
-            listingTarget = null;
-        }
+    const scanWrapped = () =>
+        ["StartScanningForNetworks", "StopScanningForNetworks"].some((name) =>
+            memberClaimed(window.SteamClient?.System?.Network, name, scan),
+        );
 
-        // Every claim goes back before anything is forgotten, so a failed release leaves the gate as
-        // it was and the next remove retries what is left (a released claim answers ok again).
-        if (scanWrapped) {
-            const net = window.SteamClient?.System?.Network ?? null;
-            for (const name of ["StartScanningForNetworks", "StopScanningForNetworks"]) {
-                const released = releaseMember(net, name, scan);
-                if (!released.ok) {
-                    lastError = released.error ?? "network scan release failed";
-                    return {ok: false, error: lastError};
-                }
-            }
-        }
-        if (connectClaimed) {
-            const released = releaseMember(store(), "Connect", connect);
-            if (!released.ok) {
-                lastError = released.error ?? "network connect release failed";
-                return {ok: false, error: lastError};
-            }
-            connectClaimed = false;
-        }
-        if (target) {
-            const released = releaseAccessor(target, property, availability);
-            if (!released.ok) {
-                lastError = released.error ?? "network availability release failed";
-                return {ok: false, error: lastError};
-            }
-        }
-
-        scanWrapped = false;
-        target = null;
-        unsubscribe = endSubscription(unsubscribe);
-        removeNetworkState(true);
-        return {ok: true, removed: true};
-    };
-
-    const status = () => {
+    // Pure, and loads no module: Steam publishes the store singleton after its own module
+    // initialization, and requiring the module before its chunk arrives leaves empty exports cached
+    // for the whole session. A store not published yet is a client still starting. The getter lives
+    // on the prototype and must be configurable and read false, or be this gate's own: a getter
+    // installed here is not evidence that the client reports network management natively, and
+    // reading it that way made this gate refuse itself after a successful apply.
+    const find = () => {
         const instance = store();
-        return {
-            ok: true,
-            installed: !!target,
-            available: instance ? instance[property] === true : false,
-            // Reported because the row can be on while the list is empty: Steam's Windows backend
-            // never populates wireless.aps, so an access point count of zero here means the host has not
-            // supplied one, not that the machine cannot see any networks.
-            accessPoints: Array.isArray(instance?.accessPoints) ? instance.accessPoints.length : -1,
-            hasWirelessDevice: instance?.hasWirelessDevice === true,
-            scanWrapped,
-            connectClaimed,
-            lastError,
+        if (!instance) return gateNotReady("network store unavailable");
+        const proto = Object.getPrototypeOf(instance);
+        const descriptor = Object.getOwnPropertyDescriptor(proto, property);
+        const facts = {
+            getterConfigurable:
+                !!descriptor && descriptor.configurable === true && typeof descriptor.get === "function",
+            currentlyHidden: claimed(descriptor?.get, availability) || instance[property] === false,
+            hasWirelessDevice: instance.hasWirelessDevice === true,
         };
+        if (!facts.getterConfigurable) {
+            return gateIncompatible("networkManagementAvailable is not a configurable getter", facts);
+        }
+        if (!facts.currentlyHidden) {
+            return gateIncompatible("the client already reports network management available", facts);
+        }
+        return gateReady({instance, proto}, facts);
     };
 
-    return {install, remove, status};
+    const gate = defineGate({
+        name: "network",
+        find,
+        bind: ({instance, proto}, ledger) => {
+            lastError = "";
+            // Last out: the networks this gate wrote leave the store once nothing else is held.
+            ledger.cleanup("network state", () => removeNetworkState(true));
+            // The getter lives on the prototype, so that is what is replaced and restored. Defining it
+            // on the instance would shadow rather than replace, and removal would leave the shadow.
+            const revealed = ledger.accessor(proto, property, availability, () => true);
+            if (!revealed.ok) return revealed.error;
+            wrapScanning(ledger);
+            wrapConnect(instance, ledger);
+            claimListing(proto, ledger);
+            ledger.subscribe(patchId, onState);
+            return {available: instance[property] === true};
+        },
+        holds: ({instance}) => instance[property] === true,
+        status: () => {
+            const instance = store();
+            return {
+                available: instance ? instance[property] === true : false,
+                // Reported because the row can be on while the list is empty: Steam's Windows backend
+                // never populates wireless.aps, so an access point count of zero here means the host has not
+                // supplied one, not that the machine cannot see any networks.
+                accessPoints: Array.isArray(instance?.accessPoints) ? instance.accessPoints.length : -1,
+                hasWirelessDevice: instance?.hasWirelessDevice === true,
+                scanWrapped: scanWrapped(),
+                connectClaimed: memberClaimed(instance, "Connect", connect),
+                operationError: lastError,
+            };
+        },
+    });
+    return gate;
 }
 
 registerGate("network", createNetworkGate());

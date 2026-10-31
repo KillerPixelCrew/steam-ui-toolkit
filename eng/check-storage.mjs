@@ -2,7 +2,10 @@
 //
 // Exercise the shared provider selector as well as the claim: unknown exports must never run,
 // ambiguity must refuse, unrelated messages keep their arguments and receiver, and removal restores
-// Valve's method. This fixture does not establish live Steam compatibility.
+// Valve's method. The probe is the gate's own find: it answers incompatible for an absent or
+// ambiguous service, transport module or accessor, not ready while Steam's modules are not loaded,
+// and never calls the accessor or GetDefaultTransport. This fixture does not establish live Steam
+// compatibility.
 import assert from "node:assert/strict";
 import {
     assertRemoveRetries,
@@ -133,6 +136,9 @@ for (const [exports, count] of [
     [unrelatedExports, 0],
     [ambiguousExports, 2],
 ]) {
+    const probed = fixtureGate(exports).probe();
+    assert.equal(probed.outcome, "incompatible", `${count} accessors must be incompatible`);
+    assert.equal(probed.facts.provider, count);
     const refused = fixtureGate(exports);
     assert.equal(refused.install().error, `transport provider export not identified: ${count}`);
     assert.equal(refused.status().claimed, false);
@@ -140,6 +146,8 @@ for (const [exports, count] of [
     assert.equal(unknownCalls, 0, "unknown exports and getters must never run");
 }
 for (const count of [0, 2]) {
+    assert.equal(fixtureGate(moduleExports, 1, count).probe().facts.transportModule, count);
+    assert.equal(fixtureGate(moduleExports, count).probe().outcome, "incompatible");
     const refused = fixtureGate(moduleExports, 1, count);
     assert.equal(
         refused.install().error,
@@ -159,7 +167,25 @@ assert.equal(noTransport.status().claimed, false);
 assert.equal(providerReads, 0);
 assert.equal(unknownCalls, 0);
 
+// Steam's modules not loaded yet are not ready, which the manager asks again, never a moved build.
+const loading = instantiate(
+    {
+        ...globals,
+        getWebpackRuntime: () => {
+            throw new Error("Steam modules unavailable");
+        },
+    },
+    storageSource,
+    "createStorageService()",
+).probe();
+assert.equal(loading.outcome, "notReady");
+
 const gate = fixtureGate(moduleExports);
+const ready = gate.probe();
+assert.equal(ready.outcome, "ready", `the probe must find the service: ${ready.reason}`);
+assert.deepEqual(ready.facts, { service: 1, transportModule: 1, provider: 1 });
+assert.equal(providerReads, 0, "the probe must never call the accessor or GetDefaultTransport");
+assert.equal(gate.status().installed, false, "a probe installs nothing");
 
 assert.ok(
     !Object.prototype.hasOwnProperty.call(transport, "SendMsg"),
@@ -172,6 +198,10 @@ assert.equal(providerReads, 1, "only the identified accessor's provider may be u
 assert.equal(unknownCalls, 0);
 assert.ok(gate.install().alreadyInstalled);
 assert.equal(providerReads, 1, "an already installed gate must not call the accessor again");
+assert.equal(gate.probe().installed, true, "an installed gate answers its probe from what it holds");
+assert.equal(providerReads, 1);
+assert.equal(gate.status().held, true);
+assert.equal(gate.status().claims, 2, "the subscription and the claim are on the ledger");
 assert.ok(gate.status().claimed, "SendMsg must be claimed");
 assert.ok(
     Object.prototype.hasOwnProperty.call(transport, "SendMsg"),
@@ -330,6 +360,7 @@ assert.equal(gate.status().forwarded, 1);
 const removed = gate.remove();
 assert.ok(removed.ok, `remove failed: ${removed.error}`);
 assert.ok(!gate.status().claimed);
+assert.equal(gate.status().claims, 0, "removal leaves nothing on the ledger");
 assert.ok(
     !Object.prototype.hasOwnProperty.call(transport, "SendMsg"),
     "removal must delete the own property so the prototype method shows through again",

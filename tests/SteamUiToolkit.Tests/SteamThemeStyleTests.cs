@@ -1,35 +1,13 @@
-using System.Text.Json;
 using static SteamUiToolkit.Tests.Fakes.SurfaceDispatch;
 
 namespace SteamUiToolkit.Tests;
 
-/// <summary>The theme-styles surface: what its probe asks of a client and what it publishes.</summary>
+/// <summary>
+///     The theme-styles surface: what it publishes. Its probe is the gate's own find, exercised against
+///     the emitted asset by <c>eng/check-theme-styles.mjs</c>.
+/// </summary>
 public sealed class SteamThemeStyleTests
 {
-    private static SteamGatePatch Gate => (SteamGatePatch)SteamThemeStyleSurface.Patch;
-
-    [Fact]
-    public void TheProbeReadsSteamsPopupManagerAndItsReactRootAndNoModule()
-    {
-        // The gate touches documents, not modules: no webpack capture, no module id, no export.
-        var probe = Gate.ProbeExpression;
-
-        Assert.Contains("g_PopupManager", probe, StringComparison.Ordinal);
-        Assert.Contains("GetPopups", probe, StringComparison.Ordinal);
-        Assert.Contains("__reactContainer$", probe, StringComparison.Ordinal);
-        Assert.DoesNotContain("webpackChunk", probe, StringComparison.Ordinal);
-
-        // Either way to the windows will do: the popup manager, or a mounted tree whose portals
-        // are the windows the manager does not list.
-        using var manager = JsonDocument.Parse("""{"popupManager":1,"popups":3,"reactRoot":0}""");
-        using var tree = JsonDocument.Parse("""{"popupManager":0,"popups":0,"reactRoot":1}""");
-        using var neither = JsonDocument.Parse("""{"popupManager":0,"popups":0,"reactRoot":0}""");
-
-        Assert.True(Gate.Compatible(manager.RootElement));
-        Assert.True(Gate.Compatible(tree.RootElement));
-        Assert.False(Gate.Compatible(neither.RootElement));
-    }
-
     [Fact]
     public void BlocksReachTheWireWithTheirTargetsAndHash()
     {

@@ -1,9 +1,11 @@
 // Exercise the emitted navigation-panel gate against an inert React fixture.
 //
-// The gate's risk is not its resolution — that is checked live and pinned by the patch's probe —
-// but what it does to the tree once it has claimed the panel. This runs the emitted JavaScript,
-// not the TypeScript source, so it proves the shipped bytes descend to the panel root, place
-// entries against Valve's anchors, hide by route and by key, and hand the panel back on removal.
+// The probe is the gate's own find: a client without the menu module, its panel root or exactly one
+// memo export is incompatible, a webpack runtime not loaded yet is not ready, and an installed gate
+// answers from what it holds. This runs the emitted JavaScript, not the TypeScript source, so it also
+// proves the shipped bytes descend to the panel root, adopt the panel and the popup's menu host
+// already on screen, place entries against Valve's anchors, hide by route and by key, and hand the
+// panel back on removal, a panel mounted after install included.
 import assert from "node:assert/strict";
 import {
   assertRemoveRetries,
@@ -60,17 +62,34 @@ const { host: memo, failNext } = failingHost({
 const exports = { v_: memo };
 withSource(Outer, 'function(){ "MainNavMenuContainer"; }');
 
+// What is on screen: the panel's memo under a class that can be asked to render, and the popup's
+// menu host, a module-local function under a React root with nothing above it.
+const PopupHost = withSource(() => element(memo, {}), 'function(){ MainNavMenuContainer; onFocusNavDeactivated; "popup:"; }');
+const menuInstance = { isReactComponent: {}, renders: 0, forceUpdate() { menuInstance.renders++; } };
+const panelFiber = { elementType: memo, type: Outer, memoizedProps: {}, child: null, sibling: null, return: null, alternate: null };
+panelFiber.alternate = { ...panelFiber, alternate: panelFiber };
+const menuFiber = { stateNode: menuInstance, child: panelFiber, sibling: null, return: null, memoizedProps: {} };
+panelFiber.return = menuFiber;
+panelFiber.alternate.return = menuFiber;
+const hostFiber = { elementType: PopupHost, type: PopupHost, memoizedProps: {}, child: null, sibling: menuFiber, return: null };
+globalThis.document = {
+  getElementById: (id) => (id === "root" ? { __reactContainer$fixture: hostFiber } : null),
+};
+
 const requests = [];
 const navigated = [];
 let closed = 0;
 let answer;
+let modules = "ready";
 const globals = {
   // The react module the gate resolves is the fixture above, so createElement, cloneElement and
   // Children come from one place.
   getWebpackRuntime: () => {
+    if (modules === "unloaded") throw new Error("Steam modules unavailable");
     const require = (id) => (id === "menu" ? exports : react);
     require.findUnique = (tokens) =>
-      tokens.includes("MainNavMenuContainer") ? ["menu"] : ["react"];
+      tokens.includes("MainNavMenuContainer") ? (modules === "moved" ? null : ["menu"]) : ["react"];
+    require.count = (tokens) => (tokens.includes("RunnningAppSeparator") ? (modules === "twoRoots" ? 2 : 1) : 1);
     return require;
   },
   createIconRenderer: () => (name) => element("svg", { name }),
@@ -124,9 +143,45 @@ const labels = () =>
 
 assert.deepEqual(labels(), ["Home", "Library", "Store", "Power"], "the fixture panel must render");
 
+// The probe without installing: a runtime that has not loaded yet is not ready, a menu module that
+// moved or a panel root that matches twice is a client this gate does not support.
+modules = "unloaded";
+assert.equal(gate.probe().outcome, "notReady", "an unloaded webpack runtime must be not ready");
+modules = "moved";
+let probe = gate.probe();
+assert.equal(probe.outcome, "incompatible", "a missing menu module must be incompatible");
+assert.equal(probe.facts.menuModule, 0);
+modules = "twoRoots";
+probe = gate.probe();
+assert.equal(probe.outcome, "incompatible", "an ambiguous panel root must be incompatible");
+assert.equal(probe.facts.panelRoot, 2);
+modules = "ready";
+probe = gate.probe();
+assert.equal(probe.outcome, "ready", `the menu must probe ready: ${probe.reason}`);
+assert.deepEqual(
+  { menuModule: probe.facts.menuModule, panelRoot: probe.facts.panelRoot, memoExports: probe.facts.memoExports, claimable: probe.facts.claimable },
+  { menuModule: 1, panelRoot: 1, memoExports: 1, claimable: true },
+);
+assert.equal(memo.type, Outer, "a probe must not claim the panel");
+
 const installed = gate.install();
 assert.ok(installed.ok, `install failed: ${installed.error}`);
 assert.ok(gate.status().claimed, "the memo type must be claimed");
+assert.equal(gate.status().held, true, "the standard status must show the claims held");
+// What is on screen is adopted: the panel by its memo, the popup host by its source.
+assert.equal(panelFiber.type, memo.type, "the mounted panel must run the claim");
+assert.equal(panelFiber.alternate.type, memo.type, "on both of its fibers");
+assert.equal(menuInstance.renders, 1, "the class above the panel must be asked to render");
+assert.notEqual(hostFiber.type, PopupHost, "the popup's menu host must be adopted by source");
+assert.equal(gate.status().mounted.adopted, 1);
+assert.equal(gate.status().mounted.hosts, 1);
+// An installed gate answers from its handles: the find that sees the claimed export through its own
+// marker is not asked again.
+modules = "moved";
+assert.equal(gate.probe().outcome, "ready", "an installed gate must answer from its handles");
+modules = "ready";
+assert.equal(gate.probe().facts.claimable, true);
+assert.equal(gate.probe().installed, true);
 
 // Nothing published yet: a claimed panel with no instructions must render exactly Valve's own.
 assert.deepEqual(labels(), ["Home", "Library", "Store", "Power"], "an empty claim must change nothing");
@@ -215,10 +270,24 @@ globals.publish({
 assert.deepEqual(labels(), ["Home", "Library", "Store", "Power"], "an invalid route must not be drawn");
 assert.equal(gate.status().rejectedRoutes, 2, "a refused route must be reported, not dropped silently");
 
+// A panel React mounted after install caches the claim on both fibers; release must find it.
+const laterPanel = { elementType: memo, type: memo.type, memoizedProps: {}, child: null, sibling: null, return: null, alternate: null };
+laterPanel.alternate = { ...laterPanel, alternate: laterPanel };
+panelFiber.sibling = laterPanel;
+const rendersBeforeRemoval = menuInstance.renders;
+
 const removed = gate.remove();
 assert.ok(removed.ok, `remove failed: ${removed.error}`);
 assert.equal(memo.type, Outer, "removal must hand back exactly what was displaced");
 assert.ok(!gate.status().claimed);
+assert.equal(gate.status().claims, 0, "removal must leave nothing on the ledger");
+assert.equal(panelFiber.type, Outer, "the adopted panel must be handed back");
+assert.equal(panelFiber.alternate.type, Outer);
+assert.equal(laterPanel.type, Outer, "a panel mounted after install must be handed back");
+assert.equal(laterPanel.alternate.type, Outer, "on both of its fibers");
+assert.equal(hostFiber.type, PopupHost, "the popup host must be handed back");
+assert.equal(menuInstance.renders, rendersBeforeRemoval + 1, "the handed-back panel must be asked to render");
+panelFiber.sibling = null;
 assert.deepEqual(labels(), ["Home", "Library", "Store", "Power"], "removal must restore Valve's panel");
 
 // Reinstalling after a removal must work, because a settings toggle does exactly that.
@@ -237,4 +306,7 @@ assert.equal(memo.type, Outer);
   assert.equal(isNavigableRoute("/" + "x".repeat(10000)), true, "a long route is accepted");
 }
 
-console.log("Navigation panel: descent, anchoring, hiding, activation and restoration passed.");
+console.log(
+  "Navigation panel: probe outcomes, adoption, descent, anchoring, hiding, activation and " +
+    "restoration of later mounts passed.",
+);

@@ -1,13 +1,12 @@
 /**
  * Adapts Steam audio RPCs to host state and commands without claiming a real native audio backend.
- * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ * @returns The defineGate gate; remove must release it before its bridge is replaced.
  */
 
 function createAudioNamespace() {
     const patchId = "steam-ui.audio";
-    let installed = false;
-    let lastError = "";
-    let unsubscribe: (() => void) | null = null;
+    // What the last store cleanup on removal could not hand back; the namespace is gone regardless.
+    let storeError = "";
 
     // Every registration Steam makes at construction. Held here so a state push can reach them and
     // so removal drops them all rather than leaving callbacks pointed at a torn-down bridge.
@@ -104,18 +103,8 @@ function createAudioNamespace() {
         typeof value === "object" &&
         "m_bAvailable" in value &&
         typeof value.RegisterOrUpdateDevice === "function";
-    // One store for the gate's life: the store is a singleton and every publication asks for it. The
-    // bridge shares one resolver, so a lookup that failed is simply tried again next time.
-    let cachedStore: any = null;
-    const liveStore = () => {
-        if (cachedStore) return cachedStore;
-        try {
-            cachedStore = getWebpackRuntime("audio-store").exported(AudioStoreTokens, isAudioStore) as any;
-        } catch {
-            return null;
-        }
-        return cachedStore;
-    };
+    // The running store, held from the find that installed the gate: it is a singleton.
+    let liveStore: any = null;
 
     const flVolumeOf = (value) => {
         if (value === null || value === undefined || !Number.isFinite(Number(value))) return null;
@@ -130,7 +119,7 @@ function createAudioNamespace() {
     let lastFlInputVolume: number | null = null;
 
     const onState = (state) => {
-        if (!installed || !state || !Array.isArray(state.devices)) return;
+        if (!gate.installed() || !state || !Array.isArray(state.devices)) return;
         const flOutputVolume = flVolumeOf(state.volumePercent) ?? 0;
         const flInputVolume = flVolumeOf(state.inputVolumePercent);
         const outputVolumeChanged =
@@ -192,7 +181,7 @@ function createAudioNamespace() {
 
         // The registrations above only reach a store constructed after the namespace existed. The
         // running one has to be fed through its own path, and told it is available at all.
-        const store = liveStore();
+        const store = liveStore;
         if (!store) return;
         try {
             originalStoreState ??= {
@@ -266,135 +255,127 @@ function createAudioNamespace() {
         }
     };
 
-    const install = () => {
-        if (installed) return {ok: true, alreadyInstalled: true};
-        const system = window.SteamClient?.System;
-        if (!system) {
-            lastError = "SteamClient.System unavailable";
-            return {ok: false, error: lastError};
-        }
-
-        const buildApi = () => ({
-            GetDevices: () =>
-                request(patchId, "getDevices", null).then((state: any) => ({
-                    activeOutputDeviceId: numberFor(state?.activeOutputDeviceId ?? ""),
-                    activeInputDeviceId: numberFor(state?.activeInputDeviceId ?? ""),
-                    overrideOutputDeviceId: NO_DEVICE,
-                    overrideInputDeviceId: NO_DEVICE,
-                    vecDevices: Array.isArray(state?.devices)
-                        ? state.devices.map((device) =>
-                            toDevice(
-                                device,
-                                flVolumeOf(state?.volumePercent) ?? 0,
-                                flVolumeOf(state?.inputVolumePercent),
-                            ),
-                        )
-                        : [],
-                })),
-            // Empty until a session mixer exists. Steam then lists no per-application entries, which is
-            // the honest outcome rather than inventing volumes it cannot move.
-            GetApps: () => Promise.resolve({rgApps: []}),
-            SetDefaultDeviceOverride: (id, direction) => {
-                // Steam hands back the number this side minted; the host only knows the GUID.
-                const guid = guidFor(id);
-                if (!guid) return Promise.resolve();
-                return request(patchId, "setDefaultDevice", {
-                    id: guid,
-                    input: direction === AudioDirection.Input,
-                });
-            },
-            // (deviceId, DIRECTION, volume) — three arguments. Read off the store's own device class
-            // 2026-08-30: setDeviceVolume(e,t) calls SetDeviceVolume(this.m_id, e, t). The host declared
-            // two parameters and so read the DIRECTION as the volume: dragging the slider sent
-            // Math.round(1 * 100) or Math.round(0 * 100), which is why every drag set 100% or 0% and
-            // the log showed "Taskbar volume set to 100%" the moment the slider was touched.
-            //
-            SetDeviceVolume: (id, direction, volume) => {
-                if (direction !== AudioDirection.Output && direction !== AudioDirection.Input) {
-                    return Promise.resolve();
-                }
-                return request(patchId, "setVolume", {
-                    percent: Math.round(Math.min(1, Math.max(0, Number(volume) || 0)) * 100),
-                    input: direction === AudioDirection.Input,
-                });
-            },
-            SetAppVolume: () => Promise.resolve(),
-            ClearDefaultDeviceOverride: () => Promise.resolve(),
-            RegisterForServiceConnectionStateChanges: register("serviceConnection"),
-            RegisterForDeviceAdded: register("deviceAdded"),
-            RegisterForDeviceRemoved: register("deviceRemoved"),
-            RegisterForDeviceVolumeChanged: register("deviceVolumeChanged"),
-            RegisterForVolumeButtonPressed: register("volumeButtonPressed"),
-            RegisterForAppAdded: register("appAdded"),
-            RegisterForAppRemoved: register("appRemoved"),
-            RegisterForAppVolumeChanged: register("appVolumeChanged"),
-        });
-
-        // Refusing a real backend and reclaiming our own orphan are both the primitive's job now; the
-        // reasoning for each lives with it.
-        const supplied = supplyNamespace(system, "Audio", ownedMarker, buildApi);
-        if (!supplied.ok) {
-            lastError = supplied.error;
-            return {ok: false, error: lastError};
-        }
-
-        installed = true;
-        lastError = "";
-        unsubscribe = subscribe(patchId, onState);
-        return {ok: true, installed: true};
-    };
-
-    const remove = () => {
-        if (!installed) return {ok: true, absent: true};
-
-        // Released first: a failed withdrawal leaves the gate installed with everything it knows, so
-        // the next remove retries it instead of answering absent over a namespace still in place.
-        const withdrawn = withdrawNamespace(
-            window.SteamClient?.System,
-            "Audio",
-            ownedMarker,
-        );
-        if (!withdrawn.ok) {
-            lastError = withdrawn.error ?? "audio namespace withdrawal failed";
-            return {ok: false, error: lastError};
-        }
-
-        installed = false;
-        unsubscribe = endSubscription(unsubscribe);
-
-        for (const slot of Object.keys(callbacks)) callbacks[slot] = null;
-        const store = liveStore();
-        if (store) {
-            try {
-                for (const id of known) store.m_mapAudioDevices?.delete(id);
-                // Only what a publication displaced; a store that was never fed keeps its own values.
-                if (originalStoreState) {
-                    store.m_bAvailable = originalStoreState.available;
-                    store.m_activeOutputDeviceId = originalStoreState.output;
-                    store.m_activeInputDeviceId = originalStoreState.input;
-                }
-            } catch (error) {
-                lastError = "audio store cleanup failed: " + String(error);
+    const buildApi = () => ({
+        GetDevices: () =>
+            request(patchId, "getDevices", null).then((state: any) => ({
+                activeOutputDeviceId: numberFor(state?.activeOutputDeviceId ?? ""),
+                activeInputDeviceId: numberFor(state?.activeInputDeviceId ?? ""),
+                overrideOutputDeviceId: NO_DEVICE,
+                overrideInputDeviceId: NO_DEVICE,
+                vecDevices: Array.isArray(state?.devices)
+                    ? state.devices.map((device) =>
+                        toDevice(
+                            device,
+                            flVolumeOf(state?.volumePercent) ?? 0,
+                            flVolumeOf(state?.inputVolumePercent),
+                        ),
+                    )
+                    : [],
+            })),
+        // Empty until a session mixer exists. Steam then lists no per-application entries, which is
+        // the honest outcome rather than inventing volumes it cannot move.
+        GetApps: () => Promise.resolve({rgApps: []}),
+        SetDefaultDeviceOverride: (id, direction) => {
+            // Steam hands back the number this side minted; the host only knows the GUID.
+            const guid = guidFor(id);
+            if (!guid) return Promise.resolve();
+            return request(patchId, "setDefaultDevice", {
+                id: guid,
+                input: direction === AudioDirection.Input,
+            });
+        },
+        // (deviceId, DIRECTION, volume) — three arguments. Read off the store's own device class
+        // 2026-08-30: setDeviceVolume(e,t) calls SetDeviceVolume(this.m_id, e, t). The host declared
+        // two parameters and so read the DIRECTION as the volume: dragging the slider sent
+        // Math.round(1 * 100) or Math.round(0 * 100), which is why every drag set 100% or 0% and
+        // the log showed "Taskbar volume set to 100%" the moment the slider was touched.
+        SetDeviceVolume: (id, direction, volume) => {
+            if (direction !== AudioDirection.Output && direction !== AudioDirection.Input) {
+                return Promise.resolve();
             }
-        }
-        known = [];
-        lastFlOutputVolume = null;
-        lastFlInputVolume = null;
-        originalStoreState = null;
-
-        return {ok: true, removed: true};
-    };
-
-    const status = () => ({
-        ok: true,
-        installed,
-        namespacePresent: !!window.SteamClient?.System?.Audio,
-        registrations: Object.keys(callbacks).filter((slot) => callbacks[slot] !== null),
-        knownDevices: known.length,
-        lastError,
+            return request(patchId, "setVolume", {
+                percent: Math.round(Math.min(1, Math.max(0, Number(volume) || 0)) * 100),
+                input: direction === AudioDirection.Input,
+            });
+        },
+        SetAppVolume: () => Promise.resolve(),
+        ClearDefaultDeviceOverride: () => Promise.resolve(),
+        RegisterForServiceConnectionStateChanges: register("serviceConnection"),
+        RegisterForDeviceAdded: register("deviceAdded"),
+        RegisterForDeviceRemoved: register("deviceRemoved"),
+        RegisterForDeviceVolumeChanged: register("deviceVolumeChanged"),
+        RegisterForVolumeButtonPressed: register("volumeButtonPressed"),
+        RegisterForAppAdded: register("appAdded"),
+        RegisterForAppRemoved: register("appRemoved"),
+        RegisterForAppVolumeChanged: register("appVolumeChanged"),
     });
 
-    return {install, remove, status};
+    // Pure. A real audio backend at SteamClient.System.Audio is a client this gate stands aside for;
+    // one carrying our marker is our own, from this bridge or the one it replaced. The store has to be
+    // reachable because the running one already computed its availability at construction.
+    const find = (runtime) => {
+        const system = window.SteamClient?.System;
+        if (!system) return gateNotReady("SteamClient.System unavailable");
+        const audioStore = runtime.count(AudioStoreTokens);
+        const namespace = system.Audio;
+        const namespaceAbsent = !namespace || claimed(namespace, {marker: ownedMarker, original: ownedMarker});
+        let store: any = null;
+        try {
+            store = runtime.exported(AudioStoreTokens, isAudioStore);
+        } catch {
+            // Absent or ambiguous; reported below.
+        }
+        const facts = {audioStore, audioNamespaceAbsent: namespaceAbsent, storeSingletonReachable: !!store};
+        if (audioStore !== 1) return gateIncompatible("the audio store module was not a unique match", facts);
+        if (!namespaceAbsent) return gateIncompatible("a native audio backend is present", facts);
+        if (!store) return gateIncompatible("the audio store singleton is not reachable", facts);
+        return gateReady({system, store}, facts);
+    };
+
+    const gate = defineGate({
+        name: "audio",
+        find,
+        bind: ({system, store}, ledger) => {
+            liveStore = store;
+            storeError = "";
+            // Last out: once the namespace is withdrawn, the running store is handed back what a
+            // publication displaced, and Steam's registrations are dropped rather than left pointing
+            // at a torn-down bridge.
+            ledger.cleanup("audio store", () => {
+                for (const slot of Object.keys(callbacks)) callbacks[slot] = null;
+                try {
+                    for (const id of known) store.m_mapAudioDevices?.delete(id);
+                    // Only what a publication displaced; a store that was never fed keeps its own values.
+                    if (originalStoreState) {
+                        store.m_bAvailable = originalStoreState.available;
+                        store.m_activeOutputDeviceId = originalStoreState.output;
+                        store.m_activeInputDeviceId = originalStoreState.input;
+                    }
+                } catch (error) {
+                    storeError = "audio store cleanup failed: " + String(error);
+                }
+            });
+            // Refusing a real backend and reclaiming our own orphan are both the primitive's job; the
+            // reasoning for each lives with it.
+            const supplied = ledger.namespace(system, "Audio", ownedMarker, buildApi);
+            if (!supplied.ok) return supplied.error;
+            ledger.subscribe(patchId, onState);
+        },
+        unbind: () => {
+            liveStore = null;
+            known = [];
+            lastFlOutputVolume = null;
+            lastFlInputVolume = null;
+            originalStoreState = null;
+        },
+        status: () => ({
+            namespacePresent: !!window.SteamClient?.System?.Audio,
+            registrations: Object.keys(callbacks).filter((slot) => callbacks[slot] !== null),
+            knownDevices: known.length,
+            storeError,
+        }),
+    });
+    return gate;
 }
 
 registerGate("audio", createAudioNamespace());

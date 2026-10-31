@@ -110,42 +110,17 @@ public static class SteamScreensaverSurface
 
     /// <summary>The gate that adds the host's rows to Steam's Screensaver section.</summary>
     /// <remarks>
-    ///     Each structural fact is reported separately, so an incompatible client says which one moved.
-    ///     The observer hook is reported but not required. The useMemo claim is shared and never
-    ///     examined here, so a claim this or another gate already holds stays compatible.
+    ///     The probe is the gate's own find, which reports each structural fact separately so an
+    ///     incompatible client says which one moved: React, Valve's dropdown field, the customization
+    ///     route, the Screensaver section module and the client settings store. A settings store not yet
+    ///     constructed is not ready; anything else missing is incompatible. The observer hook is reported
+    ///     but not required. The useMemo claim is shared and never examined there, so a claim this or
+    ///     another gate already holds stays compatible.
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
         "screensaver",
         "steam-screensaver-v1:unique-section-module+customization-route+settings-store",
-        $$"""
-          {{SteamUiProbeJs.Preamble("steam_ui_screensaver_probe_")}}
-            let route='';
-            try{route=req.exported({{SteamUiProbeJs.RouteTableTokens}},
-              v=>typeof v?.Settings?.Customization==='function').Settings.Customization();}catch{}
-            let settings=false;
-            try{settings=!!req.exported({{SteamUiProbeJs.SettingsStoreTokens}},
-              v=>!!v&&typeof v==='object'&&typeof v.clientSettings==='object');}catch{}
-            return JSON.stringify({
-              react:count({{SteamUiProbeJs.ReactTokens}}),
-              fields:count({{SteamUiProbeJs.NativeFieldTokens}}),
-              section:count(['"#Settings_Customization_Screensaver"','ForceScreensaver']),
-              route:typeof route==='string'&&route.startsWith('/')?route:'',
-              settings:settings,
-              observer:count({{SteamUiProbeJs.ObserverTokens}})
-            });
-          {{SteamUiProbeJs.Close}}
-          """,
-        root =>
-            SteamUiPatchEvaluation.IsOne(root, "react")
-            && SteamUiPatchEvaluation.IsOne(root, "fields")
-            && SteamUiPatchEvaluation.IsOne(root, "section")
-            && root.TryGetProperty("route", out var route)
-            && route.ValueKind == JsonValueKind.String
-            && route.GetString() is { Length: > 0 }
-            && SteamUiPatchEvaluation.Flag(root, "settings"),
-        "status.installed&&status.resolved&&status.claimed",
-        "!status.claimed",
         "Screensaver settings gate");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>

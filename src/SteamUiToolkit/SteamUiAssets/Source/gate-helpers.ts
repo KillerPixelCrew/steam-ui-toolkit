@@ -797,17 +797,7 @@ const walkFibers = (roots, bound: number, visit: (fiber: any) => boolean | void)
     return { visited, stopped: false };
 };
 
-// The mounted fibers drawing one component: those whose element type is the memo or function that
-// was claimed. The walk covers the tree on screen, so each mounted instance answers once.
-const mountedFibersOf = (roots, elementType, bound: number) => {
-    const fibers: any[] = [];
-    walkFibers(roots, bound, (fiber) => {
-        if (fiber.elementType === elementType) fibers.push(fiber);
-    });
-    return fibers;
-};
-
-// Where a fiber's real props are kept while an adoption render is forced; see adoptMountedType.
+// Where a fiber's real props are kept while an adoption render is forced; see claimComponent.
 const AdoptedPropsKey = "__steamUiAdoptedProps";
 const MaximumAncestors = 64;
 
@@ -853,28 +843,6 @@ const retargetFiber = (fiber, type) => {
 // never had one, so only one that had a parent and lost it has been detached.
 const fiberAttached = (fiber) => !!(fiber.return || fiber.alternate?.return);
 
-// Brings a claim on a component's `type` to the instances already on screen.
-//
-// A claim on a memo's `type` reaches the next mount only: when React mounts a memo it resolves the
-// function once and caches it on the fiber as `type`, and every later render of that fiber reads
-// the cache, not the memo. Big Picture mounts its router, Home, the Quick Access view and the menu
-// at boot and keeps them, so a claim alone is inert until the user happens to remount one; the
-// carousel (2026-09-22) and every page gate (2026-09-24) shipped that way. Answers the fibers
-// adopted and whether a render was requested; without a class ancestor the adoption still holds
-// and takes effect on the instance's next render.
-const adoptMountedType = (roots, elementType, replacement, bound: number) => {
-    const fibers: any[] = [];
-    let scheduled = false;
-    for (const fiber of mountedFibersOf(roots, elementType, bound)) {
-        if (fiber.type === replacement) continue;
-        retargetFiber(fiber, replacement);
-        invalidateFiberProps(fiber);
-        fibers.push(fiber);
-        scheduled = requestRender(fiber) || scheduled;
-    }
-    return { fibers, adopted: fibers.length, scheduled };
-};
-
 // The node bound mounted trees are walked under. The router sits about a hundred levels down the
 // live tree and the popups are shallower, so this is generous; it exists to stop a cyclic or
 // pathological tree, not to limit a legitimate search.
@@ -889,34 +857,119 @@ const MaximumMountedNodes = 60000;
 // render are the ones that changed it.
 const publicationChanged = (previous, next) => JSON.stringify(previous) !== JSON.stringify(next);
 
-// One claimed component's mounted instances, for the life of a gate's install.
+// One claimed component and every mounted instance running it, for the life of a gate's install.
 //
-// Adoption walks the tree once and keeps the fibers it adopted. Everything after that is over that
-// list rather than the tree: a publication asks them to render again (the wrapper reads the gate's
-// state from a closure, so the props have not changed and a memo with equal props bails out exactly
-// as it did before adoption); status counts them; release hands them back. Publications arrive
-// several times a second while a user browses artwork and status is read on every verify, so a
-// tree walk on either was a full 60000-node pass on the UI thread for a number that never changed.
-// A fiber React has since unmounted is dropped when next seen; the claim on the memo's `type`
-// reaches any instance mounted after adoption on its own.
-const createMountedAdoption = (bound = MaximumMountedNodes) => {
+// A claim on a memo's `type` reaches the next mount only: when React mounts a memo it resolves the
+// function once and caches it on the fiber as `type`, and every later render of that fiber reads the
+// cache, not the memo. Big Picture mounts its router, Home, the Quick Access view and the menu at boot
+// and keeps them, so a claim alone is inert until the user happens to remount one; the carousel
+// (2026-09-22) and every page gate (2026-09-24) shipped that way. So the mounted instances are
+// adopted: each fiber drawing the component has its `type` retargeted on both sides, its props
+// invalidated so a memo cannot bail out, and a render asked of its nearest class ancestor.
+//
+//   host   the memo (or any object) whose `type` member is claimed; its mounted instances are the
+//          fibers whose elementType is the host. Null when the component has no public handle at
+//          all, such as the main menu's popup host or the router's own switch.
+//   keys   the claim's durable marker keys. Every wrapper this builds carries them, the host's and
+//          each `match` one alike, so a later evaluation recognises it, never stacks a second
+//          wrapper on it, and release finds it wherever React kept it.
+//   wrap   builds the wrapper around the displaced function. It must add no hooks of its own: an
+//          adopted fiber keeps the hook list its original built.
+//   match  also adopts a fiber this answers true for, given the fiber and its type with any claim
+//          of ours seen through; each original gets its own cached wrapper.
+//   roots  the fiber roots to walk; SharedJSContext's own React roots by default.
+//   bound  how many fibers one walk visits at most.
+//
+// Release hands back every fiber whose type is a wrapper of this claim, on both fiber sides: the
+// ones adopted at install and every instance React mounted from the claimed memo since, which a list
+// kept at install cannot know about. Each handed-back fiber is invalidated and asked to render, so
+// the original draws again now rather than on whatever render happens next.
+const claimComponent = (options: {
+    host?: any;
+    keys: ClaimKeys;
+    wrap: (original: any) => any;
+    match?: (fiber: any, type: any) => boolean;
+    roots?: () => any[];
+    bound?: number;
+}) => {
+    const { host = null, keys, wrap, match, bound = MaximumMountedNodes } = options;
+    const roots = options.roots ?? (() => reactRootFibers());
+    // A wrapper for each original a `match` fiber drew, built once: a fresh identity per render
+    // would remount the subtree.
+    const wrappers = new Map<any, any>();
     // Each adopted fiber with whether it had a parent when adopted; see fiberAttached.
-    let entries: { fiber: any; hadParent: boolean }[] = [];
-    let replacement = null;
+    let adopted = new Map<any, boolean>();
+    let hostWrapper: any = null;
     let scheduled = false;
-    const live = () => {
-        entries = entries.filter(({ fiber, hadParent }) => !hadParent || fiberAttached(fiber));
-        return entries.map(({ fiber }) => fiber);
+
+    const marked = (original) => {
+        let wrapper = wrappers.get(original);
+        if (!wrapper) {
+            wrapper = wrap(original);
+            defineHidden(wrapper, keys.marker, true);
+            defineHidden(wrapper, keys.original, {
+                kind: "steam-ui-property-snapshot-v1",
+                hadOwn: true,
+                value: original,
+            });
+            wrappers.set(original, wrapper);
+        }
+        return wrapper;
     };
+    // What a fiber should draw while the claim holds, or null for a fiber that is not this claim's.
+    const replacementFor = (fiber) => {
+        if (host && fiber.elementType === host) return hostWrapper;
+        if (!match) return null;
+        const original = unclaimedValue(fiber.type, keys);
+        if (typeof original !== "function" || !match(fiber, original)) return null;
+        return marked(original);
+    };
+    const adopt = () => {
+        let count = 0;
+        walkFibers(roots(), bound, (fiber) => {
+            const replacement = replacementFor(fiber);
+            if (!replacement) return;
+            if (fiber.type !== replacement) {
+                retargetFiber(fiber, replacement);
+                invalidateFiberProps(fiber);
+                scheduled = requestRender(fiber) || scheduled;
+            }
+            if (!adopted.has(fiber)) count++;
+            adopted.set(fiber, fiberAttached(fiber));
+        });
+        return count;
+    };
+    const live = () => {
+        for (const [fiber, hadParent] of [...adopted]) {
+            if (hadParent && !fiberAttached(fiber)) adopted.delete(fiber);
+        }
+        return [...adopted.keys()];
+    };
+
+    let reclaimed = false;
+    if (host) {
+        const claim = claimMember(host, "type", keys, (original) => {
+            if (typeof original !== "function") throw new TypeError("claimed component is not a function");
+            return wrap(original);
+        });
+        if (!claim.ok) return { ok: false as const, error: claim.error };
+        reclaimed = claim.reclaimed;
+        hostWrapper = host.type;
+    }
+    adopt();
+
     return {
-        adopt: (elementType, wrapper) => {
-            replacement = wrapper;
-            const result = adoptMountedType(reactRootFibers(), elementType, wrapper, bound);
-            entries = result.fibers.map((fiber) => ({ fiber, hadParent: fiberAttached(fiber) }));
-            scheduled = result.scheduled;
-            return result;
-        },
-        rerender: () => {
+        ok: true as const,
+        reclaimed,
+        /** The marked wrapper for an original, so another path that creates it draws the same one. */
+        wrapperFor: marked,
+        /**
+         * Asks every adopted instance to render again; `rescan` first walks the tree for instances
+         * mounted since, which a `match` claim with none of its instances left also does on its own.
+         * @returns How many instances were asked.
+         */
+        rerender: (rescan = false) => {
+            if (rescan || (match && live().length === 0)) adopt();
             let asked = 0;
             for (const fiber of live()) {
                 invalidateFiberProps(fiber);
@@ -924,26 +977,374 @@ const createMountedAdoption = (bound = MaximumMountedNodes) => {
             }
             return asked;
         },
-        release: (original) => {
-            for (const { fiber } of entries) {
-                if (fiber.type === replacement) retargetFiber(fiber, original);
-            }
-            entries = [];
-            replacement = null;
-            scheduled = false;
-        },
-        // `stale` is an adopted instance still drawing something other than the wrapper: a render
-        // that has not happened yet, or a type React reset underneath us.
+        /** Whether the host still carries this claim's wrapper; a claim without a host holds while installed. */
+        held: () => !host || memberClaimed(host, "type", keys),
+        // `stale` is an adopted instance still drawing something other than its wrapper: a render that
+        // has not happened yet, or a type React reset underneath us.
         status: () => {
             const fibers = live();
             return {
                 adopted: fibers.length,
                 scheduled,
-                stale: fibers.filter((fiber) => fiber.type !== replacement).length,
+                stale: fibers.filter((fiber) => !claimed(fiber.type, keys)).length,
             };
+        },
+        release: () => {
+            if (host) {
+                const released = releaseMember(host, "type", keys);
+                if (!released.ok) return released;
+            }
+            const handed = new Set<any>();
+            const handBack = (fiber) => {
+                let changed = false;
+                for (const side of [fiber, fiber.alternate]) {
+                    if (side && claimed(side.type, keys)) {
+                        side.type = unclaimedValue(side.type, keys);
+                        changed = true;
+                    }
+                }
+                if (changed) handed.add(fiber);
+            };
+            walkFibers(roots(), bound, handBack);
+            for (const fiber of adopted.keys()) handBack(fiber);
+            for (const fiber of handed) {
+                invalidateFiberProps(fiber);
+                requestRender(fiber);
+            }
+            adopted = new Map();
+            wrappers.clear();
+            hostWrapper = null;
+            scheduled = false;
+            return { ok: true, released: handed.size };
         },
     };
 };
+
+/** A component claim that took: what `claimComponent` and `ledger.component` answer on success. */
+type ClaimedComponent = Extract<ReturnType<typeof claimComponent>, { ok: true }>;
+
+/** What a gate's `find` answers: its handles, or why there are none yet, or why there will be none. */
+type GateFound<Handles> =
+    | { ready: true; handles: Handles; facts?: Record<string, unknown> }
+    | { notReady: string; facts?: Record<string, unknown> }
+    | { incompatible: string; facts?: Record<string, unknown> };
+
+/** Everything a gate holds, released in reverse order of taking. */
+type GateLedger = ReturnType<typeof createGateLedger>["ledger"];
+
+/** The answer of every gate's `probe()`, which the host parses as one shape. */
+type GateProbe = {
+    ok: boolean;
+    outcome: "ready" | "notReady" | "incompatible";
+    reason?: string;
+    installed?: boolean;
+    facts?: Record<string, unknown>;
+};
+
+// The record of what one install took. Each entry is released in reverse order on a failed install
+// and on removal; an entry whose release fails stays, with everything taken before it, so the next
+// removal retries exactly what is left. `held` proves an entry is still in place for verification.
+const createGateLedger = () => {
+    const entries: { name: string; release: () => unknown; held: () => boolean }[] = [];
+    let reclaimed = false;
+    const add = (name: string, release: () => unknown, held: () => boolean = () => true) => {
+        entries.push({ name, release, held });
+    };
+    // A claim primitive's outcome, recorded only when it took.
+    const taken = <Outcome extends { ok: boolean; reclaimed?: boolean }>(
+        name: string,
+        outcome: Outcome,
+        release: () => unknown,
+        held: () => boolean,
+    ) => {
+        if (outcome.ok) {
+            reclaimed ||= outcome.reclaimed === true;
+            add(name, release, held);
+        }
+        return outcome;
+    };
+    const ledger = {
+        /** Records something taken outside the primitives below, with how to give it back. */
+        add,
+        /** Runs `cleanup` on release; for timers, listeners and nodes a gate created. */
+        cleanup: (name: string, cleanup: () => void) =>
+            add(name, () => {
+                cleanup();
+                return { ok: true };
+            }),
+        member: (host, member: string, keys: ClaimKeys, replacement: (original: unknown) => unknown) =>
+            taken(
+                `member ${member}`,
+                claimMember(host, member, keys, replacement),
+                () => releaseMember(host, member, keys),
+                () => memberClaimed(host, member, keys),
+            ),
+        value: (host, field: string, keys: ClaimKeys, next: unknown) =>
+            taken(
+                `value ${field}`,
+                claimValue(host, field, keys, next),
+                () => releaseValue(host, field, keys),
+                () => claimed(host, keys),
+            ),
+        accessor: (host, property: string, keys: ClaimKeys, getter: () => unknown) =>
+            taken(
+                `accessor ${property}`,
+                claimAccessor(host, property, keys, getter),
+                () => releaseAccessor(host, property, keys),
+                () => claimed(Object.getOwnPropertyDescriptor(host ?? {}, property)?.get, keys),
+            ),
+        namespace: (host, name: string, marker: string, factory: () => object) =>
+            taken(
+                `namespace ${name}`,
+                supplyNamespace(host, name, marker, factory),
+                () => withdrawNamespace(host, name, marker),
+                () => claimed(host?.[name], { marker, original: marker }),
+            ),
+        memo: (host, name: string, transform: (value: unknown) => unknown) =>
+            taken(
+                `memo ${name}`,
+                interceptMemo(host, name, transform),
+                () => releaseMemo(host, name),
+                () => memoIntercepted(host, name),
+            ),
+        elements: (host, name: string, transform: ElementTransform) =>
+            taken(
+                `elements ${name}`,
+                interceptElements(host, name, transform),
+                () => releaseElements(host, name),
+                () => elementsIntercepted(host, name),
+            ),
+        component: (options: Parameters<typeof claimComponent>[0]) => {
+            const component = claimComponent(options);
+            if (component.ok) {
+                reclaimed ||= component.reclaimed;
+                add("component", component.release, component.held);
+            }
+            return component;
+        },
+        /** Subscribes to a publication until release. */
+        subscribe: (patchId: string, callback: (state: any) => void) => {
+            const unsubscribe = subscribe(patchId, callback);
+            add(`subscription ${patchId}`, () => {
+                unsubscribe();
+                return { ok: true };
+            });
+        },
+        /** Subscribes to a publication's refusals until release. */
+        subscribeRefusal: (patchId: string, callback: (reason: string | null) => void) => {
+            const unsubscribe = subscribeRefusal(patchId, callback);
+            add(`refusals ${patchId}`, () => {
+                unsubscribe();
+                return { ok: true };
+            });
+        },
+    };
+    const unwind = (): { ok: boolean; error?: string } => {
+        while (entries.length) {
+            const entry = entries[entries.length - 1];
+            let result: any;
+            try {
+                result = entry.release();
+            } catch (error) {
+                return { ok: false, error: `${entry.name}: ${String(error)}` };
+            }
+            if (result && typeof result === "object" && result.ok === false) {
+                return { ok: false, error: `${entry.name}: ${result.error ?? "release failed"}` };
+            }
+            entries.pop();
+        }
+        reclaimed = false;
+        return { ok: true };
+    };
+    const held = () =>
+        entries.every((entry) => {
+            try {
+                return entry.held() === true;
+            } catch {
+                return false;
+            }
+        });
+    return { ledger, unwind, held, size: () => entries.length, reclaimed: () => reclaimed };
+};
+
+/**
+ * Builds one gate's lifecycle from what differs between gates: how it finds its handles, what it
+ * claims with them and what it reports.
+ *
+ * `find(runtime)` is pure: it reads Steam and answers `{ready, handles, facts}`, `{notReady}` when
+ * what it needs is not mounted or constructed yet (Big Picture closed, Quick Access never opened),
+ * or `{incompatible}` when the client does not have it (a module that moved or matches twice). It
+ * writes nothing, so `probe()` is `find` without binding. While the gate is installed `probe()`
+ * answers from the handles it holds: a find that sees its own claims could otherwise call a holding
+ * gate incompatible, and the manager would retract it on every poll.
+ *
+ * `bind(handles, ledger)` takes everything through the ledger and answers a refusal string, or
+ * extra fields for the install result. A refusal or a throw unwinds what was taken, in reverse.
+ * Removal unwinds the same way and stays installed when a step fails, so it can be retried.
+ * `unbind()` resets what the gate keeps for itself once nothing is held any more.
+ *
+ * `status()` has one shape for every gate, which the host verifies with one predicate:
+ * `installed`, `resolved`, `held` (every ledger entry still in place and `holds(handles)`),
+ * `claims` (ledger entries outstanding) and `lastError`, after the gate's own `status(handles)`.
+ * @returns The gate: install, remove, status, probe, `installed()`, and any `api` members.
+ */
+function defineGate<Handles, Api extends Record<string, unknown> = {}>(definition: {
+    name: string;
+    find: (runtime: any) => GateFound<Handles>;
+    bind: (handles: Handles, ledger: GateLedger) => string | void | Record<string, unknown>;
+    holds?: (handles: Handles) => boolean;
+    unbind?: () => void;
+    status?: (handles: Handles | null) => Record<string, unknown>;
+    api?: Api;
+}) {
+    const record = createGateLedger();
+    let handles: Handles | null = null;
+    let facts: Record<string, unknown> = {};
+    let installed = false;
+    let lastError = "";
+
+    const search = (): GateFound<Handles> => {
+        let runtime;
+        try {
+            runtime = getWebpackRuntime(definition.name);
+        } catch (error) {
+            return { notReady: `Steam modules unavailable: ${String(error)}` };
+        }
+        try {
+            return definition.find(runtime) ?? { incompatible: "find answered nothing" };
+        } catch (error) {
+            return { incompatible: `${definition.name} find failed: ${String(error)}` };
+        }
+    };
+    const answer = (found: GateFound<Handles>): GateProbe => {
+        if ("ready" in found && found.ready === true) {
+            return { ok: true, outcome: "ready", facts: found.facts ?? {} };
+        }
+        if ("notReady" in found) {
+            return { ok: false, outcome: "notReady", reason: found.notReady, facts: found.facts ?? {} };
+        }
+        const refused = found as { incompatible: string; facts?: Record<string, unknown> };
+        return {
+            ok: false,
+            outcome: "incompatible",
+            reason: String(refused.incompatible),
+            facts: refused.facts ?? {},
+        };
+    };
+    const resetLocal = () => {
+        handles = null;
+        facts = {};
+        try {
+            definition.unbind?.();
+        } catch {
+            // What a gate keeps for itself is reset again by the next install.
+        }
+    };
+
+    const probe = (): GateProbe =>
+        installed ? { ok: true, outcome: "ready", installed: true, facts } : answer(search());
+
+    const install = () => {
+        if (installed) return { ok: true, alreadyInstalled: true };
+        if (record.size()) {
+            const residue = record.unwind();
+            if (!residue.ok) {
+                lastError = `an earlier install could not be rolled back: ${residue.error}`;
+                return { ok: false, error: lastError };
+            }
+        }
+        const found = search();
+        if (!("ready" in found && found.ready === true)) {
+            const refused = answer(found);
+            lastError = refused.reason ?? refused.outcome;
+            return { ok: false, error: lastError, outcome: refused.outcome };
+        }
+        handles = found.handles;
+        facts = found.facts ?? {};
+        // Installed while binding, so a wrapper Steam renders during the bind already draws.
+        installed = true;
+        let refusal: string | null = null;
+        let extras: Record<string, unknown> = {};
+        try {
+            const bound = definition.bind(found.handles, record.ledger);
+            if (typeof bound === "string") refusal = bound;
+            else if (bound && typeof bound === "object") extras = bound;
+        } catch (error) {
+            refusal = String(error);
+        }
+        if (refusal !== null) {
+            installed = false;
+            const rolledBack = record.unwind();
+            resetLocal();
+            lastError = rolledBack.ok ? refusal : `${refusal}; rollback failed: ${rolledBack.error}`;
+            return { ok: false, error: lastError };
+        }
+        lastError = "";
+        return { ok: true, installed: true, reclaimed: record.reclaimed(), ...extras };
+    };
+
+    const remove = () => {
+        if (!installed && !record.size()) return { ok: true, absent: true };
+        const released = record.unwind();
+        if (!released.ok) {
+            lastError = released.error ?? `${definition.name} release failed`;
+            return { ok: false, error: lastError };
+        }
+        installed = false;
+        resetLocal();
+        return { ok: true, removed: true };
+    };
+
+    const holds = () => {
+        if (!installed || !handles || !record.held()) return false;
+        try {
+            return definition.holds ? definition.holds(handles) === true : true;
+        } catch {
+            return false;
+        }
+    };
+
+    const status = () => {
+        let own: Record<string, unknown> = {};
+        try {
+            own = definition.status?.(handles) ?? {};
+        } catch (error) {
+            own = { statusError: String(error) };
+        }
+        return {
+            ...own,
+            ok: true,
+            gate: definition.name,
+            installed,
+            resolved: !!handles,
+            held: holds(),
+            claims: record.size(),
+            lastError,
+        };
+    };
+
+    return {
+        ...((definition.api ?? {}) as Api),
+        install,
+        remove,
+        status,
+        probe,
+        /** Whether the gate is installed: from the start of its bind until its removal. */
+        installed: () => installed,
+    };
+}
+
+// Shorthands for what `find` answers.
+const gateReady = <Handles>(handles: Handles, facts: Record<string, unknown> = {}) => ({
+    ready: true as const,
+    handles,
+    facts,
+});
+const gateNotReady = (reason: string, facts: Record<string, unknown> = {}) => ({ notReady: reason, facts });
+const gateIncompatible = (reason: string, facts: Record<string, unknown> = {}) => ({
+    incompatible: reason,
+    facts,
+});
 
 // Whether every token is in a function's source. The source is taken once per function: a walk
 // over a mounted tree meets the same few component types thousands of times.
@@ -956,72 +1357,4 @@ const sourceMatches = (fn, tokens: readonly string[]) => {
         sourceTexts.set(fn, source);
     }
     return tokens.every((token) => source.includes(token));
-};
-
-// The mounted instances of a component that has no public handle at all, kept by the fiber.
-//
-// Steam's main-menu popup host is such a component: a module-local function the popup mounts
-// directly under a React root, exported nowhere, with the menu's memo export absent from that
-// render path entirely. The only handle is the mounted fiber, which decky-loader's tabs hook adopts
-// the same way: each fiber whose source carries the tokens has its `type` swapped for the wrapper
-// `wrapFor` builds for its original. `adopt` walks only while no adopted host is still mounted, so
-// running it on every publication catches a host Steam recreated without paying a tree walk for
-// the one it did not.
-const createSourceAdoption = (
-    tokens: readonly string[],
-    wrapFor: (original: any) => any,
-    bound = MaximumMountedNodes,
-) => {
-    // Each adopted fiber's original, the wrapper it was given and whether it had a parent when
-    // adopted; see fiberAttached.
-    const adopted = new Map<any, { original: any; wrapper: any; hadParent: boolean }>();
-    const prune = () => {
-        for (const [fiber, { hadParent }] of [...adopted]) {
-            if (hadParent && !fiberAttached(fiber)) adopted.delete(fiber);
-        }
-    };
-    return {
-        adopt: () => {
-            prune();
-            if (adopted.size > 0) return 0;
-            let count = 0;
-            walkFibers(reactRootFibers(), bound, (fiber) => {
-                const type = fiber.type;
-                if (adopted.has(fiber) || !sourceMatches(type, tokens)) return false;
-                const wrapper = wrapFor(type);
-                adopted.set(fiber, { original: type, wrapper, hadParent: fiberAttached(fiber) });
-                retargetFiber(fiber, wrapper);
-                invalidateFiberProps(fiber);
-                requestRender(fiber);
-                count++;
-                return false;
-            });
-            return count;
-        },
-        release: () => {
-            // Only a fiber still drawing our wrapper is handed back; a type something else set since
-            // is not ours to overwrite.
-            for (const [fiber, { original, wrapper }] of adopted) {
-                if (fiber.type === wrapper) retargetFiber(fiber, original);
-            }
-            adopted.clear();
-        },
-        count: () => {
-            prune();
-            return adopted.size;
-        },
-    };
-};
-
-// Hands adopted instances back to the function the claim displaced. No render is requested: the
-// original draws again whenever the page next renders, and a wrapper left on screen until then
-// passes Steam's tree through once its gate is removed.
-const releaseMountedType = (roots, elementType, replacement, original, bound: number) => {
-    let released = 0;
-    for (const fiber of mountedFibersOf(roots, elementType, bound)) {
-        if (fiber.type !== replacement) continue;
-        retargetFiber(fiber, original);
-        released++;
-    }
-    return released;
 };

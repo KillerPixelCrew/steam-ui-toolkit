@@ -1,6 +1,6 @@
 /**
  * Projects host power-menu additions and visibility into Steam's existing menu.
- * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ * @returns The defineGate gate; remove must release it before its bridge is replaced.
  */
 
 function createPowerMenu() {
@@ -19,13 +19,10 @@ function createPowerMenu() {
     const EntryKey = "steam-ui-power-menu-desktop";
     const MaximumDepth = 4;
 
-    let runtime;
     let react: any = null;
     let jsxRuntime: any = null;
     let localize: ((token: string) => unknown) | null = null;
-    let installed = false;
     let visible = false;
-    let unsubscribe: (() => void) | null = null;
     // What the first power menu rendered, kept for the session: the menu's own type, which makes
     // every later element a single identity test, the item and separator types, and the label.
     let menuType: unknown = null;
@@ -33,7 +30,6 @@ function createPowerMenu() {
     let separatorType: unknown = null;
     let label = "";
     let lastOutcome = "never rendered";
-    let lastError = "";
 
     const isPowerEntry = (child) =>
         react.isValidElement(child) && PowerTokens.has(child.props?.strDisplayNameLocToken);
@@ -126,74 +122,54 @@ function createPowerMenu() {
         return create(type, {...props, children: [...children, section]}, key);
     };
 
-    const resolve = () => {
-        runtime = getWebpackRuntime("power-menu");
-        react = resolveReact(runtime);
-        if (!react) {
-            lastError = "React runtime was not a unique match";
-            return false;
-        }
-        if (!runtime.findUnique(["#Quit_Shutdown", LabelToken])) {
-            lastError = "Power menu module was not a unique match";
-            return false;
-        }
-        jsxRuntime = runtime.resolve([...JsxRuntimeTokens]);
-        if (!jsxRuntime) {
-            lastError = "JSX runtime was not a unique match";
-            return false;
-        }
+    // Pure: the menu module is counted, never loaded, and React and the JSX runtime must each be one
+    // match. Nothing here waits on Steam drawing anything: the menu is recognised when it renders.
+    const find = (runtime) => {
+        const facts = {
+            menuModule: runtime.count(["#Quit_Shutdown", LabelToken]),
+            react: runtime.count([...ReactTokens]),
+            jsx: runtime.count([...JsxRuntimeTokens]),
+        };
+        const resolvedReact = resolveReact(runtime);
+        if (!resolvedReact) return gateIncompatible("React runtime was not a unique match", facts);
+        if (facts.menuModule !== 1) return gateIncompatible("Power menu module was not a unique match", facts);
+        if (facts.jsx !== 1) return gateIncompatible("JSX runtime was not a unique match", facts);
+        const resolvedJsx = runtime.resolve([...JsxRuntimeTokens]);
+        if (!resolvedJsx) return gateIncompatible("JSX runtime was not a unique match", facts);
         // Wanted, not required: without it the label is the English string.
-        localize = resolveSteamLocalizer(runtime);
-        return true;
+        return gateReady(
+            { react: resolvedReact, jsxRuntime: resolvedJsx, localize: resolveSteamLocalizer(runtime) },
+            facts,
+        );
     };
 
-    const install = () => {
-        if (installed) return {ok: true, alreadyInstalled: true};
-        if (!attemptResolution(resolve, (error) => (lastError = "Power menu resolution failed: " + String(error)))) {
-            return {ok: false, error: lastError};
-        }
-        const claim = interceptElements(jsxRuntime, patchId, transform);
-        if (!claim.ok) {
-            lastError = claim.error ?? "the JSX runtime could not be intercepted";
-            return {ok: false, error: lastError};
-        }
-        installed = true;
-        lastError = "";
-        unsubscribe = subscribe(patchId, (state) => {
-            visible = state?.visible === true;
-        });
-        return {ok: true, installed: true};
-    };
-
-    const remove = () => {
-        if (!installed) return {ok: true, absent: true};
-        const released = releaseElements(jsxRuntime, patchId);
-        if (!released.ok) {
-            lastError = released.error ?? "Power menu release failed";
-            return {ok: false, error: lastError};
-        }
-        installed = false;
-        unsubscribe = endSubscription(unsubscribe);
-        visible = false;
-        menuType = itemType = separatorType = null;
-        label = "";
-        lastOutcome = "removed";
-        return {ok: true, removed: true};
-    };
-
-    const status = () => ({
-        ok: true,
-        installed,
-        resolved: !!react && !!jsxRuntime,
-        claimed: elementsIntercepted(jsxRuntime, patchId),
-        localized: !!localize,
-        recognised: menuType !== null,
-        visible,
-        lastOutcome,
-        lastError,
+    return defineGate({
+        name: "power-menu",
+        find,
+        bind: (handles, ledger) => {
+            react = handles.react;
+            jsxRuntime = handles.jsxRuntime;
+            localize = handles.localize;
+            const claim = ledger.elements(jsxRuntime, patchId, transform);
+            if (!claim.ok) return claim.error ?? "the JSX runtime could not be intercepted";
+            ledger.subscribe(patchId, (state) => {
+                visible = state?.visible === true;
+            });
+        },
+        unbind: () => {
+            visible = false;
+            menuType = itemType = separatorType = null;
+            label = "";
+            lastOutcome = "removed";
+        },
+        status: () => ({
+            claimed: elementsIntercepted(jsxRuntime, patchId),
+            localized: !!localize,
+            recognised: menuType !== null,
+            visible,
+            lastOutcome,
+        }),
     });
-
-    return {install, remove, status};
 }
 
 registerGate("powerMenu", createPowerMenu());

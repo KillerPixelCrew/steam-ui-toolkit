@@ -60,31 +60,17 @@ public static class SteamThemeStyleSurface
 
     /// <summary>The gate that installs the blocks into Steam's popup documents.</summary>
     /// <remarks>
-    ///     The probe reads Steam's popup manager by the name Valve publishes it under, the same way the
-    ///     download sort and the side-menu snapshot read <c>SteamUIStore</c>, and whether SharedJSContext
-    ///     has a mounted React tree; either is a way to the windows, and the gate uses both. Nothing
-    ///     about webpack is required: the gate touches documents, not modules.
+    ///     The probe is the gate's own find. It reads Steam's popup manager by the name Valve publishes
+    ///     it under, the same way the download sort and the side-menu snapshot read
+    ///     <c>SteamUIStore</c>, and whether SharedJSContext has a mounted React tree; either is a way to
+    ///     the windows, and the gate uses both. With neither, Steam has not built its windows yet and
+    ///     the gate is not ready. Nothing about webpack is required: the gate touches documents, not
+    ///     modules.
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
         "themeStyles",
         "steam-theme-styles-v1:popup-manager",
-        """
-        (()=>{try{
-          const manager=window.g_PopupManager;
-          const popupManager=!!manager&&typeof manager.GetPopups==='function'?1:0;
-          let popups=0;
-          if(popupManager){try{popups=Array.from(manager.GetPopups()??[]).length;}catch{popups=0;}}
-          // A mounted React tree, whose portals are the windows the popup manager does not list.
-          let reactRoot=0;
-          const host=document.getElementById('root');
-          if(host&&Object.keys(host).some(name=>name.startsWith('__reactContainer$')))reactRoot=1;
-          return JSON.stringify({popupManager,popups,reactRoot});
-        }catch(error){return JSON.stringify({error:String(error)}); } })()
-        """,
-        root => SteamUiPatchEvaluation.IsOne(root, "popupManager") || SteamUiPatchEvaluation.IsOne(root, "reactRoot"),
-        "status.installed&&status.resolved",
-        "!status.installed",
         "Theme styles");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>

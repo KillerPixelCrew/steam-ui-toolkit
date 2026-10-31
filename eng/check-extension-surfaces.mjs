@@ -157,8 +157,12 @@ runtime.exported = (tokens, predicate) => {
     return fits[0];
 };
 const iconCalls = [];
+let modulesLoaded = true;
 const globals = {
-    getWebpackRuntime: () => runtime,
+    getWebpackRuntime: () => {
+        if (!modulesLoaded) throw new Error("Steam modules unavailable");
+        return runtime;
+    },
     subscribe: (id, callback) => {
         subscriptions.set(id, callback);
         return () => subscriptions.delete(id);
@@ -204,10 +208,55 @@ const {
         "createMenu:createGameContextMenu,createExtensions:createExtensionsTab,unclaimedValue,pluginFrontendSlots," +
         "registerMenuRenderer:registerSteamGameContextMenuRenderer})",
 );
+// The probe is each gate's own find. A webpack runtime not loaded yet is not ready; a client
+// without the Quick Access module, with two memo exports drawing the view, or without the JSX
+// runtime is incompatible. Neither gate's target has to be mounted.
+modulesLoaded = false;
+assert.equal(extensions.probe().outcome, "notReady", "an unloaded runtime must be not ready");
+assert.equal(menu.probe().outcome, "notReady");
+modulesLoaded = true;
+let probe = extensions.probe();
+assert.equal(probe.outcome, "ready", `the Quick Access memo must probe ready: ${probe.reason}`);
+assert.deepEqual(
+    [probe.facts.qamModule, probe.facts.memoExports, probe.facts.claimable, probe.facts.claimed],
+    [1, 1, true, false],
+);
+assert.deepEqual([probe.facts.react, probe.facts.focusable, probe.facts.controls, probe.facts.panel], [1, 1, 1, 1]);
+modules.qam.exports.second = { type: originalRoot };
+probe = extensions.probe();
+assert.equal(probe.outcome, "incompatible", "two memo exports drawing the view must be incompatible");
+assert.equal(probe.facts.memoExports, 2);
+delete modules.qam.exports.second;
+const qamTokens = modules.qam.tokens;
+modules.qam.tokens = ["moved"];
+probe = extensions.probe();
+assert.equal(probe.outcome, "incompatible", "a missing Quick Access module must be incompatible");
+assert.equal(probe.facts.qamModule, 0);
+modules.qam.tokens = qamTokens;
+nativeAvailable = false;
+assert.match(extensions.probe().reason, /panel section and row/u, "a missing component is named");
+nativeAvailable = true;
+assert.deepEqual(menu.probe().facts, { react: 1, jsx: 1 }, "the menu needs React and JSX alone");
+const resolveJsx = runtime.resolve;
+runtime.resolve = () => {
+    throw new Error("Steam module ambiguous");
+};
+assert.equal(menu.probe().outcome, "incompatible", "an ambiguous JSX runtime must be incompatible");
+runtime.resolve = resolveJsx;
+assert.equal(memo.type, originalRoot, "a probe must not claim anything");
+
 assert.equal(extensions.install().ok, true);
 assert.equal(memo.type.__steamUiExtensionsTabOriginal.kind, "steam-ui-property-snapshot-v1");
 assert.equal(memo.type.__steamUiExtensionsTabOriginal.value, originalRoot);
-// SteamProbeExecutionTests runs the whole C# probe against both the original and the owned memo.
+assert.equal(extensions.status().held, true, "the standard status must show the claims held");
+assert.equal(extensions.status().nativeComponentsResolved, true);
+// A holding gate stays compatible with its own next probe: while installed it answers from its
+// handles, and a fresh find (a gate of a later bridge evaluation) sees through the claim's marker.
+assert.equal(extensions.probe().outcome, "ready");
+assert.equal(extensions.probe().installed, true);
+probe = createExtensions().probe();
+assert.equal(probe.outcome, "ready", "a claimed memo must stay compatible with a fresh find");
+assert.equal(probe.facts.claimed, true);
 subscriptions.get("steam-ui.extensions-tab")({
     items: [
         {
@@ -691,6 +740,7 @@ assert.equal(replacement.status().claimed, true);
 releaseBlocked = false;
 assert.equal(replacement.remove().ok, true, "the retry completes the cleanup");
 assert.equal(memo.type, originalRoot);
+assert.equal(replacement.status().claims, 0, "removal must leave nothing on the ledger");
 
 nativeAvailable = false;
 const refused = createExtensions();
@@ -780,6 +830,7 @@ Object.defineProperty(GameMenu.prototype, "render", {
     get: () => originalRender,
 });
 assert.equal(menu.install().ok, true);
+assert.equal(menu.status().held, true, "the JSX and React claims must be held");
 assert.equal(
     runtime.findUnique(["GetTargetApps", "BuildManageSubmenu", "GetPrimaryActionMenuItem"]),
     null,
@@ -1022,8 +1073,10 @@ assert.equal(
     "competing actual native handles refuse ownership",
 );
 assert.equal(competing.status().nativeMenuState, "refused");
+assert.equal(competing.status().held, false, "a refused native menu must fail verification");
 assert.equal(OtherNativeMenu.prototype.GetCollectionManagementActions, otherOriginal);
 assert.equal(competing.remove().ok, true);
+assert.equal(competing.status().claims, 0, "the native menu methods go back with the rest");
 assert.deepEqual(
     Object.getOwnPropertyDescriptor(GameMenu.prototype, "GetCollectionManagementActions"),
     originalActionDescriptor,

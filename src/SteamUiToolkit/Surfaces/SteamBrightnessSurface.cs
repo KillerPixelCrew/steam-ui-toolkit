@@ -42,44 +42,19 @@ public static class SteamBrightnessSurface
 
     /// <summary>The gate that reveals Steam's brightness row and claims its setter.</summary>
     /// <remarks>
-    ///     The probe requires the native backend to be present: revealing the row without it would
-    ///     produce a slider that moves and changes nothing. Verification includes <c>setterOwned</c>
-    ///     because a revealed slider whose writes still reach the native stub is the exact broken
-    ///     state this gate first shipped with.
+    ///     The probe is the gate's own find. The settings message is built when Quick Settings first
+    ///     mounts its display section, so a store or message without the availability flag yet is not
+    ///     ready, never an incompatible build. It is incompatible when the display store is not a
+    ///     unique match, the native brightness backend is missing (revealing the row without it would
+    ///     produce a slider that moves and changes nothing) or the client already reports brightness
+    ///     available on its own. Verification includes the claimed setter and a revealed flag, because a
+    ///     revealed slider whose writes still reach the native stub is the exact broken state this gate
+    ///     first shipped with.
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
         "brightness",
         "steam-brightness-v1:hidden-flag+present-backend",
-        $$"""
-          {{SteamUiProbeJs.Preamble("steam_ui_brightness_probe_")}}
-            // By what it is, never by module id or export name: the September 2026 beta renumbered
-            // its module and this probe refused brightness until it stopped naming it.
-            let store=null;
-            try{store=req.exported(['m_flDisplayBrightness','is_display_brightness_available'],
-              v=>typeof v==='function'&&typeof v.Get==='function'&&String(v).includes('m_flDisplayBrightness')).Get();}catch{}
-            const settings=store&&store.m_msgSettings;
-            if(!settings)return JSON.stringify({error:'display settings unavailable'});
-            const display=window.SteamClient&&SteamClient.System&&SteamClient.System.Display;
-            return JSON.stringify({
-              fieldPresent:'is_display_brightness_available' in settings,
-              // Hidden, or visible because this gate revealed it. Requiring hidden alone was the
-              // self-incompatibility teardown loop: a successful apply made this false, the next
-              // poll declared the patch incompatible, and the manager removed the reveal it had
-              // just verified — the row flickered on a ~25-second cycle on the device (2026-08-30).
-              revealable:settings.is_display_brightness_available!==true
-                ||settings.__steamUiBrightnessRevealed===true,
-              backendPresent:!!display&&typeof display.SetBrightness==='function'
-                &&typeof display.RegisterForBrightnessChanges==='function'
-            });
-          {{SteamUiProbeJs.Close}}
-          """,
-        root =>
-            SteamUiPatchEvaluation.Flag(root, "fieldPresent")
-            && SteamUiPatchEvaluation.Flag(root, "revealable")
-            && SteamUiPatchEvaluation.Flag(root, "backendPresent"),
-        "status.installed&&status.available&&status.setterOwned",
-        "!status.available",
         "Brightness gate");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>

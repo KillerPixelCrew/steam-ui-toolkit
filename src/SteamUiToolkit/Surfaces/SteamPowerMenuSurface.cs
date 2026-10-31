@@ -41,25 +41,15 @@ public static class SteamPowerMenuSurface
     public static IReadOnlyList<string> Commands { get; } = ["switchToDesktop"];
 
     /// <summary>The power menu patch.</summary>
+    /// <remarks>
+    ///     The probe is the gate's own find: it counts the module carrying <c>#Quit_Shutdown</c> beside
+    ///     <c>#SwitchToDesktop</c> without loading it and requires React and the JSX runtime to match once;
+    ///     anything else is incompatible. Nothing it needs waits on Steam drawing the menu.
+    /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
         "powerMenu",
         "steam-power-menu-v1:unique-power-menu-module+jsx-element-transform",
-        $$"""
-          {{SteamUiProbeJs.Preamble("steam_ui_power_menu_probe_")}}
-            return JSON.stringify({
-              menuModule:count(['#Quit_Shutdown','#SwitchToDesktop']),
-              react:count({{SteamUiProbeJs.ReactTokens}}),
-              jsx:count({{SteamUiProbeJs.JsxRuntimeTokens}})
-            });
-          {{SteamUiProbeJs.Close}}
-          """,
-        root =>
-            SteamUiPatchEvaluation.IsOne(root, "menuModule")
-            && SteamUiPatchEvaluation.IsOne(root, "react")
-            && SteamUiPatchEvaluation.IsOne(root, "jsx"),
-        "status.installed&&status.resolved&&status.claimed",
-        "!status.installed",
         "Power menu");
 
     /// <summary>Serializes the state exactly as the injected entry reads it.</summary>

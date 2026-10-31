@@ -4,79 +4,12 @@ using static SteamUiToolkit.Tests.Fakes.SurfaceDispatch;
 namespace SteamUiToolkit.Tests;
 
 /// <summary>
-///     The Home carousel surface's own contract: what the probe demands before Home is claimed, what a
-///     publication puts on the wire, and what the carousel's report carries back.
+///     The Home carousel surface's own contract: what a publication puts on the wire and what the
+///     carousel's report carries back. What the probe demands before Home is claimed is the gate's own
+///     find, exercised against the emitted asset by <c>eng/check-home-carousel.mjs</c>.
 /// </summary>
-/// <remarks>
-///     The structural facts were read from the September 2026 client beta's shipped bundle on
-///     2026-09-11: <c>HomeTabsActive</c> with <c>#Showcase_RecentGames</c> occurs in one module, the
-///     <c>/library/home</c> route renders a <c>React.memo</c>, and mobx-react-lite's startup check
-///     occurs once. Since the client update of 2026-09-22 that Home is mounted before the route list
-///     can be found, so the probe also reports how many mounted Homes install will adopt.
-/// </remarks>
 public sealed class SteamHomeCarouselTests
 {
-    private static SteamGatePatch Gate => (SteamGatePatch)SteamHomeCarouselSurface.Patch;
-
-    [Fact]
-    public void TheProbeNamesEveryStructuralFactTheGateResolvesOn()
-    {
-        var probe = Gate.ProbeExpression;
-
-        Assert.Contains("HomeTabsActive", probe, StringComparison.Ordinal);
-        Assert.Contains("#Showcase_RecentGames", probe, StringComparison.Ordinal);
-        Assert.Contains("/library/home", probe, StringComparison.Ordinal);
-        Assert.Contains("claimable", probe, StringComparison.Ordinal);
-        Assert.Contains("GetAppOverviewByAppID", probe, StringComparison.Ordinal);
-        // A miss reports what the walk saw, so a new client says which assumption failed.
-        Assert.Contains("homeRoutes", probe, StringComparison.Ordinal);
-        Assert.Contains("visited", probe, StringComparison.Ordinal);
-        // A Home already on screen is adopted at install; the probe says how many there are.
-        Assert.Contains("mounted", probe, StringComparison.Ordinal);
-        Assert.Contains("stateNode?.current", probe, StringComparison.Ordinal);
-        Assert.Contains("mobx-react-lite requires React with Hooks support", probe, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void TheProbeFindsHomeByContentRatherThanByName()
-    {
-        // Home is `r5` and the carousel `hi` in today's build. The probe matches the route by its
-        // path and the page by its source, and names neither.
-        var probe = Gate.ProbeExpression;
-
-        Assert.DoesNotContain("r5", probe, StringComparison.Ordinal);
-        Assert.DoesNotContain("46307", probe, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData(
-        """{"homeModule":1,"homeFound":1,"claimable":true,"claimed":false,"stores":true,"observer":1,"react":1}""",
-        true)]
-    // Steam's observer hook is wanted, not required.
-    [InlineData(
-        """{"homeModule":1,"homeFound":1,"claimable":true,"claimed":false,"stores":true,"observer":0,"react":1}""",
-        true)]
-    [InlineData(
-        """{"homeModule":1,"homeFound":0,"claimable":false,"claimed":false,"stores":true,"observer":1,"react":1}""",
-        false)]
-    [InlineData(
-        """{"homeModule":2,"homeFound":1,"claimable":true,"claimed":false,"stores":true,"observer":1,"react":1}""",
-        false)]
-    [InlineData(
-        """{"homeModule":1,"homeFound":1,"claimable":true,"claimed":false,"stores":false,"observer":1,"react":1}""",
-        false)]
-    // A non-writable type could be replaced by nothing and restored to nothing.
-    [InlineData(
-        """{"homeModule":1,"homeFound":1,"claimable":false,"claimed":false,"stores":true,"observer":1,"react":1}""",
-        false)]
-    [InlineData("""{"error":"Steam modules unavailable"}""", false)]
-    public void CompatibilityRequiresEveryFactAndAUniqueMatchForEachOne(string json, bool expected)
-    {
-        using var document = JsonDocument.Parse(json);
-
-        Assert.Equal(expected, Gate.Compatible(document.RootElement));
-    }
-
     [Fact]
     public void TheInstructionReachesTheWireAsPublished()
     {

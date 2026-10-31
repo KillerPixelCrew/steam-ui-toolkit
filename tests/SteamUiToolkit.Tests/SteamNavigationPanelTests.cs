@@ -1,66 +1,17 @@
-using System.Text.Json;
 using static SteamUiToolkit.Tests.Fakes.SurfaceDispatch;
 
 namespace SteamUiToolkit.Tests;
 
-/// <summary>
-///     The navigation panel surface's own contract: what the probe demands of a client before the
-///     panel is claimed, and what a publication puts on the wire.
-/// </summary>
+/// <summary>The navigation panel surface's own contract: what a publication puts on the wire.</summary>
 /// <remarks>
-///     Every structural fact asserted here was measured against the live client on 2026-09-10, where
-///     <c>#MainMenu_Title</c> and <c>MainNavMenuContainer</c> each occur in exactly one of the 2581
+///     Every structural fact the gate resolves on was measured against the live client on 2026-09-10,
+///     where <c>#MainMenu_Title</c> and <c>MainNavMenuContainer</c> each occur in exactly one of the 2581
 ///     loaded modules, that module has exactly one export whose memo renders the container, and that
-///     export's <c>type</c> is a writable and configurable own property.
+///     export's <c>type</c> is a writable and configurable own property. What the probe demands is the
+///     gate's own find, exercised against the emitted asset by <c>eng/check-navigation-panel.mjs</c>.
 /// </remarks>
 public sealed class SteamNavigationPanelTests
 {
-    private static SteamGatePatch Gate => (SteamGatePatch)SteamNavigationPanelSurface.Patch;
-
-    [Fact]
-    public void TheProbeNamesEveryStructuralFactTheGateResolvesOn()
-    {
-        // Each fact is separate so an incompatible client says which one moved. A probe that
-        // reported one boolean would only ever say "something changed".
-        var probe = Gate.ProbeExpression;
-
-        Assert.Contains("#MainMenu_Title", probe, StringComparison.Ordinal);
-        Assert.Contains("MainNavMenuContainer", probe, StringComparison.Ordinal);
-        Assert.Contains("RunnningAppSeparator", probe, StringComparison.Ordinal);
-        Assert.Contains("memoExports", probe, StringComparison.Ordinal);
-        Assert.Contains("claimable", probe, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void TheProbeSelectsTheExportByWhatItDrawsRatherThanByName()
-    {
-        // Minified export names are right for exactly one client build. The live panel's export is
-        // called v_ today and that name is deliberately nowhere in this file or the probe.
-        var probe = Gate.ProbeExpression;
-
-        Assert.DoesNotContain("v_", probe, StringComparison.Ordinal);
-        Assert.DoesNotContain("exports.Ie", probe, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("""{"menuModule":1,"panelRoot":1,"memoExports":1,"react":1,"claimable":true}""", true)]
-    // Already ours is compatible: a probe demanding the pre-claim shape would retract every applied
-    // gate on its next poll.
-    [InlineData("""{"menuModule":1,"panelRoot":1,"memoExports":1,"react":1,"claimable":false,"claimed":true}""", true)]
-    // Two candidate exports is ambiguous, which is a refusal rather than a reason to pick one.
-    [InlineData("""{"menuModule":1,"panelRoot":1,"memoExports":2,"react":1,"claimable":true}""", false)]
-    // A non-writable type could be replaced by nothing and restored to nothing.
-    [InlineData("""{"menuModule":1,"panelRoot":1,"memoExports":1,"react":1,"claimable":false}""", false)]
-    [InlineData("""{"menuModule":0,"panelRoot":1,"memoExports":1,"react":1,"claimable":true}""", false)]
-    [InlineData("""{"menuModule":1,"panelRoot":0,"memoExports":1,"react":1,"claimable":true}""", false)]
-    [InlineData("""{"error":"Steam modules unavailable"}""", false)]
-    public void CompatibilityRequiresEveryFactAndAUniqueMatchForEachOne(string json, bool expected)
-    {
-        using var document = JsonDocument.Parse(json);
-
-        Assert.Equal(expected, Gate.Compatible(document.RootElement));
-    }
-
     [Fact]
     public void EntriesAndHiddenNamesReachTheWireAsPublished()
     {

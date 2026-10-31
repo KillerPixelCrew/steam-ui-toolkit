@@ -154,41 +154,15 @@ public static class SteamBluetoothSurface
     /// <remarks>
     ///     The query cache must be reachable: availability rides a react-query with infinite stale
     ///     time, so without an invalidation the row keeps reading the unavailable answer no matter what
-    ///     the methods return.
+    ///     the methods return. The probe is the gate's own find, which answers incompatible when the
+    ///     service stub or the query client is not a unique match, an operation the pairing UI calls is
+    ///     missing, or the methods can be neither replaced nor recognised as this gate's own.
+    ///     Verification also requires at least one method still replaced.
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
         "bluetooth",
         "steam-bluetooth-v1:operations+writable-stub+reachable-cache",
-        $$"""
-          {{SteamUiProbeJs.Preamble("steam_ui_bluetooth_probe_")}}
-            // The stub and the query client by what they are: the September 2026 beta renumbered
-            // modules 60517 and 21371, which this probe used to name.
-            let RF=null;
-            try{RF=req.exported(['BluetoothManager.GetState#1'],
-              v=>!!v&&typeof v==='object'&&typeof v.GetState==='function'&&typeof v.Pair==='function');}catch{}
-            if(!RF)return JSON.stringify({error:'bluetooth service stub unavailable'});
-            const ops=['GetState','SetDiscovering','Pair','CancelPair','Connect','Disconnect',
-              'Forget','SetTrusted','SetWakeAllowed','GetDeviceDetails'];
-            const missing=ops.filter(n=>typeof RF[n]!=='function');
-            const d=Object.getOwnPropertyDescriptor(RF,'GetState');
-            let cache=false;
-            try{cache=typeof req.exported(['ReactQueryDevtools','offlineFirst'],
-              v=>typeof v?.invalidateQueries==='function'&&typeof v?.getQueryState==='function').invalidateQueries==='function';}catch{}
-            return JSON.stringify({
-              operationsPresent:missing.length===0,
-              missing:missing,
-              methodsWritable:{{SteamUiProbeJs.Replaceable("d")}},
-              queryCacheReachable:cache
-            });
-          {{SteamUiProbeJs.Close}}
-          """,
-        root =>
-            SteamUiPatchEvaluation.Flag(root, "operationsPresent")
-            && SteamUiPatchEvaluation.Flag(root, "methodsWritable")
-            && SteamUiPatchEvaluation.Flag(root, "queryCacheReachable"),
-        "status.installed&&status.replaced>0",
-        "!status.installed",
         "Bluetooth service");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>

@@ -1,6 +1,7 @@
 /**
  * Reconciles host CSS into owned style elements across eligible Steam documents.
- * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced. The windows accessor reports currently reachable documents and owned nodes.
+ * @returns The defineGate gate; remove must release it before its bridge is replaced. The windows
+ * accessor reports currently reachable documents and owned nodes.
  */
 
 function createThemeStyles() {
@@ -14,8 +15,6 @@ function createThemeStyles() {
   // React's HostPortal fiber tag, the one whose stateNode carries the container it renders into.
   const HostPortalTag = 4;
 
-  let installed = false;
-  let unsubscribe: (() => void) | null = null;
   // The popup manager's registration for windows Steam creates, or null when it offers none.
   let popupsWatched: any = null;
   let desired: { styles: any[]; signature: string; revision: number } = {
@@ -24,7 +23,8 @@ function createThemeStyles() {
     revision: 0,
   };
   let lastOutcome = "never reconciled";
-  let lastError = "";
+  // Why the last reconciliation failed; the gate's own lastError is its lifecycle's.
+  let reconcileError = "";
   let windowsSeen = 0;
   let documentsStyled = 0;
   let nodesInstalled = 0;
@@ -169,7 +169,7 @@ function createThemeStyles() {
   };
 
   const reconcile = () => {
-    if (!installed) return;
+    if (!gate.installed()) return;
     // With nothing published and nothing installed there is no window to bring in step, and the
     // walk over every mounted fiber that finds the windows is not worth doing.
     if (desired.styles.length === 0 && nodesInstalled === 0) {
@@ -187,9 +187,9 @@ function createThemeStyles() {
       documentsStyled = styled;
       nodesInstalled = nodes;
       lastOutcome = `windows=${windowsSeen} documents=${styled} nodes=${nodes} styles=${desired.styles.length}`;
-      lastError = "";
+      reconcileError = "";
     } catch (error) {
-      lastError = "theme reconciliation failed: " + String(error);
+      reconcileError = "theme reconciliation failed: " + String(error);
     }
   };
 
@@ -215,89 +215,99 @@ function createThemeStyles() {
   const signatureOf = (styles) =>
     styles.map((style) => `${style.id}#${style.hash}@${style.targets.join("|")}`).join(";");
 
-  const install = () => {
-    if (installed) return { ok: true, alreadyInstalled: true };
-    if (!popupManager() && reactRootFibers().length === 0) {
-      lastError = "neither Steam's popup manager nor a mounted React tree was found";
-      return { ok: false, error: lastError };
-    }
-    installed = true;
-    lastError = "";
-    unsubscribe = subscribe(patchId, (state) => {
-      const styles = Array.isArray(state?.styles)
-        ? state.styles.filter(validStyle)
-        : [];
-      const revision = Number.isSafeInteger(state?.revision) ? state.revision : 0;
-      const signature = signatureOf(styles);
-      if (signature === desired.signature && revision === desired.revision) return;
-      if (signature !== desired.signature) patterns.clear();
-      desired = { styles, signature, revision };
-      reconcile();
-    });
-    // A window Steam creates later is styled when Steam announces it, and again once it has loaded,
-    // since a popup's document can still be the blank one when the callback runs.
-    try {
-      const manager = popupManager();
-      if (manager && typeof manager.AddPopupCreatedCallback === "function") {
-        popupsWatched = manager.AddPopupCreatedCallback((popup) => {
-          reconcile();
-          try {
-            (popup?.m_popup ?? popup?.window)?.addEventListener?.("load", reconcile, { once: true });
-          } catch {
-            // A window that refuses the listener was styled above; the next publication covers it.
-          }
-        });
+  // Pure: a way to the windows, Steam's popup manager or a mounted React tree whose portals are the
+  // windows the manager does not list. Neither is a client that has not built its windows yet.
+  // Nothing about webpack is required: the gate touches documents, not modules.
+  const find = (_runtime) => {
+    const manager = popupManager();
+    let popups = 0;
+    if (manager) {
+      try {
+        popups = Array.from(manager.GetPopups() ?? []).length;
+      } catch {
+        popups = 0;
       }
-    } catch {
-      popupsWatched = null;
     }
-    reconcile();
-    return { ok: true, installed: true };
+    const reactRoot = reactRootFibers().length > 0 ? 1 : 0;
+    const facts = { popupManager: manager ? 1 : 0, popups, reactRoot };
+    return manager || reactRoot
+      ? gateReady(true, facts)
+      : gateNotReady("neither Steam's popup manager nor a mounted React tree was found", facts);
   };
 
-  // Every owned node in every window goes before the gate forgets it holds anything, so a window
-  // keeps no theme once the host has retracted it, and Steam's own styling is what remains.
-  const remove = () => {
-    if (!installed) return { ok: true, absent: true };
-    try {
-      popupsWatched?.Unregister?.();
-    } catch {
-      // The manager went with its window; nothing is left to call back.
-    }
-    popupsWatched = null;
-    unsubscribe = endSubscription(unsubscribe);
-    const removed = clearAll();
-    desired = { styles: [], signature: "", revision: 0 };
-    patterns.clear();
-    installed = false;
-    lastOutcome = `removed ${removed}`;
-    return { ok: true, removed: true, nodes: removed };
-  };
-
-  // The windows and what they are matched by, for a host's diagnostics.
-  const windows = () =>
-    steamDocuments().map((facts) => ({
-      name: facts.name,
-      title: facts.title,
-      url: facts.url,
-      nodes: ownedNodes(facts.doc).length,
-    }));
-
-  const status = () => ({
-    ok: true,
-    installed,
-    resolved: !!popupManager() || reactRootFibers().length > 0,
-    windows: windowsSeen,
-    watchingPopups: !!popupsWatched,
-    documents: documentsStyled,
-    nodes: nodesInstalled,
-    styles: desired.styles.length,
-    revision: desired.revision,
-    lastOutcome,
-    lastError,
+  const gate = defineGate({
+    name: "theme-styles",
+    find,
+    bind: (_ready, ledger) => {
+      // Every owned node in every window goes last, once nothing can install another, so a window
+      // keeps no theme once the host has retracted it, and Steam's own styling is what remains.
+      ledger.cleanup("owned style nodes", () => {
+        lastOutcome = `removed ${clearAll()}`;
+      });
+      ledger.subscribe(patchId, (state) => {
+        const styles = Array.isArray(state?.styles)
+          ? state.styles.filter(validStyle)
+          : [];
+        const revision = Number.isSafeInteger(state?.revision) ? state.revision : 0;
+        const signature = signatureOf(styles);
+        if (signature === desired.signature && revision === desired.revision) return;
+        if (signature !== desired.signature) patterns.clear();
+        desired = { styles, signature, revision };
+        reconcile();
+      });
+      // A window Steam creates later is styled when Steam announces it, and again once it has
+      // loaded, since a popup's document can still be the blank one when the callback runs.
+      try {
+        const manager = popupManager();
+        if (manager && typeof manager.AddPopupCreatedCallback === "function") {
+          popupsWatched = manager.AddPopupCreatedCallback((popup) => {
+            reconcile();
+            try {
+              (popup?.m_popup ?? popup?.window)?.addEventListener?.("load", reconcile, { once: true });
+            } catch {
+              // A window that refuses the listener was styled above; the next publication covers it.
+            }
+          });
+        }
+      } catch {
+        popupsWatched = null;
+      }
+      ledger.cleanup("popup watch", () => {
+        try {
+          popupsWatched?.Unregister?.();
+        } catch {
+          // The manager went with its window; nothing is left to call back.
+        }
+        popupsWatched = null;
+      });
+      reconcile();
+    },
+    unbind: () => {
+      desired = { styles: [], signature: "", revision: 0 };
+      patterns.clear();
+    },
+    status: () => ({
+      windows: windowsSeen,
+      watchingPopups: !!popupsWatched,
+      documents: documentsStyled,
+      nodes: nodesInstalled,
+      styles: desired.styles.length,
+      revision: desired.revision,
+      reconcileError,
+      lastOutcome,
+    }),
+    api: {
+      // The windows and what they are matched by, for a host's diagnostics.
+      windows: () =>
+        steamDocuments().map((facts) => ({
+          name: facts.name,
+          title: facts.title,
+          url: facts.url,
+          nodes: ownedNodes(facts.doc).length,
+        })),
+    },
   });
-
-  return { install, remove, status, windows };
+  return gate;
 }
 
 registerGate("themeStyles", createThemeStyles());

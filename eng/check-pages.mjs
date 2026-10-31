@@ -1,10 +1,12 @@
 // Exercise the emitted custom-page gate against an inert React fixture.
 //
-// Resolution is checked live and pinned by the patch probe. What this proves is what the gate does
-// once it holds the router: that it finds the route list by content rather than by an index chain,
-// that overrides go in front of Steam's routes and additions behind them (which is what makes them
-// behave differently under a first-match switch), that pages are built with Steam's own Route, and
-// that removal hands the router back untouched.
+// The probe is the gate's own find: a router module with no router mounted is not ready, a missing
+// router module is incompatible, and an installed gate answers from what it holds. What this proves
+// beyond that is what the gate does once it holds the router: that it finds the route list by
+// content rather than by an index chain, that overrides go in front of Steam's routes and additions
+// behind them (which is what makes them behave differently under a first-match switch), that pages
+// are built with Steam's own Route, and that removal hands the router and the switch back untouched,
+// including a router mounted after install.
 import assert from "node:assert/strict";
 import {
     assertRemoveRetries,
@@ -70,16 +72,20 @@ const routeSwitchNode = {
     alternate: { type: RouteSwitch },
 };
 const rootNode = { type: Router, elementType: memo, child: routeSwitchNode, sibling: null };
-globalThis.document = {
+const mountedDocument = {
     getElementById: (id) => (id === "root" ? { __reactContainer$fixture: rootNode } : null),
 };
+globalThis.document = mountedDocument;
 
+let routerModule = true;
 const globals = {
     getWebpackRuntime: () => {
         const require = () => react;
         require.findUnique = (tokens) =>
             tokens.includes("TopLevelTransition") && tokens.includes("Settings.Root()")
-                ? ["router"]
+                ? routerModule
+                    ? ["router"]
+                    : null
                 : ["react"];
         require.count = () => 1;
         return require;
@@ -120,9 +126,39 @@ const selected = (location) => {
 assert.equal(selected("/settings")?.props.path, "/settings", "the fixture router must resolve");
 assert.equal(selected("/wsgm/artwork"), null, "an unregistered path must resolve to nothing");
 
+// The router module is there and nothing is mounted: Big Picture closed or still loading.
+globalThis.document = { getElementById: () => null };
+let probe = gate.probe();
+assert.equal(probe.outcome, "notReady", "an unmounted router must be not ready");
+assert.equal(probe.facts.routerModule, 1);
+assert.equal(probe.facts.routerFound, 0);
+// No router module at all is a client that moved.
+globalThis.document = mountedDocument;
+routerModule = false;
+probe = gate.probe();
+assert.equal(probe.outcome, "incompatible", "a missing router module must be incompatible");
+assert.equal(probe.facts.routerModule, 0);
+routerModule = true;
+probe = gate.probe();
+assert.equal(probe.outcome, "ready", `the mounted router must probe ready: ${probe.reason}`);
+assert.equal(probe.facts.routerFound, 1);
+assert.equal(probe.facts.routeSwitch, 1);
+assert.equal(probe.facts.claimable, true);
+assert.equal(memo.type, Router, "a probe must not claim the router");
+assert.equal(routeSwitchNode.type, RouteSwitch, "a probe must not adopt the switch");
+
 const installed = gate.install();
 assert.ok(installed.ok, `install failed: ${installed.error}`);
 assert.ok(gate.status().claimed, "the router memo type must be claimed");
+assert.equal(gate.status().held, true, "the standard status must show every claim held");
+// While installed the probe answers from what the gate holds: the find that sees its own claims
+// would otherwise call a holding gate incompatible.
+globalThis.document = { getElementById: () => null };
+assert.equal(gate.probe().outcome, "ready", "an installed gate must answer from its handles");
+assert.equal(gate.probe().installed, true);
+globalThis.document = mountedDocument;
+assert.notEqual(routeSwitchNode.type, RouteSwitch, "the mounted switch must be adopted");
+assert.equal(routeSwitchNode.alternate.type, routeSwitchNode.type, "on both of its fibers");
 
 // The claim alone reaches the next mount only, and Steam's router is a memo with the default
 // comparison, so a router already on screen would keep drawing Steam's own function until the user
@@ -229,10 +265,22 @@ assert.equal(selected("/")?.props.path ?? null, null, "a catch-all path must nev
 // Steam's route list is observed, which is what the status reports.
 assert.equal(gate.status().routeCount, 4, "the gate must report the routes it found");
 
+// A router React mounted after install from the claimed memo caches the wrapper on both of its
+// fibers; nothing kept at install knows it, and release must find it all the same.
+const laterRouter = { type: memo.type, elementType: memo, child: null, sibling: null, alternate: null };
+laterRouter.alternate = { ...laterRouter, alternate: laterRouter };
+routeSwitchNode.sibling = laterRouter;
+
 const removed = gate.remove();
 assert.ok(removed.ok, `remove failed: ${removed.error}`);
 assert.equal(memo.type, Router, "removal must hand back exactly what was displaced");
 assert.equal(rootNode.type, Router, "the adopted fiber must be handed back too");
+assert.equal(routeSwitchNode.type, RouteSwitch, "the adopted switch must be handed back");
+assert.equal(routeSwitchNode.alternate.type, RouteSwitch, "on both of its fibers");
+assert.equal(laterRouter.type, Router, "a router mounted after install must be handed back");
+assert.equal(laterRouter.alternate.type, Router, "on both of its fibers");
+assert.equal(gate.status().claims, 0, "removal must leave nothing on the ledger");
+routeSwitchNode.sibling = null;
 assert.equal(gate.status().mounted.adopted, 0);
 assert.ok(!gate.status().claimed);
 assert.equal(selected("/wsgm/ok"), null, "removal must unregister every page");
@@ -302,6 +350,16 @@ assert.equal(gate.status().routeSource, "none", "removal must drop the borrowed 
 
     const frame = render(pageReact, { id: "fixture" });
     components = { react: pageReact };
+    // The probe is components and the required list, never prepare: a missing component is
+    // incompatible, and the page names it.
+    let prepared = 0;
+    definition.prepare = () => {
+        prepared++;
+        return null;
+    };
+    const missing = pageGate.probe();
+    assert.equal(missing.outcome, "incompatible");
+    assert.deepEqual(missing.facts.missing, ["field"]);
     const refusedInstall = pageGate.install();
     assert.equal(refusedInstall.ok, false);
     assert.equal(refusedInstall.error, "Native Steam components unavailable: field");
@@ -310,8 +368,12 @@ assert.equal(gate.status().routeSource, "none", "removal must drop the borrowed 
     assert.deepEqual(waiting.props.children, ["Native Steam components unavailable: field"]);
 
     components = { react: pageReact, field: () => null };
-    assert.deepEqual(pageGate.install(), { ok: true, installed: true });
-    assert.equal(pageGate.status().subscribed, true);
+    assert.equal(pageGate.probe().outcome, "ready");
+    assert.equal(prepared, 0, "a probe must never prepare the page");
+    assert.deepEqual(pageGate.install(), { ok: true, installed: true, reclaimed: false });
+    assert.equal(prepared, 1, "the install prepares the page");
+    assert.equal(pageGate.status().held, true);
+    assert.equal(pageGate.status().claims, 4, "resources, state, refusals and the reset are on the ledger");
     published({ value: 1 });
     refused("too large");
     assert.deepEqual(context.state(), { value: 1 });
@@ -322,6 +384,7 @@ assert.equal(gate.status().routeSource, "none", "removal must drop the borrowed 
     assert.deepEqual(drawn.props.page, { id: "fixture" });
 
     assert.deepEqual(pageGate.remove(), { ok: true, removed: true });
+    assert.equal(pageGate.status().claims, 0);
     assert.equal(released, 1, "removal releases what the page prepared");
     assert.equal(published, null, "removal ends the state subscription");
     assert.equal(refused, null, "removal ends the refusal subscription");
@@ -335,6 +398,6 @@ assert.equal(gate.status().routeSource, "none", "removal must drop the borrowed 
 }
 
 console.log(
-    "Custom pages: borrowed Route, route-list discovery, override vs addition, validation, " +
-        "restoration and the registerSteamPage lifecycle passed.",
+    "Custom pages: probe outcomes, borrowed Route, route-list discovery, override vs addition, " +
+        "validation, restoration of later mounts and the registerSteamPage lifecycle passed.",
 );

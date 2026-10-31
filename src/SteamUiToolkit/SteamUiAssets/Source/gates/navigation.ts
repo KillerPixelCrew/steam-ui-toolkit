@@ -1,6 +1,6 @@
 /**
  * Contributes navigation entries using native route/action rows and a reversible memo claim.
- * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ * @returns The defineGate gate; remove must release it before its bridge is replaced.
  */
 
 function createNavigationPanel() {
@@ -8,6 +8,12 @@ function createNavigationPanel() {
     const claimKeys = {
         marker: "__steamUiNavigationPanelClaimed",
         original: "__steamUiNavigationPanelOriginal",
+    } as const;
+    // The popup's menu host, adopted by source, carries a claim of its own, so handing the hosts back
+    // and handing the memo's instances back stay separate steps.
+    const hostKeys = {
+        marker: "__steamUiNavigationHostClaimed",
+        original: "__steamUiNavigationHostOriginal",
     } as const;
 
     // The two tokens that identify the panel root. `#MainMenu_Title` occurs in exactly one module of
@@ -19,14 +25,11 @@ function createNavigationPanel() {
 
     const MaximumDescent = 12;
 
-    let runtime;
     let react;
     let icon;
     let memo: any = null;
-    let installed = false;
-    let lastError = "";
-    let unsubscribe: (() => void) | null = null;
-    let unsubscribePlugins: any = null;
+    let panel: ClaimedComponent | null = null;
+    let hosts: ClaimedComponent | null = null;
 
     // What the last render actually saw and did. Everything else can report success while the panel
     // shows exactly what Valve shipped, because insertion depends on the tree Steam rendered.
@@ -246,26 +249,27 @@ function createNavigationPanel() {
         );
     };
 
-    const resolve = () => {
-        runtime = getWebpackRuntime("navigation-panel");
-        const resolvedReact = resolveReact(runtime);
-        if (!resolvedReact) {
-            lastError = "React runtime was not a unique match";
-            return false;
-        }
-        react = resolvedReact;
-        icon = createIconRenderer(react);
+    // The popup's menu host, which has no public handle: a module-local function the popup mounts
+    // directly under a React root, exported nowhere, with the memo this gate claims absent from its
+    // render path. Recognised by three prop names its author destructures and adopted by the fiber,
+    // as decky-loader adopts the Quick Access view. It persists while the menu is closed and
+    // re-renders when `open` flips, so an adoption shows on the next open.
+    const MenuHostTokens = ["MainNavMenuContainer", "onFocusNavDeactivated", "popup:"] as const;
 
+    // Pure: the menu module, the panel root and the one memo export whose component draws the outer
+    // container, selected by what it draws and never by its minified export name, through the gate's
+    // own claim, with a `type` the claim can replace and restore. The memo is an export, so nothing
+    // has to be mounted for the gate to hold; what is on screen is adopted at install.
+    const find = (runtime) => {
+        const resolvedReact = resolveReact(runtime);
+        if (!resolvedReact) return gateIncompatible("React runtime was not a unique match", { react: 0 });
         const menuFactory = runtime.findUnique([PanelRootTokens[0], OuterToken]);
         if (!menuFactory) {
-            lastError = "main menu module was not a unique match";
-            return false;
+            return gateIncompatible("main menu module was not a unique match", { menuModule: 0, react: 1 });
         }
-
-        // The one export whose memo renders the outer container. Selected by what its component draws,
-        // never by its minified export name: those are right for today's build and nothing more.
+        // The panel root itself, matched the way the gate matches it while descending.
+        const panelRoot = runtime.count([...PanelRootTokens]);
         const exports = runtime(menuFactory[0]);
-        // Through the gate's own claim, or a re-resolve while the claim is held finds no memo.
         const candidates = Object.keys(exports).filter((name) => {
             const value = exports[name];
             return (
@@ -274,122 +278,107 @@ function createNavigationPanel() {
                 sourceMatches(unclaimedValue(value.type, claimKeys), [OuterToken])
             );
         });
-        if (candidates.length !== 1) {
-            lastError = `main menu export was ${candidates.length ? "ambiguous" : "absent"}`;
-            return false;
+        const found = candidates.length === 1 ? exports[candidates[0]] : null;
+        const descriptor = found ? Object.getOwnPropertyDescriptor(found, "type") : null;
+        const facts = {
+            menuModule: 1,
+            panelRoot,
+            memoExports: candidates.length,
+            // Writable and configurable, or the claim could neither replace nor restore it.
+            claimable: descriptor?.writable === true && descriptor.configurable === true,
+            // Already ours is compatible: a find that demanded the pre-claim shape would make a
+            // successful apply fail its own next probe.
+            claimed: !!found && memberClaimed(found, "type", claimKeys),
+            react: 1,
+        };
+        if (panelRoot !== 1) return gateIncompatible("main menu panel root was not a unique match", facts);
+        if (!found) {
+            return gateIncompatible(`main menu export was ${candidates.length ? "ambiguous" : "absent"}`, facts);
         }
-
-        memo = exports[candidates[0]];
-        return true;
+        if (!facts.claimed && !facts.claimable) {
+            return gateIncompatible("the main menu memo's type is not writable and configurable", facts);
+        }
+        return gateReady({ react: resolvedReact, memo: found }, facts);
     };
 
-    const mounted = createMountedAdoption();
+    // What every claimed component draws: its original, then the descent to the panel root.
+    const descending = (original) =>
+        function SteamUiNavigationRoot(props) {
+            return descend(original(props), 0);
+        };
 
-    // The popup's menu host, which has no public handle: a module-local function the popup mounts
-    // directly under a React root, exported nowhere, with the memo this gate claims absent from its
-    // render path. Recognised by three prop names its author destructures and adopted by the fiber,
-    // as decky-loader adopts the Quick Access view. It persists while the menu is closed and
-    // re-renders when `open` flips, so an adoption shows on the next open.
-    const MenuHostTokens = ["MainNavMenuContainer", "onFocusNavDeactivated", "popup:"] as const;
-    const hosts = createSourceAdoption(MenuHostTokens, (type) =>
-        cachedWrapper(descendCache, type, navigationDescender),
-    );
-
-    const install = () => {
-        if (installed) return { ok: true, alreadyInstalled: true };
-        const resolved = attemptResolution(resolve, (error) => {
-            lastError = "navigation panel resolution failed: " + String(error);
-        });
-        if (!resolved) return { ok: false, error: lastError };
-
-        // The memo object is the public handle, and every consumer holds the same one, so claiming its
-        // `type` reaches the panel wherever it is rendered without patching a single caller.
-        const claim = claimMember(memo, "type", claimKeys, (original: any) => {
-            if (typeof original !== "function") return original;
-            return function SteamUiNavigationRoot(props) {
-                return descend(original(props), 0);
-            };
-        });
-        if (!claim.ok) {
-            lastError = claim.error;
-            return { ok: false, error: lastError };
-        }
-
-        installed = true;
-        lastError = "";
-        // The claim reaches the next mount only; what is already on screen is adopted.
-        mounted.adopt(memo, memo.type);
-        hosts.adopt();
-        unsubscribe = subscribe(patchId, (state) => {
-            const items = Array.isArray(state?.items) ? state.items : [];
-            const hidden = Array.isArray(state?.hidden) ? state.hidden : [];
-            const named = items.filter(
-                (item) => item && typeof item.id === "string" && typeof item.label === "string",
-            );
-            const routable = named.filter(
-                (item) => item.route == null || isNavigableRoute(item.route),
-            );
-            rejectedRoutes = named.length - routable.length;
-            const next = {
-                items: routable,
-                hidden: hidden.filter((value) => typeof value === "string"),
-            };
-            // A host Steam has recreated since install is adopted here; it sits under a React root
-            // with no class above it, so its entries show when the menu next opens.
-            hosts.adopt();
-            // The wrappers read `desired` from their closure, so a publication changes nothing React
-            // can see on its own, and an unchanged one needs no render at all.
-            if (!publicationChanged(desired, next)) return;
-            desired = next;
-            mounted.rerender();
-        });
-        unsubscribePlugins = subscribePluginFrontends(() => mounted.rerender());
-        return { ok: true, installed: true, reclaimed: claim.reclaimed };
-    };
-
-    const remove = () => {
-        if (!installed) return { ok: true, absent: true };
-
-        // Released before anything is forgotten, so a failed release stays installed and the next
-        // remove retries it.
-        const released = releaseMember(memo, "type", claimKeys);
-        if (!released.ok) {
-            lastError = released.error ?? "navigation panel release failed";
-            return { ok: false, error: lastError };
-        }
-        installed = false;
-        unsubscribe = endSubscription(unsubscribe);
-        unsubscribePlugins = endSubscription(unsubscribePlugins);
-
-        desired = { items: [], hidden: [] };
-        descendCache.clear();
-        panelCache.clear();
-        mounted.release(memo.type);
-        hosts.release();
-
-        lastOutcome = "removed";
-        return { ok: true, removed: true };
-    };
-
-    const status = () => ({
-        ok: true,
-        installed,
-        resolved: !!memo,
-        claimed: memberClaimed(memo, "type", claimKeys),
-        // Everything above can be true while the panel shows exactly what Valve shipped, because
-        // insertion depends on the tree Steam rendered. This is the part that says what happened.
-        entries: observed,
-        items: desired.items.length,
-        // Whether the claim reached the panels already on screen, and how many popup menu hosts are
-        // adopted by source, the path the memo claim never reaches. Nothing adopted is inert.
-        mounted: { ...mounted.status(), hosts: hosts.count() },
-        rejectedRoutes,
-        hidden: desired.hidden.length,
-        lastOutcome,
-        lastError,
+    const gate = defineGate({
+        name: "navigation-panel",
+        find,
+        bind: (handles, ledger) => {
+            react = handles.react;
+            icon = createIconRenderer(react);
+            memo = handles.memo;
+            // The memo object is the public handle, and every consumer holds the same one, so claiming
+            // its `type` reaches the panel wherever it is rendered without patching a single caller.
+            // The claim reaches the next mount only; what is already on screen is adopted.
+            const claimedPanel = ledger.component({ host: memo, keys: claimKeys, wrap: descending });
+            if (!claimedPanel.ok) return claimedPanel.error;
+            const claimedHosts = ledger.component({
+                keys: hostKeys,
+                match: (_fiber, type) => sourceMatches(type, MenuHostTokens),
+                wrap: descending,
+            });
+            if (!claimedHosts.ok) return claimedHosts.error;
+            panel = claimedPanel;
+            hosts = claimedHosts;
+            ledger.subscribe(patchId, (state) => {
+                const items = Array.isArray(state?.items) ? state.items : [];
+                const hidden = Array.isArray(state?.hidden) ? state.hidden : [];
+                const named = items.filter(
+                    (item) => item && typeof item.id === "string" && typeof item.label === "string",
+                );
+                const routable = named.filter(
+                    (item) => item.route == null || isNavigableRoute(item.route),
+                );
+                rejectedRoutes = named.length - routable.length;
+                const next = {
+                    items: routable,
+                    hidden: hidden.filter((value) => typeof value === "string"),
+                };
+                // A host Steam has recreated since install is adopted here; it sits under a React root
+                // with no class above it, so its entries show when the menu next opens. Only while no
+                // adopted host is still mounted, so a publication costs no tree walk otherwise.
+                if (claimedHosts.status().adopted === 0) claimedHosts.rerender();
+                // The wrappers read `desired` from their closure, so a publication changes nothing
+                // React can see on its own, and an unchanged one needs no render at all.
+                if (!publicationChanged(desired, next)) return;
+                desired = next;
+                claimedPanel.rerender();
+            });
+            ledger.cleanup("plugin frontends", subscribePluginFrontends(() => claimedPanel.rerender()));
+        },
+        unbind: () => {
+            panel = null;
+            hosts = null;
+            desired = { items: [], hidden: [] };
+            descendCache.clear();
+            panelCache.clear();
+            lastOutcome = "removed";
+        },
+        status: () => ({
+            claimed: memberClaimed(memo, "type", claimKeys),
+            // Everything above can be true while the panel shows exactly what Valve shipped, because
+            // insertion depends on the tree Steam rendered. This is the part that says what happened.
+            entries: observed,
+            items: desired.items.length,
+            // Whether the claim reached the panels already on screen, and how many popup menu hosts
+            // are adopted by source, the path the memo claim never reaches. Nothing adopted is inert.
+            mounted: {
+                ...(panel?.status() ?? { adopted: 0, scheduled: false, stale: 0 }),
+                hosts: hosts?.status().adopted ?? 0,
+            },
+            rejectedRoutes,
+            hidden: desired.hidden.length,
+            lastOutcome,
+        }),
     });
-
-    return { install, remove, status };
+    return gate;
 }
 
 registerGate("navigationPanel", createNavigationPanel());

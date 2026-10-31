@@ -1,11 +1,16 @@
 /**
  * Contributes host settings pages to Steam using reversible member and render claims.
- * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ * @returns The defineGate gate; remove must release it before its bridge is replaced.
  */
 
 function createNativeSettings() {
   const patchId = "steam-ui.native-settings";
-  const RootOriginal = "__steamUiNativeSettingsRootOriginal";
+  // The durable keys of the adopted Settings root. The original key is the one earlier bridges wrote,
+  // so a root a previous bridge adopted is reclaimed rather than wrapped twice.
+  const RootKeys = {
+    marker: "__steamUiNativeSettingsRootClaimed",
+    original: "__steamUiNativeSettingsRootOriginal",
+  } as const;
   const DescriptorTokens = [
     "#Settings_Page_Display",
     "#Settings_Page_Power",
@@ -25,15 +30,16 @@ function createNativeSettings() {
   let react: any = null;
   let jsxRuntime: any = null;
   let nativeRoot: any = null;
-  let installed = false;
-  let lastError = "";
+  let publicationError = "";
   let lastOutcome = "never rendered";
-  let unsubscribe: (() => void) | null = null;
   let state: any = { pages: [], revision: 0 };
   let mapCache = new WeakMap<object, any>();
   const local = createLocalStore();
-  const roots = new Map<any, boolean>();
   const rendered = new Set<string>();
+  // The adopted Settings roots: every root mounted at install, and every one Steam mounts later
+  // through the JSX transform, carries this claim's marked wrapper.
+  let component: ClaimedComponent | null = null;
+  const installed = () => gate.installed();
 
   // Bounded, whole-state validation: duplicate page/row identities are unsafe and an unsupported
   // row must not become a control that sends a value the host did not describe.
@@ -109,7 +115,7 @@ function createNativeSettings() {
     const current = state.pages
       .flatMap((page) => page.sections.flatMap((section) => section.rows))
       .find((candidate) => candidate.key === row.key);
-    if (!installed || !current || current.disabled)
+    if (!installed() || !current || current.disabled)
       return Promise.reject(new Error("This setting is unavailable."));
     return request(patchId, "set", { key: row.key, value });
   };
@@ -127,7 +133,7 @@ function createNativeSettings() {
     const drafts = useSteamSettingDrafts(react, state.revision);
     const change = drafts.change(send);
     const action = (row) => change(row, true);
-    const page = installed ? state.pages.find((candidate) => candidate.id === id) : null;
+    const page = installed() ? state.pages.find((candidate) => candidate.id === id) : null;
     if (!page) return null;
     rendered.add(id);
     lastOutcome = `rendered ${id}: ${page.sections.length} section(s)`;
@@ -159,7 +165,7 @@ function createNativeSettings() {
   // one DialogBody instead, and the kit stylesheet lets Steam's body inside it keep its full height
   // (Big Picture's dialog bodies never scroll, so it lays out as before there).
   const transformDescriptors = (value) => {
-    if (!installed || !value || Array.isArray(value) || typeof value !== "object") return value;
+    if (!installed() || !value || Array.isArray(value) || typeof value !== "object") return value;
     if (
       !Object.values(NativePages).every((key) => {
         const page = value[key];
@@ -205,11 +211,6 @@ function createNativeSettings() {
     return next;
   };
 
-  // Same hooks as the original. A mounted root may be adopted without changing its hook order.
-  function SteamUiNativeSettingsRoot(props) {
-    return nativeRoot(props);
-  }
-
   // Only host Power presence needs the native root to render. Other capability changes update the
   // always-mounted slots, including a Controller slot that was previously empty. Values update inside the
   // separate subscribed sections. A root already mounted when the gate installs is adopted, and
@@ -229,38 +230,26 @@ function createNativeSettings() {
     return [...found];
   };
 
-  const refreshRoots = (remove = false) => {
-    for (const [fiber, hadParent] of roots) {
-      if (hadParent && !fiberAttached(fiber)) roots.delete(fiber);
+  // Pure: the four descriptors, the Settings root, React, the JSX runtime, the fields and Steam's
+  // Panel must each be one match, and every field the sections draw with must resolve. A client
+  // without any of them is incompatible; nothing here waits on Settings being opened.
+  const find = (runtime) => {
+    const facts = {
+      descriptors: runtime.count([...DescriptorTokens]),
+      root: runtime.count([...RootTokens]),
+      react: runtime.count([...ReactTokens]),
+      jsx: runtime.count([...JsxRuntimeTokens]),
+      fields: runtime.count([...FieldTokens]),
+      focusable: runtime.count([...NativeFocusableTokens]),
+    };
+    const ambiguous = Object.keys(facts).filter((name) => facts[name] !== 1);
+    if (ambiguous.length) {
+      return gateIncompatible(
+        `native Settings modules were not a unique match: ${ambiguous.join(", ")}`,
+        facts,
+      );
     }
-    // One traversal and one total node budget across every deduplicated document root.
-    walkFibers(nativeReactRoots(), MaximumMountedNodes, (fiber) => {
-      const type = fiber.type;
-      if (
-        type !== nativeRoot &&
-        type !== SteamUiNativeSettingsRoot &&
-        type?.[RootOriginal] !== nativeRoot
-      )
-        return;
-      roots.set(fiber, fiberAttached(fiber));
-    });
-    for (const [fiber] of roots) {
-      if (remove && fiber.type !== SteamUiNativeSettingsRoot) continue;
-      retargetFiber(fiber, remove ? nativeRoot : SteamUiNativeSettingsRoot);
-      invalidateFiberProps(fiber);
-      requestRender(fiber);
-    }
-    if (remove) roots.clear();
-  };
-
-  const resolve = () => {
-    const runtime = getWebpackRuntime("native-settings");
-    if (!runtime.findUnique([...DescriptorTokens])) {
-      lastError = "native Settings descriptors were not a unique match";
-      return false;
-    }
-    ui = resolveSteamSettingsComponents(runtime);
-    react = ui?.react;
+    const resolved = resolveSteamSettingsComponents(runtime);
     const required = [
       "react",
       "settingsSection",
@@ -276,115 +265,109 @@ function createNativeSettings() {
       "confirmModal",
     ];
     if (
-      !ui ||
-      required.some((key) => !ui[key]) ||
-      typeof react.useSyncExternalStore !== "function"
+      !resolved ||
+      required.some((key) => !resolved[key]) ||
+      typeof resolved.react.useSyncExternalStore !== "function"
     ) {
-      lastError = "native Settings fields or subscription hooks are unavailable";
-      return false;
+      return gateIncompatible("native Settings fields or subscription hooks are unavailable", facts);
     }
-    nativeRoot = runtime.exported([...RootTokens], (value) =>
+    const root = runtime.exported([...RootTokens], (value) =>
       sourceMatches(value, ["#Settings_Title", "show-icon", '"Settings"']),
     );
-    jsxRuntime = runtime.resolve([...JsxRuntimeTokens]);
-    if (
-      !nativeRoot ||
-      typeof jsxRuntime?.jsx !== "function" ||
-      typeof jsxRuntime?.jsxs !== "function"
-    ) {
-      lastError = "native Settings root or JSX runtime was not a unique match";
-      return false;
+    const jsx = runtime.resolve([...JsxRuntimeTokens]);
+    if (!root || typeof jsx?.jsx !== "function" || typeof jsx?.jsxs !== "function") {
+      return gateIncompatible("native Settings root or JSX runtime was not a unique match", facts);
     }
-    Object.defineProperty(SteamUiNativeSettingsRoot, RootOriginal, {
-      value: nativeRoot,
-      configurable: true,
-    });
-    return true;
+    return gateReady({ ui: resolved, nativeRoot: root, jsxRuntime: jsx }, facts);
   };
 
-  const install = () => {
-    if (installed) return { ok: true, alreadyInstalled: true };
-    if (
-      !attemptResolution(resolve, (error) => {
-        lastError = "native Settings resolution failed: " + String(error);
-      })
-    )
-      return { ok: false, error: lastError };
-    const memo = interceptMemo(react, patchId, transformDescriptors);
-    if (!memo.ok) return { ok: false, error: memo.error };
-    const elements = interceptElements(jsxRuntime, patchId, (create, type, props, key) =>
-      type === nativeRoot ? create(SteamUiNativeSettingsRoot, props, key) : undefined,
-    );
-    if (!elements.ok) {
-      releaseMemo(react, patchId);
-      return { ok: false, error: elements.error };
-    }
-    installed = true;
-    lastError = "";
-    unsubscribe = subscribe(patchId, (published) => {
-      const next = normalize(published);
-      if (!next) {
-        lastError = "native Settings publication is invalid";
-        const hadPower = state.pages.some((page) => page.id === "power");
-        state = { pages: [], revision: state.revision };
-        rendered.clear();
-        if (hadPower) {
+  const gate = defineGate({
+    name: "native-settings",
+    find,
+    bind: (handles, ledger) => {
+      ui = handles.ui;
+      react = ui.react;
+      nativeRoot = handles.nativeRoot;
+      jsxRuntime = handles.jsxRuntime;
+      const memo = ledger.memo(react, patchId, transformDescriptors);
+      if (!memo.ok) return memo.error ?? "React useMemo could not be intercepted";
+      // A root already mounted is adopted; the JSX transform covers future mounts with the same
+      // marked wrapper, so release hands back every root running it. The wrapper keeps the original's
+      // hooks: it renders the original and nothing else.
+      const claimed = ledger.component({
+        keys: RootKeys,
+        match: (_fiber, type) => type === nativeRoot,
+        wrap: (original) =>
+          function SteamUiNativeSettingsRoot(props) {
+            return original(props);
+          },
+        roots: nativeReactRoots,
+      });
+      if (!claimed.ok) return claimed.error;
+      component = claimed;
+      const elements = ledger.elements(jsxRuntime, patchId, (create, type, props, key) =>
+        type === nativeRoot ? create(claimed.wrapperFor(nativeRoot), props, key) : undefined,
+      );
+      if (!elements.ok) return elements.error ?? "the JSX runtime could not be intercepted";
+      ledger.subscribe(patchId, (published) => {
+        const next = normalize(published);
+        if (!next) {
+          publicationError = "native Settings publication is invalid";
+          const hadPower = state.pages.some((page) => page.id === "power");
+          state = { pages: [], revision: state.revision };
+          rendered.clear();
+          if (hadPower) {
+            mapCache = new WeakMap<object, any>();
+            component?.rerender(true);
+          }
+          local.changed();
+          lastOutcome = "invalid publication retracted native additions";
+          return;
+        }
+        publicationError = "";
+        if (!publicationChanged(state, next)) return;
+        const powerPresenceChanged =
+          state.pages.some((page) => page.id === "power") !==
+          next.pages.some((page) => page.id === "power");
+        state = next;
+        if (powerPresenceChanged) {
           mapCache = new WeakMap<object, any>();
-          refreshRoots();
+          rendered.clear();
+          component?.rerender(true);
         }
         local.changed();
-        lastOutcome = "invalid publication retracted native additions";
-        return;
-      }
-      lastError = "";
-      if (!publicationChanged(state, next)) return;
-      const powerPresenceChanged =
-        state.pages.some((page) => page.id === "power") !==
-        next.pages.some((page) => page.id === "power");
-      state = next;
-      if (powerPresenceChanged) {
-        mapCache = new WeakMap<object, any>();
-        rendered.clear();
-        refreshRoots();
-      }
+      });
+      // A mounted section draws nothing from the moment the gate goes, before its roots are handed back.
+      ledger.cleanup("published pages", () => {
+        state = { pages: [], revision: 0 };
+        local.changed();
+      });
+      return { adopted: claimed.status().adopted };
+    },
+    unbind: () => {
+      component = null;
+      state = { pages: [], revision: 0 };
       local.changed();
-    });
-    refreshRoots();
-    return { ok: true, installed: true, adopted: roots.size };
-  };
-
-  const remove = () => {
-    if (!installed) return { ok: true, absent: true };
-    const elements = releaseElements(jsxRuntime, patchId);
-    if (!elements.ok) return { ok: false, error: elements.error };
-    const memo = releaseMemo(react, patchId);
-    if (!memo.ok) return { ok: false, error: memo.error };
-    installed = false;
-    unsubscribe = endSubscription(unsubscribe);
-    state = { pages: [], revision: 0 };
-    local.changed();
-    refreshRoots(true);
-    mapCache = new WeakMap<object, any>();
-    rendered.clear();
-    lastOutcome = "removed";
-    return { ok: true, removed: true };
-  };
-
-  const status = () => ({
-    ok: true,
-    installed,
-    resolved: !!ui && !!nativeRoot && !!jsxRuntime,
-    claimed: memoIntercepted(react, patchId) && elementsIntercepted(jsxRuntime, patchId),
-    claimsRemaining: memoIntercepted(react, patchId) || elementsIntercepted(jsxRuntime, patchId),
-    ownedRoots: [...roots.keys()].filter((fiber) => fiber.type === SteamUiNativeSettingsRoot)
-      .length,
-    pages: state.pages.map((page) => page.id),
-    renderedPages: [...rendered],
-    lastOutcome,
-    lastError,
+      mapCache = new WeakMap<object, any>();
+      rendered.clear();
+      publicationError = "";
+      lastOutcome = "removed";
+    },
+    status: () => {
+      const roots = component?.status() ?? { adopted: 0, scheduled: false, stale: 0 };
+      return {
+        claimed: memoIntercepted(react, patchId) && elementsIntercepted(jsxRuntime, patchId),
+        claimsRemaining: memoIntercepted(react, patchId) || elementsIntercepted(jsxRuntime, patchId),
+        ownedRoots: roots.adopted - roots.stale,
+        mounted: roots,
+        pages: state.pages.map((page) => page.id),
+        renderedPages: [...rendered],
+        publicationError,
+        lastOutcome,
+      };
+    },
   });
-
-  return { install, remove, status };
+  return gate;
 }
 
 registerGate("nativeSettings", createNativeSettings());

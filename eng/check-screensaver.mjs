@@ -7,6 +7,8 @@
 // arrive, when they change and when the page opens, that a choice is sent once and the row is
 // disabled while it is pending, that a malformed publication is refused whole, that another surface
 // holding the same claim keeps it when this gate is removed, and that removal hands everything back.
+// The probe is the gate's own find: a missing section module is incompatible, a client settings store
+// not constructed yet is not ready, and an installed gate answers from what it holds.
 import assert from "node:assert/strict";
 import {
     assertRemoveRetries,
@@ -104,6 +106,8 @@ const moduleFor = (tokens) =>
                   ? "observer"
                   : null;
 
+// Modules a probe should find absent, by the name moduleFor gives them.
+const absentModules = new Set();
 const timers = [];
 const requests = [];
 const globals = {
@@ -114,7 +118,8 @@ const globals = {
     },
     getWebpackRuntime: () => {
         const require = (id) => modules[id];
-        require.findUnique = (tokens) => (moduleFor(tokens) ? [moduleFor(tokens), ""] : null);
+        require.findUnique = (tokens) =>
+            moduleFor(tokens) && !absentModules.has(moduleFor(tokens)) ? [moduleFor(tokens), ""] : null;
         require.resolve = (tokens) => modules[moduleFor(tokens)];
         require.exported = (tokens, predicate) => {
             const fits = new Set(
@@ -191,8 +196,35 @@ const renderRows = (section) => {
 assert.equal(pageList(), pages);
 assert.equal(react.useMemo, originalUseMemo);
 
+absentModules.add("section");
+let probe = screensaver.probe();
+assert.equal(probe.outcome, "incompatible", "a client without the Screensaver section is incompatible");
+assert.equal(probe.facts.section, 0);
+absentModules.delete("section");
+const constructed = modules.settings;
+modules.settings = { VI: () => null };
+probe = screensaver.probe();
+assert.equal(probe.outcome, "notReady", "a settings store not constructed yet is not ready");
+modules.settings = constructed;
+probe = screensaver.probe();
+assert.equal(probe.outcome, "ready", probe.reason);
+assert.deepEqual(probe.facts, {
+    react: 1,
+    fields: 1,
+    section: 1,
+    route: "/settings/customization",
+    settings: true,
+    observer: 1,
+});
+assert.equal(react.useMemo, originalUseMemo, "a probe claims nothing");
+assert.equal(requests.length, 0, "a probe reports nothing");
+
 let result = screensaver.install();
 assert.ok(result.ok, `install failed: ${result.error}`);
+assert.equal(screensaver.status().held, true, "verification sees the useMemo claim held");
+absentModules.add("section");
+assert.equal(screensaver.probe().outcome, "ready", "an installed gate answers from what it holds");
+absentModules.delete("section");
 let status = screensaver.status();
 assert.ok(status.resolved && status.claimed, "the gate must resolve and hold the useMemo claim");
 assert.equal(status.route, "/settings/customization");
@@ -327,6 +359,7 @@ const mounted = renderPage();
 result = screensaver.remove();
 assert.ok(result.ok, `remove failed: ${result.error}`);
 assert.equal(screensaver.status().claimed, false);
+assert.equal(screensaver.status().claims, 0, "removal leaves nothing on the ledger");
 assert.notEqual(react.useMemo, originalUseMemo, "the other surface must keep the claim");
 assert.equal(pageList(), pages, "the page list must be Steam's again");
 assert.equal(

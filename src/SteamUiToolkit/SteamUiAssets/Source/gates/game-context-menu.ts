@@ -1,6 +1,6 @@
 /**
  * Adds host actions to Steam game context menus while preserving native entries.
- * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ * @returns The defineGate gate; remove must release it before its bridge is replaced.
  */
 
 // Trusted host renderers receive only the native types observed on this exact menu.
@@ -26,17 +26,18 @@ function createGameContextMenu() {
     // How deep into Steam's own menu tree the item list is looked for; it bounds the walk, not the items.
     const MaximumDepth = 10;
 
-    let runtime;
     let react;
     let menuComponent: any = null;
     let itemType: any = null;
     let submenuType: any = null;
     let jsxRuntime;
-    let installed = false;
-    let unsubscribe: (() => void) | null = null;
+    // The ledger of the install in progress: the native menu class is claimed when it is first
+    // created, after the install, and those claims are unwound with the rest.
+    let held: GateLedger | null = null;
     let desired: { items: any[]; revision: number } = { items: [], revision: 0 };
     let lastOutcome = "never rendered";
-    let lastError = "";
+    // Why the last native menu could not be used, kept apart from the gate's own install error.
+    let menuError = "";
     let ambiguous = false;
     let nativeObserved = false;
     let nativeRefused = false;
@@ -47,7 +48,7 @@ function createGameContextMenu() {
         itemNotificationQueued = true;
         queueMicrotask(() => {
             itemNotificationQueued = false;
-            if (installed) local.changed();
+            if (gate.installed()) local.changed();
         });
     };
 
@@ -64,7 +65,7 @@ function createGameContextMenu() {
             const appId = Array.isArray(apps) && apps.length === 1 ? apps[0]?.appid : null;
             return Number.isSafeInteger(appId) && appId > 0 ? appId : null;
         } catch (error) {
-            lastError = "Game menu app lookup failed: " + String(error);
+            menuError = "Game menu app lookup failed: " + String(error);
             return null;
         }
     };
@@ -86,7 +87,7 @@ function createGameContextMenu() {
     // slot instead, so the observer's own render includes them on every later data update.
     function SteamUiGameContextMenuItems({ context }) {
         react.useSyncExternalStore(local.subscribe, local.revision, local.revision);
-        if (!installed || ambiguous || nativeRefused || !itemType || desired.items.length === 0)
+        if (!gate.installed() || ambiguous || nativeRefused || !itemType || desired.items.length === 0)
             return null;
         const appId = appIdFor(context.instance);
         if (appId === null) return null;
@@ -111,7 +112,7 @@ function createGameContextMenu() {
                 {
                     key: `steam-ui-game-context-menu-${item.id}`,
                     onSelected: () => {
-                        if (!installed || ambiguous || nativeRefused) return;
+                        if (!gate.installed() || ambiguous || nativeRefused) return;
                         const currentAppId = appIdFor(context.instance);
                         if (currentAppId === null) return;
                         // The window the menu was used in; a game's overlay opens the page itself.
@@ -134,19 +135,22 @@ function createGameContextMenu() {
         });
     }
 
-    const resolve = () => {
-        runtime = getWebpackRuntime("game-context-menu");
-        react = resolveReact(runtime);
-        if (!react) {
-            lastError = "React runtime was not a unique match";
-            return false;
+    // Pure: React and the JSX runtime, which observation needs and nothing else. The native menu
+    // class is recognised by its methods when Steam first creates one, so where Steam's private
+    // factory lives is required by nothing.
+    const find = (runtime) => {
+        const resolvedReact = resolveReact(runtime);
+        if (!resolvedReact) return gateIncompatible("React runtime was not a unique match", { react: 0 });
+        let jsx;
+        try {
+            jsx = runtime.resolve([...JsxRuntimeTokens]);
+        } catch (error) {
+            return gateIncompatible(`JSX runtime was not a unique match: ${String(error)}`, { react: 1, jsx: 0 });
         }
-        jsxRuntime = runtime.resolve([...JsxRuntimeTokens]);
-        if (!jsxRuntime) {
-            lastError = "JSX runtime was not a unique match";
-            return false;
+        if (typeof jsx?.jsx !== "function" || typeof jsx?.jsxs !== "function") {
+            return gateIncompatible("JSX runtime was not a unique match", { react: 1, jsx: 0 });
         }
-        return true;
+        return gateReady({ react: resolvedReact, jsx }, { react: 1, jsx: 1 });
     };
 
     const observeAction = (instance, original, args) => {
@@ -155,25 +159,25 @@ function createGameContextMenu() {
         if (own) own.props.context.instance = instance;
         const result = original.apply(instance, args);
         if (!Array.isArray(result?.rgCanAdd) || !Array.isArray(result?.rgCanRemove)) {
-            if (installed) {
+            if (gate.installed()) {
                 nativeRefused = true;
-                lastError = "Observed game menu returned incompatible collection actions";
+                menuError = "Observed game menu returned incompatible collection actions";
                 notifyAfterRender();
             }
             return result;
         }
-        if (installed) nativeObserved = true;
+        if (gate.installed()) nativeObserved = true;
         const nativeItems = [
             ...(Array.isArray(result?.rgCanAdd) ? result.rgCanAdd : []),
             ...(Array.isArray(result?.rgCanRemove) ? result.rgCanRemove : []),
         ];
         const found = nativeItems.map((element) => findItemType(element)).find(Boolean);
-        if (installed && found && found !== itemType) {
+        if (gate.installed() && found && found !== itemType) {
             itemType = found;
             // A native action is produced during its parent's render. Notify mounted host children
             // after that render, never synchronously update a sibling from inside it.
             notifyAfterRender();
-        } else if (installed && !itemType) {
+        } else if (gate.installed() && !itemType) {
             lastOutcome = "native action item type absent";
         }
         return result;
@@ -184,9 +188,11 @@ function createGameContextMenu() {
             return;
         }
         if (menuComponent) {
-            lastError = "Game context menu component changed while claimed";
+            menuError = "Game context menu component changed while claimed";
             return;
         }
+        const ledger = held;
+        if (!ledger) return;
         const claim = claimMember(
             candidate.prototype,
             ActionMethod,
@@ -197,7 +203,7 @@ function createGameContextMenu() {
                 },
         );
         if (!claim.ok) {
-            lastError = "Game context menu action claim failed: " + claim.error;
+            menuError = "Game context menu action claim failed: " + claim.error;
             return;
         }
         const manageClaim = claimMember(
@@ -208,7 +214,7 @@ function createGameContextMenu() {
                 function SteamUiGameContextMenuManage(this: any, ...args: any[]) {
                     const result = original.apply(this, args);
                     if (
-                        installed &&
+                        gate.installed() &&
                         react.isValidElement(result) &&
                         typeof result.props?.label === "string"
                     ) {
@@ -224,11 +230,24 @@ function createGameContextMenu() {
         );
         if (!manageClaim.ok) {
             releaseMember(candidate.prototype, ActionMethod, actionClaimKeys);
-            lastError = "Game context submenu claim failed: " + manageClaim.error;
+            menuError = "Game context submenu claim failed: " + manageClaim.error;
             return;
         }
+        // Both methods go on the install's ledger as one claim, so removal hands them back with the
+        // rest and a failed release of either is retried.
+        const prototype = candidate.prototype;
+        ledger.add(
+            "native menu methods",
+            () => {
+                const action = releaseMember(prototype, ActionMethod, actionClaimKeys);
+                return action.ok ? releaseMember(prototype, ManageMethod, actionClaimKeys) : action;
+            },
+            () =>
+                memberClaimed(prototype, ActionMethod, actionClaimKeys) &&
+                memberClaimed(prototype, ManageMethod, actionClaimKeys),
+        );
         menuComponent = candidate;
-        lastError = "";
+        menuError = "";
     };
 
     // Keep the exact class transform for later parent renders too. The ref retains the actual native
@@ -264,7 +283,7 @@ function createGameContextMenu() {
         if (!shaped) return;
         if (menuComponent && candidate !== menuComponent) {
             ambiguous = true;
-            lastError = "Competing native game menu classes were observed";
+            menuError = "Competing native game menu classes were observed";
             notifyAfterRender();
             return;
         }
@@ -277,12 +296,12 @@ function createGameContextMenu() {
             context.instance = instance;
             const cleanup = typeof nativeRef === "function" ? nativeRef(instance) : undefined;
             if (nativeRef && typeof nativeRef === "object") nativeRef.current = instance;
-            if (installed) local.changed();
+            if (gate.installed()) local.changed();
             if (typeof cleanup === "function") {
                 return () => {
                     context.instance = null;
                     cleanup();
-                    if (installed) local.changed();
+                    if (gate.installed()) local.changed();
                 };
             }
         };
@@ -303,143 +322,105 @@ function createGameContextMenu() {
         );
     };
 
-    const install = () => {
-        if (installed) return { ok: true, alreadyInstalled: true };
-        if (
-            !attemptResolution(
-                resolve,
-                (error) => (lastError = "Game context menu resolution failed: " + String(error)),
-            )
-        ) {
-            return { ok: false, error: lastError };
-        }
-        const claim = interceptElements(jsxRuntime, patchId, captureMenu);
-        if (!claim.ok) {
-            lastError = claim.error ?? "Game context menu JSX interception failed";
-            return { ok: false, error: lastError };
-        }
-        // Popup hosts may construct native menu classes through React instead of JSX.
-        const createClaim = claimMember(
-            react,
-            "createElement",
-            createClaimKeys,
-            (original: any) =>
-                function SteamUiGameContextMenuCreate(type, props, ...children) {
-                    // Only a class can be the menu; anything else is created untouched, unexamined.
-                    if (typeof type !== "function" || !type.prototype)
-                        return original.call(react, type, props, ...children);
-                    const supplied = children.length
-                        ? { ...props, children: children.length === 1 ? children[0] : children }
-                        : props;
-                    const replacement = captureMenu(
-                        (candidate, next, key) =>
-                            original.call(
-                                react,
-                                candidate,
-                                key === undefined ? next : { ...next, key },
-                            ),
-                        type,
-                        supplied,
-                        props?.key,
-                    );
-                    return replacement === undefined
-                        ? original.call(react, type, props, ...children)
-                        : replacement;
-                },
-        );
-        if (!createClaim.ok) {
-            releaseElements(jsxRuntime, patchId);
-            lastError = "Game context menu React interception failed: " + createClaim.error;
-            return { ok: false, error: lastError };
-        }
-        installed = true;
-        lastError = "";
-        unsubscribe = subscribe(patchId, (state) => {
-            const items = Array.isArray(state?.items) ? state.items.filter(validItem) : [];
-            desired = {
-                items,
-                revision: Number.isSafeInteger(state?.revision) ? state.revision : 0,
-            };
+    const gate = defineGate({
+        name: "game-context-menu",
+        find,
+        bind: (handles, ledger) => {
+            react = handles.react;
+            jsxRuntime = handles.jsx;
+            held = ledger;
+            // Released last, after every claim taken on its account.
+            ledger.cleanup("menu state", () => {
+                held = null;
+            });
+            const claim = ledger.elements(jsxRuntime, patchId, captureMenu);
+            if (!claim.ok) return claim.error ?? "Game context menu JSX interception failed";
+            // Popup hosts may construct native menu classes through React instead of JSX.
+            const createClaim = ledger.member(
+                react,
+                "createElement",
+                createClaimKeys,
+                (original: any) =>
+                    function SteamUiGameContextMenuCreate(type, props, ...children) {
+                        // Only a class can be the menu; anything else is created untouched, unexamined.
+                        if (typeof type !== "function" || !type.prototype)
+                            return original.call(react, type, props, ...children);
+                        const supplied = children.length
+                            ? { ...props, children: children.length === 1 ? children[0] : children }
+                            : props;
+                        const replacement = captureMenu(
+                            (candidate, next, key) =>
+                                original.call(
+                                    react,
+                                    candidate,
+                                    key === undefined ? next : { ...next, key },
+                                ),
+                            type,
+                            supplied,
+                            props?.key,
+                        );
+                        return replacement === undefined
+                            ? original.call(react, type, props, ...children)
+                            : replacement;
+                    },
+            );
+            if (!createClaim.ok) return "Game context menu React interception failed: " + createClaim.error;
+            ledger.subscribe(patchId, (state) => {
+                const items = Array.isArray(state?.items) ? state.items.filter(validItem) : [];
+                desired = {
+                    items,
+                    revision: Number.isSafeInteger(state?.revision) ? state.revision : 0,
+                };
+                local.changed();
+            });
+            return { observing: true };
+        },
+        // Observation holds while one native menu class is in use: competing classes or an
+        // incompatible native result are refusals the host must see, not a working menu.
+        holds: () => !ambiguous && !nativeRefused,
+        unbind: () => {
+            held = null;
+            desired = { items: [], revision: 0 };
+            menuComponent = null;
+            itemType = null;
+            submenuType = null;
+            ambiguous = false;
+            nativeObserved = false;
+            nativeRefused = false;
+            menuError = "";
+            lastOutcome = "removed";
             local.changed();
-        });
-        return { ok: true, installed: true, observing: true };
-    };
-
-    // Both claims go back before the gate forgets it holds them. Clearing `installed` and
-    // `menuComponent` first would answer `absent` on every later remove() while the action claim and
-    // the JSX interception were still live, with nothing left that names what to release.
-    const remove = () => {
-        if (!installed) return { ok: true, absent: true };
-        const releasedElements = releaseElements(jsxRuntime, patchId);
-        const releasedAction = releaseMember(
-            menuComponent?.prototype,
-            ActionMethod,
-            actionClaimKeys,
-        );
-        const releasedManage = releaseMember(
-            menuComponent?.prototype,
-            ManageMethod,
-            actionClaimKeys,
-        );
-        const releasedCreate = releaseMember(react, "createElement", createClaimKeys);
-        if (
-            !releasedAction.ok ||
-            !releasedElements.ok ||
-            !releasedManage.ok ||
-            !releasedCreate.ok
-        ) {
-            lastError =
-                releasedAction.error ??
-                releasedElements.error ??
-                releasedManage.error ??
-                releasedCreate.error ??
-                "Game context menu release failed";
-            return { ok: false, error: lastError };
-        }
-        installed = false;
-        unsubscribe = endSubscription(unsubscribe);
-        desired = { items: [], revision: 0 };
-        menuComponent = null;
-        itemType = null;
-        submenuType = null;
-        ambiguous = false;
-        nativeObserved = false;
-        nativeRefused = false;
-        lastOutcome = "removed";
-        local.changed();
-        return { ok: true, removed: true };
-    };
-
-    const status = () => ({
-        ok: true,
-        installed,
-        resolved: !!runtime && !!react,
-        observing:
-            installed &&
-            elementsIntercepted(jsxRuntime, patchId) &&
-            memberClaimed(react, "createElement", createClaimKeys),
-        ambiguous,
-        nativeObserved,
-        nativeRefused,
-        itemTypeResolved: !!itemType,
-        submenuTypeResolved: !!submenuType,
-        nativeMenuState: !installed
-            ? "removed"
-            : ambiguous || nativeRefused
-              ? "refused"
-              : nativeObserved
-                ? "native-menu-observed"
-                : menuComponent
-                  ? "native-class-held"
-                  : "awaiting-native-menu",
-        menuClaimed: memberClaimed(menuComponent?.prototype, ActionMethod, actionClaimKeys),
-        items: desired.items.length,
-        revision: desired.revision,
-        lastOutcome,
-        lastError,
+        },
+        status: () => {
+            const installed = gate.installed();
+            return {
+                observing:
+                    installed &&
+                    elementsIntercepted(jsxRuntime, patchId) &&
+                    memberClaimed(react, "createElement", createClaimKeys),
+                ambiguous,
+                nativeObserved,
+                nativeRefused,
+                itemTypeResolved: !!itemType,
+                submenuTypeResolved: !!submenuType,
+                nativeMenuState: !installed
+                    ? "removed"
+                    : ambiguous || nativeRefused
+                      ? "refused"
+                      : nativeObserved
+                        ? "native-menu-observed"
+                        : menuComponent
+                          ? "native-class-held"
+                          : "awaiting-native-menu",
+                menuClaimed: memberClaimed(menuComponent?.prototype, ActionMethod, actionClaimKeys),
+                items: desired.items.length,
+                revision: desired.revision,
+                lastOutcome,
+                menuError,
+            };
+        },
     });
-
-    return { install, remove, status };
+    return gate;
 }
 
 registerGate("gameContextMenu", createGameContextMenu());

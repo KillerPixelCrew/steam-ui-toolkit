@@ -127,8 +127,7 @@ public sealed class SteamUiModuleRuntimeTests
             await using var transport = new FakeSteamUiTransport();
             await using var manager = new SteamUiPatchManager(transport);
             var detail = new string('x', 5000);
-            var patch = new SteamGatePatch("example.gate", "example", "v1", "probe", _ => true,
-                "status.installed", "!status.installed", "Example");
+            var patch = new SteamGatePatch("example.gate", "example", "v1", "Example");
             transport.OnEvaluate = _ => Task.FromResult(new SteamUiEvaluationResult(
                 SteamUiDispatch.Answered, null, detail, transport.Generations));
             manager.Register(patch);

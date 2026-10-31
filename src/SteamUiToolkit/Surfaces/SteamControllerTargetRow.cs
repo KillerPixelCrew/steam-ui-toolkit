@@ -61,8 +61,8 @@ public interface ISteamControllerTargetBackend
 /// <summary>A controller-target dropdown on the Performance tab, labelled by Valve's controller section title.</summary>
 /// <remarks>
 ///     For a host that presents the physical controller to games as some emulated device, this is
-///     where the user picks which. Built on Valve's dropdown field; its probe requires the controller
-///     presentation module rather than the performance actions.
+///     where the user picks which. Built on Valve's dropdown field; its probe asks what every row draws
+///     with.
 /// </remarks>
 public static class SteamControllerTargetRow
 {
@@ -76,14 +76,8 @@ public static class SteamControllerTargetRow
     public static SteamQuickAccessRowPatch Patch { get; } = new(
         PatchId,
         "controllerTarget",
-        "steam-ui-controller-target-v1:controller-presentation+performance-root+valve-dropdown",
-        "steam_ui_controller_target_probe_",
-        "controllerPresentation",
-        [
-            "#QuickAccess_Tab_Settings_Section_Controller_Title",
-            "#QuickAccess_ReorderControllers_Button",
-            "#QuickAccess_Tab_Perf_Title"
-        ]);
+        "steam-ui-controller-target-v2:performance-root+valve-dropdown",
+        "steam_ui_controller_target_probe_");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
     /// <param name="state">The state to serialize.</param>

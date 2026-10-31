@@ -146,12 +146,6 @@ public static class SteamUiPatchEvaluation
         try
         {
             using var document = JsonDocument.Parse(result.Value);
-            if (NotReady(document.RootElement))
-            {
-                return new SteamUiPatchProbeResult(
-                    false, false, null, "Steam has not finished loading: " + result.Value);
-            }
-
             var matched = compatible(document.RootElement);
             return new SteamUiPatchProbeResult(
                 true,
@@ -165,16 +159,87 @@ public static class SteamUiPatchEvaluation
         }
     }
 
-    /// <summary>
-    ///     Whether a probe says Steam has not finished loading what the patch needs: a
-    ///     <c>notReady</c> of 1. The manager records that as an absent target and probes again while
-    ///     the window settles, where an incompatible verdict stands for the generation.
-    /// </summary>
-    /// <param name="root">The parsed probe result.</param>
-    /// <returns>True when the probe reported <c>notReady: 1</c>.</returns>
-    public static bool NotReady(JsonElement root)
+    /// <summary>Evaluates a gate's own <c>probe()</c> and turns its standard answer into a probe result.</summary>
+    /// <param name="context">The patch context to evaluate through.</param>
+    /// <param name="role">Which Steam target to evaluate in.</param>
+    /// <param name="expression">The expression that answers the gate's probe as JSON.</param>
+    /// <param name="fingerprint">Semantic fingerprint recorded for a compatible target.</param>
+    /// <param name="unreachable">Diagnostic used when the target could not be evaluated at all.</param>
+    /// <param name="cancellationToken">Cancels the evaluation.</param>
+    /// <returns>The patch probe result; see <see cref="ParseGateProbe" />.</returns>
+    /// <remarks>
+    ///     An unreachable target is absent. An evaluation the page answered with an exception is
+    ///     incompatible with that exception as its diagnostic, because the gate's probe catches its
+    ///     own failures and only a defect escapes it.
+    /// </remarks>
+    public static async Task<SteamUiPatchProbeResult> EvaluateGateProbeAsync(
+        SteamUiPatchContext context,
+        SteamUiTargetRole role,
+        string expression,
+        string fingerprint,
+        string unreachable,
+        CancellationToken cancellationToken)
     {
-        return root.ValueKind == JsonValueKind.Object && IsOne(root, "notReady");
+        ArgumentNullException.ThrowIfNull(context);
+        var result = await context.EvaluateAsync(
+            role,
+            expression,
+            cancellationToken).ConfigureAwait(false);
+        if (result.Answered && result.Error is not null)
+        {
+            return new SteamUiPatchProbeResult(true, false, null, result.Error);
+        }
+
+        if (!result.Answered || result.Value is null)
+        {
+            return new SteamUiPatchProbeResult(false, false, null, result.Error ?? unreachable);
+        }
+
+        return ParseGateProbe(result.Value, fingerprint);
+    }
+
+    /// <summary>Reads one gate's standard probe answer.</summary>
+    /// <param name="value">
+    ///     The answer as JSON: <c>{ok, outcome, reason?, installed?, facts?}</c>, where <c>outcome</c> is
+    ///     <c>ready</c>, <c>notReady</c> or <c>incompatible</c>.
+    /// </param>
+    /// <param name="fingerprint">Semantic fingerprint recorded for a ready gate.</param>
+    /// <returns>
+    ///     Compatible with the fingerprint for <c>ready</c>; an absent target for <c>notReady</c>, which
+    ///     the manager probes again; incompatible otherwise. Every refusal keeps the whole answer, with
+    ///     its reason and facts, as the diagnostic.
+    /// </returns>
+    /// <remarks>
+    ///     Not ready is what a gate answers when what it needs is not mounted or constructed yet, such
+    ///     as Home while Big Picture is closed; reading that as incompatible retried it as a moved build
+    ///     all session. Incompatible means the client lacks what the gate needs. An answer that is not
+    ///     one of the three, or not JSON, is incompatible, never an optimistic success.
+    /// </remarks>
+    public static SteamUiPatchProbeResult ParseGateProbe(string value, string fingerprint)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
+        try
+        {
+            using var document = JsonDocument.Parse(value);
+            var root = document.RootElement;
+            var outcome = root.ValueKind == JsonValueKind.Object
+                          && root.TryGetProperty("outcome", out var reported)
+                          && reported.ValueKind == JsonValueKind.String
+                ? reported.GetString()
+                : null;
+            return outcome switch
+            {
+                "ready" => new SteamUiPatchProbeResult(true, true, fingerprint, null),
+                "notReady" => new SteamUiPatchProbeResult(
+                    false, false, null, "Steam has not finished loading: " + value),
+                _ => new SteamUiPatchProbeResult(true, false, null, value)
+            };
+        }
+        catch (JsonException ex)
+        {
+            return new SteamUiPatchProbeResult(true, false, null, ex.Message);
+        }
     }
 
     /// <summary>Whether a probe counted exactly one match for a required structural token set.</summary>
@@ -203,18 +268,6 @@ public static class SteamUiPatchEvaluation
         return root.ValueKind == JsonValueKind.Object
                && root.TryGetProperty(name, out var value)
                && value.ValueKind is JsonValueKind.True;
-    }
-
-    /// <summary>Whether a probe found the claimed member claimable, or already this gate's own.</summary>
-    /// <param name="root">The probe's JSON.</param>
-    /// <returns>True when <c>claimable</c> or <c>claimed</c> is literally <c>true</c>.</returns>
-    /// <remarks>
-    ///     A patch holding the member has answered the question <c>claimable</c> exists to ask, and a
-    ///     probe that demanded both at once would retract every applied gate on its next poll.
-    /// </remarks>
-    public static bool ClaimableOrOurs(JsonElement root)
-    {
-        return Flag(root, "claimable") || Flag(root, "claimed");
     }
 
     /// <summary>Whether a probe reported success and every named boolean was true.</summary>

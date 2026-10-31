@@ -1,25 +1,46 @@
 using System;
-using System.Text.Json;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace SteamUiToolkit;
 
 /// <summary>
-///     One registered Steam service/store gate, driven entirely by data: a probe expression with a
-///     compatibility predicate over its JSON, and the injected gate's install/status/remove surface.
+///     One registered SharedJSContext gate. Every phase asks the injected gate itself: the probe is
+///     the gate's own <c>probe()</c>, apply its <c>install()</c>, verify and remove its
+///     <c>status()</c> and <c>remove()</c>, read through one shared predicate over the standard status.
 /// </summary>
 /// <remarks>
-///     The surface supplies read-only probe evidence and install/status/remove predicates. A probe
-///     must recognize its own post-install claims as compatible. The manager supplies phase budgets,
+///     A gate is declared in TypeScript with <c>defineGate</c>, whose <c>find</c> resolves what the gate
+///     needs without writing anything, so its probe asks exactly the question its install asks and
+///     cannot drift from it. While installed the gate answers its probe from the handles it holds, so a
+///     holding gate stays compatible with its own next probe. The manager supplies phase budgets,
 ///     serialization and rollback; the gate owns exact restoration of its page mutations.
 /// </remarks>
 public sealed class SteamGatePatch : ISteamUiPatch
 {
+    /// <summary>The verification predicate over the standard gate status.</summary>
+    /// <remarks>The gate is installed and every claim it took is still in place.</remarks>
+    internal const string VerifyPredicate = "status.installed===true&&status.held===true";
+
+    /// <summary>The removal predicate over the standard gate status and the removal result.</summary>
+    /// <remarks>The removal succeeded, the gate is not installed and its ledger holds nothing.</remarks>
+    internal const string RemovePredicate = "removed.ok===true&&status.installed===false&&status.claims===0";
+
     private const string BridgeNamespace = SteamUiBridgeIdentity.Namespace;
 
     private const string BridgeUnavailable =
         "return JSON.stringify({ok:false,error:'bridge unavailable'});";
+
+    // A missing bridge or gate is a client that has not got there yet, never a build that moved.
+    private const string ProbeUnavailable =
+        "return JSON.stringify({ok:false,outcome:'notReady',reason:'bridge unavailable'});";
+
+    private const string ProbeBody =
+        "if(typeof bridge.probe!=='function')"
+        + "return JSON.stringify({ok:false,outcome:'incompatible',reason:'the gate has no probe'});"
+        + "return JSON.stringify(bridge.probe());";
 
     private readonly string _applyExpression;
     private readonly string _fingerprint;
@@ -31,58 +52,34 @@ public sealed class SteamGatePatch : ISteamUiPatch
     /// <param name="id">Stable patch id.</param>
     /// <param name="gateName">The name the injected bridge registers this gate under.</param>
     /// <param name="fingerprint">Stable structural fingerprint reported on a positive probe.</param>
-    /// <param name="probeExpression">Read-only probe that resolves the modules it needs by their source tokens.</param>
-    /// <param name="compatible">Reads the probe's JSON into a compatibility verdict.</param>
-    /// <param name="verifyOk">JS predicate over the gate's <c>status</c> proving it holds.</param>
-    /// <param name="removeOk">JS predicate over <c>status</c> proving removal left nothing.</param>
     /// <param name="subject">Diagnostic subject, e.g. "Audio namespace".</param>
-    public SteamGatePatch(
-        string id,
-        string gateName,
-        string fingerprint,
-        string probeExpression,
-        Func<JsonElement, bool> compatible,
-        string verifyOk,
-        string removeOk,
-        string subject)
+    public SteamGatePatch(string id, string gateName, string fingerprint, string subject)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
         ArgumentException.ThrowIfNullOrWhiteSpace(gateName);
         ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
-        ArgumentException.ThrowIfNullOrWhiteSpace(probeExpression);
-        ArgumentNullException.ThrowIfNull(compatible);
-        ArgumentException.ThrowIfNullOrWhiteSpace(verifyOk);
-        ArgumentException.ThrowIfNullOrWhiteSpace(removeOk);
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
         Id = id;
+        GateName = gateName;
         _fingerprint = fingerprint;
-        ProbeExpression = probeExpression;
-        Compatible = compatible;
-        VerifyOk = verifyOk;
-        RemoveOk = removeOk;
         _subject = subject;
         var gate = SteamCef.JsString(gateName);
+        ProbeExpression = GateExpression(gate, ProbeBody, ProbeUnavailable);
         _applyExpression = GateExpression(gate, "return JSON.stringify(bridge.install());");
         _verifyExpression = GateExpression(
             gate,
-            "const status=bridge.status();return JSON.stringify({ok:" + verifyOk + ",status});");
+            "const status=bridge.status();return JSON.stringify({ok:" + VerifyPredicate + ",status});");
         _removeExpression = GateExpression(
             gate,
             "const removed=bridge.remove();const status=bridge.status();"
-            + "return JSON.stringify({ok:removed.ok&&" + removeOk + "});");
+            + "return JSON.stringify({ok:" + RemovePredicate + ",error:removed.error,status});");
     }
 
-    /// <summary>The read-only probe this gate evaluates.</summary>
+    /// <summary>The name the injected bridge registers this gate under.</summary>
+    internal string GateName { get; }
+
+    /// <summary>The probe this gate evaluates: the injected gate's own <c>probe()</c>.</summary>
     internal string ProbeExpression { get; }
-
-    /// <summary>The compatibility verdict over the probe's JSON.</summary>
-    internal Func<JsonElement, bool> Compatible { get; }
-
-    /// <summary>The JS predicate over <c>status</c> that verification requires.</summary>
-    internal string VerifyOk { get; }
-
-    /// <summary>The JS predicate over <c>status</c> that removal requires.</summary>
-    internal string RemoveOk { get; }
 
     /// <inheritdoc />
     public string Id { get; }
@@ -95,11 +92,10 @@ public sealed class SteamGatePatch : ISteamUiPatch
         SteamUiPatchContext context,
         CancellationToken cancellationToken)
     {
-        return SteamUiPatchEvaluation.EvaluateProbeAsync(
+        return SteamUiPatchEvaluation.EvaluateGateProbeAsync(
             context,
             SteamUiTargetRole.SharedJsContext,
             ProbeExpression,
-            Compatible,
             _fingerprint,
             "SharedJSContext is unavailable.",
             cancellationToken);
@@ -142,6 +138,26 @@ public sealed class SteamGatePatch : ISteamUiPatch
             _removeExpression,
             _subject + " removal failed.",
             cancellationToken);
+    }
+
+    /// <summary>Builds one evaluation that asks several gates for their probe answers.</summary>
+    /// <param name="gateNames">The registered gate names, in the order their answers are wanted.</param>
+    /// <returns>An expression answering a JSON array with one probe answer per gate.</returns>
+    /// <remarks>
+    ///     The health check re-probes every absent gate in one evaluation. A missing bridge or gate
+    ///     answers not ready, and a probe that throws answers incompatible with the error.
+    /// </remarks>
+    internal static string ProbeAllExpression(IEnumerable<string> gateNames)
+    {
+        var names = "[" + string.Join(",", gateNames.Select(SteamCef.JsString)) + "]";
+        return "(()=>{const b=window["
+               + SteamCef.JsString(BridgeNamespace)
+               + "];return JSON.stringify(" + names + ".map(n=>{"
+               + "const g=b&&b.gate?b.gate(n):null;"
+               + "if(!g)return{ok:false,outcome:'notReady',reason:'bridge unavailable'};"
+               + "if(typeof g.probe!=='function')return{ok:false,outcome:'incompatible',reason:'the gate has no probe'};"
+               + "try{return g.probe();}catch(error){return{ok:false,outcome:'incompatible',reason:String(error)};}"
+               + "}));})()";
     }
 
     /// <summary>Builds an expression bound to one registered injected gate.</summary>

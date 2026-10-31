@@ -59,32 +59,16 @@ public static class SteamNativeSettingsSurface
     public static IReadOnlyList<string> Commands { get; } = ["set"];
 
     /// <summary>The patch that augments native Settings without replacing native fields.</summary>
+    /// <remarks>
+    ///     The probe is the gate's own find: the four native page descriptors, the Settings root, React,
+    ///     the JSX runtime, the fields module and Steam's Panel must each match once, and every field the
+    ///     sections draw with must resolve; anything else is incompatible. Removal hands back every
+    ///     Settings root drawing the claim, including those mounted after install.
+    /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
         "nativeSettings",
         "steam-native-settings-v1:unique-native-descriptors+settings-root+valve-fields",
-        $$"""
-          {{SteamUiProbeJs.Preamble("steam_ui_native_settings_probe_")}}
-            return JSON.stringify({
-              descriptors:count(['#Settings_Page_Display','#Settings_Page_Power',
-                '#Settings_Page_Audio','#Settings_Page_Controller']),
-              root:count(['#Settings_Title','SettingsModal','SettingsTitleBar']),
-              react:count({{SteamUiProbeJs.ReactTokens}}),
-              jsx:count({{SteamUiProbeJs.JsxRuntimeTokens}}),
-              fields:count({{SteamUiProbeJs.NativeFieldTokens}}),
-              focusable:count({{SteamUiProbeJs.NativeFocusableTokens}})
-            });
-          {{SteamUiProbeJs.Close}}
-          """,
-        root =>
-            SteamUiPatchEvaluation.IsOne(root, "descriptors")
-            && SteamUiPatchEvaluation.IsOne(root, "root")
-            && SteamUiPatchEvaluation.IsOne(root, "react")
-            && SteamUiPatchEvaluation.IsOne(root, "jsx")
-            && SteamUiPatchEvaluation.IsOne(root, "fields")
-            && SteamUiPatchEvaluation.IsOne(root, "focusable"),
-        "status.installed&&status.resolved&&status.claimed",
-        "!status.claimsRemaining&&status.ownedRoots===0",
         "Native Settings gate");
 
     /// <summary>Serializes the typed publication.</summary>

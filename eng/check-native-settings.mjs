@@ -1,4 +1,7 @@
-// Native Settings ownership and dynamic page augmentation, against the emitted gate.
+// Native Settings ownership and dynamic page augmentation, against the emitted gate. The probe is the
+// gate's own find: Steam's modules not yet loadable are not ready, a contract matched twice is
+// incompatible, and an installed gate answers from what it holds. Release hands back every Settings
+// root drawing the claim, including one Steam mounted after install through the JSX transform.
 import assert from "node:assert/strict";
 import {
   assertRemoveRetries,
@@ -48,6 +51,8 @@ const fiber = { type: NativeRoot, elementType: NativeRoot, memoizedProps: {}, re
 const rootHost = { __reactContainer$fixture: fiber };
 const popupDocument = { getElementById: () => rootHost, body: { children: [] } };
 const popup = { m_popup: { document: popupDocument } };
+// Steam lists the same popup twice; one document is one root.
+const popups = [popup, popup];
 const sharedRootHost = { __reactContainer$fixture: { type: () => null } };
 const ui = Object.fromEntries(
   [
@@ -67,16 +72,23 @@ const ui = Object.fromEntries(
 ui.react = react;
 let publication;
 const requests = [];
+// How many modules each fingerprint matches; one everywhere is a compatible client.
+const counts = {};
+let modulesLoaded = true;
 const runtime = {
+  count: (tokens) => counts[tokens[0]] ?? 1,
   findUnique: () => ["fixture", ""],
   exported: () => NativeRoot,
   resolve: () => jsxRuntime,
 };
 const exposed = instantiate(
   {
-    window: { g_PopupManager: { GetPopups: () => [popup, popup] } },
+    window: { g_PopupManager: { GetPopups: () => popups } },
     document: { getElementById: () => sharedRootHost, body: { children: [] } },
-    getWebpackRuntime: () => runtime,
+    getWebpackRuntime: () => {
+      if (!modulesLoaded) throw new Error("Steam modules unavailable");
+      return runtime;
+    },
     resolveSteamSettingsComponents: () => ui,
     useSteamSettingDrafts: () => ({
       change: (send) => send,
@@ -103,8 +115,27 @@ const row = { key: "device/charge", kind: "boolean", label: "Charge limit", chec
 const state = (pages, revision = 1) => ({ pages, revision });
 const page = (id, rows = [row]) => ({ id, sections: [{ id: "device", title: "Device", rows }] });
 
+modulesLoaded = false;
+assert.equal(gate.probe().outcome, "notReady", "a webpack runtime not yet capturable is not ready");
+modulesLoaded = true;
+for (const token of ["#Settings_Page_Display", "#Settings_Title", "react.transitional.element"]) {
+  counts[token] = 2;
+  const probe = gate.probe();
+  assert.equal(probe.outcome, "incompatible", `an ambiguous ${token} module is incompatible`);
+  delete counts[token];
+}
+let probe = gate.probe();
+assert.equal(probe.outcome, "ready", probe.reason);
+assert.deepEqual(probe.facts, { descriptors: 1, root: 1, react: 1, jsx: 1, fields: 1, focusable: 1 });
+assert.equal(fiber.type, NativeRoot, "a probe adopts nothing");
+assert.equal(jsxRuntime.jsx, originalJsx, "a probe claims nothing");
+
 assert.equal(gate.install().ok, true);
 assert.notEqual(fiber.type, NativeRoot, "an already mounted popup-native root is adopted");
+assert.equal(gate.status().held, true, "the standard status shows every claim held");
+counts["#Settings_Title"] = 2;
+assert.equal(gate.probe().outcome, "ready", "an installed gate answers from what it holds");
+delete counts["#Settings_Title"];
 assert.equal(
   renderRequests,
   1,
@@ -207,7 +238,7 @@ assert.equal(
 );
 publication(state([page("controller"), page("controller")], 5));
 assert.match(
-  gate.status().lastError,
+  gate.status().publicationError,
   /publication is invalid/u,
   "duplicate pages are refused whole",
 );
@@ -224,10 +255,29 @@ assert.equal(
 publication(null);
 assert.equal(host.type(host.props), null, "null state empties every mounted host slot");
 
+// A Settings root Steam mounts after install is created through the JSX transform, so it carries the
+// claim's wrapper on both of its fibers; the list adopted at install never saw it.
+const created = jsxRuntime.jsx(NativeRoot, {});
+assert.notEqual(created.type, NativeRoot, "a later Settings root is created with the claim's wrapper");
+let laterRenders = 0;
+const laterParent = { stateNode: { isReactComponent: true, forceUpdate: () => laterRenders++ } };
+const laterRoot = { type: created.type, elementType: created.type, memoizedProps: {}, return: laterParent };
+laterRoot.alternate = { ...laterRoot, alternate: laterRoot };
+const laterHost = { __reactContainer$later: laterRoot };
+const laterDocument = { getElementById: () => laterHost, body: { children: [] } };
+popups.push({ m_popup: { document: laterDocument } });
+
 // Shared claim removal leaves an unrelated surface's transform in place.
 assert.equal(exposed.interceptMemo(react, "fixture-other", (value) => value).ok, true);
+const rendersBeforeRemoval = renderRequests;
 assert.equal(gate.remove().ok, true);
 assert.equal(fiber.type, NativeRoot, "the mounted root is handed back exactly");
+assert.ok(renderRequests > rendersBeforeRemoval, "the handed-back root is asked to render");
+assert.equal(laterRoot.type, NativeRoot, "a root mounted after install is handed back");
+assert.equal(laterRoot.alternate.type, NativeRoot, "on both of its fibers");
+assert.equal(laterRenders, 1, "and asked to render");
+assert.equal(gate.status().claims, 0, "removal leaves nothing on the ledger");
+popups.pop();
 assert.equal(jsxRuntime.jsx, originalJsx);
 assert.notEqual(react.useMemo, originalMemo);
 exposed.releaseMemo(react, "fixture-other");

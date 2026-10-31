@@ -4,6 +4,8 @@ namespace SteamUiToolkit.Tests.Fakes;
 internal sealed class FakePatch(string id = "fixture.patch") : ISteamUiPatch
 {
     private int _applyCalls;
+    private int _applyFailures;
+    private int _probeCalls;
     private int _removeCalls;
     private int _verifyCalls;
 
@@ -12,6 +14,15 @@ internal sealed class FakePatch(string id = "fixture.patch") : ISteamUiPatch
     internal bool TargetPresent { get; set; } = true;
 
     internal bool ThrowOnApply { get; set; }
+
+    /// <summary>How many of the next applies throw before they succeed again; negative throws for good.</summary>
+    internal int ApplyFailures
+    {
+        get => Volatile.Read(ref _applyFailures);
+        set => Volatile.Write(ref _applyFailures, value);
+    }
+
+    internal int ProbeCalls => Volatile.Read(ref _probeCalls);
 
     internal bool Mutated { get; private set; }
 
@@ -52,6 +63,7 @@ internal sealed class FakePatch(string id = "fixture.patch") : ISteamUiPatch
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        Interlocked.Increment(ref _probeCalls);
         await DelayAsync(cancellationToken);
         return new SteamUiPatchProbeResult(
             TargetPresent,
@@ -66,7 +78,13 @@ internal sealed class FakePatch(string id = "fixture.patch") : ISteamUiPatch
     {
         cancellationToken.ThrowIfCancellationRequested();
         Mutated = true;
-        if (ThrowOnApply)
+        var failures = ApplyFailures;
+        if (failures > 0)
+        {
+            ApplyFailures = failures - 1;
+        }
+
+        if (ThrowOnApply || failures != 0)
         {
             throw new InvalidOperationException("fixture apply failure");
         }

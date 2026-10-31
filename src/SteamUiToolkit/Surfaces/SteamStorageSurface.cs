@@ -163,31 +163,17 @@ public static class SteamStorageSurface
     public static IReadOnlyList<string> Commands { get; } = ["adopt", "unmount", "eject", "format", "trimall"];
 
     /// <summary>The gate that answers Steam's storage service and forwards its actions.</summary>
+    /// <remarks>
+    ///     The probe is the gate's own find: the service module and the provider module must each match
+    ///     exactly once and the provider module must export exactly one singleton accessor, selected by
+    ///     the resolver's structural selector; anything else is incompatible, with the counts as its
+    ///     facts. The probe never calls the accessor or <c>GetDefaultTransport</c>; install calls each
+    ///     once and refuses a provider of another shape.
+    /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
         "storage",
         "steam-ui-storage-v3:unique-service+unique-singleton-accessor",
-        // Inspect the known module's exports with the gate's exact structural selector. The probe
-        // never calls the provider accessor or GetDefaultTransport. Claimability stays at install.
-        $$"""
-          {{SteamUiProbeJs.Preamble("steam_ui_storage_probe_")}}
-            const service=count(['StorageDeviceManager.IsServiceAvailable#1']);
-            const selection=service===1?req.storageProvider():{
-              transportModule:count(['GetDefaultTransport','m_transport']),provider:0
-            };
-            return JSON.stringify({
-              service,
-              transportModule:selection.transportModule,
-              provider:selection.provider
-            });
-          {{SteamUiProbeJs.Close}}
-          """,
-        root =>
-            SteamUiPatchEvaluation.IsOne(root, "service")
-            && SteamUiPatchEvaluation.IsOne(root, "transportModule")
-            && SteamUiPatchEvaluation.IsOne(root, "provider"),
-        "status.installed&&status.resolved&&status.claimed",
-        "!status.claimed",
         "Storage service gate");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>

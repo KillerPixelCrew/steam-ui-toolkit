@@ -1,6 +1,7 @@
 /**
  * Exposes the shared JSX transform claim to scripts outside this bundle.
- * @returns Named transform registration, removal and ownership checks; registrations belong to this bridge.
+ * @returns Named transform registration, removal and ownership checks, and the standard probe;
+ * registrations belong to this bridge. It installs nothing of its own, so it is not a patch.
  */
 
 function createElementsGate() {
@@ -37,7 +38,22 @@ function createElementsGate() {
         }
     };
 
-    return {register, unregister, registered};
+    // The standard probe answer: whether the JSX runtime the transforms ride resolves. Steam's modules
+    // not loadable yet is not ready; a runtime that is absent or matches twice is incompatible.
+    const probe = () => {
+        let modules;
+        try {
+            modules = getWebpackRuntime("elements");
+        } catch (error) {
+            return {ok: false, outcome: "notReady", reason: `Steam modules unavailable: ${String(error)}`, facts: {}};
+        }
+        const jsx = modules.count([...JsxRuntimeTokens]);
+        return jsx === 1
+            ? {ok: true, outcome: "ready", facts: {jsx}}
+            : {ok: false, outcome: "incompatible", reason: "JSX runtime was not a unique match", facts: {jsx}};
+    };
+
+    return {register, unregister, registered, probe};
 }
 
 registerGate("elements", createElementsGate());

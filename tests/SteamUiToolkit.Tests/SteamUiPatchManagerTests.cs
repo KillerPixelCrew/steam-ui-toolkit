@@ -1,5 +1,7 @@
 namespace SteamUiToolkit.Tests;
 
+// Two tests read the shared SteamUiLog sink, so the class runs apart from the others that do.
+[Collection("Steam UI diagnostics")]
 public sealed class SteamUiPatchManagerTests
 {
     private static readonly TimeSpan FixtureTimeout = TimeSpan.FromSeconds(1);
@@ -206,14 +208,6 @@ public sealed class SteamUiPatchManagerTests
     }
 
     [Fact]
-    public void AProbeThatSaysSteamIsStillLoadingIsNotAVerdict()
-    {
-        Assert.True(SteamUiPatchEvaluation.NotReady(TestJson.Parse("{\"notReady\":1,\"routerFound\":0}")));
-        Assert.False(SteamUiPatchEvaluation.NotReady(TestJson.Parse("{\"notReady\":0}")));
-        Assert.False(SteamUiPatchEvaluation.NotReady(TestJson.Parse("{\"routerFound\":0}")));
-    }
-
-    [Fact]
     public async Task RepeatedSynchronizationVerifiesHealthyPatchWithoutReapplyingIt()
     {
         await using var transport = new FakeSteamUiTransport();
@@ -385,5 +379,191 @@ public sealed class SteamUiPatchManagerTests
 
         var snapshot = Assert.Single(manager.GetSnapshots());
         Assert.Equal(SteamUiPatchState.Verified, snapshot.State);
+    }
+
+    [Fact]
+    public async Task IncompatibleStandsForItsGenerationUntilTheGenerationOrASwitchChanges()
+    {
+        // A build that lacks what a patch needs does not grow it in the next minute. Retrying it like a
+        // transient failure spent the retry sequence on it and logged the same verdict all session.
+        var log = new RecordingLog();
+        SteamUiLog.Use(log);
+        try
+        {
+            await using var transport = new FakeSteamUiTransport();
+            await using var manager = new SteamUiPatchManager(transport, TimeSpan.FromMilliseconds(1));
+            var patch = new FakePatch("fixture.incompatible") { OperationTimeout = FixtureTimeout, Compatible = false };
+            manager.Register(patch);
+
+            await manager.SynchronizeAsync();
+            Assert.Equal(SteamUiPatchState.Incompatible, Assert.Single(manager.GetSnapshots()).State);
+            await Task.Delay(100);
+            await manager.SynchronizeAsync();
+
+            Assert.Equal(1, patch.ProbeCalls);
+            Assert.Single(log.Changes("steam.ui.patch.fixture.incompatible", "Incompatible"));
+
+            transport.AdvanceDocumentGeneration();
+            await manager.SynchronizeAsync();
+            Assert.Equal(2, patch.ProbeCalls);
+
+            await manager.SetPatchEnabledAsync(patch.Id, true);
+            Assert.Equal(3, patch.ProbeCalls);
+
+            patch.Compatible = true;
+            await manager.SetGlobalEnabledAsync(false);
+            await manager.SetGlobalEnabledAsync(true);
+            Assert.Equal(SteamUiPatchState.Verified, Assert.Single(manager.GetSnapshots()).State);
+        }
+        finally
+        {
+            SteamUiLog.Use(null);
+        }
+    }
+
+    [Fact]
+    public async Task AnAbsentGateIsLeftToTheHealthCheckWhichProbesEveryAbsentGateInOneEvaluation()
+    {
+        // Big Picture can stay closed for hours. The retry sequence ended long before it opened, and
+        // nothing asked an absent gate again, so Home kept Steam's own carousel until the next reload.
+        await using var transport = new FakeSteamUiTransport();
+        var ready = false;
+        var probes = 0;
+        var batches = 0;
+        transport.OnEvaluate = call =>
+        {
+            var answer = ready
+                ? """{"ok":true,"outcome":"ready","facts":{}}"""
+                : """{"ok":false,"outcome":"notReady","reason":"the router is not mounted"}""";
+            string value;
+            if (call.Expression.Contains(".map(n=>", StringComparison.Ordinal))
+            {
+                Interlocked.Increment(ref batches);
+                value = "[" + answer + "]";
+            }
+            else if (call.Expression.Contains("bridge.probe()", StringComparison.Ordinal))
+            {
+                Interlocked.Increment(ref probes);
+                value = answer;
+            }
+            else
+            {
+                value = """{"ok":true}""";
+            }
+
+            return Task.FromResult(transport.Reply(value));
+        };
+        await using var manager = new SteamUiPatchManager(transport, TimeSpan.FromMilliseconds(1));
+        var bridge = new FakePatch(SteamUiBridgePatch.PatchId) { OperationTimeout = FixtureTimeout };
+        var gate = new SteamGatePatch("steam-ui.example", "exampleGate", "example-v1", "Example gate");
+        manager.Register(bridge);
+        manager.Register(gate);
+
+        await manager.SynchronizeAsync();
+        Assert.Equal(SteamUiPatchState.AbsentTarget, State(manager, gate.Id));
+        await Task.Delay(100);
+        Assert.Equal(1, Volatile.Read(ref probes));
+
+        manager.QueueHealthCheck();
+        await TestJson.WaitUntilAsync(() => Volatile.Read(ref batches) == 1);
+        Assert.Equal(SteamUiPatchState.AbsentTarget, State(manager, gate.Id));
+        Assert.Equal(1, Volatile.Read(ref probes));
+
+        ready = true;
+        manager.QueueHealthCheck();
+        await TestJson.WaitUntilAsync(() => State(manager, gate.Id) == SteamUiPatchState.Verified);
+        Assert.Equal(2, Volatile.Read(ref batches));
+        Assert.Equal(2, Volatile.Read(ref probes));
+    }
+
+    [Fact]
+    public async Task EveryPatchCountsItsOwnRetriesAndTheWarningNamesTheOnesThatRanOut()
+    {
+        // One shared sequence let a patch that never recovered spend every other patch's retries: a
+        // patch that started failing late got whatever was left, then nothing until the next reload.
+        var log = new RecordingLog();
+        SteamUiLog.Use(log);
+        try
+        {
+            await using var transport = new FakeSteamUiTransport();
+            await using var manager = new SteamUiPatchManager(transport, TimeSpan.FromMilliseconds(1));
+            var always = new FakePatch("fixture.always") { OperationTimeout = FixtureTimeout, ApplyFailures = -1 };
+            var late = new FakePatch("fixture.late") { OperationTimeout = FixtureTimeout };
+            manager.Register(always);
+            manager.Register(late);
+
+            await manager.SynchronizeAsync();
+            Assert.Equal(SteamUiPatchState.Verified, State(manager, late.Id));
+            await TestJson.WaitUntilAsync(() => always.ProbeCalls >= 6, TimeSpan.FromSeconds(5));
+            // The late patch loses its generation and needs more passes than the other has left.
+            late.ApplyFailures = 6;
+            transport.AdvanceDocumentGeneration();
+
+            await TestJson.WaitUntilAsync(() => State(manager, late.Id) == SteamUiPatchState.Verified,
+                TimeSpan.FromSeconds(10));
+            await TestJson.WaitUntilAsync(() => log.Warnings.Count == 1, TimeSpan.FromSeconds(5));
+            await Task.Delay(300);
+
+            Assert.Equal(9, always.ProbeCalls);
+            var warning = Assert.Single(log.Warnings);
+            Assert.Contains("fixture.always (Degraded: fixture apply failure)", warning, StringComparison.Ordinal);
+            Assert.DoesNotContain("fixture.late", warning, StringComparison.Ordinal);
+        }
+        finally
+        {
+            SteamUiLog.Use(null);
+        }
+    }
+
+    private static SteamUiPatchState State(SteamUiPatchManager manager, string id)
+    {
+        return manager.GetSnapshots().Single(snapshot => snapshot.Id == id).State;
+    }
+
+    /// <summary>Records the manager's lines, so a test can count what was written.</summary>
+    private sealed class RecordingLog : ISteamUiLog
+    {
+        private readonly List<(string Key, string Message)> _changes = [];
+        private readonly List<string> _warnings = [];
+
+        internal IReadOnlyList<string> Warnings
+        {
+            get
+            {
+                lock (_warnings)
+                {
+                    return _warnings.Where(line => line.Contains("fixture.", StringComparison.Ordinal)).ToArray();
+                }
+            }
+        }
+
+        public void Info(string message)
+        {
+        }
+
+        public void Warn(string message)
+        {
+            lock (_warnings)
+            {
+                _warnings.Add(message);
+            }
+        }
+
+        public void Change(string key, string message, bool warning = false)
+        {
+            lock (_changes)
+            {
+                _changes.Add((key, message));
+            }
+        }
+
+        internal IReadOnlyList<string> Changes(string key, string text)
+        {
+            lock (_changes)
+            {
+                return _changes.Where(change => change.Key == key && change.Message.Contains(text, StringComparison.Ordinal))
+                    .Select(change => change.Message).ToArray();
+            }
+        }
     }
 }

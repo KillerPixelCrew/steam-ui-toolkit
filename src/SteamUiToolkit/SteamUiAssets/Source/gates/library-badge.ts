@@ -141,8 +141,8 @@ const createLibraryBadgeReading = () => {
     };
 };
 /**
- * Adds host library badges using shared element transforms and published library identity.
- * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ * Adds host library badges by claiming the library tile's memo, from published library identity.
+ * @returns The defineGate gate; remove must release it before its bridge is replaced.
  */
 
 function createLibraryBadge() {
@@ -165,21 +165,17 @@ function createLibraryBadge() {
 
     const MaximumDescent = 12;
 
-    let runtime;
     let react;
     let tile: any = null;
     let badge: any = null;
     let settings: any = null;
     let classes: { row: string; icon: string } | null = null;
-    let installed = false;
-    let lastError = "";
-    let unsubscribe: (() => void) | null = null;
     let reportedBigArt: boolean | null = null;
+    let component: ClaimedComponent | null = null;
 
     // The host's published libraries, replaced whole on each publication and indexed by app id.
     const local = createLibraryBadgeReading();
     let reading = local.read();
-    const mounted = createMountedAdoption();
 
     // What the last tile render actually did, because a claimed tile can render exactly what Valve
     // shipped when the badge anchor is not in its tree. Kept as counts and the reading that render
@@ -308,7 +304,7 @@ function createLibraryBadge() {
         wrapped = function SteamUiLibraryTile(this: unknown, props, secondArgument) {
             const tree = original.call(this, props, secondArgument);
             reportBigArt();
-            return installed
+            return gate.installed()
                 ? react.createElement(LiveLibraryTile, {
                       tree,
                       overview: props?.app ?? props?.overview,
@@ -323,7 +319,7 @@ function createLibraryBadge() {
         const appId = props.overview?.appid ?? 0;
         const store = local.storeFor(appId);
         react.useSyncExternalStore(store.subscribe, store.revision, store.revision);
-        if (!installed) return props.tree;
+        if (!gate.installed()) return props.tree;
         reading = local.read();
         const before = placed;
         let result = decorate(props.tree, 0);
@@ -340,23 +336,17 @@ function createLibraryBadge() {
         return result;
     }
 
-    const resolve = () => {
-        runtime = getWebpackRuntime("library-badge");
+    // Pure: the tile memo, Valve's badge and the wanted class map and settings store. Every one is a
+    // module the client loads at boot, so a miss is a client that moved, never one still loading.
+    const find = (runtime) => {
         const resolvedReact = resolveReact(runtime);
-        if (!resolvedReact) {
-            lastError = "React runtime was not a unique match";
-            return false;
+        if (!resolvedReact) return gateIncompatible("React runtime was not a unique match", { react: 0 });
+        if (typeof resolvedReact.useSyncExternalStore !== "function") {
+            return gateIncompatible("React runtime lacks useSyncExternalStore");
         }
-        react = resolvedReact;
-        if (typeof react.useSyncExternalStore !== "function") {
-            lastError = "React runtime lacks useSyncExternalStore";
-            return false;
-        }
-
         const tileFactory = runtime.findUnique([...TileTokens]);
         if (!tileFactory) {
-            lastError = "library tile module was not a unique match";
-            return false;
+            return gateIncompatible("library tile module was not a unique match", { tileModule: 0 });
         }
         const exports = runtime(tileFactory[0]);
 
@@ -366,39 +356,31 @@ function createLibraryBadge() {
             const value = exports[name];
             return value && typeof value === "object" && value.$$typeof === ReactMemoType;
         });
-        if (tiles.length !== 1) {
-            lastError = `library tile export was ${tiles.length ? "ambiguous" : "absent"}`;
-            return false;
-        }
         const badges = Object.keys(exports).filter((name) => {
             const value = exports[name];
             return typeof value === "function" && String(value).includes(TileTokens[0]);
         });
-        if (badges.length !== 1) {
-            lastError = `Steam Input badge export was ${badges.length ? "ambiguous" : "absent"}`;
-            return false;
-        }
-        tile = exports[tiles[0]];
-        badge = exports[badges[0]];
+        const memo = tiles.length === 1 ? exports[tiles[0]] : null;
+        const descriptor = memo ? Object.getOwnPropertyDescriptor(memo, "type") : null;
+        const ours = !!memo && memberClaimed(memo, "type", claimKeys);
 
         // The class map is wanted, not required: without it the badge still draws, on every tile
         // rather than the focused one, and `status.classesResolved` says so. Read as the tile reads
         // it — the module's export, unwrapped if it is an ES default.
-        classes = null;
+        let foundClasses: { row: string; icon: string } | null = null;
         const classMapFactory = runtime.findUnique([...ClassMapTokens]);
         if (classMapFactory) {
-            const exported = runtime(classMapFactory[0]);
-            const map = classMapOf(exported);
+            const map = classMapOf(runtime(classMapFactory[0]));
             const row = map?.LibraryItemIcons;
             const icon = map?.ControllerSupportIcon;
             if (typeof row === "string" && row && typeof icon === "string" && icon) {
-                classes = { row, icon };
+                foundClasses = { row, icon };
             }
         }
 
         // The settings store is wanted, not required: without it the badge still draws and
         // `status.bigArt` says null rather than guessing.
-        settings = null;
+        let foundSettings: any = null;
         const settingsFactory = runtime.findUnique([...SettingsTokens]);
         if (settingsFactory) {
             const stores = runtime(settingsFactory[0]);
@@ -408,94 +390,98 @@ function createLibraryBadge() {
                     value && typeof value === "object" && typeof value.clientSettings === "object"
                 );
             });
-            if (candidates.length === 1) settings = stores[candidates[0]];
+            if (candidates.length === 1) foundSettings = stores[candidates[0]];
         }
-        return true;
+
+        const facts = {
+            tileModule: 1,
+            tileExports: tiles.length,
+            badgeExports: badges.length,
+            // Writable and configurable, or the claim could neither replace nor restore it.
+            claimable: descriptor?.writable === true && descriptor.configurable === true,
+            // Already ours is compatible, for the reason every gate's own claim is.
+            claimed: ours,
+            settingsModule: settingsFactory ? 1 : 0,
+            classMap: classMapFactory ? 1 : 0,
+            react: 1,
+        };
+        if (tiles.length !== 1) {
+            return gateIncompatible(`library tile export was ${tiles.length ? "ambiguous" : "absent"}`, facts);
+        }
+        if (badges.length !== 1) {
+            return gateIncompatible(
+                `Steam Input badge export was ${badges.length ? "ambiguous" : "absent"}`,
+                facts,
+            );
+        }
+        if (!facts.claimable && !ours) {
+            return gateIncompatible("the library tile's type is not writable and configurable", facts);
+        }
+        return gateReady(
+            {
+                react: resolvedReact,
+                tile: memo,
+                badge: exports[badges[0]],
+                classes: foundClasses,
+                settings: foundSettings,
+            },
+            facts,
+        );
     };
 
-    const install = () => {
-        if (installed) return { ok: true, alreadyInstalled: true };
-        const resolved = attemptResolution(resolve, (error) => {
-            lastError = "library badge resolution failed: " + String(error);
-        });
-        if (!resolved) return { ok: false, error: lastError };
-
-        // Every caller draws the tile through the same memo, so claiming its `type` reaches the
-        // carousel and the grid without patching a single caller.
-        const claim = claimMember(tile, "type", claimKeys, (original: any) => {
-            if (typeof original !== "function") return original;
-            return wrapTile(original);
-        });
-        if (!claim.ok) {
-            lastError = claim.error;
-            return { ok: false, error: lastError };
-        }
-
-        installed = true;
-        mounted.adopt(tile, tile.type);
-        lastError = "";
-        reportedBigArt = null;
-        reportBigArt();
-        unsubscribe = subscribe(patchId, (state) => {
-            reading = local.publish(state);
-        });
-        return { ok: true, installed: true, reclaimed: claim.reclaimed };
-    };
-
-    const remove = () => {
-        if (!installed) return { ok: true, absent: true };
-        // Released before anything is forgotten, so a failed release stays installed and the next
-        // remove retries it.
-        const replacement = tile.type;
-        const original = unclaimedValue(replacement, claimKeys);
-        const released = releaseMember(tile, "type", claimKeys);
-        if (!released.ok) {
-            lastError = released.error ?? "library badge release failed";
-            return { ok: false, error: lastError };
-        }
-        installed = false;
-        mounted.release(original);
-        // New mounts inherit the claimed memo without adoption. Restore those owned fibers once,
-        // on removal; ordinary publications never traverse Steam's component tree.
-        for (const fiber of mountedFibersOf(reactRootFibers(), tile, MaximumMountedNodes)) {
-            if (fiber.type !== replacement) continue;
-            retargetFiber(fiber, original);
-            invalidateFiberProps(fiber);
-            requestRender(fiber);
-        }
-        unsubscribe = endSubscription(unsubscribe);
-        reading = local.publish(null);
-        local.changed();
-        tileCache.clear();
-        outcome = "removed";
-        return { ok: true, removed: true };
-    };
-
-    const status = () => ({
-        ok: true,
-        installed,
-        resolved: !!tile && !!badge,
-        claimed: memberClaimed(tile, "type", claimKeys),
-        settingsResolved: !!settings,
-        classesResolved: !!classes,
-        bigArt: readBigArt(),
-        libraries: reading.count,
-        apps: reading.libraries.size,
-        lastOutcome:
-            outcome === "rendered"
-                ? `placed=${placed} unanchored=${unanchored} libraries=${renderedReading.count} apps=${renderedReading.libraries.size}`
-                : outcome,
-        lastError,
+    const gate = defineGate({
+        name: "library-badge",
+        find,
+        bind: (handles, ledger) => {
+            react = handles.react;
+            tile = handles.tile;
+            badge = handles.badge;
+            classes = handles.classes;
+            settings = handles.settings;
+            // Subscribed first, so removal releases the tile before it stops hearing the host.
+            ledger.subscribe(patchId, (state) => {
+                reading = local.publish(state);
+            });
+            // Every caller draws the tile through the same memo, so claiming its `type` reaches the
+            // carousel and the grid without patching a single caller; the tiles already on screen are
+            // adopted, and removal hands back every tile drawing the claim, later mounts included.
+            const claimed = ledger.component({ host: tile, keys: claimKeys, wrap: wrapTile });
+            if (!claimed.ok) return claimed.error;
+            component = claimed;
+            reportedBigArt = null;
+            reportBigArt();
+            return { adopted: claimed.status().adopted };
+        },
+        unbind: () => {
+            component = null;
+            reading = local.publish(null);
+            local.changed();
+            tileCache.clear();
+            outcome = "removed";
+        },
+        status: () => ({
+            claimed: memberClaimed(tile, "type", claimKeys),
+            settingsResolved: !!settings,
+            classesResolved: !!classes,
+            bigArt: readBigArt(),
+            libraries: reading.count,
+            apps: reading.libraries.size,
+            // Tiles on screen at install, and how many still draw something other than the claim.
+            mounted: component?.status() ?? { adopted: 0, scheduled: false, stale: 0 },
+            lastOutcome:
+                outcome === "rendered"
+                    ? `placed=${placed} unanchored=${unanchored} libraries=${renderedReading.count} apps=${renderedReading.libraries.size}`
+                    : outcome,
+        }),
     });
-
-    return { install, remove, status };
+    return gate;
 }
 
 registerGate("libraryBadge", createLibraryBadge());
 
 /**
  * Adds host metadata and frontend contributions to the matched game details page.
- * @returns Install/remove controls and diagnostics for the reversible details-page claim.
+ * @returns The defineGate gate holding the reversible details-page claim.
  */
 function createLibraryDetails() {
     const publicationId = "steam-ui.library-badge";
@@ -515,7 +501,6 @@ function createLibraryDetails() {
     const LabelToken = "#Settings_Page_Library";
     const StatKey = "steam-ui-library-details";
 
-    let runtime;
     let react: any = null;
     let jsxRuntime: any = null;
     let ui: any = null;
@@ -527,19 +512,16 @@ function createLibraryDetails() {
         label: string;
         value: string;
     } | null = null;
-    let installed = false;
-    let lastError = "";
     let lastOutcome = "never rendered";
     let placed = 0;
     let without = 0;
-    let unsubscribe: (() => void) | null = null;
     const local = createLibraryBadgeReading();
     let reading = local.read();
 
     function LiveLibraryStat(props) {
         const store = local.storeFor(props.overview?.appid ?? 0);
         react.useSyncExternalStore(store.subscribe, store.revision, store.revision);
-        if (!installed) return null;
+        if (!gate.installed()) return null;
         reading = local.read();
         const library = libraryForOverview(props.overview, reading);
         return library ? renderStat(library) : null;
@@ -599,7 +581,7 @@ function createLibraryDetails() {
         );
 
     const transform = (create, type, props, key) => {
-        if (type !== "div" || !installed || !classes || props?.className !== classes.section)
+        if (type !== "div" || !gate.installed() || !classes || props?.className !== classes.section)
             return undefined;
         const children = Array.isArray(props.children) ? props.children : [props.children];
         if (children.some((child) => child?.key === StatKey)) return undefined;
@@ -629,95 +611,87 @@ function createLibraryDetails() {
         );
     };
 
-    const resolve = () => {
-        runtime = getWebpackRuntime("library-details");
-        react = resolveReact(runtime);
-        if (!react || typeof react.useSyncExternalStore !== "function") {
-            lastError = "React unavailable or lacks useSyncExternalStore";
-            return false;
+    // Pure: React, the JSX runtime and the play bar's class map, all loaded at boot. The localizer and
+    // Steam's dialog button are wanted, not required: without them the label is the English word and
+    // the stat offers no Recheck.
+    const find = (runtime) => {
+        const resolvedReact = resolveReact(runtime);
+        const runtimeFactory = runtime.findUnique([...JsxRuntimeTokens]);
+        const classFactory = runtime.findUnique([...ClassMapTokens]);
+        const facts = {
+            react: resolvedReact ? 1 : 0,
+            runtime: runtimeFactory ? 1 : 0,
+            classMap: classFactory ? 1 : 0,
+            localization: runtime.findUnique([...LocalizationTokens]) ? 1 : 0,
+        };
+        if (!resolvedReact || typeof resolvedReact.useSyncExternalStore !== "function") {
+            return gateIncompatible("React unavailable or lacks useSyncExternalStore", facts);
         }
-        jsxRuntime = runtime.resolve([...JsxRuntimeTokens]);
-        if (typeof jsxRuntime?.jsx !== "function" || typeof jsxRuntime?.jsxs !== "function") {
-            lastError = "JSX runtime lacks jsx or jsxs";
-            return false;
+        if (!runtimeFactory) return gateIncompatible("JSX runtime was not a unique match", facts);
+        const foundRuntime = runtime(runtimeFactory[0]);
+        if (typeof foundRuntime?.jsx !== "function" || typeof foundRuntime?.jsxs !== "function") {
+            return gateIncompatible("JSX runtime lacks jsx or jsxs", facts);
         }
+        if (!classFactory) return gateIncompatible("the play bar class map was not a unique match", facts);
         // Valve's names for the play bar's classes, mapped to whatever this build emitted. Read by
         // name, never written down.
-        const exported = runtime.resolve([...ClassMapTokens]);
-        const map = classMapOf(exported);
+        const map = classMapOf(runtime(classFactory[0]));
         if (!map || RequiredClasses.some((name) => typeof map[name] !== "string" || !map[name])) {
-            lastError = "the play bar class map lacks a stat class";
-            return false;
+            return gateIncompatible("the play bar class map lacks a stat class", facts);
         }
         const join = (...names: string[]) =>
             names
                 .map((name) => map[name])
                 .filter((value) => typeof value === "string" && value)
                 .join(" ");
-        classes = {
-            section: map.GameStatsSection,
-            stat: join("GameStat", "LastPlayed"),
-            right: join("GameStatRight"),
-            label: join("PlayBarLabel"),
-            value: join("PlayBarDetailLabel", "LastPlayedInfo"),
-        };
-
-        // Wanted, not required: without it the label is the English word.
-        localize = resolveSteamLocalizer(runtime);
         const components = resolveSteamUiComponents(runtime);
-        ui = components ? { ...components, react } : null;
-        return true;
+        return gateReady(
+            {
+                react: resolvedReact,
+                jsxRuntime: foundRuntime,
+                classes: {
+                    section: map.GameStatsSection,
+                    stat: join("GameStat", "LastPlayed"),
+                    right: join("GameStatRight"),
+                    label: join("PlayBarLabel"),
+                    value: join("PlayBarDetailLabel", "LastPlayedInfo"),
+                },
+                localize: resolveSteamLocalizer(runtime),
+                ui: components ? { ...components, react: resolvedReact } : null,
+            },
+            facts,
+        );
     };
 
-    const install = () => {
-        if (installed) return { ok: true, alreadyInstalled: true };
-        const resolved = attemptResolution(resolve, (error) => {
-            lastError = "library details resolution failed: " + String(error);
-        });
-        if (!resolved) return { ok: false, error: lastError };
-
-        installed = true;
-        const claim = interceptElements(jsxRuntime, TransformName, transform);
-        if (!claim.ok) {
-            installed = false;
-            lastError = claim.error ?? "the JSX runtime could not be intercepted";
-            return { ok: false, error: lastError };
-        }
-        lastError = "";
-        unsubscribe = subscribe(publicationId, (state) => {
-            reading = local.publish(state);
-        });
-        return { ok: true, installed: true };
-    };
-
-    const remove = () => {
-        if (!installed) return { ok: true, absent: true };
-        const released = releaseElements(jsxRuntime, TransformName);
-        if (!released.ok) {
-            lastError = released.error ?? "library details release failed";
-            return { ok: false, error: lastError };
-        }
-        installed = false;
-        unsubscribe = endSubscription(unsubscribe);
-        reading = local.publish(null);
-        local.changed();
-        lastOutcome = "removed";
-        return { ok: true, removed: true };
-    };
-
-    const status = () => ({
-        ok: true,
-        installed,
-        resolved: !!react && !!jsxRuntime && !!classes,
-        claimed: elementsIntercepted(jsxRuntime, TransformName),
-        localized: !!localize,
-        libraries: reading.count,
-        apps: reading.libraries.size,
-        lastOutcome,
-        lastError,
+    const gate = defineGate({
+        name: "library-details",
+        find,
+        bind: (handles, ledger) => {
+            react = handles.react;
+            jsxRuntime = handles.jsxRuntime;
+            classes = handles.classes;
+            localize = handles.localize;
+            ui = handles.ui;
+            ledger.subscribe(publicationId, (state) => {
+                reading = local.publish(state);
+            });
+            const claim = ledger.elements(jsxRuntime, TransformName, transform);
+            if (!claim.ok) return claim.error ?? "the JSX runtime could not be intercepted";
+        },
+        unbind: () => {
+            reading = local.publish(null);
+            local.changed();
+            lastOutcome = "removed";
+        },
+        status: () => ({
+            claimed: elementsIntercepted(jsxRuntime, TransformName),
+            localized: !!localize,
+            libraries: reading.count,
+            apps: reading.libraries.size,
+            lastOutcome,
+        }),
     });
-
-    return { install, remove, status };
+    return gate;
 }
 
 registerGate("libraryDetails", createLibraryDetails());
@@ -787,7 +761,6 @@ function createLibraryAvailability() {
         original: "__steamUiLibraryAvailabilityOriginal",
     } as const;
 
-    let runtime;
     let react: any = null;
     let jsxRuntime: any = null;
     let filterPrototype: any = null;
@@ -798,9 +771,6 @@ function createLibraryAvailability() {
         green: string;
         disabled: string;
     } | null = null;
-    let installed = false;
-    let lastError = "";
-    let unsubscribe: (() => void) | null = null;
     let availabilityKey = "";
     let replaced = 0;
     let viewed = 0;
@@ -871,7 +841,7 @@ function createLibraryAvailability() {
         const appId = props.overview?.appid ?? 0;
         const store = local.storeFor(appId);
         react.useSyncExternalStore(store.subscribe, store.revision, store.revision);
-        if (!installed) return props.element;
+        if (!gate.installed()) return props.element;
         reading = local.read();
         const shortcut = unavailableShortcut(appId, reading);
         // Steam's running status is authoritative. Removing media must leave Stop usable.
@@ -990,7 +960,7 @@ function createLibraryAvailability() {
         );
         const original = props.props.collection;
         const collection = react.useMemo(
-            () => (installed ? installedView(original) : original),
+            () => (gate.installed() ? installedView(original) : original),
             [original, revision],
         );
         return props.create(props.type, { ...props.props, collection }, props.elementKey);
@@ -1005,7 +975,7 @@ function createLibraryAvailability() {
     // The play bar of a shortcut, and the Installed tab's grid while the host manages shortcuts. A
     // Steam game's play bar and every other grid keep Valve's element, so they are never remounted.
     const transform = (create, type, props, key) => {
-        if (!installed || !classes || !props) return undefined;
+        if (!gate.installed() || !classes || !props) return undefined;
         if (hasClass(props.className, classes.container)) {
             const overview = overviewIn(childrenOf(props));
             if (!overview || !isShortcut(overview)) return undefined;
@@ -1058,12 +1028,12 @@ function createLibraryAvailability() {
             },
         });
 
-    const claimFilter = (member: string) =>
-        claimMember(filterPrototype, member, claimKeys, (original: any) => {
+    const claimFilter = (ledger: GateLedger, member: string) =>
+        ledger.member(filterPrototype, member, claimKeys, (original: any) => {
             if (typeof original !== "function") return original;
             return function SteamUiLibraryAvailabilityFilter(this: unknown, overview) {
                 if (
-                    installed &&
+                    gate.installed() &&
                     unavailableShortcut(overview?.appid, reading) &&
                     isShortcut(overview)
                 ) {
@@ -1087,141 +1057,153 @@ function createLibraryAvailability() {
 
     // Redraws the grids only when a managed shortcut is added, removed or changes availability.
     const refreshGrids = () => {
-        const next = installed ? availabilityKeyOf(reading) : "";
+        const next = gate.installed() ? availabilityKeyOf(reading) : "";
         if (next === availabilityKey) return;
         availabilityKey = next;
         grids.changed();
     };
 
-    const resolve = () => {
-        runtime = getWebpackRuntime("library-availability");
-        react = resolveReact(runtime);
-        if (
-            !react ||
-            typeof react.useSyncExternalStore !== "function" ||
-            typeof react.useState !== "function" ||
-            typeof react.useMemo !== "function"
-        ) {
-            lastError = "React unavailable or lacks useSyncExternalStore";
-            return false;
+    const owns = (host, member) => !!host && Object.prototype.hasOwnProperty.call(host, member);
+    // An export of a uniquely matched module chosen by its shape, or null for absence or ambiguity.
+    const exportOf = (runtime, tokens: readonly string[], predicate: (value: any) => boolean) => {
+        try {
+            return runtime.exported([...tokens], predicate);
+        } catch {
+            return null;
         }
-        jsxRuntime = runtime.resolve([...JsxRuntimeTokens]);
-        if (typeof jsxRuntime?.jsx !== "function" || typeof jsxRuntime?.jsxs !== "function") {
-            lastError = "JSX runtime lacks jsx or jsxs";
-            return false;
-        }
-        // Valve's names for the play button's classes, mapped to whatever this build emitted.
-        const map = classMapOf(runtime.resolve([...ClassMapTokens]));
-        if (!map || RequiredClasses.some((name) => typeof map[name] !== "string" || !map[name])) {
-            lastError = "the play button class map lacks a required class";
-            return false;
-        }
-        classes = {
-            container: map.PlayButtonContainer,
-            button: map.PlayButton,
-            green: map.Green,
-            disabled: map.Disabled,
-        };
+    };
+
+    // Pure: React, the JSX runtime, the play button's class map, the library's filter class and the
+    // collection store, all loaded at boot, and filter members the claim can replace and restore.
+    const find = (runtime) => {
+        const resolvedReact = resolveReact(runtime);
+        const runtimeFactory = runtime.findUnique([...JsxRuntimeTokens]);
+        const classFactory = runtime.findUnique([...ClassMapTokens]);
+        const filterModule = runtime.findUnique([...AppFilterTokens]) ? 1 : 0;
+        const storeModule = runtime.findUnique([...CollectionStoreTokens]) ? 1 : 0;
         // The library's filter class: it owns both evaluation methods and extends the base filter
         // class, which owns them too. Users' dynamic collections hold the base class.
-        const owns = (host, member) => !!host && Object.prototype.hasOwnProperty.call(host, member);
-        const filter = runtime.exported([...AppFilterTokens], (value) => {
-            const prototype = value?.prototype;
-            if (typeof value !== "function" || !prototype) return false;
-            const parent = Object.getPrototypeOf(prototype);
-            return FilterMembers.every((member) => owns(prototype, member) && owns(parent, member));
-        });
-        filterPrototype = filter.prototype;
+        const filter = filterModule
+            ? exportOf(runtime, AppFilterTokens, (value) => {
+                  const prototype = value?.prototype;
+                  if (typeof value !== "function" || !prototype) return false;
+                  const parent = Object.getPrototypeOf(prototype);
+                  return FilterMembers.every((member) => owns(prototype, member) && owns(parent, member));
+              })
+            : null;
         // The collection store, by the members the library reads from it.
-        collections = runtime.exported(
-            [...CollectionStoreTokens],
-            (value) =>
-                !!value &&
-                typeof value === "object" &&
-                typeof value.GetCollection === "function" &&
-                typeof value.BIsVisible === "function",
+        const store = storeModule
+            ? exportOf(
+                  runtime,
+                  CollectionStoreTokens,
+                  (value) =>
+                      !!value &&
+                      typeof value === "object" &&
+                      typeof value.GetCollection === "function" &&
+                      typeof value.BIsVisible === "function",
+              )
+            : null;
+        const prototype = filter?.prototype ?? null;
+        const claimable =
+            !!prototype &&
+            FilterMembers.every((member) => {
+                const descriptor = Object.getOwnPropertyDescriptor(prototype, member);
+                return descriptor?.writable === true && descriptor.configurable === true;
+            });
+        const ours =
+            !!prototype && FilterMembers.every((member) => memberClaimed(prototype, member, claimKeys));
+        const facts = {
+            react: resolvedReact ? 1 : 0,
+            runtime: runtimeFactory ? 1 : 0,
+            classMap: classFactory ? 1 : 0,
+            filterModule,
+            filterClass: filter ? 1 : 0,
+            storeModule,
+            store: store ? 1 : 0,
+            // Writable and configurable, or the claim could neither replace nor restore them.
+            claimable,
+            // Already ours is compatible, for the reason every gate's own claim is.
+            claimed: ours,
+        };
+        if (
+            !resolvedReact ||
+            typeof resolvedReact.useSyncExternalStore !== "function" ||
+            typeof resolvedReact.useState !== "function" ||
+            typeof resolvedReact.useMemo !== "function"
+        ) {
+            return gateIncompatible("React unavailable or lacks useSyncExternalStore", facts);
+        }
+        if (!runtimeFactory) return gateIncompatible("JSX runtime was not a unique match", facts);
+        const foundRuntime = runtime(runtimeFactory[0]);
+        if (typeof foundRuntime?.jsx !== "function" || typeof foundRuntime?.jsxs !== "function") {
+            return gateIncompatible("JSX runtime lacks jsx or jsxs", facts);
+        }
+        if (!classFactory) return gateIncompatible("the play button class map was not a unique match", facts);
+        // Valve's names for the play button's classes, mapped to whatever this build emitted.
+        const map = classMapOf(runtime(classFactory[0]));
+        if (!map || RequiredClasses.some((name) => typeof map[name] !== "string" || !map[name])) {
+            return gateIncompatible("the play button class map lacks a required class", facts);
+        }
+        if (!filter) return gateIncompatible("the library filter class was not a unique match", facts);
+        if (!store) return gateIncompatible("the collection store was not a unique match", facts);
+        if (!claimable && !ours) {
+            return gateIncompatible("the library filter's members are not writable and configurable", facts);
+        }
+        return gateReady(
+            {
+                react: resolvedReact,
+                jsxRuntime: foundRuntime,
+                classes: {
+                    container: map.PlayButtonContainer,
+                    button: map.PlayButton,
+                    green: map.Green,
+                    disabled: map.Disabled,
+                },
+                filterPrototype: prototype,
+                collections: store,
+            },
+            facts,
         );
-        return true;
     };
 
-    const releaseFilter = () => {
-        for (const member of FilterMembers) {
-            const released = releaseMember(filterPrototype, member, claimKeys);
-            if (!released.ok) return released;
-        }
-        return { ok: true };
-    };
-
-    const install = () => {
-        if (installed) return { ok: true, alreadyInstalled: true };
-        const resolved = attemptResolution(resolve, (error) => {
-            lastError = "library availability resolution failed: " + String(error);
-        });
-        if (!resolved) return { ok: false, error: lastError };
-
-        for (const member of FilterMembers) {
-            const claim = claimFilter(member);
-            if (!claim.ok) {
-                releaseFilter();
-                lastError = claim.error ?? `the library filter's ${member} could not be claimed`;
-                return { ok: false, error: lastError };
+    const gate = defineGate({
+        name: "library-availability",
+        find,
+        bind: (handles, ledger) => {
+            react = handles.react;
+            jsxRuntime = handles.jsxRuntime;
+            classes = handles.classes;
+            filterPrototype = handles.filterPrototype;
+            collections = handles.collections;
+            ledger.subscribe(publicationId, (state) => {
+                reading = local.publish(state);
+                refreshGrids();
+            });
+            for (const member of FilterMembers) {
+                const claim = claimFilter(ledger, member);
+                if (!claim.ok) return claim.error ?? `the library filter's ${member} could not be claimed`;
             }
-        }
-        installed = true;
-        const elements = interceptElements(jsxRuntime, TransformName, transform);
-        if (!elements.ok) {
-            installed = false;
-            releaseFilter();
-            lastError = elements.error ?? "the JSX runtime could not be intercepted";
-            return { ok: false, error: lastError };
-        }
-        lastError = "";
-        unsubscribe = subscribe(publicationId, (state) => {
-            reading = local.publish(state);
-            refreshGrids();
-        });
-        return { ok: true, installed: true };
-    };
-
-    const remove = () => {
-        if (!installed) return { ok: true, absent: true };
-        // Released before anything is forgotten, so a failed release stays installed and the next
-        // remove retries it.
-        const elements = releaseElements(jsxRuntime, TransformName);
-        if (!elements.ok) {
-            lastError = elements.error ?? "library availability release failed";
-            return { ok: false, error: lastError };
-        }
-        const filter = releaseFilter() as { ok: boolean; error?: string };
-        if (!filter.ok) {
-            lastError = filter.error ?? "the library filter release failed";
-            return { ok: false, error: lastError };
-        }
-        installed = false;
-        unsubscribe = endSubscription(unsubscribe);
-        reading = local.publish(null);
+            const elements = ledger.elements(jsxRuntime, TransformName, transform);
+            if (!elements.ok) return elements.error ?? "the JSX runtime could not be intercepted";
+        },
         // Live actions hand Valve's element back, and the grids their own collections.
-        local.changed();
-        refreshGrids();
-        return { ok: true, removed: true };
-    };
-
-    const status = () => ({
-        ok: true,
-        installed,
-        resolved: !!react && !!jsxRuntime && !!classes && !!filterPrototype && !!collections,
-        claimed:
-            elementsIntercepted(jsxRuntime, TransformName) &&
-            !!filterPrototype &&
-            FilterMembers.every((member) => memberClaimed(filterPrototype, member, claimKeys)),
-        managed: reading.shortcuts.size,
-        replaced,
-        viewed,
-        projected,
-        lastError,
+        unbind: () => {
+            reading = local.publish(null);
+            local.changed();
+            refreshGrids();
+        },
+        status: () => ({
+            claimed:
+                elementsIntercepted(jsxRuntime, TransformName) &&
+                !!filterPrototype &&
+                FilterMembers.every((member) => memberClaimed(filterPrototype, member, claimKeys)),
+            managed: reading.shortcuts.size,
+            replaced,
+            viewed,
+            projected,
+        }),
     });
-
-    return { install, remove, status };
+    return gate;
 }
 
 registerGate("libraryAvailability", createLibraryAvailability());

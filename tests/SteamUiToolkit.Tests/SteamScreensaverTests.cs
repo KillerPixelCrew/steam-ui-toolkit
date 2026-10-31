@@ -4,67 +4,13 @@ using static SteamUiToolkit.Tests.Fakes.SurfaceDispatch;
 namespace SteamUiToolkit.Tests;
 
 /// <summary>
-///     The Screensaver settings surface's own contract: what the probe demands before the page list is
-///     intercepted, what a publication puts on the wire, and the exact shapes of the report and a choice.
+///     The Screensaver settings surface's own contract: what a publication puts on the wire, and the
+///     exact shapes of the report and a choice. What the probe demands before the page list is
+///     intercepted is the gate's own find, exercised against the emitted asset by
+///     <c>eng/check-screensaver.mjs</c>.
 /// </summary>
-/// <remarks>
-///     The structural facts were read from the September 2026 client beta's bundle on 2026-09-11: the
-///     Screensaver section's label token with <c>ForceScreensaver</c> occurs in one module, and the route
-///     table's <c>Settings.Customization()</c> is <c>/settings/customization</c>.
-/// </remarks>
 public sealed class SteamScreensaverTests
 {
-    private static SteamGatePatch Gate => (SteamGatePatch)SteamScreensaverSurface.Patch;
-
-    [Fact]
-    public void TheProbeNamesEveryStructuralFactTheGateResolvesOn()
-    {
-        var probe = Gate.ProbeExpression;
-
-        Assert.Contains("\"#Settings_Customization_Screensaver\"", probe, StringComparison.Ordinal);
-        Assert.Contains("ForceScreensaver", probe, StringComparison.Ordinal);
-        Assert.Contains("Settings.Customization()", probe, StringComparison.Ordinal);
-        Assert.Contains("m_setDeferredSettings", probe, StringComparison.Ordinal);
-        Assert.Contains("DropDownField", probe, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void TheProbeNamesNoModuleIdOrExportName()
-    {
-        // The route table was module 80344, export B, and the settings store module 39828, export
-        // rV, on the beta this was mapped against. Both change with a client build.
-        var probe = Gate.ProbeExpression;
-
-        Assert.DoesNotContain("80344", probe, StringComparison.Ordinal);
-        Assert.DoesNotContain("39828", probe, StringComparison.Ordinal);
-        Assert.DoesNotContain(".rV", probe, StringComparison.Ordinal);
-        Assert.Contains("req.exported(", probe, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("""{"react":1,"fields":1,"section":1,"route":"/settings/customization","settings":true,"observer":1}""",
-        true)]
-    // The observer hook is wanted, not required.
-    [InlineData("""{"react":1,"fields":1,"section":1,"route":"/settings/customization","settings":true,"observer":0}""",
-        true)]
-    [InlineData("""{"react":1,"fields":1,"section":2,"route":"/settings/customization","settings":true,"observer":1}""",
-        false)]
-    [InlineData("""{"react":1,"fields":1,"section":0,"route":"/settings/customization","settings":true,"observer":1}""",
-        false)]
-    [InlineData("""{"react":1,"fields":1,"section":1,"route":"","settings":true,"observer":1}""", false)]
-    [InlineData(
-        """{"react":1,"fields":1,"section":1,"route":"/settings/customization","settings":false,"observer":1}""",
-        false)]
-    [InlineData("""{"react":2,"fields":1,"section":1,"route":"/settings/customization","settings":true,"observer":1}""",
-        false)]
-    [InlineData("""{"error":"Steam modules unavailable"}""", false)]
-    public void CompatibilityRequiresEveryFactAndAUniqueMatchForEachOne(string json, bool expected)
-    {
-        using var document = JsonDocument.Parse(json);
-
-        Assert.Equal(expected, Gate.Compatible(document.RootElement));
-    }
-
     [Fact]
     public void RowsReachTheWireWithTheirChoices()
     {

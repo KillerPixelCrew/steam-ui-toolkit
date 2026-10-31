@@ -363,9 +363,11 @@ list-builder. Hosts supply the entries, removable values, native dimensions and 
 list can be restored; the host retains write policy. See
 [Settings pages](docs/reference.md#settings-pages).
 
-Consumer-owned native pages can use the public `SteamUiProbeJs` token constants for preflight and
-the composed asset's shared `resolveSteamUiComponents` helper for Steam's focusable, tabs, dialog
-buttons, fields, checkbox and modal manager. Missing or ambiguous controls are capabilities to
+Consumer-owned native pages declare the components they draw with in `registerSteamPage`, whose
+gate probes exactly those (its `components` and `required`), and use the composed asset's shared
+`resolveSteamUiComponents` helper for Steam's focusable, tabs, dialog buttons, fields, checkbox and
+modal manager. A consumer's own gate is a `defineGate` gate whose `find` is its probe; the host side
+declares it as `new SteamGatePatch(id, gateName, fingerprint, subject)`. Missing or ambiguous controls are capabilities to
 refuse, not a reason to draw lookalike controls. Two elements Steam has no component for are built
 from its own classes and components instead: `createSteamCapsule` draws a library capsule for a
 title Steam does not have yet, and `showSteamFilePicker` opens a folder or file picker as a Steam

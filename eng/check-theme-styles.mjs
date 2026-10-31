@@ -7,7 +7,9 @@
 // A title target has to match the window's own name too, because the Big Picture window's title
 // is localized there. The right blocks land in the right documents in the published order, an
 // unchanged publication touches nothing, a changed block is rebuilt, a window Steam announces later
-// is styled without any polling, and removal leaves no node behind. This runs the emitted JavaScript.
+// is styled without any polling, and removal leaves no node behind. The probe is the gate's own
+// find: with neither the popup manager nor a mounted tree the windows are not built yet, which is not
+// ready, and it touches no module. This runs the emitted JavaScript.
 import assert from "node:assert/strict";
 import { gateSource, instantiate, loadAsset, sharedFragments } from "./check-harness.mjs";
 
@@ -100,6 +102,16 @@ const globals = {
   setInterval: () => {
     throw new Error("the gate must not poll");
   },
+  // The bridge's runtime capture, which the gate never asks a module of.
+  getWebpackRuntime: () => {
+    const runtime = () => {
+      throw new Error("the theme gate must not load a module");
+    };
+    runtime.count = () => {
+      throw new Error("the theme gate must not search modules");
+    };
+    return runtime;
+  },
 };
 const code = sharedFragments(asset) + gateSource(asset, "gates/theme-styles.ts");
 const { gate, createThemeStyles } = instantiate(
@@ -113,13 +125,25 @@ delete window.g_PopupManager;
 const savedRoot = host.__reactContainer$abc;
 delete host.__reactContainer$abc;
 const refused = createThemeStyles();
+const notReady = refused.probe();
+assert.equal(notReady.outcome, "notReady", "windows not built yet are not ready, never incompatible");
+assert.deepEqual(notReady.facts, { popupManager: 0, popups: 0, reactRoot: 0 });
 assert.equal(refused.install().ok, false, "no way to the windows refuses installation");
 assert.match(refused.status().lastError, /popup manager/u);
 host.__reactContainer$abc = savedRoot;
+assert.deepEqual(refused.probe().facts, { popupManager: 0, popups: 0, reactRoot: 1 }, "a portal tree is a way");
+assert.equal(refused.probe().outcome, "ready");
 window.g_PopupManager = popupManager();
+assert.deepEqual(gate.probe().facts, { popupManager: 1, popups: 2, reactRoot: 1 });
 
 assert.equal(gate.install().ok, true);
 assert.equal(gate.status().resolved, true);
+assert.equal(gate.status().held, true);
+delete window.g_PopupManager;
+delete host.__reactContainer$abc;
+assert.equal(gate.probe().outcome, "ready", "an installed gate answers from what it holds");
+host.__reactContainer$abc = savedRoot;
+window.g_PopupManager = popupManager();
 assert.equal(gate.status().installed, true);
 assert.ok(created, "the gate listens for the windows Steam creates");
 assert.equal(gate.status().watchingPopups, true);
@@ -196,7 +220,7 @@ assert.equal(gate.status().nodes, 4);
 
 // A pattern that does not compile matches nothing rather than throwing the pass away.
 publish([{ id: "broken", css: "", targets: ["(["], hash: "h0" }], 5);
-assert.equal(gate.status().lastError, "");
+assert.equal(gate.status().reconcileError, "");
 assert.equal(gate.status().nodes, 0);
 
 // Removal takes every owned node out of every window and stops looking.
@@ -204,12 +228,13 @@ publish([{ id: "menu", css: ".menu{}", targets: ["QuickAccess.*"], hash: "h2" }]
 assert.equal(gate.status().nodes, 2);
 const removed = gate.remove();
 assert.equal(removed.ok, true);
-assert.equal(removed.nodes, 2);
+assert.equal(gate.status().lastOutcome, "removed 2", "removal says how many nodes it took out");
 assert.equal(created, null, "removal stops listening for new windows");
 for (const doc of [bigPicture.m_popup.document, contextMenu.m_popup.document, quickAccess, mainMenu, late.m_popup.document]) {
   assert.deepEqual(nodesOf(doc), [], "no owned node survives removal");
 }
 assert.equal(gate.status().installed, false);
+assert.equal(gate.status().claims, 0);
 assert.equal(gate.remove().absent, true);
 
 console.log("Theme styles: popup and portal windows, names and titles, order, unchanged blocks, late windows and removal passed.");

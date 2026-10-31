@@ -74,6 +74,7 @@ public interface ISteamHomeCarouselBackend
 ///         moment Steam's services report initialized, so Home is on screen before the route list can
 ///         be found. A claim on the memo's <c>type</c> reaches later mounts only; install therefore also
 ///         adopts every mounted Home, and the probe reports how many it will adopt as <c>mounted</c>.
+///         Removal hands back every Home drawing the claim, including ones mounted after install.
 ///     </para>
 /// </remarks>
 public static class SteamHomeCarouselSurface
@@ -86,97 +87,16 @@ public static class SteamHomeCarouselSurface
 
     /// <summary>The gate that claims Home and feeds its carousel.</summary>
     /// <remarks>
-    ///     Each structural fact is reported separately, so an incompatible client says which one moved.
+    ///     The probe is the gate's own find. It answers not ready while the router has no
+    ///     <c>/library/home</c> route mounted, which is Big Picture closed, and incompatible when the
+    ///     Home module, the stores or a claimable Home are missing, with the search it made as its facts.
     ///     The observer hook is reported but not required: without it the carousel still follows the
-    ///     host and Steam's own list, and a change elsewhere shows on its next render. It accepts a Home
-    ///     this gate already claimed.
+    ///     host and Steam's own list, and a change elsewhere shows on its next render.
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
         "homeCarousel",
         "steam-home-carousel-v1:unique-home-module+route-home-memo",
-        $$"""
-          {{SteamUiProbeJs.Preamble("steam_ui_home_carousel_probe_")}}
-            // Home is module-local, so the handle is the page element under the /library/home route
-            // in SharedJSContext's React tree. Until Big Picture has built that tree there is no Home
-            // to find, and the manager probes again. Read-only walk, bounded, matching on content.
-            // Every container React attached to counts, and each root's `current` is the tree on
-            // screen, which after the first commit is not always the fiber the container names.
-            const host=document.getElementById('root');
-            const hosts=host?[host]:[];
-            for(const child of Array.from(document.body?.children??[])){if(child!==host)hosts.push(child);}
-            const roots=[];
-            for(const owner of hosts){
-              const key=Object.keys(owner).find(n=>n.startsWith('__reactContainer$'));
-              if(!key)continue;
-              const fiber=owner[key];
-              roots.push(fiber?.stateNode?.current??fiber);
-            }
-            // Breadth-first: a router sits near the top, and depth-first can spend the bound inside a
-            // mounted library grid first. What the walk saw is reported, so a miss says why.
-            let home=null,visited=0,homeRoutes=0,page='';
-            const queue=roots.slice();
-            for(let head=0;head<queue.length&&!home&&visited<250000;head++){
-              const node=queue[head];
-              if(!node)continue;
-              visited++;
-              // A Fragment's fiber holds its children array as the props themselves.
-              const props=node.memoizedProps;
-              const kids=Array.isArray(props)?props:props&&props.children;
-              if(Array.isArray(kids)&&kids.length>2){
-                const route=kids.find(k=>k&&k.props&&k.props.path==='/library/home');
-                if(route){
-                  homeRoutes++;
-                  const type=route.props.children&&route.props.children.type;
-                  page=!type?'none':typeof type==='function'?'function':String(type.$$typeof);
-                  // Home by its source, or one this gate already claimed, whose type is ours.
-                  if(type&&typeof type==='object'&&typeof type.type==='function'
-                    &&({{SteamUiProbeJs.Claimed("type.type", "HomeCarousel")}}
-                      ||(String(type.type).includes('HomeTabsActive')
-                        &&String(type.type).includes('HomeActiveTab'))))home=type;
-                }
-              }
-              queue.push(node.child,node.sibling);
-            }
-            const descriptor=home?Object.getOwnPropertyDescriptor(home,'type'):null;
-            // Homes already on screen: Big Picture starts on Home, and install adopts each of them.
-            let mounted=0;
-            if(home){
-              const again=roots.slice();
-              for(let head=0,seen=0;head<again.length&&seen<250000;head++){
-                const node=again[head];
-                if(!node)continue;
-                seen++;
-                if(node.elementType===home)mounted++;
-                again.push(node.child,node.sibling);
-              }
-            }
-            return JSON.stringify({
-              homeModule:count(['HomeTabsActive','#Showcase_RecentGames']),
-              homeFound:home?1:0,
-              mounted:mounted,
-              roots:roots.length,
-              visited:visited,
-              homeRoutes:homeRoutes,
-              page:page,
-              claimable:{{SteamUiProbeJs.Replaceable("descriptor")}},
-              // Already ours is compatible; see the remarks on this patch.
-              claimed:{{SteamUiProbeJs.Claimed("home?.type", "HomeCarousel")}},
-              stores:typeof window.collectionStore?.GetCollection==='function'
-                &&typeof window.appStore?.GetAppOverviewByAppID==='function',
-              observer:count({{SteamUiProbeJs.ObserverTokens}}),
-              react:count({{SteamUiProbeJs.ReactTokens}})
-            });
-          {{SteamUiProbeJs.Close}}
-          """,
-        root =>
-            SteamUiPatchEvaluation.IsOne(root, "homeModule")
-            && SteamUiPatchEvaluation.IsOne(root, "homeFound")
-            && SteamUiPatchEvaluation.IsOne(root, "react")
-            && SteamUiPatchEvaluation.Flag(root, "stores")
-            && SteamUiPatchEvaluation.Flag(root, "claimable"),
-        "status.installed&&status.resolved&&status.claimed",
-        "!status.claimed",
         "Home carousel gate");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>

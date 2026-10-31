@@ -1,6 +1,6 @@
 /**
  * Supplies Steam Bluetooth service responses and notifications from host publications.
- * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ * @returns The defineGate gate; remove must release it before its bridge is replaced.
  */
 
 function createBluetoothService() {
@@ -10,10 +10,34 @@ function createBluetoothService() {
         marker: "__steamUiOwnedBluetoothService",
         original: "__steamUiOriginalBluetoothServiceMethod",
     } as const;
-    const replaced = new Set<string>();
-    let installed = false;
+    // Every method the gate replaces, and the ones Steam's pairing UI calls, which the stub must have.
+    const Replaced = [
+        "GetState",
+        "GetDeviceDetails",
+        "GetAdapterDetails",
+        "SetDiscovering",
+        "Pair",
+        "CancelPair",
+        "Connect",
+        "Disconnect",
+        "Forget",
+        "SetTrusted",
+        "SetWakeAllowed",
+    ] as const;
+    const Operations = [
+        "GetState",
+        "SetDiscovering",
+        "Pair",
+        "CancelPair",
+        "Connect",
+        "Disconnect",
+        "Forget",
+        "SetTrusted",
+        "SetWakeAllowed",
+        "GetDeviceDetails",
+    ] as const;
+    // Why the last forwarded operation failed.
     let lastError = "";
-    let unsubscribe: (() => void) | null = null;
     // Steam's own device and adapter shapes, which are not ours to describe: the store reads them
     // and the host only carries them through from the state it was given.
     let latest: {
@@ -22,31 +46,22 @@ function createBluetoothService() {
         devices: any[];
     } = {is_service_available: false, adapters: [], devices: []};
 
-    // Resolved once, at install. Every state push invalidates through the same resolver, and removal
-    // hands the methods back on the stub they were claimed on.
+    // The resolver and the stub the gate was installed against: every state push invalidates through
+    // the same resolver, and removal hands the methods back on the stub they were claimed on.
     let req: any = null;
     let stub: any = null;
-    const serviceStub = (req) => {
-        try {
-            return req.exported(
-                ["BluetoothManager.GetState#1"],
-                (value) =>
-                    !!value &&
-                    typeof value === "object" &&
-                    typeof value.GetState === "function" &&
-                    typeof value.Pair === "function",
-            );
-        } catch {
-            return null;
-        }
-    };
+    const isServiceStub = (value) =>
+        !!value &&
+        typeof value === "object" &&
+        typeof value.GetState === "function" &&
+        typeof value.Pair === "function";
 
     const invalidate = () => invalidateQuery(req, queryKey);
 
     // The host sends its own field names and the mapping into Steam's lives here, so the client's
     // schema stays in the half that has to change when the client is rebuilt.
     const onState = (state) => {
-        if (!installed || !state) return;
+        if (!gate.installed() || !state) return;
         const devices = Array.isArray(state.devices) ? state.devices : [];
         latest = {
             is_service_available: state.available === true,
@@ -82,97 +97,98 @@ function createBluetoothService() {
         invalidate();
     };
 
-    const install = () => {
-        if (installed) return {ok: true, alreadyInstalled: true};
-        req = getWebpackRuntime("bluetooth-service");
-        stub = serviceStub(req);
-        if (!stub || typeof stub.GetState !== "function") {
-            lastError = "BluetoothManagerService stub unavailable";
-            return {ok: false, error: lastError};
-        }
+    const forward = (command) => (payload) =>
+        request(patchId, command, payload ?? null).then(
+            () => {
+                lastError = "";
+                return transportReply({success: true});
+            },
+            (error) => {
+                lastError = String(error);
+                return transportFailure({success: false, error: lastError});
+            },
+        );
+    const replacements = {
+        GetState: () => Promise.resolve(transportReply(latest)),
+        GetDeviceDetails: (payload) => {
+            const id = payload?.device ?? payload?.id;
+            const device = latest.devices.find((entry) => entry.id === id) ?? null;
+            return Promise.resolve(transportReply({device}));
+        },
+        GetAdapterDetails: () => Promise.resolve(transportReply({adapter: latest.adapters[0] ?? null})),
+        SetDiscovering: forward("setDiscovering"),
+        Pair: forward("pair"),
+        CancelPair: forward("cancelPair"),
+        Connect: forward("connect"),
+        Disconnect: forward("disconnect"),
+        Forget: forward("forget"),
+        SetTrusted: forward("setTrusted"),
+        SetWakeAllowed: forward("setWakeAllowed"),
+    };
+    const replacedCount = () =>
+        stub ? Replaced.filter((name) => memberClaimed(stub, name, methodKeys)).length : 0;
 
-        const forward = (command) => (payload) =>
-            request(patchId, command, payload ?? null).then(
-                () => {
-                    lastError = "";
-                    return transportReply({success: true});
-                },
-                (error) => {
-                    lastError = String(error);
-                    return transportFailure({success: false, error: lastError});
-                },
-            );
-        // A member claim per method, so the stub's own method is what removal hands back and a bridge
-        // replaced in place reclaims its predecessor's overlay instead of wrapping it.
-        const replace = (name, replacement) => {
-            const claim = claimMember(stub, name, methodKeys, () => replacement);
-            if (!claim.ok) throw new Error(claim.error);
-            replaced.add(name);
-        };
-
+    // Pure. The stub and the query client by what they are: the September 2026 beta renumbered the
+    // modules this gate used to name. The query client must be reachable, because availability rides
+    // a react-query with infinite stale time, and without an invalidation the row keeps reading the
+    // unavailable answer whatever the methods return.
+    const find = (runtime) => {
+        let found;
         try {
-            replace("GetState", () => Promise.resolve(transportReply(latest)));
-            replace("GetDeviceDetails", (payload) => {
-                const id = payload?.device ?? payload?.id;
-                const device = latest.devices.find((entry) => entry.id === id) ?? null;
-                return Promise.resolve(transportReply({device}));
-            });
-            replace("GetAdapterDetails", () =>
-                Promise.resolve(transportReply({adapter: latest.adapters[0] ?? null})),
-            );
-            replace("SetDiscovering", forward("setDiscovering"));
-            replace("Pair", forward("pair"));
-            replace("CancelPair", forward("cancelPair"));
-            replace("Connect", forward("connect"));
-            replace("Disconnect", forward("disconnect"));
-            replace("Forget", forward("forget"));
-            replace("SetTrusted", forward("setTrusted"));
-            replace("SetWakeAllowed", forward("setWakeAllowed"));
+            found = runtime.exported(["BluetoothManager.GetState#1"], isServiceStub);
         } catch (error) {
-            lastError = String(error);
-            for (const name of replaced) releaseMember(stub, name, methodKeys);
-            replaced.clear();
-            return {ok: false, error: lastError};
+            return gateIncompatible(`BluetoothManagerService stub unavailable: ${String(error)}`);
         }
-
-        installed = true;
-        lastError = "";
-        unsubscribe = subscribe(patchId, onState);
-        invalidate();
-        return {ok: true, installed: true, replaced: replaced.size};
+        const missing = Operations.filter((name) => typeof found[name] !== "function");
+        const descriptor = Object.getOwnPropertyDescriptor(found, "GetState");
+        const facts = {
+            operationsPresent: missing.length === 0,
+            missing,
+            methodsWritable:
+                claimed(found.GetState, methodKeys) ||
+                (descriptor?.writable === true && descriptor.configurable === true),
+            queryCacheReachable: !!resolveQueryClient(runtime),
+        };
+        if (missing.length) return gateIncompatible(`Bluetooth service lacks ${missing.join(", ")}`, facts);
+        if (!facts.methodsWritable) return gateIncompatible("Bluetooth service methods are not writable", facts);
+        if (!facts.queryCacheReachable) return gateIncompatible("the query client was not a unique match", facts);
+        return gateReady({runtime, service: found}, facts);
     };
 
-    const remove = () => {
-        if (!installed) return {ok: true, absent: true};
-
-        // Every method is released before the gate forgets it is installed, so a failed release is
-        // retried by the next remove rather than left in Steam behind an "absent" answer.
-        for (const name of replaced) {
-            const released = releaseMember(stub, name, methodKeys);
-            if (!released.ok) {
-                lastError = released.error ?? "Bluetooth service method release failed";
-                return {ok: false, error: lastError};
+    const gate = defineGate({
+        name: "bluetooth",
+        find,
+        bind: ({runtime, service}, ledger) => {
+            req = runtime;
+            stub = service;
+            // Last out: once every method is Steam's again, the panel reads its own answer.
+            ledger.cleanup("bluetooth state", () => {
+                latest = {is_service_available: false, adapters: [], devices: []};
+                invalidate();
+            });
+            // A member claim per method, so the stub's own method is what removal hands back and a
+            // bridge replaced in place reclaims its predecessor's overlay instead of wrapping it.
+            for (const name of Replaced) {
+                const claim = ledger.member(stub, name, methodKeys, () => replacements[name]);
+                if (!claim.ok) return claim.error;
             }
-            replaced.delete(name);
-        }
-
-        installed = false;
-        unsubscribe = endSubscription(unsubscribe);
-        latest = {is_service_available: false, adapters: [], devices: []};
-        invalidate();
-        return {ok: true, removed: true};
-    };
-
-    const status = () => ({
-        ok: true,
-        installed,
-        replaced: replaced.size,
-        available: latest.is_service_available,
-        devices: latest.devices.length,
-        lastError,
+            ledger.subscribe(patchId, onState);
+            invalidate();
+            return {replaced: replacedCount()};
+        },
+        holds: () => replacedCount() > 0,
+        unbind: () => {
+            req = null;
+            stub = null;
+        },
+        status: () => ({
+            replaced: replacedCount(),
+            available: latest.is_service_available,
+            devices: latest.devices.length,
+            operationError: lastError,
+        }),
     });
-
-    return {install, remove, status};
+    return gate;
 }
 
 registerGate("bluetooth", createBluetoothService());

@@ -1,6 +1,6 @@
 /**
  * Binds Steam brightness controls to host display state and brightness commands.
- * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ * @returns The defineGate gate; remove must release it before its bridge is replaced.
  */
 
 function createBrightnessGate() {
@@ -19,15 +19,16 @@ function createBrightnessGate() {
         marker: "__steamUiOwnedSetBrightness",
         original: "__steamUiOriginalSetBrightness",
     };
-    let installed = false;
+    // Why the last brightness write or state projection failed.
     let lastError = "";
-    let unsubscribe: (() => void) | null = null;
     let lastPercent: number | null = null;
     let lastRevision = -1;
     let applyingState = false;
     let requestVersion = 0;
     let pendingWrite = false;
     let confirmedState: { percent: number; revision: number } | null = null;
+    // The display store the gate was installed against: a singleton, held from its find.
+    let displayStore: any = null;
 
     // The display settings store by what it is: the one module holding the brightness observable,
     // and the one exported class on it with a singleton Get() whose body declares that observable.
@@ -37,24 +38,9 @@ function createBrightnessGate() {
         typeof value === "function" &&
         typeof value.Get === "function" &&
         String(value).includes("m_flDisplayBrightness");
-    // One store for the gate's life: the store is a singleton and every publication and status read
-    // asks for it. The bridge shares one resolver, so a lookup that failed is simply tried again.
-    let cachedStore: any = null;
-    const displayStore = () => {
-        if (cachedStore) return cachedStore;
-        try {
-            const runtime = getWebpackRuntime("brightness-store");
-            cachedStore = (runtime.exported(DisplayStoreTokens, isDisplayStoreClass) as any).Get() ?? null;
-        } catch {
-            return null;
-        }
-        return cachedStore;
-    };
-
-    const settings = () => displayStore()?.m_msgSettings ?? null;
 
     const onState = (state) => {
-        if (!installed || !state) return;
+        if (!gate.installed() || !state) return;
         const percent = Number(state.percent);
         const revision = Number(state.revision);
         if (
@@ -70,7 +56,7 @@ function createBrightnessGate() {
         confirmedState = {percent, revision};
         if (pendingWrite) return;
         try {
-            const observable = displayStore()?.m_flDisplayBrightness;
+            const observable = displayStore?.m_flDisplayBrightness;
             applyingState = true;
             if (observable?.Set && Math.abs((observable.m_currentValue ?? -1) - percent / 100) > 0.004) {
                 observable.Set(percent / 100);
@@ -86,129 +72,101 @@ function createBrightnessGate() {
     // The slider's writes, taken over at the one method it calls. Same replace-not-stack rule as
     // the Manager's GetState: the overlay carries the stub it replaced, so a bridge replaced in
     // place unwinds to the client's own method instead of wrapping a dead closure.
-    const overrideSetter = () => {
+    const setBrightness = () => (flBrightness) => {
+        if (!gate.installed() || applyingState) return Promise.resolve();
+        const value = Number(flBrightness);
+        if (!Number.isFinite(value) || value < 0 || value > 1) return Promise.resolve();
+        const percent = Math.round(value * 100);
+        if (!pendingWrite && percent === lastPercent) return Promise.resolve();
+        const version = ++requestVersion;
+        pendingWrite = true;
+        return request(patchId, "setBrightness", {percent})
+            .then((readback) => {
+                if (!gate.installed() || version !== requestVersion) return;
+                pendingWrite = false;
+                onState(readback);
+                // A later external observation can already have arrived while this request completed.
+                if (confirmedState) onState(confirmedState);
+            })
+            .catch((error) => {
+                if (!gate.installed() || version !== requestVersion) return;
+                pendingWrite = false;
+                lastError = "brightness write failed: " + String(error);
+                if (confirmedState) onState(confirmedState);
+            });
+    };
+
+    // Pure. The settings message is built when Quick Settings first mounts its display section, so
+    // a store or a message without the flag yet is a client still loading: not ready, never an
+    // incompatible build. A client already reporting brightness available needs nothing from the
+    // host and is left alone, unless the flag is this gate's own earlier reveal, surviving a bridge
+    // replaced in place: refusing that is the teardown trap. Revealing the row also needs the native
+    // backend, or the result is a slider that moves and changes nothing.
+    const find = (runtime) => {
+        let storeClass;
+        try {
+            storeClass = runtime.exported(DisplayStoreTokens, isDisplayStoreClass);
+        } catch (error) {
+            return gateIncompatible(`the display store was not a unique match: ${String(error)}`);
+        }
+        const store = storeClass.Get() ?? null;
+        const message = store?.m_msgSettings ?? null;
         const display = window.SteamClient?.System?.Display;
-        if (!display || typeof display.SetBrightness !== "function") {
-            lastError = "SteamClient.System.Display.SetBrightness unavailable";
-            return false;
+        const facts = {
+            fieldPresent: !!message && field in message,
+            revealable: !!message && (message[field] !== true || claimed(message, availability)),
+            backendPresent:
+                !!display &&
+                typeof display.SetBrightness === "function" &&
+                typeof display.RegisterForBrightnessChanges === "function",
+        };
+        if (!message) return gateNotReady("display settings message unavailable", facts);
+        if (!facts.fieldPresent) return gateNotReady("display settings have no brightness flag yet", facts);
+        if (!facts.backendPresent) {
+            return gateIncompatible("SteamClient.System.Display brightness backend unavailable", facts);
         }
-
-        const claim = claimMember(display, "SetBrightness", setter, () => (flBrightness) => {
-            if (!installed || applyingState) return Promise.resolve();
-            const value = Number(flBrightness);
-            if (!Number.isFinite(value) || value < 0 || value > 1) return Promise.resolve();
-            const percent = Math.round(value * 100);
-            if (!pendingWrite && percent === lastPercent) return Promise.resolve();
-            const version = ++requestVersion;
-            pendingWrite = true;
-            return request(patchId, "setBrightness", {percent})
-                .then((readback) => {
-                    if (!installed || version !== requestVersion) return;
-                    pendingWrite = false;
-                    onState(readback);
-                    // A later external observation can already have arrived while this request completed.
-                    if (confirmedState) onState(confirmedState);
-                })
-                .catch((error) => {
-                    if (!installed || version !== requestVersion) return;
-                    pendingWrite = false;
-                    lastError = "brightness write failed: " + String(error);
-                    if (confirmedState) onState(confirmedState);
-                });
-        });
-        if (!claim.ok) {
-            lastError = claim.error;
-            return false;
-        }
-
-        return true;
+        if (!facts.revealable) return gateIncompatible("the client already reports brightness available", facts);
+        return gateReady({store, message, display}, facts);
     };
 
-    const restoreSetter = () => {
-        const released = releaseMember(
-            window.SteamClient?.System?.Display ?? null,
-            "SetBrightness",
-            setter,
-        );
-        if (!released.ok) {
-            lastError = released.error ?? "brightness setter release failed";
-        }
-
-        return released.ok;
-    };
-
-    const install = () => {
-        if (installed) return {ok: true, alreadyInstalled: true};
-        const message = settings();
-        if (!message || !(field in message)) {
-            lastError = "display settings message unavailable";
-            return {ok: false, error: lastError};
-        }
-
-        // A client already reporting brightness available needs nothing from the host, and overwriting
-        // the flag would mean restoring a value that was never ours to change. Available AND MARKED
-        // is different: that is this gate's own earlier reveal, surviving a bridge replaced in
-        // place, and refusing it is the teardown trap. Both cases are the claim primitive's job now.
-        const claim = claimValue(message, field, availability, true);
-        if (!claim.ok) {
-            lastError = claim.error;
-            return {ok: false, error: lastError};
-        }
-
-        if (!overrideSetter()) {
+    const gate = defineGate({
+        name: "brightness",
+        find,
+        bind: ({store, message, display}, ledger) => {
+            displayStore = store;
+            lastPercent = null;
+            lastRevision = -1;
+            confirmedState = null;
+            lastError = "";
+            // Late completions after removal are ignored, and a reinstall starts a fresh sequence.
+            ledger.cleanup("brightness requests", () => {
+                ++requestVersion;
+                pendingWrite = false;
+            });
+            const revealed = ledger.value(message, field, availability, true);
+            if (!revealed.ok) return revealed.error;
             // Revealing a slider whose writes go into the stub is the broken state this gate shipped
-            // with; the reveal is undone rather than left half-working.
-            releaseValue(message, field, availability);
-            return {ok: false, error: lastError};
-        }
-
-        installed = true;
-        lastPercent = null;
-        lastRevision = -1;
-        confirmedState = null;
-        lastError = "";
-        unsubscribe = subscribe(patchId, onState);
-        return {ok: true, installed: true, available: message[field] === true};
-    };
-
-    const remove = () => {
-        if (!installed) return {ok: true, absent: true};
-
-        // Both claims are released before anything is forgotten: a failed release leaves the gate
-        // installed, so the next remove retries what is left (a released claim answers ok again).
-        if (!restoreSetter()) return {ok: false, error: lastError};
-        const message = settings();
-        if (message) {
-            const released = releaseValue(message, field, availability);
-            if (!released.ok) {
-                lastError = released.error ?? "brightness release failed";
-                return {ok: false, error: lastError};
-            }
-        }
-
-        installed = false;
-        ++requestVersion;
-        pendingWrite = false;
-        unsubscribe = endSubscription(unsubscribe);
-        return message ? {ok: true, removed: true} : {ok: true, removed: true, storeGone: true};
-    };
-
-    const status = () => {
-        const message = settings();
-        return {
-            ok: true,
-            installed,
-            available: message ? message[field] === true : false,
+            // with; a setter that cannot be claimed unwinds the reveal with it.
+            const owned = ledger.member(display, "SetBrightness", setter, setBrightness);
+            if (!owned.ok) return owned.error;
+            ledger.subscribe(patchId, onState);
+            return {available: message[field] === true};
+        },
+        holds: ({message}) => message[field] === true,
+        unbind: () => {
+            displayStore = null;
+        },
+        status: (handles) => ({
+            available: handles ? handles.message[field] === true : false,
             setterOwned: memberClaimed(window.SteamClient?.System?.Display, "SetBrightness", setter),
             lastPercent,
             lastRevision,
             pendingWrite,
-            observable: displayStore()?.m_flDisplayBrightness?.m_currentValue ?? null,
-            lastError,
-        };
-    };
-
-    return {install, remove, status};
+            observable: displayStore?.m_flDisplayBrightness?.m_currentValue ?? null,
+            operationError: lastError,
+        }),
+    });
+    return gate;
 }
 
 registerGate("brightness", createBrightnessGate());

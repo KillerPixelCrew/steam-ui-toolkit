@@ -7,7 +7,9 @@
 // overscan is Steam's own list length rather than the whole list, that the order follows
 // the documented rules, that games on a disconnected library leave, that uninstalled games are
 // greyed, that the list is not rebuilt when nothing changed, and that removal hands Home back, on
-// the memo and on the adopted fiber alike.
+// the memo, on the adopted fiber and on a Home mounted after install alike. The probe is the gate's
+// own: a closed Big Picture is not ready, a route that draws something else is incompatible, and a
+// holding gate answers from what it holds.
 import assert from "node:assert/strict";
 import {
   createReact,
@@ -236,6 +238,36 @@ const renderCarousel = () => {
   return { carousel, background, box, css: [style?.props.children ?? ""].flat().join("") };
 };
 
+// The probe is find without binding. With no route list mounted, Big Picture is closed: not ready,
+// which the manager probes again, never an incompatible build.
+const mountedRoot = documentFixture.getElementById;
+documentFixture.getElementById = () => null;
+let probe = gate.probe();
+assert.equal(probe.outcome, "notReady", "a router that is not mounted must be not ready");
+assert.equal(probe.facts.homeRoutes, 0);
+assert.equal(gate.status().installed, false, "a probe must not install anything");
+// A route list whose /library/home draws something that is not Home is a client that moved.
+const otherRoot = {
+  memoizedProps: {
+    children: [route("/library/home", element(react.memo(() => null), {})), route("/a", null), route("/b", null)],
+  },
+  child: null,
+  sibling: null,
+};
+documentFixture.getElementById = (id) => (id === "root" ? { __reactContainer$fixture: otherRoot } : null);
+probe = gate.probe();
+assert.equal(probe.outcome, "incompatible", "a route that does not draw Home must be incompatible");
+assert.match(probe.reason, /does not draw Home/u);
+documentFixture.getElementById = mountedRoot;
+probe = gate.probe();
+assert.equal(probe.outcome, "ready", `the mounted Home must probe ready: ${probe.reason}`);
+assert.deepEqual(
+  { homeFound: probe.facts.homeFound, homeRoutes: probe.facts.homeRoutes, mounted: probe.facts.mounted },
+  { homeFound: 1, homeRoutes: 1, mounted: 1 },
+  "the probe must keep the facts the search saw",
+);
+assert.equal(HomeMemo.type, Home, "a probe must not claim Home");
+
 // Before the gate: Steam's own list and the whole-list overscan.
 let view = renderCarousel();
 assert.equal(view.carousel.type, CarouselMemo);
@@ -256,6 +288,14 @@ assert.notEqual(homeFiber.memoizedProps, homeElement.props, "the adopted fiber m
 assert.equal(homeFiber.memoizedProps.__steamUiAdoptedProps, homeElement.props, "the real props stay reachable");
 assert.equal(switchInstance.renders, 1, "the route switch must be asked to render the adopted Home");
 assert.deepEqual(gate.status().mounted, { adopted: 1, scheduled: true, stale: 0 });
+assert.equal(gate.status().held, true, "the standard status must show the claim held");
+assert.equal(gate.status().claims, 2, "the claim and the subscription are on the ledger");
+// While installed the probe answers from what the gate holds, so a holding gate stays compatible
+// with its own next probe even if the tree it found Home in is gone.
+documentFixture.getElementById = () => null;
+assert.equal(gate.probe().outcome, "ready", "an installed gate must answer from its handles");
+assert.equal(gate.probe().installed, true);
+documentFixture.getElementById = mountedRoot;
 assert.equal(
   find(homeFiber.type(homeElement.props), named("SteamUiHomeCarousel")).length,
   1,
@@ -328,16 +368,39 @@ globals.publish({ includeUninstalled: "yes", disconnectedAppIds: [-1, 2.5, "40",
 assert.equal(gate.status().includeUninstalled, false);
 assert.equal(gate.status().disconnected, 1);
 
+// A Home React mounted after install, from the claimed memo: it caches the wrapper as its `type` on
+// both fibers, and the list kept at install never saw it. Release must find it all the same.
+const laterInstance = { isReactComponent: {}, renders: 0, forceUpdate() { laterInstance.renders++; } };
+const laterHome = {
+  elementType: HomeMemo,
+  type: HomeMemo.type,
+  memoizedProps: {},
+  child: null,
+  sibling: null,
+  return: null,
+  alternate: null,
+};
+laterHome.alternate = { ...laterHome, alternate: laterHome };
+const laterParent = { stateNode: laterInstance, child: laterHome, sibling: null, return: null, memoizedProps: {} };
+laterHome.return = laterParent;
+laterHome.alternate.return = laterParent;
+providerFiber.sibling = laterParent;
+
 // Removal hands Home back, and a carousel still on screen hands back Steam's own list.
 const mounted = renderCarousel().carousel;
 const removed = gate.remove();
 assert.ok(removed.ok, `remove failed: ${removed.error}`);
 assert.equal(HomeMemo.type, Home, "removal must restore Home's own type");
 assert.ok(!gate.status().claimed);
+assert.equal(gate.status().claims, 0, "removal must leave nothing on the ledger");
 assert.equal(homeFiber.type, Home, "removal must hand the adopted fiber back to Home's own function");
 assert.equal(homeAlternate.type, Home);
-assert.equal(switchInstance.renders, 1, "removal must not ask for a render; Home's next render is Steam's");
+assert.equal(laterHome.type, Home, "removal must hand back a Home mounted after install");
+assert.equal(laterHome.alternate.type, Home, "on both of its fibers");
+assert.equal(switchInstance.renders, 2, "removal must ask the handed-back Home to render");
+assert.equal(laterInstance.renders, 1, "and the later Home too");
 assert.deepEqual(gate.status().mounted, { adopted: 0, scheduled: false, stale: 0 });
+providerFiber.sibling = null;
 const stale = mounted.type.type(mounted.props);
 assert.equal(find(stale, (node) => node.type === RecentGames).length, 1, "a removed wrapper must pass through");
 view = renderCarousel();
@@ -348,7 +411,7 @@ assert.ok(gate.install().ok, "the gate must be reinstallable");
 view = renderCarousel();
 assert.equal(view.box.props.overscan, steamGames.length);
 assert.equal(homeFiber.type, HomeMemo.type, "a reinstall must adopt the mounted Home again");
-assert.equal(switchInstance.renders, 2);
+assert.equal(switchInstance.renders, 3);
 assert.ok(gate.remove().ok);
 assert.equal(HomeMemo.type, Home);
 assert.equal(homeFiber.type, Home);

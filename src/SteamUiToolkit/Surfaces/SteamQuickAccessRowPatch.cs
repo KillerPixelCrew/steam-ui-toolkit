@@ -25,8 +25,10 @@ public sealed class SteamQuickAccessRowPatch : ISteamUiPatch
     private const string PerformanceActions = "performanceActions";
     private const string VerifyFallback = "Steam UI component verification failed.";
 
-    // The Quick Access and TDP modules every row needs. They used to be asked by the bridge, which
-    // took every other surface down with them when one moved; they belong to the rows.
+    // The Quick Access modules every row draws with. They used to be asked by the bridge, which
+    // took every other surface down with them when one moved; they belong to the rows. Only what
+    // the component host resolves: three TDP and profile modules nothing reads were counted here
+    // too, so a client that moved one of them took every row down for nothing.
     private static readonly string[] CommonRequiredCounts =
     [
         "performanceRoot",
@@ -34,9 +36,6 @@ public sealed class SteamQuickAccessRowPatch : ISteamUiPatch
         "nativeLayout",
         "localization",
         "react",
-        "tdpAvailability",
-        "tdpComponent",
-        "profileProjection",
         PerformanceActions
     ];
 
@@ -97,9 +96,6 @@ public sealed class SteamQuickAccessRowPatch : ISteamUiPatch
                                return JSON.stringify({
                                  {{primaryCount}}
                                  performanceActions:count({{SteamUiProbeJs.Tokens(SteamUiProbeJs.PerformanceActionTokens)}}),
-                                 tdpAvailability:count(['is_tdp_limit_available','steamos_tdp_limit_enabled','tdp_limit_min','tdp_limit_max']),
-                                 tdpComponent:count({{SteamUiProbeJs.Tokens(SteamUiProbeJs.TdpPresentationTokens)}}),
-                                 profileProjection:count(['#PlatformPerformanceProfile_Label','steamos_platform_performance_profile','rgOptions']),
                                  performanceRoot:count(['#QuickAccess_Tab_Perf_Common_Settings','#QuickAccess_Tab_Perf_BatteryTimeRemaining','TS.ON_FRAME']),
                                  nativeFields:count({{SteamUiProbeJs.NativeFieldTokens}}),
                                  nativeLayout:count({{SteamUiProbeJs.PanelLayoutTokens}}),

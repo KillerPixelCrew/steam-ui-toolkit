@@ -29,22 +29,15 @@ public static class SteamSoundOverrideSurface
     public static IReadOnlyList<string> Commands { get; } = ["status"];
 
     /// <summary>The bounded audio-manager gate. An incompatible client keeps stock audio.</summary>
+    /// <remarks>
+    ///     The probe is the gate's own find: Steam's gamepad audio store, chosen by its tokens and by
+    ///     the shape of its playback manager, and the manager's <c>PlayAudioURLWithRepeats</c>. A client
+    ///     without either is incompatible.
+    /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
         "soundOverrides",
         "steam-sound-overrides-v1:gamepad-audio-manager",
-        $$"""
-          {{SteamUiProbeJs.Preamble("steam_ui_sound_overrides_probe_")}}
-            let manager=false;
-            try{const store=req.exported(['m_GamepadUIAudioStore','m_bHomeAndQuickAccessButtonsEnabled'],
-              v=>!!v?.GamepadUIAudio?.AudioPlaybackManager);
-              manager=typeof store.GamepadUIAudio.AudioPlaybackManager.PlayAudioURLWithRepeats==='function';}catch{}
-            return JSON.stringify({manager});
-          {{SteamUiProbeJs.Close}}
-          """,
-        root => SteamUiPatchEvaluation.Flag(root, "manager"),
-        "status.installed&&status.claimed",
-        "!status.claimed",
         "Steam UI sound overrides");
 
     /// <summary>Creates the publication module. Only already discovered semantic resources should be supplied.</summary>

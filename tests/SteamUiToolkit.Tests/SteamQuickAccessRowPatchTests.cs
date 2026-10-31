@@ -151,17 +151,10 @@ public sealed class SteamQuickAccessRowPatchTests
 
         private string Answer(string expression)
         {
-            if (expression.Contains("steam_ui_controller_target_probe_", StringComparison.Ordinal))
-            {
-                return """
-                       {"controllerPresentation":1,"performanceActions":1,"tdpAvailability":1,"tdpComponent":1,"profileProjection":1,"performanceRoot":1,"nativeFields":1,"nativeLayout":1,"localization":1,"react":1}
-                       """;
-            }
-
             if (expression.Contains("_probe_", StringComparison.Ordinal))
             {
                 return $$"""
-                         {"performanceActions":{{_performanceActions}},"tdpAvailability":1,"tdpComponent":1,"profileProjection":1,"performanceRoot":1,"nativeFields":1,"nativeLayout":1,"localization":1,"react":1}
+                         {"performanceActions":{{_performanceActions}},"performanceRoot":1,"nativeFields":1,"nativeLayout":1,"localization":1,"react":1}
                          """;
             }
 

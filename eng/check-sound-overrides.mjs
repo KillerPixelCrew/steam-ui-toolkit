@@ -3,15 +3,16 @@ import assert from "node:assert/strict";
 import {
   assertRemoveRetries,
   failingHost,
-  fragment,
   gateSource,
   instantiate,
   loadAsset,
+  sharedFragments,
 } from "./check-harness.mjs";
 
 const asset = loadAsset();
-const ownership = fragment(asset, "ownership.ts");
 const code = gateSource(asset, "gates/sound-overrides.ts");
+// Whether Steam's audio store has the playback manager the claim takes.
+let storeShape = "present";
 const original = function (url, ...args) {
   return [this, url, ...args];
 };
@@ -25,15 +26,14 @@ const instantiateGate = (failContext = false) =>
     {
       window: { location: { href: "about:blank" } },
       getWebpackRuntime: () => ({
-        exported: () => ({ GamepadUIAudio: { AudioPlaybackManager: manager } }),
+        exported: () => {
+          if (storeShape === "absent") throw new Error("Steam export absent: m_GamepadUIAudioStore");
+          return { GamepadUIAudio: { AudioPlaybackManager: storeShape === "present" ? manager : {} } };
+        },
       }),
       subscribe: (_, callback) => {
         publish = callback;
         return () => {};
-      },
-      endSubscription: (value) => {
-        value?.();
-        return null;
       },
       request: async (_, command, payload) => {
         assert.equal(command, "status");
@@ -54,7 +54,7 @@ const instantiateGate = (failContext = false) =>
         arrayBuffer: async () => Uint8Array.from(Buffer.from(url.split(",")[1], "base64")).buffer,
       }),
     },
-    ownership + code,
+    sharedFragments(asset) + code,
     "createSoundOverrides()",
   );
 
@@ -65,7 +65,21 @@ const publishAndDecode = (sounds) =>
     publish({ sounds, revision: 7 });
   }).then(() => Promise.resolve());
 const gate = instantiateGate();
+// The probe is the gate's find: a store without the manager, or no store, is incompatible.
+for (const shape of ["absent", "methodless"]) {
+  storeShape = shape;
+  const probe = gate.probe();
+  assert.equal(probe.outcome, "incompatible", `a ${shape} audio manager must be incompatible`);
+  assert.equal(probe.facts.manager, false);
+}
+storeShape = "present";
+assert.equal(gate.probe().outcome, "ready");
+assert.equal(gate.status().installed, false, "a probe installs nothing");
 assert.equal(gate.install().ok, true);
+assert.equal(gate.status().held, true, "the standard status shows the claim held");
+storeShape = "absent";
+assert.equal(gate.probe().outcome, "ready", "an installed gate answers from the manager it holds");
+storeShape = "present";
 await publishAndDecode({ "navigation.wav": [data], "broken.wav": ["data:audio/wav;base64,AA=="] });
 assert.deepEqual(manager.PlayAudioURLWithRepeats("/sounds/navigation.wav", 3), [manager, data, 3]);
 assert.equal(manager.PlayAudioURLWithRepeats("/sounds/unknown.wav")[1], "/sounds/unknown.wav");
@@ -91,12 +105,13 @@ many["malformed.wav"] = ["data:text/plain;base64,AQ=="];
 await publishAndDecode(many);
 assert.equal(gate.status().resources, 200, "every valid resource loads, however many there are");
 assert.equal(manager.PlayAudioURLWithRepeats("/sounds/sound199.wav")[1], data);
-assert.match(gate.status().lastError, /^Rejected sound: /u);
+assert.match(gate.status().decodeError, /^Rejected sound: /u);
 await publishAndDecode({});
 
 assertRemoveRetries(gate, failNext, "sound overrides");
 assert.equal(manager.PlayAudioURLWithRepeats, original);
 assert.equal(Object.hasOwn(manager, "PlayAudioURLWithRepeats"), false);
+assert.equal(gate.status().claims, 0, "removal leaves nothing on the ledger");
 assert.equal(gate.remove().absent, true);
 
 // A fresh injection reclaims the owned member rather than wrapping an orphaned closure.
@@ -116,7 +131,7 @@ assert.equal(
   manager.PlayAudioURLWithRepeats("/sounds/navigation.wav")[1],
   "/sounds/navigation.wav",
 );
-assert.match(unavailable.status().lastError, /Audio context unavailable/u);
+assert.match(unavailable.status().decodeError, /Audio context unavailable/u);
 unavailable.remove();
 console.log(
   "Sound overrides: exact resources, corrupt fallback, defaults, inherited restoration and orphan reclaim passed.",

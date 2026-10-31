@@ -35,7 +35,7 @@ const registerSteamPageRenderer = (template: string, render: (react: any, page: 
 };
 /**
  * Installs host-owned routes and renders registered page templates inside Steam's router.
- * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ * @returns The defineGate gate; remove must release it before its bridge is replaced.
  */
 
 function createPageHost() {
@@ -44,6 +44,14 @@ function createPageHost() {
         marker: "__steamUiPageHostClaimed",
         original: "__steamUiPageHostOriginal",
     } as const;
+    // The route switch's own claim. It has no public handle, so its mounted fibers are adopted by
+    // source and each one carries this marker on its wrapper.
+    const switchKeys = {
+        marker: "__steamUiPageSwitchClaimed",
+        original: "__steamUiPageSwitchOriginal",
+    } as const;
+    // Steam's own route switch, matched the way the gate matches the list it renders.
+    const SwitchTokens = ["computedMatch", "TopLevelTransition"] as const;
 
     // The router, unique on this pair. "Settings.Root()" alone matches six modules and
     // "TopLevelTransition" is the switch's own; together they name exactly one.
@@ -59,21 +67,14 @@ function createPageHost() {
     const MaximumDescent = 8;
     const PageKeyPrefix = "steam-ui-page-";
 
-    let runtime;
     let react;
     // Steam's own Route, taken off the `/library/home` element in the route list Steam is rendering:
     // the component itself rather than a description of it, so no client build can rename it away.
     let borrowedRoute = null;
     let routeVerified = false;
     let memo: any = null;
-    let routeSwitchFiber: any = null;
-    let routeSwitchWrapper: any = null;
-    let installed = false;
-    let lastError = "";
-    let unsubscribe: (() => void) | null = null;
-    let unsubscribePlugins: any = null;
+    let router: ClaimedComponent | null = null;
     let hostPages: any[] = [];
-    const mounted = createMountedAdoption();
 
     let pages: {
         id: string;
@@ -91,6 +92,8 @@ function createPageHost() {
         })),
     ];
     let lastOutcome = "never rendered";
+    // The last page renderer that threw, which cost its own page and fell open to the heading.
+    let rendererError = "";
     let observedRoutes: string[] = [];
 
     const descendCache = new Map();
@@ -110,7 +113,7 @@ function createPageHost() {
             try {
                 return renderer(react, page);
             } catch (error) {
-                lastError = `page renderer '${page.template}' threw: ${String(error)}`;
+                rendererError = `page renderer '${page.template}' threw: ${String(error)}`;
             }
         }
         return react.createElement(
@@ -211,208 +214,189 @@ function createPageHost() {
         return descendInto(react, element, descendCache, pageDescender) ?? element;
     };
 
-    const resolve = () => {
-        runtime = getWebpackRuntime("pages");
-        const resolvedReact = resolveReact(runtime);
-        if (!resolvedReact) {
-            lastError = "React runtime was not a unique match";
-            return false;
-        }
-        react = resolvedReact;
-
-        // The router module is confirmed to exist and to be unique, but it exports nothing that
-        // reaches the router: the memo is built locally inside the module. Verified against the live
-        // client on 2026-09-10 — every export of that module was inspected and none is a memo whose
-        // type carries the marker. So the handle comes from the rendered tree instead, which is also
-        // where decky-loader gets it. Checking the module anyway keeps the failure specific: "Steam
-        // moved the router" and "the tree has not been built yet" are different problems.
-        if (!runtime.findUnique([RouterTokens[0], RouterTokens[1]])) {
-            lastError = "router module was not a unique match";
-            return false;
-        }
-
-        memo = findRouterMemo();
-        if (!memo) {
-            lastError = "router was not found in the rendered tree";
-            return false;
-        }
-        return true;
-    };
-
-    // Finds the router's memo through SharedJSContext's own React root.
+    // Finds the router's memo and Steam's mounted route switch through SharedJSContext's own React
+    // roots, in one bounded walk.
     //
     // SharedJSContext holds the tree that every Steam window renders from, which is why a claim made
-    // here reaches the Big Picture window and the menu window alike. The search is bounded in both
-    // nodes visited and depth so a pathological tree cannot hang the injection, and it matches on the
-    // component's source rather than on a path through the tree.
-    //
-    // Breadth-first over the child and sibling links, as the Home carousel walks the same tree. A
-    // recursive walk nests a frame for every sibling, so a long sibling chain could exhaust the stack
-    // before the node bound was ever reached.
-    const findRouterMemo = () => {
-        let found = null;
-        walkFibers(reactRootFibers(), MaximumMountedNodes, (node) => {
+    // here reaches the Big Picture window and the menu window alike. The router module is unique, but
+    // it exports nothing that reaches the router: the memo is built locally inside the module
+    // (verified against the live client on 2026-09-10), so the handle comes from the rendered tree,
+    // which is also where decky-loader gets it. The search matches on component source, through the
+    // gate's own claims, or a find while the claims are held finds no router.
+    const findMounted = () => {
+        let found: any = null;
+        let routeSwitch = false;
+        const roots = reactRootFibers();
+        walkFibers(roots, MaximumMountedNodes, (node) => {
             const elementType = node.elementType;
-            if (!elementType || typeof elementType !== "object") return false;
-            // Through the gate's own claim, or a re-resolve while the claim is held finds no router.
-            if (!sourceMatches(unclaimedValue(elementType.type, claimKeys), [RouterTokens[0]])) {
-                return false;
+            if (
+                !found &&
+                elementType &&
+                typeof elementType === "object" &&
+                sourceMatches(unclaimedValue(elementType.type, claimKeys), [RouterTokens[0]])
+            ) {
+                found = elementType;
             }
-            found = elementType;
-            return true;
+            routeSwitch ||= sourceMatches(unclaimedValue(node.type, switchKeys), SwitchTokens);
+            return !!found && routeSwitch;
         });
-        return found;
+        return { memo: found, routeSwitch, roots: roots.length };
     };
 
-    const findRouteSwitchFiber = () => {
-        let found = null;
-        walkFibers(reactRootFibers(), MaximumMountedNodes, (node) => {
-            const original = node.type?.__steamUiPageSwitchOriginal ?? node.type;
-            if (!sourceMatches(original, ["computedMatch", "TopLevelTransition"])) return false;
-            found = node;
-            return true;
-        });
-        return found;
+    // Steam's own back-stack Route, the one that gives a page native back navigation. Reported, not
+    // required: the gate builds with the Route it borrows from the route list Steam is rendering.
+    // Counted by value rather than by export name, so a module re-exporting the Route under a second
+    // name is one match, not ambiguity. Requiring it is what declared an otherwise healthy client
+    // incompatible on 2026-09-24 and took every custom page with it.
+    const countSteamRoutes = (runtime) => {
+        const backstack = runtime.findUnique(["router-backstack"]);
+        if (!backstack) return { backstackModule: 0, steamRoute: 0 };
+        const routes = new Set<any>();
+        try {
+            const exports = runtime(backstack[0]);
+            for (const name of Object.keys(exports ?? {})) {
+                try {
+                    const value = exports[name];
+                    if (typeof value === "function" && sourceMatches(value, BackstackRouteMarkers))
+                        routes.add(value);
+                } catch {
+                    // An export whose getter throws is not the Route.
+                }
+            }
+        } catch {
+            // A back-stack module that will not load is reported as having no Route.
+        }
+        return { backstackModule: 1, steamRoute: routes.size };
     };
 
-    const install = () => {
-        if (installed) return { ok: true, alreadyInstalled: true };
-        const resolved = attemptResolution(resolve, (error) => {
-            lastError = "page host resolution failed: " + String(error);
-        });
-        if (!resolved) return { ok: false, error: lastError };
-
-        const claim = claimMember(memo, "type", claimKeys, (original: any) => {
-            if (typeof original !== "function") return original;
-            return function SteamUiPageRouter(props) {
-                return descend(original(props));
-            };
-        });
-        if (!claim.ok) {
-            lastError = claim.error;
-            return { ok: false, error: lastError };
+    // Pure: what the gate cannot work without, which is the router it claims, the switch it wraps,
+    // React, and a memo whose type it can put back. A router module that is there with no router
+    // mounted is a window still loading, or Big Picture closed: not ready.
+    const find = (runtime) => {
+        const resolvedReact = resolveReact(runtime);
+        if (!resolvedReact) return gateIncompatible("React runtime was not a unique match", { react: 0 });
+        // Checked although nothing is loaded from it, so a miss is specific: "Steam moved the router"
+        // and "the tree has not been built yet" are different problems.
+        if (!runtime.findUnique([RouterTokens[0], RouterTokens[1]])) {
+            return gateIncompatible("router module was not a unique match", { routerModule: 0, react: 1 });
         }
-
-        routeSwitchFiber = findRouteSwitchFiber();
-        if (!routeSwitchFiber) {
-            const rolledBack = releaseMember(memo, "type", claimKeys);
-            lastError = rolledBack.ok
-                ? "Steam's mounted route switch was not found"
-                : "Steam's mounted route switch was not found, and the router claim could not be released: " +
-                  (rolledBack.error ?? "unknown");
-            return { ok: false, error: lastError };
-        }
-        const currentSwitch = routeSwitchFiber.type;
-        const originalSwitch = currentSwitch?.__steamUiPageSwitchOriginal ?? currentSwitch;
-        routeSwitchWrapper = function SteamUiPageSwitch(props) {
-            const children = react.Children.toArray(props?.children);
-            return originalSwitch({
-                ...props,
-                children: isRouteList(children) ? applyPages(children) : children,
-            });
+        const routeSwitch = runtime.count([...SwitchTokens]);
+        const mountedNow = findMounted();
+        const descriptor = mountedNow.memo ? Object.getOwnPropertyDescriptor(mountedNow.memo, "type") : null;
+        const claimed = !!mountedNow.memo && memberClaimed(mountedNow.memo, "type", claimKeys);
+        const facts = {
+            routerModule: 1,
+            ...countSteamRoutes(runtime),
+            routerFound: mountedNow.memo ? 1 : 0,
+            switchMounted: mountedNow.routeSwitch,
+            roots: mountedNow.roots,
+            claimable: descriptor?.writable === true && descriptor.configurable === true,
+            claimed,
+            routeSwitch,
+            react: 1,
         };
-        Object.defineProperty(routeSwitchWrapper, "__steamUiPageSwitchOriginal", {
-            value: originalSwitch,
-        });
-        retargetFiber(routeSwitchFiber, routeSwitchWrapper);
-
-        // The claim reaches the next mount only; the router already on screen is adopted, or the claim
-        // is correct and inert until the user happens to remount it. See createMountedAdoption.
-        mounted.adopt(memo, memo.type);
-
-        installed = true;
-        lastError = "";
-        // Plugin pages already loaded are drawn from the start; neither subscription replays them.
-        pages = composePages();
-        unsubscribe = subscribe(patchId, (state) => {
-            const declared = Array.isArray(state?.pages) ? state.pages : [];
-            const next = declared.filter(
-                (page) =>
-                    page &&
-                    typeof page.id === "string" &&
-                    typeof page.title === "string" &&
-                    typeof page.path === "string" &&
-                    // A path has to be absolute or Steam's matcher never sees it, and a page that claims
-                    // every route would black out the client.
-                    page.path.startsWith("/") &&
-                    page.path !== "/",
-            );
-            // The wrappers read `pages` from their closure, so a publication changes nothing React can
-            // see on its own. Only a changed list earns a render: the class above the router is the one
-            // asked, and its render re-runs every route, the configurator's edit session included.
-            if (!publicationChanged(hostPages, next)) return;
-            hostPages = next;
-            pages = composePages();
-            mounted.rerender();
-        });
-        unsubscribePlugins = subscribePluginFrontends(() => {
-            pages = composePages();
-            mounted.rerender();
-        });
-        return { ok: true, installed: true, reclaimed: claim.reclaimed };
+        if (routeSwitch !== 1) return gateIncompatible("route switch module was not a unique match", facts);
+        if (!mountedNow.memo) return gateNotReady("the router is not mounted", facts);
+        if (!mountedNow.routeSwitch) return gateNotReady("Steam's route switch is not mounted", facts);
+        if (!claimed && !facts.claimable) {
+            return gateIncompatible("the router's type is not writable and configurable", facts);
+        }
+        return gateReady({ react: resolvedReact, memo: mountedNow.memo }, facts);
     };
 
-    // Every owned mutation goes back before the gate forgets it owns anything. Clearing `installed`
-    // ahead of the fallible release left both wrappers running while each later remove() answered
-    // `absent`, so a failed cleanup could never be retried.
-    const remove = () => {
-        if (!installed) return { ok: true, absent: true };
-        const released = releaseMember(memo, "type", claimKeys);
-        if (!released.ok) {
-            lastError = released.error ?? "page host release failed";
-            return { ok: false, error: lastError };
-        }
+    const gate = defineGate({
+        name: "pages",
+        find,
+        bind: (handles, ledger) => {
+            react = handles.react;
+            memo = handles.memo;
+            // The claim reaches the next mount only; the router already on screen is adopted, or the
+            // claim is correct and inert until the user happens to remount it.
+            const claimedRouter = ledger.component({
+                host: memo,
+                keys: claimKeys,
+                wrap: (original) =>
+                    function SteamUiPageRouter(props) {
+                        return descend(original(props));
+                    },
+            });
+            if (!claimedRouter.ok) return claimedRouter.error;
+            const routeSwitch = ledger.component({
+                keys: switchKeys,
+                match: (_fiber, type) => sourceMatches(type, SwitchTokens),
+                wrap: (originalSwitch) =>
+                    function SteamUiPageSwitch(props) {
+                        const children = react.Children.toArray(props?.children);
+                        return originalSwitch({
+                            ...props,
+                            children: isRouteList(children) ? applyPages(children) : children,
+                        });
+                    },
+            });
+            if (!routeSwitch.ok) return routeSwitch.error;
+            if (routeSwitch.status().adopted === 0) return "Steam's mounted route switch was not found";
+            router = claimedRouter;
 
-        mounted.release(memo.type);
-        if (routeSwitchFiber && routeSwitchWrapper) {
-            const originalSwitch = routeSwitchWrapper.__steamUiPageSwitchOriginal;
-            if (routeSwitchFiber.type === routeSwitchWrapper)
-                routeSwitchFiber.type = originalSwitch;
-            if (routeSwitchFiber.alternate?.type === routeSwitchWrapper) {
-                routeSwitchFiber.alternate.type = originalSwitch;
-            }
-        }
-        routeSwitchFiber = null;
-        routeSwitchWrapper = null;
-
-        installed = false;
-        unsubscribe = endSubscription(unsubscribe);
-        unsubscribePlugins = endSubscription(unsubscribePlugins);
-        hostPages = [];
-        pages = [];
-        // Borrowed from a render that is about to be undone, so it is not carried into the next install.
-        borrowedRoute = null;
-        routeVerified = false;
-        descendCache.clear();
-        lastOutcome = "removed";
-        return { ok: true, removed: true };
-    };
-
-    const status = () => ({
-        ok: true,
-        installed,
-        resolved: !!memo,
-        routeResolved: !!borrowedRoute,
-        // "borrowed (unverified)" is a Route whose source lacks the back-stack markers: it draws, and
-        // back navigation may be the thing it lost.
-        routeSource: borrowedRoute
-            ? routeVerified
-                ? "borrowed"
-                : "borrowed (unverified)"
-            : "none",
-        claimed: memberClaimed(memo, "type", claimKeys),
-        pages: pages.length,
-        // Whether the claim reached the routers already on screen, and whether one is still drawing
-        // something else: the difference between "claimed" and "actually running".
-        mounted: mounted.status(),
-        // What the last render actually saw. Everything above can be true while no page is reachable,
-        // because insertion depends on finding the route list in the tree Steam rendered.
-        routeCount: observedRoutes.length,
-        lastOutcome,
-        lastError,
+            // Plugin pages already loaded are drawn from the start; neither subscription replays them.
+            pages = composePages();
+            ledger.subscribe(patchId, (state) => {
+                const declared = Array.isArray(state?.pages) ? state.pages : [];
+                const next = declared.filter(
+                    (page) =>
+                        page &&
+                        typeof page.id === "string" &&
+                        typeof page.title === "string" &&
+                        typeof page.path === "string" &&
+                        // A path has to be absolute or Steam's matcher never sees it, and a page that
+                        // claims every route would black out the client.
+                        page.path.startsWith("/") &&
+                        page.path !== "/",
+                );
+                // The wrappers read `pages` from their closure, so a publication changes nothing React
+                // can see on its own. Only a changed list earns a render: the class above the router is
+                // the one asked, and its render re-runs every route, the configurator's edit session
+                // included.
+                if (!publicationChanged(hostPages, next)) return;
+                hostPages = next;
+                pages = composePages();
+                claimedRouter.rerender();
+            });
+            const unsubscribePlugins = subscribePluginFrontends(() => {
+                pages = composePages();
+                claimedRouter.rerender();
+            });
+            ledger.cleanup("plugin frontends", unsubscribePlugins);
+        },
+        unbind: () => {
+            router = null;
+            hostPages = [];
+            pages = [];
+            // Borrowed from a render that is about to be undone, so it is not carried into the next
+            // install.
+            borrowedRoute = null;
+            routeVerified = false;
+            descendCache.clear();
+            lastOutcome = "removed";
+        },
+        status: () => ({
+            routeResolved: !!borrowedRoute,
+            // "borrowed (unverified)" is a Route whose source lacks the back-stack markers: it draws,
+            // and back navigation may be the thing it lost.
+            routeSource: borrowedRoute ? (routeVerified ? "borrowed" : "borrowed (unverified)") : "none",
+            claimed: memberClaimed(memo, "type", claimKeys),
+            pages: pages.length,
+            // Whether the claim reached the routers already on screen, and whether one is still
+            // drawing something else: the difference between "claimed" and "actually running".
+            mounted: router?.status() ?? { adopted: 0, scheduled: false, stale: 0 },
+            // What the last render actually saw. Everything above can be true while no page is
+            // reachable, because insertion depends on finding the route list in the tree Steam
+            // rendered.
+            routeCount: observedRoutes.length,
+            lastOutcome,
+            rendererError,
+        }),
     });
-
-    return { install, remove, status };
+    return gate;
 }
 
 registerGate("pages", createPageHost());

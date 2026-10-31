@@ -1,31 +1,13 @@
-using System.Text.Json;
 using static SteamUiToolkit.Tests.Fakes.SurfaceDispatch;
 
 namespace SteamUiToolkit.Tests;
 
-/// <summary>The power menu's Switch to Desktop command route and its menu fingerprint.</summary>
+/// <summary>
+///     The power menu's Switch to Desktop wire and command route. Its probe is the gate's own find,
+///     exercised against the emitted asset by <c>eng/check-power-menu.mjs</c>.
+/// </summary>
 public sealed class SteamPowerMenuTests
 {
-    private static SteamGatePatch Gate => (SteamGatePatch)SteamPowerMenuSurface.Patch;
-
-    [Fact]
-    public void ProbeRequiresOnePowerMenuAndJsxRuntime()
-    {
-        var probe = Gate.ProbeExpression;
-
-        Assert.Contains("#Quit_Shutdown", probe, StringComparison.Ordinal);
-        Assert.Contains("#SwitchToDesktop", probe, StringComparison.Ordinal);
-        Assert.Contains(".jsxs", probe, StringComparison.Ordinal);
-
-        using var compatible = JsonDocument.Parse("""{"menuModule":1,"react":1,"jsx":1}""");
-        using var missing = JsonDocument.Parse("""{"menuModule":0,"react":1,"jsx":1}""");
-        using var ambiguous = JsonDocument.Parse("""{"menuModule":1,"react":1,"jsx":2}""");
-
-        Assert.True(Gate.Compatible(compatible.RootElement));
-        Assert.False(Gate.Compatible(missing.RootElement));
-        Assert.False(Gate.Compatible(ambiguous.RootElement));
-    }
-
     [Fact]
     public void VisibilityReachesTheWire()
     {

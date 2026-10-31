@@ -1,8 +1,10 @@
-using System.Text.Json;
-
 namespace SteamUiToolkit.Tests;
 
 /// <summary>The gate patch every host page is declared with.</summary>
+/// <remarks>
+///     What the probe requires is the page's own <c>components</c> and <c>required</c> list, exercised
+///     against the emitted asset by <c>eng/check-pages.mjs</c>; the patch only asks the page's gate.
+/// </remarks>
 public sealed class SteamPagePatchTests
 {
     private static SteamGatePatch Page()
@@ -11,45 +13,33 @@ public sealed class SteamPagePatchTests
             "example.page",
             "examplePage",
             "example-page-v1",
-            "Example page",
-            [SteamPageProbe.React, SteamPageProbe.Fields, SteamPageProbe.LibraryClasses]);
+            "Example page");
     }
 
     [Fact]
-    public void TheProbeCountsEveryModuleThePageDrawsFrom()
+    public void TheProbeIsThePageGatesOwn()
     {
-        var probe = Page().ProbeExpression;
+        var page = Page();
 
-        Assert.Contains("react:count(" + SteamUiProbeJs.ReactTokens + ")", probe, StringComparison.Ordinal);
-        Assert.Contains("controls:count(" + SteamUiProbeJs.NativeFieldTokens + ")", probe, StringComparison.Ordinal);
-        Assert.Contains("classes:count(" + SteamUiProbeJs.LibraryClassTokens + ")", probe, StringComparison.Ordinal);
-        Assert.EndsWith(SteamUiProbeJs.Close, probe, StringComparison.Ordinal);
+        Assert.Equal("example.page", page.Id);
+        Assert.Equal("examplePage", page.GateName);
+        Assert.Contains("b.gate(\"examplePage\")", page.ProbeExpression, StringComparison.Ordinal);
+        Assert.Contains("bridge.probe()", page.ProbeExpression, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AMissingPageGateIsNotReadyRatherThanIncompatible()
+    {
+        Assert.Contains("outcome:'notReady',reason:'bridge unavailable'", Page().ProbeExpression,
+            StringComparison.Ordinal);
     }
 
     [Theory]
-    [InlineData("""{"react":1,"controls":1,"classes":1}""", true)]
-    [InlineData("""{"react":1,"controls":2,"classes":1}""", false)]
-    [InlineData("""{"react":1,"controls":1}""", false)]
-    public void ThePageIsCompatibleOnlyWhenEveryModuleIsUnique(string counts, bool compatible)
-    {
-        using var document = JsonDocument.Parse(counts);
-
-        Assert.Equal(compatible, Page().Compatible(document.RootElement));
-    }
-
-    [Fact]
-    public void DuplicateAndInvalidProbeNamesAreRefusedAtConstruction()
-    {
-        Assert.Throws<ArgumentException>(() => SteamPagePatch.Create("example.page", "example", "v1", "Example",
-            [SteamPageProbe.React, SteamPageProbe.React]));
-        Assert.Throws<ArgumentException>(() => SteamPagePatch.Create("example.page", "example", "v1", "Example",
-            [new SteamPageProbe("invalid-name", SteamUiProbeJs.ReactTokens)]));
-    }
-
-    [Fact]
-    public void APageDrawnFromNothingIsRefused()
+    [InlineData("")]
+    [InlineData(" ")]
+    public void APageWithoutAGateNameIsRefused(string gateName)
     {
         Assert.Throws<ArgumentException>(() =>
-            SteamPagePatch.Create("example.page", "examplePage", "v1", "Example", []));
+            SteamPagePatch.Create("example.page", gateName, "v1", "Example"));
     }
 }

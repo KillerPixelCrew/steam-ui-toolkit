@@ -47,24 +47,16 @@ public static class SteamGameContextMenuSurface
     public static IReadOnlyList<string> Commands { get; } = ["activate"];
 
     /// <summary>The game context menu patch.</summary>
+    /// <remarks>
+    ///     The probe is the gate's own find, which requires React and the JSX runtime alone: the native
+    ///     menu class is recognised by its methods when Steam first creates one, so where Steam's private
+    ///     factory lives is required by nothing. Verification requires both interceptions held, one
+    ///     native menu class in use and no incompatible native result.
+    /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
         "gameContextMenu",
         "steam-game-context-menu-v8:observer-methods+native-submenu",
-        $$"""
-          {{SteamUiProbeJs.Preamble("steam_ui_game_context_menu_probe_")}}
-            return JSON.stringify({
-              menuModule:count(['GetTargetApps','BuildManageSubmenu','GetPrimaryActionMenuItem']),
-              react:count({{SteamUiProbeJs.ReactTokens}}),
-              jsx:count({{SteamUiProbeJs.JsxRuntimeTokens}})
-            });
-          {{SteamUiProbeJs.Close}}
-          """,
-        root =>
-            SteamUiPatchEvaluation.IsOne(root, "react")
-            && SteamUiPatchEvaluation.IsOne(root, "jsx"),
-        "status.installed&&status.resolved&&status.observing&&!status.ambiguous&&!status.nativeRefused",
-        "!status.installed",
         "Game context menu");
 
     /// <summary>Serializes the state exactly as the injected menu reads it.</summary>

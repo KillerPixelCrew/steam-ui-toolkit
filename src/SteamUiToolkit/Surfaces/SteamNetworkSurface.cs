@@ -102,35 +102,14 @@ public static class SteamNetworkSurface
     /// <remarks>
     ///     Reveals but does not populate on its own: the Windows backend reports an empty access-point
     ///     list, so verification reports the surface rather than treating a revealed row over no
-    ///     networks as success. The getter must currently read false — a client that already reports
-    ///     network management available is one this gate leaves alone.
+    ///     networks as success. The probe is the gate's own find and loads no module: not ready until
+    ///     Steam publishes its network store; incompatible when the getter is not configurable, or
+    ///     already reads true without being this gate's own, which is a client this gate leaves alone.
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
         "network",
         "steam-network-gate-v1:configurable-getter+currently-hidden",
-        $$"""
-          (()=>{try{
-            const store=window.SystemNetworkStore;
-            if(!store)return JSON.stringify({error:'network store unavailable'});
-            const d=Object.getOwnPropertyDescriptor(
-              Object.getPrototypeOf(store),'networkManagementAvailable');
-            return JSON.stringify({
-              getterConfigurable:!!d&&d.configurable===true&&typeof d.get==='function',
-              // False, or already overridden by US. A getter this gate installed is not evidence
-              // that the client reports network management natively, and reading it that way made
-              // this patch refuse itself after a successful apply and tear the network list down.
-              currentlyHidden:store.networkManagementAvailable===false
-                ||(!!d&&!!d.get&&d.get.__steamUiOwnedGetter===true),
-              hasWirelessDevice:store.hasWirelessDevice===true
-            });
-          {{SteamUiProbeJs.Close}}
-          """,
-        root =>
-            SteamUiPatchEvaluation.Flag(root, "getterConfigurable")
-            && SteamUiPatchEvaluation.Flag(root, "currentlyHidden"),
-        "status.installed&&status.available",
-        "!status.available",
         "Network gate");
 
     /// <summary>The answer to <c>connect</c>: the join is running under this attempt number.</summary>

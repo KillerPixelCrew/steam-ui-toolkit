@@ -488,7 +488,18 @@ function createPluginFrontends() {
     return { ok: true };
   };
   return {
-    probe: () => ({ ok: !!reactRuntime() }),
+    // The standard probe answer: a frontend needs Steam's React and nothing else of the client.
+    probe: () => {
+      let react;
+      try {
+        react = reactRuntime();
+      } catch (error) {
+        return { ok: false, outcome: "notReady", reason: `Steam modules unavailable: ${String(error)}` };
+      }
+      return react
+        ? { ok: true, outcome: "ready", facts: { react: 1 } }
+        : { ok: false, outcome: "incompatible", reason: "React runtime was not a unique match" };
+    },
     load,
     status,
     unload,

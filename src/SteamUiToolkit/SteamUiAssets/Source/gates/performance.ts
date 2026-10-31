@@ -1,15 +1,22 @@
 /**
  * Projects host performance state into Steam performance RPCs and semantic write commands.
- * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ * @returns The defineGate gate; remove must release it before its bridge is replaced.
  */
 
 function createPerfNamespace() {
     const patchId = "steam-ui.performance";
-    let installed = false;
+    // Why the last settings update could not be decoded or the last state write failed.
     let lastError = "";
-    let unsubscribe: (() => void) | null = null;
 
     const store = () => window.SystemPerfStore ?? null;
+
+    // The perf store's module, by the source tokens that make it the perf store, and the singleton
+    // reached through the one exported class with a Get() whose body declares the state, because the
+    // state is written into a client that is already running. Never a module id: naming one is what
+    // refused this gate on the September 2026 beta.
+    const PerfStoreTokens = ["SteamClient.System.Perf", "RegisterForStateChanges", "m_msgState"];
+    const isPerfStoreClass = (value) =>
+        typeof value === "function" && typeof value.Get === "function" && String(value).includes("m_msgState");
 
     // The message class is never named here — it is taken from an instance the store builds, so
     // this stays correct across minification and client updates. An object argument is still
@@ -53,7 +60,7 @@ function createPerfNamespace() {
     let displacedTarget: any = null;
 
     const onState = (state) => {
-        if (!installed || !state) return;
+        if (!gate.installed() || !state) return;
         const target = store();
         if (!target || !target.m_msgState) return;
         try {
@@ -80,109 +87,103 @@ function createPerfNamespace() {
         }
     };
 
-    const install = () => {
-        if (installed) return { ok: true, alreadyInstalled: true };
+    // Every setter builds a protobuf delta and hands it to UpdateSettings, so that one method is
+    // where all of them arrive. The delta is decoded on the host's side rather than here, because the
+    // message shapes belong to the client and this half only forwards.
+    const buildApi = () => ({
+        // Decode first, always. SystemPerfStore's setters all end in
+        // `UpdateSettings(request.serializeBase64String())`, so what arrives here is a BASE64
+        // STRING, not the message — live-verified 2026-08-30 by round-tripping a request built by
+        // the store itself. Forwarding it verbatim made the host's reader reject every write as
+        // "carried no delta object", which is why no control on the Performance tab did anything:
+        // the overlay-level selector snapped back to off, the frame cap never took, VRR never
+        // toggled. Decoding through the message's OWN deserializeBinary keeps the wire format the
+        // client's business; toObject() then emits snake_case field names, which is what the host reads.
+        UpdateSettings: (payload) => {
+            const delta = decodeSettingsUpdate(payload);
+            if (delta === null) return Promise.reject(new Error(lastError));
+            return request(patchId, "updateSettings", { delta });
+        },
+        RegisterForStateChanges: () => ({
+            unregister: () => {},
+        }),
+        RegisterForDiagnosticInfoChanges: () => ({
+            unregister: () => {},
+        }),
+    });
+
+    // Pure. A real backend at SteamClient.System.Perf is a client this gate stands aside for; one
+    // carrying our marker is our own. The store module and its class are the client's shape; a store
+    // that has not been constructed or published yet is a client still starting.
+    const find = (runtime) => {
         const system = window.SteamClient?.System;
-        if (!system) {
-            lastError = "SteamClient.System unavailable";
-            return { ok: false, error: lastError };
+        if (!system) return gateNotReady("SteamClient.System unavailable");
+        const perfStore = runtime.count(PerfStoreTokens);
+        const namespace = system.Perf;
+        const perfNamespaceAbsent = !namespace || claimed(namespace, { marker: ownedMarker, original: ownedMarker });
+        const facts: Record<string, unknown> = { perfStore, perfNamespaceAbsent, storeSingletonReachable: false };
+        if (perfStore !== 1) return gateIncompatible("the performance store module was not a unique match", facts);
+        if (!perfNamespaceAbsent) return gateIncompatible("a native performance backend is present", facts);
+        let holder;
+        try {
+            holder = runtime.exported(PerfStoreTokens, isPerfStoreClass);
+        } catch (error) {
+            return gateIncompatible(`the performance store class was not a unique match: ${String(error)}`, facts);
         }
-
-        if (!store()) {
-            lastError = "SystemPerfStore unavailable";
-            return { ok: false, error: lastError };
+        const singleton = holder.Get();
+        if (!singleton) return gateNotReady("the performance store is not constructed yet", facts);
+        if (!("m_msgState" in singleton)) {
+            return gateIncompatible("the performance store has no m_msgState", facts);
         }
-
-        // Every setter builds a protobuf delta and hands it to UpdateSettings, so that one method is
-        // where all of them arrive. The delta is decoded on the host's side rather than here, because the
-        // message shapes belong to the client and this half only forwards.
-        const buildApi = () => ({
-            // Decode first, always. SystemPerfStore's setters all end in
-            // `UpdateSettings(request.serializeBase64String())`, so what arrives here is a BASE64
-            // STRING, not the message — live-verified 2026-08-30 by round-tripping a request built by
-            // the store itself. Forwarding it verbatim made the host's reader reject every write as
-            // "carried no delta object", which is why no control on the Performance tab did anything:
-            // the overlay-level selector snapped back to off, the frame cap never took, VRR never
-            // toggled. Decoding through the message's OWN deserializeBinary keeps the wire format the
-            // client's business; toObject() then emits snake_case field names, which is what the host reads.
-            UpdateSettings: (payload) => {
-                const delta = decodeSettingsUpdate(payload);
-                if (delta === null) return Promise.reject(new Error(lastError));
-                return request(patchId, "updateSettings", { delta });
-            },
-            RegisterForStateChanges: () => ({
-                unregister: () => {},
-            }),
-            RegisterForDiagnosticInfoChanges: () => ({
-                unregister: () => {},
-            }),
-        });
-
-        // Stand aside for a real backend, reclaim one of our own — the primitive's rules, and it marks
-        // the namespace before publishing it so nothing can observe an unmarked one. An orphaned Perf
-        // namespace is worse than an orphaned audio one: it leaves SystemPerfStore holding half-written
-        // state, which renders Valve's controls with no values behind them.
-        const supplied = supplyNamespace(system, "Perf", ownedMarker, buildApi);
-        if (!supplied.ok) {
-            lastError = supplied.error;
-            return { ok: false, error: lastError };
-        }
-
-        installed = true;
-        lastError = "";
-        unsubscribe = subscribe(patchId, onState);
-        return { ok: true, installed: true };
+        facts.storeSingletonReachable = true;
+        if (!store()) return gateNotReady("SystemPerfStore is not published yet", facts);
+        return gateReady({ system }, facts);
     };
 
-    const remove = () => {
-        if (!installed) return { ok: true, absent: true };
-
-        // Marker-checked, which this path was not: it deleted whatever was at System.Perf, so a real
-        // backend appearing under a still-installed gate would have been removed by the host's own
-        // cleanup. Released first, so a failed withdrawal leaves the gate installed and the next
-        // remove retries it.
-        const withdrawn = withdrawNamespace(window.SteamClient?.System, "Perf", ownedMarker);
-        if (!withdrawn.ok) {
-            lastError = withdrawn.error ?? "perf namespace withdrawal failed";
-            return { ok: false, error: lastError };
-        }
-
-        // Back to what the store held before the first publication, so every control returns to
-        // rendering what it did before the host answered rather than keeping the host's last answer.
-        if (displacedTarget && displaced) {
-            try {
-                for (const { field, present, value } of displaced) {
-                    if (present) displacedTarget[field] = value;
-                    else delete displacedTarget[field];
+    const gate = defineGate({
+        name: "perf",
+        find,
+        bind: ({ system }, ledger) => {
+            lastError = "";
+            // Last out: back to what the store held before the first publication, so every control
+            // returns to rendering what it did before the host answered rather than keeping the host's
+            // last answer. A failed restoration keeps the gate installed, and the next removal retries it.
+            ledger.add("performance state", () => {
+                if (displacedTarget && displaced) {
+                    try {
+                        for (const { field, present, value } of displaced) {
+                            if (present) displacedTarget[field] = value;
+                            else delete displacedTarget[field];
+                        }
+                    } catch (error) {
+                        return { ok: false, error: "perf state restoration failed: " + String(error) };
+                    }
                 }
-            } catch (error) {
-                lastError = "perf state restoration failed: " + String(error);
-                return { ok: false, error: lastError };
-            }
-        }
-        installed = false;
-        unsubscribe = endSubscription(unsubscribe);
-        displaced = null;
-        displacedTarget = null;
-
-        return { ok: true, removed: true };
-    };
-
-    const status = () => {
-        const target = store();
-        return {
-            ok: true,
-            installed,
-            namespacePresent: !!window.SteamClient?.System?.Perf,
-            limitsPresent: !!target?.msgLimits,
-            // Which controls can draw at all, since each reads its own availability out of limits.
-            frameLimitOptions: target?.msgLimits?.fps_limit_options?.length ?? 0,
-            vrrSupported: target?.msgLimits?.is_vrr_supported === true,
-            lastError,
-        };
-    };
-
-    return { install, remove, status };
+                displaced = null;
+                displacedTarget = null;
+                return { ok: true };
+            });
+            // Stand aside for a real backend, reclaim one of our own — the primitive's rules, and it
+            // marks the namespace before publishing it so nothing can observe an unmarked one. An
+            // orphaned Perf namespace is worse than an orphaned audio one: it leaves SystemPerfStore
+            // holding half-written state, which renders Valve's controls with no values behind them.
+            const supplied = ledger.namespace(system, "Perf", ownedMarker, buildApi);
+            if (!supplied.ok) return supplied.error;
+            ledger.subscribe(patchId, onState);
+        },
+        status: () => {
+            const target = store();
+            return {
+                namespacePresent: !!window.SteamClient?.System?.Perf,
+                limitsPresent: !!target?.msgLimits,
+                // Which controls can draw at all, since each reads its own availability out of limits.
+                frameLimitOptions: target?.msgLimits?.fps_limit_options?.length ?? 0,
+                vrrSupported: target?.msgLimits?.is_vrr_supported === true,
+                operationError: lastError,
+            };
+        },
+    });
+    return gate;
 }
 
 registerGate("perf", createPerfNamespace());

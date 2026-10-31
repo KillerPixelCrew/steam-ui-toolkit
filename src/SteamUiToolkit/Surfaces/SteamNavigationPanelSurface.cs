@@ -102,52 +102,19 @@ public static class SteamNavigationPanelSurface
 
     /// <summary>The gate that claims the panel and applies the published entries.</summary>
     /// <remarks>
-    ///     The probe requires each structural fact the gate resolves on, separately, so an incompatible
-    ///     client says which one moved rather than only that something did. It accepts a panel this
-    ///     gate has already claimed: requiring the pre-patch shape alone would make a successful apply
-    ///     fail its own next probe and tear the claim down on every poll.
+    ///     The probe is the gate's own find. It requires each structural fact the gate resolves on,
+    ///     separately, and answers incompatible naming the one that moved: the menu module, the panel
+    ///     root, exactly one memo export drawing the outer container, and a <c>type</c> the claim can
+    ///     replace and restore. It accepts a panel this gate already claimed, and an installed gate
+    ///     answers from the memo it holds: requiring the pre-patch shape alone would make a successful
+    ///     apply fail its own next probe and tear the claim down on every poll. The memo is an export,
+    ///     so nothing has to be mounted; panels and popup menu hosts on screen are adopted at install
+    ///     and handed back on removal, with any mounted since.
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
         "navigationPanel",
         "steam-navigation-panel-v1:unique-menu-module+single-memo-export",
-        $$"""
-          {{SteamUiProbeJs.Preamble("steam_ui_navigation_probe_")}}
-            const menu=req.findUnique(['#MainMenu_Title','MainNavMenuContainer']);
-            if(!menu)return JSON.stringify({menuModule:0});
-            const exports=req(menu[0]);
-            // Through the gate's own claim, or the export disappears the moment the gate holds it.
-            {{SteamUiProbeJs.Unwrap("NavigationPanel")}}
-            // The export is chosen by what its component draws, never by its minified name.
-            const memos=Object.keys(exports).filter(name=>{
-              const value=exports[name];
-              if(!value||typeof value!=='object')return false;
-              const drawn=unwrap(value.type);
-              return typeof drawn==='function'&&String(drawn).includes('MainNavMenuContainer');
-            });
-            const memo=memos.length===1?exports[memos[0]]:null;
-            const descriptor=memo?Object.getOwnPropertyDescriptor(memo,'type'):null;
-            return JSON.stringify({
-              menuModule:1,
-              // The panel root itself, matched the way the gate matches it while descending.
-              panelRoot:count(['#MainMenu_Title','RunnningAppSeparator']),
-              memoExports:memos.length,
-              // Writable and configurable, or the claim could neither replace nor restore it.
-              claimable:{{SteamUiProbeJs.Replaceable("descriptor")}},
-              // Already ours is compatible; see the remarks on this patch.
-              claimed:{{SteamUiProbeJs.Claimed("memo?.type", "NavigationPanel")}},
-              react:count({{SteamUiProbeJs.ReactTokens}})
-            });
-          {{SteamUiProbeJs.Close}}
-          """,
-        root =>
-            SteamUiPatchEvaluation.IsOne(root, "menuModule")
-            && SteamUiPatchEvaluation.IsOne(root, "panelRoot")
-            && SteamUiPatchEvaluation.IsOne(root, "memoExports")
-            && SteamUiPatchEvaluation.IsOne(root, "react")
-            && SteamUiPatchEvaluation.ClaimableOrOurs(root),
-        "status.installed&&status.resolved&&status.claimed",
-        "!status.claimed",
         "Navigation panel gate");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>

@@ -1,45 +1,14 @@
-using System.Text.Json;
 using static SteamUiToolkit.Tests.Fakes.SurfaceDispatch;
 
 namespace SteamUiToolkit.Tests;
 
-/// <summary>The Extensions tab's typed state, strict activation route and Quick Access fingerprint.</summary>
+/// <summary>The Extensions tab's typed state and strict activation route.</summary>
+/// <remarks>
+///     What the probe requires of the Quick Access module and the native components is the gate's own
+///     find, exercised against the emitted asset by <c>eng/check-extension-surfaces.mjs</c>.
+/// </remarks>
 public sealed class SteamExtensionsTabTests
 {
-    private static SteamGatePatch Gate => (SteamGatePatch)SteamExtensionsTabSurface.Patch;
-
-    [Fact]
-    public void ProbeRequiresOneQuickAccessMemoAndAClaimableType()
-    {
-        var probe = Gate.ProbeExpression;
-
-        Assert.Contains("QuickAccessMenuBrowserView", probe, StringComparison.Ordinal);
-        Assert.Contains("memoExports", probe, StringComparison.Ordinal);
-        Assert.Contains("claimable", probe, StringComparison.Ordinal);
-
-        using var compatible = JsonDocument.Parse(
-            """{"qamModule":1,"memoExports":1,"claimable":true,"react":1,"focusable":1,"controls":1,"panel":1}""");
-        using var ambiguous = JsonDocument.Parse(
-            """{"qamModule":1,"memoExports":2,"claimable":true,"react":1,"focusable":1,"controls":1,"panel":1}""");
-
-        Assert.True(Gate.Compatible(compatible.RootElement));
-        Assert.False(Gate.Compatible(ambiguous.RootElement));
-    }
-
-    [Fact]
-    public void ProbeRequiresTheSteamComponentsTheTabDrawsWith()
-    {
-        // The tab draws nothing of its own, so a client missing one of these gets no tab rather than
-        // an imitation of one.
-        var probe = Gate.ProbeExpression;
-        Assert.Contains(SteamUiProbeJs.PanelLayoutTokens, probe, StringComparison.Ordinal);
-        Assert.Contains(SteamUiProbeJs.NativeFieldTokens, probe, StringComparison.Ordinal);
-
-        using var noPanel = JsonDocument.Parse(
-            """{"qamModule":1,"memoExports":1,"claimable":true,"react":1,"focusable":1,"controls":1,"panel":0}""");
-        Assert.False(Gate.Compatible(noPanel.RootElement));
-    }
-
     [Fact]
     public void ItemsReachTheWireWithTheirVisibleFailureDetail()
     {

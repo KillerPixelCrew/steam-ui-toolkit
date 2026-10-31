@@ -119,47 +119,17 @@ public static class SteamExtensionsTabSurface
     public static IReadOnlyList<string> Commands { get; } = ["activate", "configure"];
 
     /// <summary>The Quick Access tab patch.</summary>
+    /// <remarks>
+    ///     The probe is the gate's own find: the Quick Access module, its one memo export drawing the
+    ///     browser view through the gate's own claim, a <c>type</c> the claim can replace and restore, and
+    ///     every Steam component the tab draws with. A client missing any of them is incompatible, named
+    ///     in the answer; the memo is an export, so nothing has to be mounted. Verification also requires
+    ///     the native components to stay resolved, because the tab draws nothing of its own.
+    /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
         "extensionsTab",
         "steam-extensions-tab-v2:unique-qam-browser-view+claimable-memo+native-panel",
-        $$"""
-          {{SteamUiProbeJs.Preamble("steam_ui_extensions_tab_probe_")}}
-            const qam=req.findUnique(['QuickAccessMenuBrowserView']);
-            if(!qam)return JSON.stringify({qamModule:0});
-            const exports=req(qam[0]);
-            // Through the gate's own claim, or the export disappears the moment the gate holds it.
-            {{SteamUiProbeJs.Unwrap("ExtensionsTab")}}
-            const candidates=Object.keys(exports).filter(name=>{
-              const value=exports[name];
-              const original=unwrap(value?.type);
-              return value&&typeof value==='object'&&typeof original==='function'
-                &&String(original).includes('QuickAccessMenuBrowserView');
-            });
-            const memo=candidates.length===1?exports[candidates[0]]:null;
-            const descriptor=memo?Object.getOwnPropertyDescriptor(memo,'type'):null;
-            return JSON.stringify({
-              qamModule:1,
-              memoExports:candidates.length,
-              claimable:{{SteamUiProbeJs.Replaceable("descriptor")}},
-              claimed:{{SteamUiProbeJs.Claimed("memo?.type", "ExtensionsTab")}},
-              react:count({{SteamUiProbeJs.ReactTokens}}),
-              focusable:count({{SteamUiProbeJs.NativeFocusableTokens}}),
-              controls:count({{SteamUiProbeJs.NativeFieldTokens}}),
-              panel:count({{SteamUiProbeJs.PanelLayoutTokens}})
-            });
-          {{SteamUiProbeJs.Close}}
-          """,
-        root =>
-            SteamUiPatchEvaluation.IsOne(root, "qamModule")
-            && SteamUiPatchEvaluation.IsOne(root, "memoExports")
-            && SteamUiPatchEvaluation.IsOne(root, "react")
-            && SteamUiPatchEvaluation.IsOne(root, "focusable")
-            && SteamUiPatchEvaluation.IsOne(root, "controls")
-            && SteamUiPatchEvaluation.IsOne(root, "panel")
-            && SteamUiPatchEvaluation.ClaimableOrOurs(root),
-        "status.installed&&status.resolved&&status.claimed&&status.nativeComponentsResolved",
-        "!status.claimed",
         "Extensions tab");
 
     /// <summary>Serializes the state exactly as the injected tab reads it.</summary>

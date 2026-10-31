@@ -100,32 +100,15 @@ public static class SteamAudioSurface
     /// <summary>The gate that supplies the audio backend behind <c>SteamClient.System.Audio</c>.</summary>
     /// <remarks>
     ///     The store caches <c>m_bAvailable = null != SteamClient.System.Audio</c> at construction,
-    ///     which already ran; the singleton has to be reachable so it can be written to directly.
+    ///     which already ran; the singleton has to be reachable so it can be written to directly. The
+    ///     probe is the gate's own find: incompatible when the audio store module is not a unique match,
+    ///     the singleton is not reachable or a real backend already occupies the namespace (one carrying
+    ///     the toolkit's marker is its own); not ready while <c>SteamClient.System</c> is absent.
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
         "audio",
         "steam-ui-audio-v1:store+absent-namespace+reachable-singleton",
-        $$"""
-          {{SteamUiProbeJs.Preamble("steam_ui_audio_probe_")}}
-            let singleton=false;
-            // The store by what it is, never by module id or export name: the September 2026 beta
-            // renumbered its module and this probe refused audio until it stopped naming it.
-            try{singleton=!!req.exported(['SteamClient.System.Audio','RegisterForDeviceAdded','m_bAvailable'],
-              v=>!!v&&typeof v==='object'&&'m_bAvailable' in v&&typeof v.RegisterOrUpdateDevice==='function');}catch{}
-            return JSON.stringify({
-              audioStore:count(['SteamClient.System.Audio','RegisterForDeviceAdded','m_bAvailable']),
-              audioNamespaceAbsent:{{SteamUiProbeJs.OwnedOrAbsentNamespace("Audio")}},
-              storeSingletonReachable:singleton
-            });
-          {{SteamUiProbeJs.Close}}
-          """,
-        root =>
-            SteamUiPatchEvaluation.IsOne(root, "audioStore")
-            && SteamUiPatchEvaluation.Flag(root, "audioNamespaceAbsent")
-            && SteamUiPatchEvaluation.Flag(root, "storeSingletonReachable"),
-        "status.installed&&status.namespacePresent",
-        "!status.namespacePresent",
         "Audio namespace");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>

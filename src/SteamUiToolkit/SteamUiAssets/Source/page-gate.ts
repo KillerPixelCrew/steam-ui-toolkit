@@ -1,5 +1,7 @@
 /**
- * Registers a renderer and generation-bound gate for one host page.
+ * Registers a renderer and generation-bound gate for one host page. The gate is a `defineGate`
+ * gate: its probe resolves `components(runtime)` and requires every name in `required`, and never
+ * calls `prepare`, which only the install runs.
  * @param definition Stable renderer/gate/patch identities, component requirements and lifecycle callbacks.
  * @returns Live page accessors; removal clears UI and state while the React instance may remain available.
  */
@@ -9,9 +11,6 @@ function registerSteamPage(definition: SteamPageDefinition): SteamPageContext {
     let react: any = null;
     let state: any = null;
     let refusal: string | null = null;
-    let lastError = "";
-    let unsubscribe: (() => void) | null = null;
-    let unsubscribeRefusal: (() => void) | null = null;
     // What the frame redraws on: the gate's resolution, its state and refusals, and its removal.
     const local = createLocalStore();
     const notify = local.changed;
@@ -23,66 +22,49 @@ function registerSteamPage(definition: SteamPageDefinition): SteamPageContext {
         refusal: () => refusal,
     };
 
-    const resolve = () => {
-        const runtime = getWebpackRuntime(definition.template);
+    // Pure: the components and the required list, never `prepare`, which acquires resources.
+    const find = (runtime) => {
         const resolved = definition.components(runtime);
         const missing = definition.required.filter((name) => !resolved?.[name]);
         if (missing.length) {
-            lastError = `Native Steam components unavailable: ${missing.join(", ")}`;
-            return false;
+            return gateIncompatible(`Native Steam components unavailable: ${missing.join(", ")}`, {
+                missing,
+            });
         }
-        const refused = definition.prepare?.(resolved, runtime) ?? null;
-        if (refused) {
-            lastError = refused;
-            return false;
-        }
-        ui = resolved;
-        react = resolved.react;
-        return true;
+        return gateReady({ resolved, runtime }, { components: definition.required.length });
     };
 
-    const install = () => {
-        if (installed) return {ok: true, alreadyInstalled: true};
-        if (!attemptResolution(resolve, (error) => (lastError = String(error)))) {
+    const gate = defineGate({
+        name: definition.gate,
+        find,
+        bind: ({ resolved, runtime }, ledger) => {
+            const refused = definition.prepare?.(resolved, runtime) ?? null;
+            if (refused) return refused;
+            if (definition.release) ledger.cleanup("page resources", definition.release);
+            ui = resolved;
+            react = resolved.react;
+            ledger.subscribe(definition.patchId, (next) => {
+                state = next;
+                notify();
+            });
+            ledger.subscribeRefusal(definition.patchId, (reason) => {
+                refusal = reason;
+                notify();
+            });
+            // A mounted page draws nothing from the moment the gate is removed, rather than the
+            // controls it last had.
+            ledger.cleanup("page state", () => {
+                state = null;
+                refusal = null;
+                ui = null;
+            });
+            notify();
+        },
+        unbind: () => {
             ui = null;
             notify();
-            return {ok: false, error: lastError};
-        }
-        installed = true;
-        lastError = "";
-        unsubscribe = subscribe(definition.patchId, (next) => {
-            state = next;
-            notify();
-        });
-        unsubscribeRefusal = subscribeRefusal(definition.patchId, (reason) => {
-            refusal = reason;
-            notify();
-        });
-        notify();
-        return {ok: true, installed: true};
-    };
-
-    // A mounted page draws nothing from now on, rather than the controls it last had.
-    const remove = () => {
-        installed = false;
-        unsubscribe = endSubscription(unsubscribe);
-        unsubscribeRefusal = endSubscription(unsubscribeRefusal);
-        state = null;
-        refusal = null;
-        ui = null;
-        definition.release?.();
-        notify();
-        return {ok: true, removed: true};
-    };
-
-    const status = () => ({
-        ok: true,
-        installed,
-        resolved: !!ui,
-        subscribed: !!unsubscribe,
-        refused: refusal,
-        lastError,
-        ...(definition.status?.() ?? {}),
+        },
+        status: () => ({ refused: refusal, ...(definition.status?.() ?? {}) }),
     });
 
     // One component for the life of the asset. The page host draws it on every router render, and a
@@ -102,7 +84,7 @@ function registerSteamPage(definition: SteamPageDefinition): SteamPageContext {
                         opacity: 0.8,
                     },
                 },
-                lastError || "Loading…",
+                gate.status().lastError || "Loading…",
             );
         }
         // The root must take focus so Back reaches page navigation before the router stack.
@@ -120,7 +102,7 @@ function registerSteamPage(definition: SteamPageDefinition): SteamPageContext {
         react ??= hostReact;
         return react.createElement(SteamPageFrame, {page});
     });
-    registerGate(definition.gate, {install, remove, status});
+    registerGate(definition.gate, gate);
     return context;
 }
 
@@ -134,7 +116,7 @@ type SteamPageDefinition = {
     patchId: string;
     /** Resolves the components the page draws with, from Steam's own; null when they are not there. */
     components: (runtime: any) => any;
-    /** The components the page cannot draw without. */
+    /** The components the page cannot draw without; the probe and the install both require them. */
     required: readonly string[];
     /** Acquires page resources; returns a refusal reason or null on success. */
     prepare?: (ui: any, runtime: any) => string | null;

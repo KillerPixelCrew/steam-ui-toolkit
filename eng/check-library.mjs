@@ -2,8 +2,12 @@
 // tiles, the library details stat on a game's play bar, and the shared JSX-runtime claim the stat
 // holds through the "elements" gate.
 //
-// Resolution is checked live and pinned by the patches' probes. What this proves is what the shipped
-// bytes do once they hold their targets.
+// Each gate's probe is its own find, exercised here: a library module that is absent, ambiguous or
+// unclaimable is incompatible, a client whose modules are not loaded yet is not ready, a tile an
+// earlier bridge claimed stays compatible, and an installed gate answers from what it holds. What
+// the rest proves is what the shipped bytes do once they hold their targets, including that the
+// badge adopts the tiles already on screen and hands back every tile drawing its claim on removal,
+// one React mounted after install included.
 //
 // The badge: it lands immediately left of Valve's Steam Input badge in one right-aligned row, names
 // the published library or the internal label, is green for an installed game and grey for one that
@@ -303,10 +307,138 @@ const shared = sharedFragments(asset);
         ["copies", "valve"],
         "a reinstall starts from no libraries",
     );
+    assert.equal(gate.probe().outcome, "ready", "an installed gate answers from what it holds");
+    assert.equal(gate.probe().installed, true);
     assertRemoveRetries(gate, failNext, "library badge");
     assert.equal(memo.type, Tile);
+    assert.equal(gate.status().claims, 0, "a retried removal leaves nothing on the ledger");
 
     console.log("library badge gate: ok");
+}
+
+// --- library badge probe, adoption and release of every tile drawing the claim ------------------
+{
+    const react = createReact({ useSyncExternalStore: (_subscribe, snapshot) => snapshot() });
+    let invoked = 0;
+    const Tile = withSource(
+        () => {
+            invoked++;
+            return null;
+        },
+        'function(){ "ControllerSupportIcon"; "appportrait_"; }',
+    );
+    const SteamInputBadge = withSource(() => null, 'function(){ "ControllerSupportIcon"; }');
+    const memoOf = (type, locked = false) => {
+        const memo = { $$typeof: Symbol.for("react.memo"), compare: null };
+        Object.defineProperty(memo, "type", {
+            value: type,
+            writable: !locked,
+            configurable: !locked,
+            enumerable: true,
+        });
+        return memo;
+    };
+    // A wrapper an earlier bridge left on the memo: marked, with Valve's tile kept as its original.
+    const earlierWrapper = () => {
+        invoked++;
+        return null;
+    };
+    Object.defineProperty(earlierWrapper, "__steamUiLibraryBadgeClaimed", { value: true, configurable: true });
+    Object.defineProperty(earlierWrapper, "__steamUiLibraryBadgeOriginal", {
+        value: { kind: "steam-ui-property-snapshot-v1", hadOwn: true, value: Tile },
+        configurable: true,
+    });
+
+    const documentFixture = { getElementById: () => null, body: { children: [] } };
+    const badgeGate = (exports, available = true) =>
+        instantiate(
+            {
+                getWebpackRuntime: () => {
+                    if (!available) throw new Error("Steam modules unavailable");
+                    const require = (id) => (id === "tile" ? exports : react);
+                    require.findUnique = (tokens) =>
+                        tokens.includes("appportrait_") ? ["tile"] : tokens.includes("useState") ? ["react"] : null;
+                    return require;
+                },
+                document: documentFixture,
+                request: () => Promise.resolve(),
+                subscribe: () => () => {},
+            },
+            `${shared}
+${gateSource(asset, "gates/library-badge.ts")}`,
+            "createLibraryBadge()",
+        );
+
+    // The probe in each client shape, and that it never runs the tile it fingerprints.
+    const outcomes = {
+        unclaimed: badgeGate({ tile: memoOf(Tile), badge: SteamInputBadge }).probe(),
+        claimed: badgeGate({ tile: memoOf(earlierWrapper), badge: SteamInputBadge }).probe(),
+        ambiguous: badgeGate({ tile: memoOf(Tile), other: memoOf(Tile), badge: SteamInputBadge }).probe(),
+        locked: badgeGate({ tile: memoOf(Tile, true), badge: SteamInputBadge }).probe(),
+        noBadge: badgeGate({ tile: memoOf(Tile) }).probe(),
+        loading: badgeGate({ tile: memoOf(Tile), badge: SteamInputBadge }, false).probe(),
+    };
+    assert.equal(outcomes.unclaimed.outcome, "ready");
+    assert.equal(outcomes.claimed.outcome, "ready", "a tile an earlier bridge claimed stays compatible");
+    assert.equal(outcomes.claimed.facts.claimed, true);
+    assert.equal(outcomes.ambiguous.outcome, "incompatible", "two tile memos are refused");
+    assert.equal(outcomes.ambiguous.facts.tileExports, 2);
+    assert.equal(outcomes.locked.outcome, "incompatible", "a tile type the claim cannot restore is refused");
+    assert.equal(outcomes.locked.facts.claimable, false);
+    assert.equal(outcomes.noBadge.outcome, "incompatible");
+    assert.equal(outcomes.noBadge.facts.badgeExports, 0);
+    assert.equal(outcomes.loading.outcome, "notReady", "modules not loaded yet are not ready");
+    assert.equal(invoked, 0, "a probe must not run the tile it fingerprints");
+
+    // A tile already on screen, with both of its fibers caching Valve's function, under a class whose
+    // instance can be asked to render.
+    const memo = memoOf(Tile);
+    const gate = badgeGate({ tile: memo, badge: SteamInputBadge });
+    const parent = (renders) => ({ isReactComponent: {}, forceUpdate: () => renders.count++ });
+    const mountTile = (renders, type) => {
+        const host = { stateNode: parent(renders), memoizedProps: {}, child: null, sibling: null, return: null };
+        const fiber = { elementType: memo, type, memoizedProps: {}, child: null, sibling: null, return: host };
+        fiber.alternate = { ...fiber, alternate: fiber };
+        host.child = fiber;
+        return { host, fiber };
+    };
+    const first = { count: 0 };
+    const onScreen = mountTile(first, Tile);
+    const rootFiber = { memoizedProps: {}, child: onScreen.host, sibling: null };
+    documentFixture.getElementById = (id) =>
+        id === "root" ? { __reactContainer$fixture: rootFiber } : null;
+    const installed = gate.install();
+    assert.ok(installed.ok, `install failed: ${installed.error}`);
+    assert.equal(installed.adopted, 1, "the tile on screen is adopted");
+    assert.equal(onScreen.fiber.type, memo.type, "the adopted tile draws the claim");
+    assert.equal(onScreen.fiber.alternate.type, memo.type, "on both of its fibers");
+    assert.equal(first.count, 1, "the adopted tile is asked to render");
+    assert.equal(gate.status().held, true);
+    assert.equal(gate.status().claims, 2, "the subscription and the claim are on the ledger");
+
+    // A tile React mounted after install takes the claimed memo's type itself; the list kept at
+    // install never saw it, and removal must find it all the same.
+    const later = { count: 0 };
+    const mountedLater = mountTile(later, memo.type);
+    onScreen.host.sibling = mountedLater.host;
+    documentFixture.getElementById = () => null;
+    assert.equal(gate.probe().outcome, "ready", "an installed gate answers from its handles");
+    documentFixture.getElementById = (id) => (id === "root" ? { __reactContainer$fixture: rootFiber } : null);
+
+    const removed = gate.remove();
+    assert.ok(removed.ok, `remove failed: ${removed.error}`);
+    assert.equal(memo.type, Tile, "removal restores the memo");
+    for (const fiber of [onScreen.fiber, mountedLater.fiber]) {
+        assert.equal(fiber.type, Tile, "removal hands back every tile drawing the claim");
+        assert.equal(fiber.alternate.type, Tile, "on both fiber sides");
+    }
+    assert.equal(first.count, 2, "the adopted tile is asked to render Valve's again");
+    assert.equal(later.count, 1, "and so is the tile mounted after install");
+    assert.equal(gate.status().claims, 0);
+    assert.equal(gate.status().installed, false);
+    assert.equal(invoked, 0, "nothing ran Valve's tile");
+
+    console.log("library badge probe and release of every claimed tile: ok");
 }
 
 // --- library details stat and the shared JSX claim -------------------------------------------------
@@ -524,6 +656,25 @@ const shared = sharedFragments(asset);
     );
     assert.ok(details.remove().ok);
     assert.equal(runtime.jsx, jsxProduction);
+
+    assert.equal(details.probe().outcome, "ready", "the details probe resolves what the install does");
+    assert.deepEqual(details.probe().facts, { react: 1, runtime: 1, classMap: 1, localization: 1 });
+    // The play bar's class map absent, ambiguous or without a stat class: incompatible, and nothing
+    // is claimed.
+    for (const [shape, map] of [
+        ["unreadable", null],
+        ["without a stat class", { ...classMap, GameStat: undefined }],
+    ]) {
+        const saved = modules.classes;
+        modules.classes = map;
+        const probeOnly = instantiate(globals, `${shared}\n${libraries}`, "createLibraryDetails()");
+        const answer = probeOnly.probe();
+        const refused = probeOnly.install();
+        modules.classes = saved;
+        assert.equal(answer.outcome, "incompatible", `a class map ${shape} is incompatible`);
+        assert.equal(refused.ok, false);
+        assert.equal(runtime.jsx, jsxProduction, `a refused install claims nothing (${shape})`);
+    }
 
     console.log(
         "Library details: stat on the stats row only, badge rules, one shared JSX claim, restored with the last transform.",
@@ -860,7 +1011,47 @@ const shared = sharedFragments(asset);
     assert.equal(runtime.jsx, jsxProduction, "the runtime is handed back");
     assert.equal(render(installedGrid).props.collection, installedCollection);
     assert.ok(gate.install().ok, "the gate must be reinstallable");
+    assert.equal(gate.probe().outcome, "ready");
+    assert.equal(gate.probe().installed, true, "an installed gate answers from what it holds");
     assert.ok(gate.remove().ok);
+    assert.equal(gate.status().claims, 0);
+
+    // The probe asks every fact the claim needs: the filter class, the collection store and members
+    // it can replace and restore. Each missing one is incompatible and leaves the prototype alone.
+    const probe = () => instantiate(globals, `${shared}\n${libraries}`, "createLibraryAvailability()");
+    assert.deepEqual(probe().probe().facts, {
+        react: 1,
+        runtime: 1,
+        classMap: 1,
+        filterModule: 1,
+        filterClass: 1,
+        storeModule: 1,
+        store: 1,
+        claimable: true,
+        claimed: false,
+    });
+    const savedFilters = modules.filters;
+    modules.filters = { E6: AppFilter, zG: LibraryFilter, twin: class extends AppFilter {
+        MatchesImpl() { return false; }
+        MatchesScoredImpl() { return 0; }
+    } };
+    let answer = probe().probe();
+    assert.equal(answer.outcome, "incompatible", "two library filter classes are refused");
+    assert.equal(answer.facts.filterClass, 0);
+    modules.filters = savedFilters;
+    const descriptor = Object.getOwnPropertyDescriptor(LibraryFilter.prototype, "MatchesImpl");
+    Object.defineProperty(LibraryFilter.prototype, "MatchesImpl", { ...descriptor, writable: false });
+    answer = probe().probe();
+    assert.equal(answer.outcome, "incompatible", "a filter member the claim cannot restore is refused");
+    assert.equal(answer.facts.claimable, false);
+    Object.defineProperty(LibraryFilter.prototype, "MatchesImpl", descriptor);
+    const savedStore = modules.store;
+    modules.store = { A8: { LocalGames: "local-install" } };
+    answer = probe().probe();
+    assert.equal(answer.outcome, "incompatible", "a missing collection store is refused");
+    assert.equal(answer.facts.store, 0);
+    modules.store = savedStore;
+    assert.equal(LibraryFilter.prototype.MatchesImpl, libraryMatches, "probes claim nothing");
 
     console.log(
         "Library availability: disabled Play, separate Recheck, managed Installed tab, installed-only filters, restored on return and removal.",

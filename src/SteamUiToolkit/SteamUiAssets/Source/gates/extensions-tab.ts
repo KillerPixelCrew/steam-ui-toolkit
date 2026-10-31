@@ -1,6 +1,6 @@
 /**
  * Contributes the host Extensions tab through the shared Quick Access memo claim.
- * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ * @returns The defineGate gate; remove must release it before its bridge is replaced.
  */
 
 function createExtensionsTab() {
@@ -61,16 +61,12 @@ function createExtensionsTab() {
         "valueField",
     ] as const;
 
-    let runtime;
     let react;
     let ui: any = null;
     let panel: any = null;
     let icon: any = null;
     let memo: any = null;
-    let installed = false;
-    let unsubscribe: (() => void) | null = null;
-    let unsubscribeFolds: (() => void) | null = null;
-    let unsubscribePlugins: any = null;
+    let view: ClaimedComponent | null = null;
     let nextPluginTabKey = 1100;
     const pluginTabLists = new Set<any[]>();
     let desired: { items: any[]; revision: number } = { items: [], revision: 0 };
@@ -79,9 +75,7 @@ function createExtensionsTab() {
     const folds = createSteamFolds();
     let openSections: Set<string> | null = null;
     let lastOutcome = "never rendered";
-    let lastError = "";
     const descenderCache = new Map();
-    const mounted = createMountedAdoption();
     // Valve's tab array the tab was last pushed into, so removal can take it out again.
     let insertedInto: any[] | null = null;
 
@@ -483,27 +477,30 @@ function createExtensionsTab() {
         );
     };
 
-    const resolve = () => {
-        runtime = getWebpackRuntime("extensions-tab");
-        ui = resolveSteamSettingsComponents(runtime);
-        panel = resolveSteamPanelComponents(runtime);
-        const missing: string[] = ExtensionsTabRequired.filter((name) => !ui?.[name]);
-        if (!panel) missing.push("panel section and row");
+    // Pure: every Steam component the tab draws with, the Quick Access module and its one memo export
+    // whose component draws the browser view, selected by what it draws through the gate's own claim,
+    // with a `type` the claim can replace and restore. The memo is an export, so nothing has to be
+    // mounted; the views on screen are adopted at install.
+    const find = (runtime) => {
+        const resolvedUi = resolveSteamSettingsComponents(runtime);
+        const resolvedPanel = resolveSteamPanelComponents(runtime);
+        const missing: string[] = ExtensionsTabRequired.filter((name) => !resolvedUi?.[name]);
+        if (!resolvedPanel) missing.push("panel section and row");
+        const components = {
+            react: resolvedUi?.react ? 1 : 0,
+            focusable: resolvedUi?.focusable ? 1 : 0,
+            controls: resolvedUi?.toggleField ? 1 : 0,
+            panel: resolvedPanel ? 1 : 0,
+        };
         if (missing.length) {
-            lastError = `Native Steam components unavailable: ${missing.join(", ")}`;
-            ui = null;
-            panel = null;
-            return false;
+            return gateIncompatible(`Native Steam components unavailable: ${missing.join(", ")}`, {
+                ...components,
+                missing,
+            });
         }
-        react = ui.react;
-        icon = createIconRenderer(react);
         const qam = runtime.findUnique([QamToken]);
-        if (!qam) {
-            lastError = "Quick Access module was not a unique match";
-            return false;
-        }
+        if (!qam) return gateIncompatible("Quick Access module was not a unique match", { qamModule: 0, ...components });
         const exports = runtime(qam[0]);
-        // Through the gate's own claim, or a re-resolve while the claim is held finds no memo.
         const candidates = Object.keys(exports).filter((name) => {
             const value = exports[name];
             return (
@@ -512,117 +509,117 @@ function createExtensionsTab() {
                 sourceMatches(unclaimedValue(value.type, claimKeys), [QamToken])
             );
         });
-        if (candidates.length !== 1) {
-            lastError = `Quick Access memo was ${candidates.length ? "ambiguous" : "absent"}`;
-            return false;
+        const found = candidates.length === 1 ? exports[candidates[0]] : null;
+        const descriptor = found ? Object.getOwnPropertyDescriptor(found, "type") : null;
+        const facts = {
+            qamModule: 1,
+            memoExports: candidates.length,
+            claimable: descriptor?.writable === true && descriptor.configurable === true,
+            claimed: !!found && memberClaimed(found, "type", claimKeys),
+            ...components,
+        };
+        if (!found) {
+            return gateIncompatible(`Quick Access memo was ${candidates.length ? "ambiguous" : "absent"}`, facts);
         }
-        memo = exports[candidates[0]];
-        return true;
+        if (!facts.claimed && !facts.claimable) {
+            return gateIncompatible("the Quick Access memo's type is not writable and configurable", facts);
+        }
+        return gateReady({ ui: resolvedUi, panel: resolvedPanel, memo: found }, facts);
     };
 
-    const install = () => {
-        if (installed) return { ok: true, alreadyInstalled: true };
-        if (
-            !attemptResolution(
-                resolve,
-                (error) => (lastError = "Extensions tab resolution failed: " + String(error)),
-            )
-        ) {
-            return { ok: false, error: lastError };
-        }
-        const claim = claimMember(memo, "type", claimKeys, (original: any) => {
-            if (typeof original !== "function") return original;
-            return function SteamUiExtensionsTabRoot(props) {
-                return descend(original(props), 0, props?.visible);
-            };
-        });
-        if (!claim.ok) {
-            lastError = claim.error;
-            return { ok: false, error: lastError };
-        }
-        installed = true;
-        lastError = "";
-        // The claim reaches the next mount only, and the Quick Access view is mounted at boot and kept.
-        mounted.adopt(memo, memo.type);
-        unsubscribe = subscribe(patchId, (state) => {
-            const items = Array.isArray(state?.items)
-                ? state.items.filter(usableItem).map(drawable)
-                : [];
-            const next = {
-                items,
-                revision: Number.isSafeInteger(state?.revision) ? state.revision : 0,
-            };
-            // The wrapper reads `desired` from its closure, so a publication changes nothing React can
-            // see on its own, and an unchanged one needs no render at all.
-            if (!publicationChanged(desired, next)) return;
-            desired = next;
-            mounted.rerender();
-        });
-        // The folds arrive on their own publication and redraw the tab the same way.
-        unsubscribeFolds = subscribe(SteamFoldsPatchId, (state) => {
-            openSections = folds.normalize(state);
-            mounted.rerender();
-        });
-        unsubscribePlugins = subscribePluginFrontends(() => {
-            for (const tabs of pluginTabLists)
-                for (let index = tabs.length - 1; index >= 0; index--)
-                    if (
-                        tabs[index]?.steamUiPluginTab &&
-                        !pluginFrontendItems("tab").some(
-                            (slot) => slot.id === tabs[index].steamUiPluginTab,
-                        )
-                    )
-                        tabs.splice(index, 1);
-            mounted.rerender();
-        });
-        return { ok: true, installed: true, reclaimed: claim.reclaimed };
-    };
-
-    // Ownership is given up before the gate forgets it owns anything: a failed release otherwise
-    // leaves the claim live while every later remove() answers `absent` and never retries it.
-    const remove = () => {
-        if (!installed) return { ok: true, absent: true };
-        const released = releaseMember(memo, "type", claimKeys);
-        if (!released.ok) {
-            lastError = released.error ?? "Extensions tab release failed";
-            return { ok: false, error: lastError };
-        }
-        mounted.release(memo.type);
-        // Out of Valve's array again: removal restores exactly what was displaced.
-        if (insertedInto) {
-            const at = insertedInto.findIndex((tab) => tab && tab.steamUiExtensionsTab === true);
-            if (at >= 0) insertedInto.splice(at, 1);
-            insertedInto = null;
-        }
-        installed = false;
-        unsubscribe = endSubscription(unsubscribe);
-        unsubscribeFolds = endSubscription(unsubscribeFolds);
-        unsubscribePlugins = endSubscription(unsubscribePlugins);
+    const removePluginTabs = () => {
         for (const tabs of pluginTabLists)
             for (let index = tabs.length - 1; index >= 0; index--)
                 if (tabs[index]?.steamUiPluginTab) tabs.splice(index, 1);
         pluginTabLists.clear();
-        desired = { items: [], revision: 0 };
-        descenderCache.clear();
-        lastOutcome = "removed";
-        return { ok: true, removed: true };
     };
 
-    const status = () => ({
-        ok: true,
-        installed,
-        resolved: !!memo,
-        nativeComponentsResolved: !!ui && !!panel,
-        claimed: memberClaimed(memo, "type", claimKeys),
-        items: desired.items.length,
-        revision: desired.revision,
-        // Whether the claim reached the views already on screen; a claim that adopted nothing is inert.
-        mounted: mounted.status(),
-        lastOutcome,
-        lastError,
+    const gate = defineGate({
+        name: "extensions-tab",
+        find,
+        bind: (handles, ledger) => {
+            ui = handles.ui;
+            panel = handles.panel;
+            react = ui.react;
+            icon = createIconRenderer(react);
+            memo = handles.memo;
+            // Out of Valve's array again on removal, after the claim is handed back: removal restores
+            // exactly what was displaced.
+            ledger.cleanup("tabs", () => {
+                if (insertedInto) {
+                    const at = insertedInto.findIndex((tab) => tab && tab.steamUiExtensionsTab === true);
+                    if (at >= 0) insertedInto.splice(at, 1);
+                    insertedInto = null;
+                }
+                removePluginTabs();
+            });
+            // The claim reaches the next mount only, and the Quick Access view is mounted at boot and
+            // kept, so the views on screen are adopted.
+            const claimed = ledger.component({
+                host: memo,
+                keys: claimKeys,
+                wrap: (original) =>
+                    function SteamUiExtensionsTabRoot(props) {
+                        return descend(original(props), 0, props?.visible);
+                    },
+            });
+            if (!claimed.ok) return claimed.error;
+            view = claimed;
+            ledger.subscribe(patchId, (state) => {
+                const items = Array.isArray(state?.items)
+                    ? state.items.filter(usableItem).map(drawable)
+                    : [];
+                const next = {
+                    items,
+                    revision: Number.isSafeInteger(state?.revision) ? state.revision : 0,
+                };
+                // The wrapper reads `desired` from its closure, so a publication changes nothing React
+                // can see on its own, and an unchanged one needs no render at all.
+                if (!publicationChanged(desired, next)) return;
+                desired = next;
+                claimed.rerender();
+            });
+            // The folds arrive on their own publication and redraw the tab the same way.
+            ledger.subscribe(SteamFoldsPatchId, (state) => {
+                openSections = folds.normalize(state);
+                claimed.rerender();
+            });
+            ledger.cleanup(
+                "plugin frontends",
+                subscribePluginFrontends(() => {
+                    for (const tabs of pluginTabLists)
+                        for (let index = tabs.length - 1; index >= 0; index--)
+                            if (
+                                tabs[index]?.steamUiPluginTab &&
+                                !pluginFrontendItems("tab").some(
+                                    (slot) => slot.id === tabs[index].steamUiPluginTab,
+                                )
+                            )
+                                tabs.splice(index, 1);
+                    claimed.rerender();
+                }),
+            );
+        },
+        // Drawn with Steam's own components only: the tab holds while they are resolved.
+        holds: () => !!ui && !!panel,
+        unbind: () => {
+            view = null;
+            desired = { items: [], revision: 0 };
+            descenderCache.clear();
+            lastOutcome = "removed";
+        },
+        status: () => ({
+            nativeComponentsResolved: !!ui && !!panel,
+            claimed: memberClaimed(memo, "type", claimKeys),
+            items: desired.items.length,
+            revision: desired.revision,
+            // Whether the claim reached the views already on screen; a claim that adopted nothing is
+            // inert.
+            mounted: view?.status() ?? { adopted: 0, scheduled: false, stale: 0 },
+            lastOutcome,
+        }),
     });
-
-    return { install, remove, status };
+    return gate;
 }
 
 registerGate("extensionsTab", createExtensionsTab());

@@ -92,30 +92,6 @@ public sealed class SteamNativeSettingsSurfaceTests
         Assert.Equal(42, wire.GetProperty("revision").GetInt64());
     }
 
-    [Theory]
-    [InlineData("descriptors")]
-    [InlineData("root")]
-    [InlineData("react")]
-    [InlineData("jsx")]
-    [InlineData("fields")]
-    [InlineData("focusable")]
-    public void EveryNativeContractMustBeUnique(string missing)
-    {
-        var gate = (SteamGatePatch)SteamNativeSettingsSurface.Patch;
-        var facts = new Dictionary<string, int>
-        {
-            ["descriptors"] = 1,
-            ["root"] = 1,
-            ["react"] = 1,
-            ["jsx"] = 1,
-            ["fields"] = 1,
-            ["focusable"] = 1
-        };
-        Assert.True(gate.Compatible(JsonSerializer.SerializeToElement(facts)));
-        facts[missing] = 2;
-        Assert.False(gate.Compatible(JsonSerializer.SerializeToElement(facts)));
-    }
-
     private static SteamUiModuleSet Modules(RecordingBackend backend)
     {
         return new SteamUiModuleSet([

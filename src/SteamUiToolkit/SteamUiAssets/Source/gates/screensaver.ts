@@ -1,6 +1,6 @@
 /**
  * Projects the host screensaver setting into the matched Steam settings surface.
- * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ * @returns The defineGate gate; remove must release it before its bridge is replaced.
  */
 
 function createScreensaverSettings() {
@@ -25,18 +25,17 @@ function createScreensaverSettings() {
         available: boolean;
     };
 
-    let runtime;
     let react: any = null;
     let dropdown: any = null;
     let settings: any = null;
     let useObserver: any = null;
     let route = "";
-    let installed = false;
-    let lastError = "";
+    // Why the last report or timeout change failed; the gate's own lastError is its lifecycle's.
+    let commandError = "";
     let lastOutcome = "never rendered";
     let lastReport = "";
-    let unsubscribe: (() => void) | null = null;
     let reportTimer: ReturnType<typeof setTimeout> | null = null;
+    const installed = () => gate.installed();
     const content = createScreensaverContent(() => settings?.clientSettings);
     const inputActivity = createScreensaverActivity(
         () => settings?.clientSettings,
@@ -108,30 +107,30 @@ function createScreensaverSettings() {
     // Once per change, and again whenever the page opens, because that is when the host's reading of
     // its own timeouts is worth refreshing.
     const report = (reading, force) => {
-        if (!installed || !reading) return false;
+        if (!installed() || !reading) return false;
         const signature = JSON.stringify(reading);
         if (!force && signature === lastReport) return true;
         lastReport = signature;
         request(patchId, "report", reading).catch((error) => {
-            lastError = "screensaver report failed: " + String(error);
+            commandError = "screensaver report failed: " + String(error);
         });
         return true;
     };
 
     const reportWhenReady = (attempt) => {
         reportTimer = null;
-        if (!installed || report(readScreensaver(), false) || attempt >= ReportAttempts) return;
+        if (!installed() || report(readScreensaver(), false) || attempt >= ReportAttempts) return;
         reportTimer = setTimeout(() => reportWhenReady(attempt + 1), ReportIntervalMilliseconds);
     };
 
     const select = (row: Row, value) => {
         const chosen = seconds(value);
-        if (!installed || chosen === null || chosen === row.seconds || pending.has(row.id)) return;
+        if (!installed() || chosen === null || chosen === row.seconds || pending.has(row.id)) return;
         pending.add(row.id);
         local.changed();
         request(patchId, "setTimeout", { row: row.id, seconds: chosen })
             .catch((error) => {
-                lastError = "timeout change failed: " + String(error);
+                commandError = "timeout change failed: " + String(error);
             })
             .finally(() => {
                 pending.delete(row.id);
@@ -151,7 +150,7 @@ function createScreensaverSettings() {
         react.useEffect(() => {
             report(readScreensaver(), false);
         }, [signature]);
-        if (!installed) return null;
+        if (!installed()) return null;
         const custom = content.render();
         if (!rows.length && !custom) {
             lastOutcome = "no rows published";
@@ -193,7 +192,7 @@ function createScreensaverSettings() {
         if (wrapped) return wrapped;
         wrapped = function SteamUiScreensaverSection(props) {
             const section = original(props);
-            if (!installed || !react.isValidElement(section)) return section;
+            if (!installed() || !react.isValidElement(section)) return section;
             return react.cloneElement(
                 section,
                 undefined,
@@ -216,7 +215,7 @@ function createScreensaverSettings() {
                 content.catalog.revision,
             );
             const tree = original(props);
-            if (!installed || !react.isValidElement(tree)) return tree;
+            if (!installed() || !react.isValidElement(tree)) return tree;
             let found = 0;
             const children = childrenOf(tree).map((child) => {
                 if (!react.isValidElement(child) || !isSection(child.type)) return child;
@@ -241,7 +240,7 @@ function createScreensaverSettings() {
     // The page list, with the customization page's content wrapped. The same input list always maps
     // to the same output list, so memo consumers downstream see a stable identity.
     const transformPages = (value) => {
-        if (!installed || !Array.isArray(value) || !value.length) return value;
+        if (!installed() || !Array.isArray(value) || !value.length) return value;
         const first = value[0];
         if (!first || typeof first !== "object" || !("route" in first) || !("content" in first))
             return value;
@@ -271,134 +270,136 @@ function createScreensaverSettings() {
         return next;
     };
 
-    const resolve = () => {
-        runtime = getWebpackRuntime("screensaver-settings");
+    // Pure: React with the hooks the rows use, Valve's dropdown field, the customization route from
+    // Steam's route table, the one Screensaver section module and the client settings store. A
+    // client without one of them is incompatible; a settings store not constructed yet is not ready.
+    // The observer hook is reported but not required, and the useMemo claim is shared and never
+    // examined here, so a claim this or another gate already holds stays compatible.
+    const find = (runtime) => {
         const fields = resolveSteamFieldComponents(runtime);
-        react = fields?.react ?? null;
-        if (!react) {
-            lastError = "React unavailable";
-            return false;
-        }
+        const resolvedReact = fields?.react ?? null;
+        const tracking = findUseObserver(runtime);
+        const facts: Record<string, unknown> = {
+            react: resolvedReact ? 1 : 0,
+            fields: fields?.dropdown ? 1 : 0,
+            section: runtime.findUnique([...SectionTokens]) ? 1 : 0,
+            route: "",
+            settings: false,
+            observer: tracking ? 1 : 0,
+        };
+        if (!resolvedReact) return gateIncompatible("React unavailable", facts);
         if (
-            typeof react.useSyncExternalStore !== "function" ||
-            typeof react.useEffect !== "function"
+            typeof resolvedReact.useSyncExternalStore !== "function" ||
+            typeof resolvedReact.useEffect !== "function"
         ) {
-            lastError = "React runtime lacks useSyncExternalStore or useEffect";
-            return false;
+            return gateIncompatible("React runtime lacks useSyncExternalStore or useEffect", facts);
         }
-        if (!fields?.dropdown) {
-            lastError = "the dropdown field was not a unique match";
-            return false;
+        if (!fields?.dropdown) return gateIncompatible("the dropdown field was not a unique match", facts);
+        let customization: unknown = "";
+        try {
+            const pages = runtime.exported(
+                [...RouteTableTokens],
+                (value) => typeof value?.Settings?.Customization === "function",
+            ) as any;
+            customization = pages.Settings.Customization();
+        } catch (error) {
+            return gateIncompatible(`the route table was not a unique match: ${String(error)}`, facts);
         }
-        dropdown = fields.dropdown;
-        const pages = runtime.exported(
-            [...RouteTableTokens],
-            (value) => typeof value?.Settings?.Customization === "function",
-        ) as any;
-        route = pages.Settings.Customization();
-        if (typeof route !== "string" || !route.startsWith("/")) {
-            lastError = "the customization settings route is unavailable";
-            return false;
+        if (typeof customization !== "string" || !customization.startsWith("/")) {
+            return gateIncompatible("the customization settings route is unavailable", facts);
         }
-        if (!runtime.findUnique([...SectionTokens])) {
-            lastError = "the screensaver section module was not a unique match";
-            return false;
+        facts.route = customization;
+        if (!facts.section) {
+            return gateIncompatible("the screensaver section module was not a unique match", facts);
         }
-        settings = runtime.exported(
-            [...SettingsTokens],
-            (value) =>
-                !!value && typeof value === "object" && typeof value.clientSettings === "object",
+        if (!runtime.findUnique([...SettingsTokens])) {
+            return gateIncompatible("the client settings module was not a unique match", facts);
+        }
+        let store: any = null;
+        try {
+            store = runtime.exported(
+                [...SettingsTokens],
+                (value) =>
+                    !!value && typeof value === "object" && typeof value.clientSettings === "object",
+            );
+        } catch (error) {
+            return gateNotReady(`the client settings store is not constructed yet: ${String(error)}`, facts);
+        }
+        facts.settings = true;
+        return gateReady(
+            {
+                runtime,
+                react: resolvedReact,
+                dropdown: fields.dropdown,
+                route: customization,
+                settings: store,
+                // Wanted, not required: without it the rows still follow the host, and a change to
+                // Steam's timeout reaches the host on the section's next render.
+                useObserver: tracking,
+            },
+            facts,
         );
-
-        // Wanted, not required: without it the rows still follow the host, and a change to Steam's
-        // timeout reaches the host on the section's next render. `status.tracking` says which.
-        useObserver = findUseObserver(runtime);
-        return true;
     };
 
-    const install = () => {
-        if (installed) return { ok: true, alreadyInstalled: true };
-        const resolved = attemptResolution(resolve, (error) => {
-            lastError = "screensaver settings resolution failed: " + String(error);
-        });
-        if (!resolved) return { ok: false, error: lastError };
-
-        installed = true;
-        content.start(runtime);
-        const activity = inputActivity.start(runtime);
-        if (!activity.ok) {
-            lastError = activity.error ?? "Steam screensaver activity contract unavailable";
-        }
-        const intercepted = interceptMemo(react, MemoName, transformPages);
-        if (!intercepted.ok) {
-            installed = false;
-            inputActivity.stop();
-            content.stop();
-            lastError = intercepted.error ?? "React useMemo could not be intercepted";
-            return { ok: false, error: lastError };
-        }
-        lastError = "";
-        unsubscribe = subscribe(patchId, (published) => {
-            const next = normalize(published);
-            if (!next) {
-                lastOutcome = "state received but rejected by validation";
-                return;
-            }
-            rows = next;
-            inputActivity.observe(published?.activity);
-            content.update(published?.content);
-            local.changed();
-        });
-        reportWhenReady(0);
-        return { ok: true, installed: true };
-    };
-
-    const remove = () => {
-        if (!installed) return { ok: true, absent: true };
-        // Released first: a failed release keeps the gate installed with its rows, so the next
-        // remove retries it instead of answering absent over a claim still in place.
-        const released = releaseMemo(react, MemoName);
-        if (!released.ok) {
-            lastError = released.error ?? "React useMemo could not be released";
-            return { ok: false, error: lastError };
-        }
-        const sources = content.stop();
-        if (!sources.ok) return { ok: false, error: sources.error };
-        const activity = inputActivity.stop();
-        if (!activity.ok) return { ok: false, error: activity.error };
-        installed = false;
-        unsubscribe = endSubscription(unsubscribe);
-        if (reportTimer) {
-            clearTimeout(reportTimer);
-            reportTimer = null;
-        }
+    const gate = defineGate({
+        name: "screensaver-settings",
+        find,
+        bind: (handles, ledger) => {
+            react = handles.react;
+            dropdown = handles.dropdown;
+            route = handles.route;
+            settings = handles.settings;
+            useObserver = handles.useObserver;
+            content.start(handles.runtime);
+            ledger.add("screensaver content", () => content.stop());
+            // The activity contract is reported in the status, never required.
+            inputActivity.start(handles.runtime);
+            ledger.add("screensaver input activity", () => inputActivity.stop());
+            const intercepted = ledger.memo(react, MemoName, transformPages);
+            if (!intercepted.ok) return intercepted.error ?? "React useMemo could not be intercepted";
+            ledger.subscribe(patchId, (published) => {
+                const next = normalize(published);
+                if (!next) {
+                    lastOutcome = "state received but rejected by validation";
+                    return;
+                }
+                rows = next;
+                inputActivity.observe(published?.activity);
+                content.update(published?.content);
+                local.changed();
+            });
+            ledger.cleanup("report retry", () => {
+                if (reportTimer) {
+                    clearTimeout(reportTimer);
+                    reportTimer = null;
+                }
+            });
+            reportWhenReady(0);
+        },
         // An open page re-renders without the rows; its wrappers pass Steam's own tree through.
-        rows = [];
-        pending.clear();
-        lastReport = "";
-        local.changed();
-        pageCache.clear();
-        sectionCache.clear();
-        return { ok: true, removed: true };
-    };
-
-    const status = () => ({
-        ok: true,
-        installed,
-        resolved: !!react && !!dropdown && !!route,
-        claimed: memoIntercepted(react, MemoName),
-        route,
-        settings: !!settings,
-        tracking: !!useObserver,
-        inputActivity: inputActivity.status(),
-        content: content.status(),
-        rows: rows.length,
-        lastOutcome,
-        lastReport,
-        lastError,
+        unbind: () => {
+            rows = [];
+            pending.clear();
+            lastReport = "";
+            commandError = "";
+            local.changed();
+            pageCache.clear();
+            sectionCache.clear();
+        },
+        status: () => ({
+            claimed: memoIntercepted(react, MemoName),
+            route,
+            settings: !!settings,
+            tracking: !!useObserver,
+            inputActivity: inputActivity.status(),
+            content: content.status(),
+            rows: rows.length,
+            lastOutcome,
+            lastReport,
+            commandError,
+        }),
     });
-
-    return { install, remove, status };
+    return gate;
 }
 
 registerGate("screensaver", createScreensaverSettings());

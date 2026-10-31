@@ -553,38 +553,16 @@ public static class SteamPerformanceSurface
     /// <summary>The gate that supplies the performance backend behind <c>SteamClient.System.Perf</c>.</summary>
     /// <remarks>
     ///     Its own resource key, separate from the row patches that mount into the panel: this
-    ///     supplies data, they render, and a failure in one must not disable the other.
+    ///     supplies data, they render, and a failure in one must not disable the other. The probe is the
+    ///     gate's own find: the store module by the source tokens that make it the perf store and its
+    ///     singleton by the one exported class whose body declares the state, never a module id.
+    ///     Incompatible when either is not a unique match or a real backend occupies the namespace; not
+    ///     ready while the singleton or <c>SystemPerfStore</c> has not been constructed yet.
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
         "perf",
         "steam-ui-perf-v1:store+absent-namespace+reachable-singleton",
-        // The store is counted by the source tokens that make it the perf store, never by module
-        // id; the singleton is reached through the one exported class with a Get() whose body
-        // declares the state, because the state is written into a client that is already running.
-        // Naming its module id is what refused this gate on the September 2026 beta.
-        $$"""
-          {{SteamUiProbeJs.Preamble("steam_ui_performance_probe_")}}
-            let singleton=false;
-            try{
-              const holder=req.exported(['SteamClient.System.Perf','RegisterForStateChanges','m_msgState'],
-                v=>typeof v==='function'&&typeof v.Get==='function'&&String(v).includes('m_msgState'));
-              const store=holder.Get();
-              singleton=!!(store&&'m_msgState' in store);
-            }catch{}
-            return JSON.stringify({
-              perfStore:count(['SteamClient.System.Perf','RegisterForStateChanges','m_msgState']),
-              perfNamespaceAbsent:{{SteamUiProbeJs.OwnedOrAbsentNamespace("Perf")}},
-              storeSingletonReachable:singleton
-            });
-          {{SteamUiProbeJs.Close}}
-          """,
-        root =>
-            SteamUiPatchEvaluation.IsOne(root, "perfStore")
-            && SteamUiPatchEvaluation.Flag(root, "perfNamespaceAbsent")
-            && SteamUiPatchEvaluation.Flag(root, "storeSingletonReachable"),
-        "status.installed&&status.namespacePresent",
-        "!status.namespacePresent",
         "Performance namespace");
 
     /// <summary>Valve's profile header and the per-game profile toggle, as one row kind.</summary>

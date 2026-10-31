@@ -76,9 +76,9 @@ public interface ISteamAutoTdpBackend
 /// </summary>
 /// <remarks>
 ///     Not a SteamOS feature; a toggle and slider built on Valve's fields so an automatic controller
-///     reads as native. Its probe requires the same TDP presentation Valve's power-limit rows do: with no
-///     native power limit there is nothing for it to sit beside, and nothing for it to drive. Valve
-///     has no string for it, so the label is English.
+///     reads as native. Its probe asks what every row draws with; the host decides whether there is a
+///     power limit for it to drive and says so in the row's state. Valve has no string for it, so the
+///     label is English.
 /// </remarks>
 public static class SteamAutoTdpRow
 {
@@ -92,10 +92,8 @@ public static class SteamAutoTdpRow
     public static SteamQuickAccessRowPatch Patch { get; } = new(
         PatchId,
         "autoTdp",
-        "steam-ui-auto-tdp-v2:presentation+performance-root+valve-toggle+valve-slider",
-        "steam_ui_auto_tdp_probe_",
-        "tdpPresentation",
-        SteamUiProbeJs.TdpPresentationTokens);
+        "steam-ui-auto-tdp-v3:performance-root+valve-toggle+valve-slider",
+        "steam_ui_auto_tdp_probe_");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
     /// <param name="state">The state to serialize.</param>

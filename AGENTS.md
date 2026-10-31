@@ -178,15 +178,20 @@ Ownership must survive separate CDP evaluations:
   shared claim (`interceptMemo`/`releaseMemo`); it never wraps `useMemo` itself.
   Keep `module-resolver.ts` valid JavaScript because those exact bytes are also embedded for C#
   probes.
-- A successful patch must remain compatible with its own next probe. A probe that identifies
-  something by its source has to unwrap the gate's own claim before testing it, or the match
-  disappears the moment the gate holds it; the manager retracts on that verdict, so the surface is
-  installed and torn down on every poll. Both the page host and the navigation panel shipped that
-  way. Accept a member that is claimable or already ours, never only the pre-claim shape.
+- A successful patch must remain compatible with its own next probe. A gate's probe is its
+  `defineGate` find, which answers from the handles it holds while installed; a find that
+  identifies something by its source still has to see through the gate's own claim
+  (`unclaimedValue`), or the match disappears the moment the gate holds it and the manager
+  retracts on that verdict, installing and tearing the surface down on every poll. Both the page
+  host and the navigation panel shipped that way. Accept a member that is claimable or already
+  ours, never only the pre-claim shape. Something not mounted yet is not ready, never incompatible:
+  an incompatible verdict stands for the whole generation.
 - A claim on a memo's `type` reaches the next mount only, and a forced render of the parent does not
   help: the same props shallow-compare equal and React bails out at the memo without calling what
-  was installed. A gate whose component may already be on screen adopts the mounted instances
-  (`adoptMountedType`) and reports what it reached; a claim that adopted nothing is inert.
+  was installed. A gate whose component may already be on screen claims it with `claimComponent`,
+  which adopts the mounted instances and reports what it reached, and whose release hands back
+  every instance running the wrapper, including those mounted after install; a claim that adopted
+  nothing is inert until the next mount.
 
 The extension host validates identity and conflicts; it is not a security sandbox. Keep path
 containment, strict UTF-8, size, API-version, id-scope, and deterministic conflict rules intact.

@@ -4,99 +4,13 @@ using static SteamUiToolkit.Tests.Fakes.SurfaceDispatch;
 namespace SteamUiToolkit.Tests;
 
 /// <summary>
-///     The library badge surface's own contract: what the probe demands of a client before the tile
-///     is claimed, what a publication puts on the wire, and what the layout report carries back.
+///     The library badge surface's own contract: what a publication puts on the wire and what the
+///     layout report carries back. What each of the three gates' probes demands of a client before it
+///     claims anything is the gate's own find, exercised against the emitted asset by
+///     <c>eng/check-library.mjs</c>.
 /// </summary>
-/// <remarks>
-///     Every structural fact asserted here was measured against the September 2026 client beta on
-///     2026-09-11, where <c>appportrait_</c> occurs in exactly one of the 2622 loaded modules, that
-///     module has exactly one <c>React.memo</c> export and exactly one function export drawing the
-///     controller-support icon, and the memo's <c>type</c> is a writable and configurable own property.
-/// </remarks>
 public sealed class SteamLibraryBadgeTests
 {
-    private static SteamGatePatch Badge => (SteamGatePatch)SteamLibraryBadgeSurface.Patch;
-
-    private static SteamGatePatch Details => (SteamGatePatch)SteamLibraryBadgeSurface.DetailsPatch;
-
-    private static SteamGatePatch Availability => (SteamGatePatch)SteamLibraryBadgeSurface.AvailabilityPatch;
-
-    [Fact]
-    public void TheProbeNamesEveryStructuralFactTheGateResolvesOn()
-    {
-        var probe = Badge.ProbeExpression;
-
-        Assert.Contains("ControllerSupportIcon", probe, StringComparison.Ordinal);
-        Assert.Contains("appportrait_", probe, StringComparison.Ordinal);
-        Assert.Contains("tileExports", probe, StringComparison.Ordinal);
-        Assert.Contains("badgeExports", probe, StringComparison.Ordinal);
-        Assert.Contains("claimable", probe, StringComparison.Ordinal);
-        Assert.Contains("m_setDeferredSettings", probe, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void TheProbeSelectsTheExportsByWhatTheyAreRatherThanByName()
-    {
-        // The live tile export is called TK and the badge Kt today. Neither name is anywhere in
-        // the probe, because both are right for exactly one client build.
-        var probe = Badge.ProbeExpression;
-
-        Assert.DoesNotContain("exports.TK", probe, StringComparison.Ordinal);
-        Assert.DoesNotContain("exports.Kt", probe, StringComparison.Ordinal);
-        // The stylesheet's hashes are read from Valve's class map by name, never written down.
-        Assert.DoesNotContain("_1TaKfLOhWBYEPtvv-WJv0n", probe, StringComparison.Ordinal);
-        Assert.DoesNotContain("_3BPFqWN5T-x8njyrRYM1CX", probe, StringComparison.Ordinal);
-        Assert.Contains("LibraryItemIcons:\"", probe, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("""{"tileModule":1,"tileExports":1,"badgeExports":1,"claimable":true,"settingsModule":1,"react":1}""",
-        true)]
-    // The settings store is wanted, not required: the badge draws without it.
-    [InlineData("""{"tileModule":1,"tileExports":1,"badgeExports":1,"claimable":true,"settingsModule":0,"react":1}""",
-        true)]
-    // Two memos is ambiguous, which is a refusal rather than a reason to pick one.
-    [InlineData("""{"tileModule":1,"tileExports":2,"badgeExports":1,"claimable":true,"settingsModule":1,"react":1}""",
-        false)]
-    [InlineData("""{"tileModule":1,"tileExports":1,"badgeExports":0,"claimable":true,"settingsModule":1,"react":1}""",
-        false)]
-    // A non-writable type could be replaced by nothing and restored to nothing.
-    [InlineData("""{"tileModule":1,"tileExports":1,"badgeExports":1,"claimable":false,"settingsModule":1,"react":1}""",
-        false)]
-    [InlineData("""{"tileModule":0}""", false)]
-    [InlineData("""{"error":"Steam modules unavailable"}""", false)]
-    public void CompatibilityRequiresEveryFactAndAUniqueMatchForEachOne(string json, bool expected)
-    {
-        using var document = JsonDocument.Parse(json);
-
-        Assert.Equal(expected, Badge.Compatible(document.RootElement));
-    }
-
-    [Theory]
-    [InlineData("""{"react":1,"runtime":1,"classMap":1,"localization":1}""", true)]
-    // The localizer is wanted, not required: the label falls back to the English word.
-    [InlineData("""{"react":1,"runtime":1,"classMap":1,"localization":0}""", true)]
-    [InlineData("""{"react":1,"runtime":2,"classMap":1,"localization":1}""", false)]
-    [InlineData("""{"react":1,"runtime":1,"classMap":0,"localization":1}""", false)]
-    [InlineData("""{"error":"Steam modules unavailable"}""", false)]
-    public void TheDetailsStatRequiresOneRuntimeAndOnePlayBarClassMap(string json, bool expected)
-    {
-        using var document = JsonDocument.Parse(json);
-
-        Assert.Equal(expected, Details.Compatible(document.RootElement));
-    }
-
-    [Fact]
-    public void TheDetailsStatFindsItsRowByValveNamesAndSharesTheRuntimeResource()
-    {
-        var probe = Details.ProbeExpression;
-
-        Assert.Contains("GameStatsSection:\"", probe, StringComparison.Ordinal);
-        Assert.Contains("'.jsx','.jsxs'", probe, StringComparison.Ordinal);
-        Assert.DoesNotContain("_1mDAVT4sTzFRwJtlKCw2Ws", probe, StringComparison.Ordinal);
-        Assert.Equal(SteamLibraryBadgeSurface.DetailsPatchId, SteamLibraryBadgeSurface.DetailsPatch.Id);
-    }
-
     [Fact]
     public void TheModuleDeclaresTheBadgeAndTheStatUnderOnePublication()
     {
@@ -112,50 +26,6 @@ public sealed class SteamLibraryBadgeTests
             module.Patches.Select(patch => patch.Id));
         Assert.Equal(SteamLibraryBadgeSurface.PatchIds, module.Patches.Select(patch => patch.Id));
         Assert.Equal(SteamLibraryBadgeSurface.PatchId, Assert.Single(module.Publications).PatchId);
-    }
-
-    [Theory]
-    [InlineData(
-        """{"react":1,"runtime":1,"classMap":1,"filterModule":1,"filterClass":1,"storeModule":1,"store":1,"claimable":true}""",
-        true)]
-    // Each structural fact is required on its own, so an incompatible client says which one moved.
-    [InlineData(
-        """{"react":1,"runtime":1,"classMap":0,"filterModule":1,"filterClass":1,"storeModule":1,"store":1,"claimable":true}""",
-        false)]
-    [InlineData(
-        """{"react":1,"runtime":1,"classMap":1,"filterModule":2,"filterClass":1,"storeModule":1,"store":1,"claimable":true}""",
-        false)]
-    [InlineData(
-        """{"react":1,"runtime":1,"classMap":1,"filterModule":1,"filterClass":0,"storeModule":1,"store":1,"claimable":true}""",
-        false)]
-    [InlineData(
-        """{"react":1,"runtime":1,"classMap":1,"filterModule":1,"filterClass":1,"storeModule":1,"store":0,"claimable":true}""",
-        false)]
-    // Methods that could not be restored are never claimed.
-    [InlineData(
-        """{"react":1,"runtime":1,"classMap":1,"filterModule":1,"filterClass":1,"storeModule":1,"store":1,"claimable":false}""",
-        false)]
-    [InlineData("""{"error":"Steam modules unavailable"}""", false)]
-    public void AvailabilityRequiresThePlayBarTheLibraryFilterAndTheCollectionStore(string json, bool expected)
-    {
-        using var document = JsonDocument.Parse(json);
-
-        Assert.Equal(expected, Availability.Compatible(document.RootElement));
-    }
-
-    [Fact]
-    public void TheAvailabilityProbeFindsItsTargetsByValveNamesAndShape()
-    {
-        var probe = Availability.ProbeExpression;
-
-        Assert.Contains("PlayButtonContainer:\"", probe, StringComparison.Ordinal);
-        Assert.Contains("'MatchesScoredImpl','MatchesImpl'", probe, StringComparison.Ordinal);
-        Assert.Contains("Computing localGamesCollection", probe, StringComparison.Ordinal);
-        Assert.Contains("__steamUiLibraryAvailabilityClaimed", probe, StringComparison.Ordinal);
-        // The play bar's hashes and the filter's minified export names are never written down.
-        Assert.DoesNotContain("_1FnJ6dPuknQFQ2RTpKTI16", probe, StringComparison.Ordinal);
-        Assert.DoesNotContain(".zG", probe, StringComparison.Ordinal);
-        Assert.Equal(SteamLibraryBadgeSurface.AvailabilityPatchId, Availability.Id);
     }
 
     [Fact]

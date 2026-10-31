@@ -1,6 +1,6 @@
 /**
  * Supplies Steam storage RPCs while retaining unrelated native transport behavior.
- * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+ * @returns The defineGate gate; remove must release it before its bridge is replaced.
  */
 
 function createStorageService() {
@@ -35,14 +35,13 @@ function createStorageService() {
     const AvailabilityQueryKey = [StorageQueryScope, "IsServiceAvailable"];
     const StateQueryKey = [StorageQueryScope, "State"];
 
-    let runtime;
     let transport = null;
     let queryClient: { invalidateQueries: (options: { queryKey: unknown[] }) => void } | null =
         null;
-    let installed = false;
-    let lastError = "";
-    let unsubscribe: (() => void) | null = null;
+    let invalidateError = "";
     let invalidated = 0;
+    // Whether this install holds SendMsg, so removal asks Steam again only after a real claim.
+    let holding = false;
 
     // What was last published, as the shape Steam would read. A publication that says the same thing
     // must not invalidate: the host republishes on its own poll, and invalidating each time would put
@@ -153,38 +152,31 @@ function createStorageService() {
         }
     };
 
-    const resolve = () => {
-        runtime = getWebpackRuntime("storage");
+    // Pure: the service module and the one singleton accessor the provider module exports, both
+    // loaded at boot, so a miss is a client that moved. It never calls the accessor or
+    // GetDefaultTransport; the install does, once, and refuses a provider of another shape.
+    const find = (runtime) => {
         // The service module names the method this whole surface is gated on.
-        if (!runtime.findUnique([ServiceToken])) {
-            lastError = "storage service module was not a unique match";
-            return false;
+        const service = runtime.findUnique([ServiceToken]) ? 1 : 0;
+        if (!service) {
+            return gateIncompatible("storage service module was not a unique match", { service });
         }
-
         const selection = runtime.storageProvider();
+        const facts = {
+            service,
+            transportModule: selection.transportModule,
+            provider: selection.provider,
+        };
         if (selection.transportModule !== 1) {
-            lastError =
-                "transport provider module was not a unique match: " + selection.transportModule;
-            return false;
+            return gateIncompatible(
+                "transport provider module was not a unique match: " + selection.transportModule,
+                facts,
+            );
         }
         if (selection.provider !== 1) {
-            lastError = "transport provider export not identified: " + selection.provider;
-            return false;
+            return gateIncompatible("transport provider export not identified: " + selection.provider, facts);
         }
-        // Call only the uniquely identified singleton accessor, once. A changed return shape is
-        // a refusal, never a reason to try another export.
-        const provider = selection.accessor();
-        if (typeof provider?.GetDefaultTransport !== "function") {
-            lastError = "transport provider has no GetDefaultTransport";
-            return false;
-        }
-        const candidate = provider.GetDefaultTransport();
-        if (!candidate || typeof candidate.SendMsg !== "function") {
-            lastError = "transport provider yielded no SendMsg transport";
-            return false;
-        }
-        transport = candidate;
-        return true;
+        return gateReady({ runtime, accessor: selection.accessor }, facts);
     };
 
     // Never fatal. A gate that answers Steam's questions is still strictly better than one that does
@@ -195,148 +187,138 @@ function createStorageService() {
             queryClient.invalidateQueries({ queryKey });
             invalidated++;
         } catch (error) {
-            lastError = "invalidate failed: " + String(error);
+            invalidateError = "invalidate failed: " + String(error);
         }
     };
 
-    const install = () => {
-        if (installed) return { ok: true, alreadyInstalled: true };
-        const resolved = attemptResolution(resolve, (error) => {
-            lastError = "storage transport resolution failed: " + String(error);
-        });
-        if (!resolved) return { ok: false, error: lastError };
+    const gate = defineGate({
+        name: "storage",
+        find,
+        bind: ({ runtime, accessor }, ledger) => {
+            // Call only the uniquely identified singleton accessor, once. A changed return shape is
+            // a refusal, never a reason to try another export.
+            const provider = accessor();
+            if (typeof provider?.GetDefaultTransport !== "function") {
+                return "transport provider has no GetDefaultTransport";
+            }
+            const candidate = provider.GetDefaultTransport();
+            if (!candidate || typeof candidate.SendMsg !== "function") {
+                return "transport provider yielded no SendMsg transport";
+            }
+            transport = candidate;
+            // The one shared query client, found by the module that builds it and by its shape
+            // (rpc.ts): the export names are minified and change between builds, the shape does not.
+            queryClient = resolveQueryClient(runtime);
+            // Subscribed before the claim, so removal releases the transport before it stops
+            // hearing the host.
+            ledger.subscribe(patchId, (published) => {
+                if (!published || typeof published !== "object") return;
+                const drives = Array.isArray(published.drives) ? published.drives : [];
+                const devices = Array.isArray(published.blockDevices) ? published.blockDevices : [];
+                // Every field Steam declares, not only the ones an action needs. The client formats what it
+                // is given without checking it got anything: a drive with no size_bytes renders "NaN B of
+                // NaN B", and one with no adopt_stage renders a spinner forever, because undefined compares
+                // unequal to the idle stage. Both were observed on the live page before this.
+                state = {
+                    drives: drives.map((drive) => ({
+                        id: Number(drive?.id ?? 0),
+                        model: String(drive?.model ?? ""),
+                        vendor: String(drive?.vendor ?? ""),
+                        serial: "",
+                        is_ejectable: drive?.ejectable === true,
+                        size_bytes: String(drive?.sizeBytes ?? 0),
+                        media_type: 0,
+                        is_unformatted: drive?.unformatted === true,
+                        // 1, not 0. Steam's adopt stage is a seven-value enum whose first member is Invalid and
+                        // whose second is the idle one the drive icon is gated on: `adopt_stage != 1` renders a
+                        // spinner. Publishing 0 spun the row forever, which looked exactly like omitting the
+                        // field and was diagnosed twice as that before the enum was read off the client.
+                        adopt_stage: 1,
+                        is_formattable: drive?.formattable === true,
+                        is_media_available: drive?.mediaAvailable !== false,
+                    })),
+                    block_devices: devices.map((device) => ({
+                        id: Number(device?.id ?? 0),
+                        drive_id: Number(device?.driveId ?? 0),
+                        path: String(device?.friendlyPath ?? ""),
+                        friendly_path: String(device?.friendlyPath ?? ""),
+                        label: String(device?.label ?? ""),
+                        size_bytes: String(device?.sizeBytes ?? 0),
+                        is_formattable: false,
+                        is_read_only: false,
+                        is_root_device: false,
+                        content_type: 0,
+                        filesystem_type: 0,
+                        mount_paths: Array.isArray(device?.mountPaths)
+                            ? device.mountPaths.map(String)
+                            : [],
+                        is_unmounting: false,
+                        has_steam_library: device?.hasSteamLibrary === true,
+                    })),
+                    is_adopt_supported: published.adoptSupported === true,
+                    is_unmount_supported: published.unmountSupported === true,
+                    is_trim_supported: published.trimSupported === true,
+                    is_trim_running: published.trimRunning === true,
+                };
 
-        const claim = claimMember(transport, "SendMsg", claimKeys, (original: any) => {
-            if (typeof original !== "function") return original;
-            return function SteamUiStorageSendMsg(this: unknown, name, request, response, options) {
-                // Prefix first and nothing else on the pass-through path: this method carries every
-                // service call Steam makes.
-                if (typeof name === "string" && name.startsWith(ServicePrefix)) {
-                    return handle(name, request);
-                }
-                forwarded++;
-                return original.call(this, name, request, response, options);
-            };
-        });
-        if (!claim.ok) {
-            lastError = claim.error;
-            return { ok: false, error: lastError };
-        }
+                const signature = JSON.stringify(state);
+                if (signature === stateSignature) return;
+                stateSignature = signature;
+                invalidate(StateQueryKey);
+            });
 
-        installed = true;
-        lastError = "";
-        // The one shared query client, found by the module that builds it and by its shape (rpc.ts):
-        // the export names are minified and change between builds, the shape does not.
-        queryClient = resolveQueryClient(runtime);
-        unsubscribe = subscribe(patchId, (published) => {
-            if (!published || typeof published !== "object") return;
-            const drives = Array.isArray(published.drives) ? published.drives : [];
-            const devices = Array.isArray(published.blockDevices) ? published.blockDevices : [];
-            // Every field Steam declares, not only the ones an action needs. The client formats what it
-            // is given without checking it got anything: a drive with no size_bytes renders "NaN B of
-            // NaN B", and one with no adopt_stage renders a spinner forever, because undefined compares
-            // unequal to the idle stage. Both were observed on the live page before this.
-            state = {
-                drives: drives.map((drive) => ({
-                    id: Number(drive?.id ?? 0),
-                    model: String(drive?.model ?? ""),
-                    vendor: String(drive?.vendor ?? ""),
-                    serial: "",
-                    is_ejectable: drive?.ejectable === true,
-                    size_bytes: String(drive?.sizeBytes ?? 0),
-                    media_type: 0,
-                    is_unformatted: drive?.unformatted === true,
-                    // 1, not 0. Steam's adopt stage is a seven-value enum whose first member is Invalid and
-                    // whose second is the idle one the drive icon is gated on: `adopt_stage != 1` renders a
-                    // spinner. Publishing 0 spun the row forever, which looked exactly like omitting the
-                    // field and was diagnosed twice as that before the enum was read off the client.
-                    adopt_stage: 1,
-                    is_formattable: drive?.formattable === true,
-                    is_media_available: drive?.mediaAvailable !== false,
-                })),
-                block_devices: devices.map((device) => ({
-                    id: Number(device?.id ?? 0),
-                    drive_id: Number(device?.driveId ?? 0),
-                    path: String(device?.friendlyPath ?? ""),
-                    friendly_path: String(device?.friendlyPath ?? ""),
-                    label: String(device?.label ?? ""),
-                    size_bytes: String(device?.sizeBytes ?? 0),
-                    is_formattable: false,
-                    is_read_only: false,
-                    is_root_device: false,
-                    content_type: 0,
-                    filesystem_type: 0,
-                    mount_paths: Array.isArray(device?.mountPaths)
-                        ? device.mountPaths.map(String)
-                        : [],
-                    is_unmounting: false,
-                    has_steam_library: device?.hasSteamLibrary === true,
-                })),
-                is_adopt_supported: published.adoptSupported === true,
-                is_unmount_supported: published.unmountSupported === true,
-                is_trim_supported: published.trimSupported === true,
-                is_trim_running: published.trimRunning === true,
-            };
+            const claim = ledger.member(transport, "SendMsg", claimKeys, (original: any) => {
+                if (typeof original !== "function") return original;
+                return function SteamUiStorageSendMsg(this: unknown, name, request, response, options) {
+                    // Prefix first and nothing else on the pass-through path: this method carries every
+                    // service call Steam makes.
+                    if (typeof name === "string" && name.startsWith(ServicePrefix)) {
+                        return handle(name, request);
+                    }
+                    forwarded++;
+                    return original.call(this, name, request, response, options);
+                };
+            });
+            if (!claim.ok) return claim.error;
+            holding = true;
+            invalidateError = "";
 
-            const signature = JSON.stringify(state);
-            if (signature === stateSignature) return;
-            stateSignature = signature;
+            // Availability first: the state query stays disabled until that answer changes, so
+            // invalidating the state key alone would drop the refetch on the floor.
+            invalidate(AvailabilityQueryKey);
             invalidate(StateQueryKey);
-        });
-
-        // Availability first: the state query stays disabled until that answer changes, so invalidating
-        // the state key alone would drop the refetch on the floor.
-        invalidate(AvailabilityQueryKey);
-        invalidate(StateQueryKey);
-        return { ok: true, installed: true, reclaimed: claim.reclaimed };
-    };
-
-    const remove = () => {
-        if (!installed) return { ok: true, absent: true };
-
-        // Released before the gate forgets it: the wrapper sits on the transport every service call
-        // takes, so a failed release must stay installed and be retried by the next remove.
-        const released = releaseMember(transport, "SendMsg", claimKeys);
-        if (!released.ok) {
-            lastError = released.error ?? "storage transport release failed";
-            return { ok: false, error: lastError };
-        }
-
-        installed = false;
-        unsubscribe = endSubscription(unsubscribe);
-
-        // Leaving the answers cached would leave Steam's pages offering Eject and Format against a
-        // service that is no longer claimed, and the first press would reach a transport with nothing
-        // behind it. Asking again puts the client back on its own answer, which is "unavailable".
-        invalidate(AvailabilityQueryKey);
-        invalidate(StateQueryKey);
-        stateSignature = "";
-        return { ok: true, removed: true };
-    };
-
-    const status = () => ({
-        ok: true,
-        installed,
-        resolved: !!transport,
-        claimed: memberClaimed(transport, "SendMsg", claimKeys),
-        // Whether the client's cached answers were dropped. Zero here with answered also zero is the
-        // signature of the failure this exists for: claimed, but Steam never asks.
-        queryClient: !!queryClient,
-        invalidated,
-        drives: state.drives.length,
-        blockDevices: state.block_devices.length,
-        // Everything above can be true while the page shows nothing, because Steam only asks once its
-        // own route is open. These say whether it ever asked.
-        answered,
-        forwarded,
-        lastMethod,
-        // What the last action actually forwarded. An identifier that arrived in an unexpected shape
-        // is the difference between a press the host refused and a press it never saw.
-        lastPayload,
-        lastError,
+        },
+        unbind: () => {
+            // Leaving the answers cached would leave Steam's pages offering Eject and Format against a
+            // service that is no longer claimed, and the first press would reach a transport with
+            // nothing behind it. Asking again puts the client back on its own answer, "unavailable".
+            if (holding) {
+                invalidate(AvailabilityQueryKey);
+                invalidate(StateQueryKey);
+            }
+            holding = false;
+            stateSignature = "";
+        },
+        status: () => ({
+            claimed: memberClaimed(transport, "SendMsg", claimKeys),
+            // Whether the client's cached answers were dropped. Zero here with answered also zero is
+            // the signature of the failure this exists for: claimed, but Steam never asks.
+            queryClient: !!queryClient,
+            invalidated,
+            invalidateError,
+            drives: state.drives.length,
+            blockDevices: state.block_devices.length,
+            // Everything above can be true while the page shows nothing, because Steam only asks once
+            // its own route is open. These say whether it ever asked.
+            answered,
+            forwarded,
+            lastMethod,
+            // What the last action actually forwarded. An identifier that arrived in an unexpected
+            // shape is the difference between a press the host refused and a press it never saw.
+            lastPayload,
+        }),
     });
-
-    return { install, remove, status };
+    return gate;
 }
 
 registerGate("storage", createStorageService());

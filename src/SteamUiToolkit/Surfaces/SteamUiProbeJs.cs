@@ -3,12 +3,14 @@ using System.Text.Json;
 
 namespace SteamUiToolkit;
 
-/// <summary>Shared JavaScript fragments for read-only webpack structural probes.</summary>
+/// <summary>Shared JavaScript fragments for the read-only webpack probes of patches that are not gates.</summary>
 /// <remarks>
-///     A probe names the modules it touches. The preamble captures webpack's require by pushing an
-///     empty chunk, which evaluates nothing; a probe built on it then reads factory source as text and
-///     resolves each module by the source tokens its authors typed, never by a module id. Constructing
-///     exports is the one thing a probe must never do: it has restarted a machine and signed Steam out.
+///     A gate's probe is the gate's own <c>probe()</c>, so a gate never needs anything here. What stays is
+///     what the bridge's own probe and the Quick Access rows still evaluate standalone. The preamble
+///     captures webpack's require by pushing an empty chunk, which evaluates nothing; a probe built on it
+///     then reads factory source as text and resolves each module by the source tokens its authors
+///     typed, never by a module id. Constructing exports is the one thing a probe must never do: it has
+///     restarted a machine and signed Steam out.
 /// </remarks>
 public static class SteamUiProbeJs
 {
@@ -23,77 +25,16 @@ public static class SteamUiProbeJs
     public const string ReactTokens =
         "['react.transitional.element','useState','cloneElement','createElement']";
 
-    /// <summary>The source tokens of the JSX runtime module the shared element interceptor claims.</summary>
-    /// <remarks>The tokens <c>JsxRuntimeTokens</c> in <c>gate-helpers.ts</c> resolves the module by.</remarks>
-    public const string JsxRuntimeTokens = "['react.transitional.element','.jsx','.jsxs']";
-
     /// <summary>The source tokens of the module exporting Valve's slider and dropdown fields.</summary>
     public const string NativeFieldTokens = "['DialogSlider_Container','DropDownField','SliderField']";
-
-    /// <summary>The source tokens of the module exporting Steam's Panel, which pages focus rows with.</summary>
-    /// <remarks>
-    ///     These are the tokens <c>gate-helpers.ts</c> resolves the component by, and a probe must ask
-    ///     the same question the runtime does. Probing instead for the four property names that
-    ///     identify the export inside this module matches three modules on the current client, so a
-    ///     gate built on that count refuses to install and its page never appears.
-    /// </remarks>
-    public const string NativeFocusableTokens = """['focusableIfEmpty','onActivate','"Panel"']""";
-
-    /// <summary>The source tokens of Steam's native tab-page component provider.</summary>
-    public const string NativeTabsTokens = "['.TabRowTabs','activeTab:']";
-
-    /// <summary>The source token of Steam's current native generic-dialog component provider.</summary>
-    public const string NativeModalTokens =
-        "['Either closeModal or onCancel should be passed to GenericDialog. Classes: ']";
-
-    /// <summary>The source token of Steam's native modal-manager entry point.</summary>
-    public const string NativeShowModalTokens = "['props.bDisableBackgroundDismiss']";
 
     /// <summary>The source tokens of the layout module exporting Valve's PanelSection and PanelSectionRow.</summary>
     /// <remarks>The tokens <c>resolveSteamPanelComponents</c> resolves the module by.</remarks>
     public const string PanelLayoutTokens = "['PanelSectionTitle','PanelSectionRow','spinner']";
 
-    /// <summary>The source tokens of Steam's library item class map, which the library capsule is styled by.</summary>
-    /// <remarks>The tokens <c>resolveSteamLibraryClasses</c> and the library badge resolve the map by.</remarks>
-    public const string LibraryClassTokens = """['ControllerSupportIcon:"','LibraryItemIcons:"','LibraryItemBox:"']""";
-
-    /// <summary>The source token of the routed sidebar Steam's Settings page is built on.</summary>
-    public const string SettingsSidebarTokens = "['disableRouteReporting']";
-
-    /// <summary>The source tokens of Steam's generic confirm modal.</summary>
-    public const string ConfirmModalTokens = "['strMiddleButtonText','bProgressDialog','bAlertDialog']";
-
-    /// <summary>
-    ///     The source markers of Steam's back-stack Route, which gives a custom page native back
-    ///     navigation.
-    /// </summary>
-    /// <remarks>
-    ///     <para>
-    ///         Unlike the constants above, these select an export within an already resolved module
-    ///         rather than the module itself. Both are tokens Valve wrote — the JSX prop the export
-    ///         fills in, and the optional member access it fills it from — so a client build that
-    ///         renames its minified locals cannot move them.
-    ///     </para>
-    ///     <para>
-    ///         The fingerprint these replaced described the minified code between them, spelling the
-    ///         local out as a single-character wildcard: <c>routePath:.\.match\?\.path.</c>. It stopped
-    ///         matching on 2026-09-24, when the client began emitting two-character names
-    ///         (<c>routePath:be.match?.path</c>), and the page gate refused to install on a client
-    ///         that was otherwise entirely compatible. No route was registered and every custom page
-    ///         rendered as an empty client. A fingerprint may not describe a minified identifier.
-    ///     </para>
-    /// </remarks>
-    internal const string BackstackRouteMarkers = """['routePath:','.match?.path']""";
-
     /// <summary>The source tokens of Steam's localizer module.</summary>
     internal const string LocalizationTokens =
         "['Attempting to localize token','Unable to find localization token','LocalizeString']";
-
-    /// <summary>The source token of mobx-react-lite, whose <c>useObserver</c> Steam builds lists on.</summary>
-    internal const string ObserverTokens = "['mobx-react-lite requires React with Hooks support']";
-
-    /// <summary>The source tokens of the module holding Steam's client settings store.</summary>
-    internal const string SettingsStoreTokens = "['get clientSettings()','m_setDeferredSettings']";
 
     /// <summary>The source tokens of the module holding Steam's route table.</summary>
     internal const string RouteTableTokens = "['GameAPIOSK:','/gameapiosk']";
@@ -101,10 +42,6 @@ public static class SteamUiProbeJs
     /// <summary>The source tokens of the performance-actions module the rows ride by default.</summary>
     internal static IReadOnlyList<string> PerformanceActionTokens { get; } =
         ["SetFPSLimitEnabled", "SetFPSLimit", "SetPerfOverlayLevel", "SteamClient.System.Perf"];
-
-    /// <summary>The source tokens of Valve's TDP-limit presentation component.</summary>
-    internal static IReadOnlyList<string> TdpPresentationTokens { get; } =
-        ["#QuickAccess_Tab_Perf_TDPLimitEnabled", "steamos_tdp_limit", "showBookendLabels"];
 
     /// <summary>Opens a probe IIFE, captures webpack's require and defines the token counter.</summary>
     /// <param name="chunkLabel">The stable chunk-label prefix, kept per probe for live diagnostics.</param>
@@ -127,56 +64,5 @@ public static class SteamUiProbeJs
     internal static string Tokens(IReadOnlyList<string> tokens)
     {
         return JsonSerializer.Serialize(tokens, SteamSurfaceJsonContext.Default.IReadOnlyListString);
-    }
-
-    /// <summary>Whether a property descriptor could be replaced and later restored.</summary>
-    /// <param name="descriptor">The JavaScript variable holding the descriptor, or null.</param>
-    /// <returns>An expression that is true only for a writable, configurable descriptor.</returns>
-    internal static string Replaceable(string descriptor)
-    {
-        return $"!!{descriptor}&&{descriptor}.writable===true&&{descriptor}.configurable===true";
-    }
-
-    /// <summary>Defines <c>unwrap(value)</c>: what a gate's claim displaced, or the value itself.</summary>
-    /// <param name="claim">The claim's name, as in <c>__steamUi{claim}Claimed</c>.</param>
-    /// <returns>A statement defining the function.</returns>
-    /// <remarks>
-    ///     A probe that recognises a component by its source has to see through the gate's own claim:
-    ///     the live value is the wrapper, which carries none of the original's tokens, so without this
-    ///     the match disappears the moment the gate holds it and the manager retracts a patch that had
-    ///     just verified. Mirrors <c>ownership.ts</c>.
-    /// </remarks>
-    internal static string Unwrap(string claim)
-    {
-        return "const unwrap=(value)=>{"
-               + $"if(!value||value.__steamUi{claim}Claimed!==true)return value;"
-               + $"const stored=value.__steamUi{claim}Original;"
-               + "return stored&&stored.kind==='steam-ui-property-snapshot-v1'?stored.value:stored;};";
-    }
-
-    /// <summary>Whether a value is a gate's own claim.</summary>
-    /// <param name="value">The JavaScript expression holding the value.</param>
-    /// <param name="claim">The claim's name, as in <c>__steamUi{claim}Claimed</c>.</param>
-    /// <returns>A boolean expression.</returns>
-    internal static string Claimed(string value, string claim)
-    {
-        return $"!!{value}&&{value}.__steamUi{claim}Claimed===true";
-    }
-
-    /// <summary>Whether a <c>SteamClient.System</c> namespace is absent, or present and ours.</summary>
-    /// <param name="name">The namespace under <c>SteamClient.System</c>, such as <c>Audio</c>.</param>
-    /// <returns>An expression evaluating to that verdict.</returns>
-    /// <remarks>
-    ///     A namespace a gate installed is not evidence of a native backend. Treating it as one made the
-    ///     audio patch declare itself incompatible five seconds after a successful install, tear down,
-    ///     and orphan the namespace it had just defined, which left Steam's audio page empty until Steam
-    ///     itself restarted. An orphaned Perf namespace is worse: it leaves <c>SystemPerfStore</c>
-    ///     holding half-written state, which is what crashed the whole Performance tab.
-    /// </remarks>
-    internal static string OwnedOrAbsentNamespace(string name)
-    {
-        return "(()=>{const n=window.SteamClient&&window.SteamClient.System&&window.SteamClient.System."
-               + name
-               + ";return !n||n.__steamUiOwnedNamespace===true;})()";
     }
 }

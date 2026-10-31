@@ -102,9 +102,9 @@ public static class SteamPluginFrontendSurface
         public Task<SteamUiPatchProbeResult> ProbeAsync(SteamUiPatchContext context,
             CancellationToken cancellationToken)
         {
-            return SteamUiPatchEvaluation.EvaluateProbeAsync(context, TargetRole,
-                Expression("return JSON.stringify(bridge.probe());"),
-                value => SteamUiPatchEvaluation.Flag(value, "ok"),
+            return SteamUiPatchEvaluation.EvaluateGateProbeAsync(context, TargetRole,
+                SteamGatePatch.GateExpression("'pluginFrontends'", "return JSON.stringify(bridge.probe());",
+                    "return JSON.stringify({ok:false,outcome:'notReady',reason:'frontend runtime unavailable'});"),
                 "plugin-frontends/react-v1", "Steam frontend runtime unavailable.", cancellationToken);
         }
 

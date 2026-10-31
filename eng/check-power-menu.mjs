@@ -6,7 +6,9 @@
 // What this proves is what the shipped bytes do once they hold the JSX runtime: the entry appears
 // only while the host publishes it, only in the power menu, once, at the end in its own separated
 // section, drawn with the item type the menu rendered and Steam's localized label; selecting it
-// sends the one empty command; and removal hands the runtime back.
+// sends the one empty command; and removal hands the runtime back. The probe is the gate's own find:
+// it counts the menu module without loading it, refuses an absent or ambiguous one as incompatible,
+// and while installed answers from the runtime it holds.
 import assert from "node:assert/strict";
 import {
   assertRemoveRetries,
@@ -30,7 +32,18 @@ const { host: runtime, failNext } = failingHost({ jsx: jsxProduction, jsxs: jsxP
 const originalJsx = runtime.jsx;
 const localize = (token) => (token === "#SwitchToDesktop" ? "Zum Desktop wechseln" : token);
 withSource(localize, "function F(k,...E){let R=C.LocalizeString(k);return R===void 0?k:R}");
-const modules = { react, runtime, menu: {}, localization: { we: localize } };
+let menuLoads = 0;
+const modules = {
+  react,
+  runtime,
+  get menu() {
+    menuLoads++;
+    return {};
+  },
+  localization: { we: localize },
+};
+// How many modules carry the power menu's tokens, which a probe must find exactly once.
+let menuModules = 1;
 const moduleFor = (tokens) =>
   tokens.includes("useState")
     ? "react"
@@ -48,7 +61,8 @@ const globals = {
   window: {},
   getWebpackRuntime: () => {
     const require = (id) => modules[id];
-    require.findUnique = (tokens) => (moduleFor(tokens) ? [moduleFor(tokens), ""] : null);
+    require.count = (tokens) => (moduleFor(tokens) === "menu" ? menuModules : moduleFor(tokens) ? 1 : 0);
+    require.findUnique = (tokens) => (require.count(tokens) === 1 ? [moduleFor(tokens), ""] : null);
     require.resolve = (tokens) => modules[moduleFor(tokens)];
     return require;
   },
@@ -102,8 +116,26 @@ const powerMenu = () =>
   });
 const entryOf = (tree) => tree.props.children.find((child) => child?.key === "steam-ui-power-menu-desktop");
 
+// The probe counts the menu module and never loads it; absent and ambiguous are both incompatible.
+for (const [count, outcome] of [
+  [0, "incompatible"],
+  [2, "incompatible"],
+  [1, "ready"],
+]) {
+  menuModules = count;
+  const probe = gate.probe();
+  assert.equal(probe.outcome, outcome, `a menu module counted ${count} times must be ${outcome}`);
+  assert.equal(probe.facts.menuModule, count, "the probe reports the count it saw");
+}
+assert.equal(menuLoads, 0, "a probe must not load the menu module");
+assert.equal(gate.status().installed, false, "a probe installs nothing");
+
 assert.equal(gate.install().ok, true);
 assert.ok(gate.status().claimed && gate.status().resolved && gate.status().localized);
+assert.equal(gate.status().held, true, "the standard status shows the claim held");
+menuModules = 2;
+assert.equal(gate.probe().outcome, "ready", "an installed gate answers from what it holds");
+menuModules = 1;
 assert.equal(entryOf(powerMenu()), undefined, "nothing before the host publishes");
 
 publish({ visible: true });
@@ -147,6 +179,7 @@ assert.equal(powerMenu().props.children.filter((child) => child?.key === "steam-
 
 assert.equal(gate.remove().ok, true);
 assert.equal(runtime.jsx, originalJsx, "the runtime is handed back");
+assert.equal(gate.status().claims, 0, "removal leaves nothing on the ledger");
 assert.equal(gate.remove().absent, true);
 
 // However many entries the menu has, it is still the power menu.
@@ -165,4 +198,26 @@ const long = runtime.jsxs(Menu, {
 assert.ok(entryOf(long), "a menu with 60 children is recognised and gets the entry");
 assertRemoveRetries(gate, failNext, "power menu");
 assert.equal(runtime.jsx, originalJsx, "a retried removal hands the runtime back");
+
+// The elements gate rides the same JSX runtime; its probe has the standard shape too.
+let modulesLoaded = true;
+const elements = instantiate(
+  {
+    ...globals,
+    getWebpackRuntime: () => {
+      if (!modulesLoaded) throw new Error("Steam modules unavailable");
+      return globals.getWebpackRuntime();
+    },
+  },
+  `${sharedFragments(asset)}\n${gateSource(asset, "gates/elements.ts")}`,
+  "createElementsGate()",
+);
+assert.deepEqual(elements.probe(), { ok: true, outcome: "ready", facts: { jsx: 1 } });
+modulesLoaded = false;
+assert.equal(elements.probe().outcome, "notReady", "an uncapturable webpack runtime is not ready");
+modulesLoaded = true;
+assert.equal(elements.register("check", () => undefined).ok, true);
+assert.equal(elements.registered("check"), true);
+assert.equal(elements.unregister("check").ok, true);
+assert.equal(runtime.jsx, originalJsx, "the last transform hands the runtime back");
 console.log("Power menu emitted checks passed.");

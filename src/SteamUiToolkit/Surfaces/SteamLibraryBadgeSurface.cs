@@ -112,7 +112,9 @@ public static class SteamLibraryBadgeSurface
     ///     instance, so the gate adds its stat where Steam creates the row: through the toolkit's shared
     ///     JSX-runtime claim, on the element whose class is the play bar class map's
     ///     <c>GameStatsSection</c>. It shares that claim's resource with every other element transform.
-    ///     The localizer is reported but not required; without it the label is the English word.
+    ///     The localizer is reported but not required; without it the label is the English word. The
+    ///     probe is the gate's own find: React, the JSX runtime and the class map must each match exactly
+    ///     once, or the client is incompatible, with the counts as its facts.
     ///     <para>
     ///         Read from the Stable client (UI build of 2026-09-06) and the September 2026 beta on
     ///         2026-09-11: the app-details module is the same in both, the class map carrying
@@ -124,22 +126,6 @@ public static class SteamLibraryBadgeSurface
         DetailsPatchId,
         "libraryDetails",
         "steam-library-details-v1:unique-jsx-runtime+play-bar-class-map",
-        $$"""
-          {{SteamUiProbeJs.Preamble("steam_ui_library_details_probe_")}}
-            return JSON.stringify({
-              react:count({{SteamUiProbeJs.ReactTokens}}),
-              runtime:count({{SteamUiProbeJs.JsxRuntimeTokens}}),
-              classMap:count(['GameStatsSection:"','PlayBarDetailLabel:"','LastPlayedInfo:"']),
-              localization:count({{SteamUiProbeJs.LocalizationTokens}})
-            });
-          {{SteamUiProbeJs.Close}}
-          """,
-        root =>
-            SteamUiPatchEvaluation.IsOne(root, "react")
-            && SteamUiPatchEvaluation.IsOne(root, "runtime")
-            && SteamUiPatchEvaluation.IsOne(root, "classMap"),
-        "status.installed&&status.resolved&&status.claimed",
-        "!status.claimed",
         "Library details gate");
 
     /// <summary>
@@ -187,122 +173,34 @@ public static class SteamLibraryBadgeSurface
     ///         class and one subclass, which the library store builds its filters from; and the
     ///         collection store module, carrying <c>Computing localGamesCollection</c>, exports one store.
     ///     </para>
+    ///     <para>
+    ///         The probe is the gate's own find. Every fact it needs is a module the client loads at
+    ///         boot, so a miss is incompatible: the class map, the filter class and the collection store
+    ///         must each match exactly once, and both filter members must be writable and configurable
+    ///         unless this gate already holds them.
+    ///     </para>
     /// </remarks>
     public static ISteamUiPatch AvailabilityPatch { get; } = new SteamGatePatch(
         AvailabilityPatchId,
         "libraryAvailability",
         "steam-library-availability-v1:play-button-class-map+library-filter-prototype+collection-store+jsx-runtime",
-        $$"""
-          {{SteamUiProbeJs.Preamble("steam_ui_library_availability_probe_")}}
-            const members=['MatchesImpl','MatchesScoredImpl'];
-            const owns=(host,member)=>!!host&&Object.prototype.hasOwnProperty.call(host,member);
-            const filterModule=count(['MatchesScoredImpl','MatchesImpl']);
-            let filter=null;
-            if(filterModule===1){
-              try{
-                // The library's filter class owns both methods and extends a class owning both too,
-                // chosen by what it is, never by a minified name.
-                filter=req.exported(['MatchesScoredImpl','MatchesImpl'],value=>{
-                  const prototype=value&&value.prototype;
-                  if(typeof value!=='function'||!prototype)return false;
-                  const parent=Object.getPrototypeOf(prototype);
-                  return members.every(member=>owns(prototype,member)&&owns(parent,member));
-                });
-              }catch{filter=null;}
-            }
-            const storeModule=count(['Computing localGamesCollection','local-install']);
-            let store=null;
-            if(storeModule===1){
-              try{
-                store=req.exported(['Computing localGamesCollection','local-install'],value=>
-                  !!value&&typeof value==='object'&&typeof value.GetCollection==='function'
-                    &&typeof value.BIsVisible==='function');
-              }catch{store=null;}
-            }
-            const prototype=filter?filter.prototype:null;
-            const descriptors=members.map(member=>prototype?Object.getOwnPropertyDescriptor(prototype,member):null);
-            return JSON.stringify({
-              react:count({{SteamUiProbeJs.ReactTokens}}),
-              runtime:count({{SteamUiProbeJs.JsxRuntimeTokens}}),
-              classMap:count(['PlayButtonContainer:"','ShutdownAppButton:"','ShowingStreaming:"']),
-              filterModule,
-              filterClass:filter?1:0,
-              storeModule,
-              store:store?1:0,
-              // Writable and configurable, or the claim could neither replace nor restore them.
-              claimable:descriptors.every(descriptor=>{{SteamUiProbeJs.Replaceable("descriptor")}}),
-              // Already ours is compatible, for the reason every gate's own claim is.
-              claimed:!!prototype&&members.every(member=>{{SteamUiProbeJs.Claimed("prototype[member]", "LibraryAvailability")}})
-            });
-          {{SteamUiProbeJs.Close}}
-          """,
-        root =>
-            SteamUiPatchEvaluation.IsOne(root, "react")
-            && SteamUiPatchEvaluation.IsOne(root, "runtime")
-            && SteamUiPatchEvaluation.IsOne(root, "classMap")
-            && SteamUiPatchEvaluation.IsOne(root, "filterModule")
-            && SteamUiPatchEvaluation.IsOne(root, "filterClass")
-            && SteamUiPatchEvaluation.IsOne(root, "storeModule")
-            && SteamUiPatchEvaluation.IsOne(root, "store")
-            && SteamUiPatchEvaluation.Flag(root, "claimable"),
-        "status.installed&&status.resolved&&status.claimed",
-        "!status.claimed",
         "Library availability gate");
 
     /// <summary>The gate that claims the tile and draws the badge from the published libraries.</summary>
     /// <remarks>
-    ///     The probe requires each structural fact the gate resolves on, separately, so an incompatible
-    ///     client says which one moved. The settings store and the tile's class map are reported but
-    ///     not required: without the first the badge still draws and Big Art Mode reads as unknown,
-    ///     without the second it draws on every tile rather than fading with the focused one. It
-    ///     accepts a tile this gate has already claimed, for the reason every gate does.
+    ///     The probe is the gate's own find, which requires each structural fact separately, so an
+    ///     incompatible client says which one moved: the tile module, its one memo export, its one
+    ///     badge export, and a memo <c>type</c> the claim can replace and restore. A tile this gate or an
+    ///     earlier bridge already claimed stays compatible. The settings store and the tile's class map
+    ///     are reported but not required: without the first the badge still draws and Big Art Mode
+    ///     reads as unknown, without the second it draws on every tile rather than fading with the
+    ///     focused one. Install adopts the tiles already on screen, and removal hands back every tile
+    ///     drawing the claim, including ones mounted after install.
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
         "libraryBadge",
         "steam-library-badge-v1:unique-tile-module+single-memo-export+single-badge-export",
-        $$"""
-          {{SteamUiProbeJs.Preamble("steam_ui_library_badge_probe_")}}
-            const tile=req.findUnique(['ControllerSupportIcon','appportrait_']);
-            if(!tile)return JSON.stringify({tileModule:0});
-            const exports=req(tile[0]);
-            const memoType=Symbol.for('react.memo');
-            // The tile is the module's one memo; the badge is the one function drawing the
-            // controller-support icon. Chosen by what they are, never by a minified name.
-            const tiles=Object.keys(exports).filter(name=>{
-              const value=exports[name];
-              return value&&typeof value==='object'&&value.$$typeof===memoType;
-            });
-            const badges=Object.keys(exports).filter(name=>{
-              const value=exports[name];
-              return typeof value==='function'&&String(value).includes('ControllerSupportIcon');
-            });
-            const memo=tiles.length===1?exports[tiles[0]]:null;
-            const descriptor=memo?Object.getOwnPropertyDescriptor(memo,'type'):null;
-            return JSON.stringify({
-              tileModule:1,
-              tileExports:tiles.length,
-              badgeExports:badges.length,
-              // Writable and configurable, or the claim could neither replace nor restore it.
-              claimable:{{SteamUiProbeJs.Replaceable("descriptor")}},
-              // Already ours is compatible; see the remarks on this patch.
-              claimed:{{SteamUiProbeJs.Claimed("memo?.type", "LibraryBadge")}},
-              settingsModule:count({{SteamUiProbeJs.SettingsStoreTokens}}),
-              // The tile stylesheet's class map, read by Valve's names; wanted for focus-only
-              // visibility, not required for the badge to draw.
-              classMap:count({{SteamUiProbeJs.LibraryClassTokens}}),
-              react:count({{SteamUiProbeJs.ReactTokens}})
-            });
-          {{SteamUiProbeJs.Close}}
-          """,
-        root =>
-            SteamUiPatchEvaluation.IsOne(root, "tileModule")
-            && SteamUiPatchEvaluation.IsOne(root, "tileExports")
-            && SteamUiPatchEvaluation.IsOne(root, "badgeExports")
-            && SteamUiPatchEvaluation.IsOne(root, "react")
-            && SteamUiPatchEvaluation.Flag(root, "claimable"),
-        "status.installed&&status.resolved&&status.claimed",
-        "!status.claimed",
         "Library badge gate");
 
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
