@@ -388,6 +388,25 @@ const SteamUiIconShapes: Readonly<Record<string, readonly SteamUiIconShape[]>> =
         ],
     ],
 
+    // -- Host pages and store listings ---------------------------------------------------------
+
+    // A store listing's counts and a page's affordances. A card's stats strip and a detail's boxes
+    // draw them at 13 to 18px beside the number or the words they stand for.
+    download: [["path", {d: "M11 3h2v9.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4L11 12.2zM4 19h16v2H4z"}]],
+    star: [["path", {d: "M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z"}]],
+    heart: [
+        [
+            "path",
+            {
+                d: "M12 21s-7-4.6-9.3-9.1C1 8.5 3.2 5 6.7 5c2 0 3.4 1 4.3 2.3C12 6 13.4 5 15.3 5c3.5 0 5.7 3.5 4 6.9C19 16.4 12 21 12 21z",
+            },
+        ],
+    ],
+    // An arrow out to the right: a title that starts through a launcher of its own.
+    launch: [["path", {d: "M4 11h11.2l-4.6-4.6L12 5l7 7-7 7-1.4-1.4 4.6-4.6H4z"}]],
+    // A breadcrumb's separator, which points to the level below rather than folding anything.
+    chevron: [["path", {d: "M9 5.6 10.4 4.2l7.8 7.8-7.8 7.8L9 18.4l6.4-6.4z"}]],
+
     // -- Extensions tab section headers ---------------------------------------------------------
 
     // The pair a collapsible section's header shows: pointing down while the section is open,

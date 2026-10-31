@@ -249,7 +249,7 @@ function createNativeSettings() {
         facts,
       );
     }
-    const resolved = resolveSteamSettingsComponents(runtime);
+    const resolved = resolveSteamUiComponents(runtime);
     const required = [
       "react",
       "settingsSection",

@@ -374,7 +374,7 @@ function createScreensaverLibrary({ getUi, getState, local, act, ready }) {
                           }),
                       ),
                   )
-                : renderSteamUiEmpty(react, "No sources match this name.");
+                : renderSteamUiEmpty(ui, { kind: "noMatch", text: "No sources match this name." });
         }
         const toolbar =
             source || adding

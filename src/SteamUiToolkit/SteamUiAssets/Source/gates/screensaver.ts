@@ -5,7 +5,6 @@
 
 function createScreensaverSettings() {
     const patchId = "steam-ui.screensaver";
-    const MemoName = "screensaverSettings";
 
     const SectionTokens = ['"#Settings_Customization_Screensaver"', "ForceScreensaver"] as const;
     const PluggedInSetting = "system_idle_screensaver_ac_sec";
@@ -47,9 +46,6 @@ function createScreensaverSettings() {
     let rows: Row[] = [];
     const pending = new Set<string>();
     const local = createLocalStore();
-    const pageCache = new Map();
-    const sectionCache = new Map();
-    const listCache = new WeakMap<object, unknown[]>();
 
     const text = (value) => (typeof value === "string" ? value : "");
     const seconds = (value) => (Number.isInteger(value) && value >= 0 ? value : null);
@@ -140,6 +136,8 @@ function createScreensaverSettings() {
 
     function SteamUiScreensaverTimeouts() {
         react.useSyncExternalStore(local.subscribe, local.revision);
+        // The custom sources are drawn here too, so a change to their catalog redraws the rows.
+        react.useSyncExternalStore(content.catalog.subscribe, content.catalog.revision);
         const reading = useObserver
             ? useObserver(readScreensaver, "SteamUiScreensaverTimeouts")
             : readScreensaver();
@@ -176,105 +174,20 @@ function createScreensaverSettings() {
         );
     }
 
-    const childrenOf = (element) => {
-        const children = element.props?.children;
-        return Array.isArray(children) ? children : children === undefined ? [] : [children];
-    };
-
-    const isSection = (type) => {
-        if (typeof type !== "function") return false;
-        const source = String(type);
-        return SectionTokens.every((token) => source.includes(token));
-    };
-
-    const sectionFor = (original) => {
-        let wrapped = sectionCache.get(original);
-        if (wrapped) return wrapped;
-        wrapped = function SteamUiScreensaverSection(props) {
-            const section = original(props);
-            if (!installed() || !react.isValidElement(section)) return section;
-            return react.cloneElement(
-                section,
-                undefined,
-                ...childrenOf(section),
-                react.createElement(SteamUiScreensaverTimeouts, {
-                    key: "steam-ui-screensaver-timeouts",
-                }),
-            );
-        };
-        sectionCache.set(original, wrapped);
-        return wrapped;
-    };
-
-    const pageFor = (original) => {
-        let wrapped = pageCache.get(original);
-        if (wrapped) return wrapped;
-        wrapped = function SteamUiCustomizationPage(props) {
-            const catalogRevision = react.useSyncExternalStore(
-                content.catalog.subscribe,
-                content.catalog.revision,
-            );
-            const tree = original(props);
-            if (!installed() || !react.isValidElement(tree)) return tree;
-            let found = 0;
-            const children = childrenOf(tree).map((child) => {
-                if (!react.isValidElement(child) || !isSection(child.type)) return child;
-                found += 1;
-                return react.createElement(sectionFor(child.type), {
-                    ...keyed(child),
-                    key: `${child.key ?? "screensaver"}:sources:${catalogRevision}`,
-                });
-            });
-            if (found !== 1) {
-                lastOutcome = found
-                    ? "the screensaver section was not unique on the page"
-                    : "the screensaver section was not found on the page";
-                return tree;
-            }
-            return react.cloneElement(tree, undefined, ...children);
-        };
-        pageCache.set(original, wrapped);
-        return wrapped;
-    };
-
-    // The page list, with the customization page's content wrapped. The same input list always maps
-    // to the same output list, so memo consumers downstream see a stable identity.
-    const transformPages = (value) => {
-        if (!installed() || !Array.isArray(value) || !value.length) return value;
-        const first = value[0];
-        if (!first || typeof first !== "object" || !("route" in first) || !("content" in first))
-            return value;
-        const cached = listCache.get(value);
-        if (cached) return cached;
-        let index = -1;
-        for (let at = 0; at < value.length; at++) {
-            const item = value[at];
-            if (
-                item &&
-                typeof item === "object" &&
-                item.route === route &&
-                react.isValidElement(item.content)
-            ) {
-                if (index >= 0) return value;
-                index = at;
-            }
-        }
-        if (index < 0 || typeof value[index].content.type !== "function") return value;
-        const item = value[index];
-        const next = value.slice();
-        next[index] = {
-            ...item,
-            content: react.createElement(pageFor(item.content.type), keyed(item.content)),
-        };
-        listCache.set(value, next);
-        return next;
-    };
+    // The rows go inside Valve's Screensaver section on the Customization page, through the
+    // Settings sections every gate shares.
+    const section = registerSteamSettingsSection({
+        page: "Customization",
+        key: "steam-ui-screensaver-timeouts",
+        into: SectionTokens,
+        render: SteamUiScreensaverTimeouts,
+    });
 
     // Pure: React with the hooks the rows use, Valve's dropdown field, the customization route from
     // Steam's route table, the one Screensaver section module and the client settings store. A
     // client without one of them is incompatible; a settings store not constructed yet is not ready.
-    // The observer hook is reported but not required, and the useMemo claim is shared and never
-    // examined here, so a claim this or another gate already holds stays compatible.
+    // The observer hook is reported but not required, and the shared useMemo claim the Settings
+    // sections hold is never examined here, so a claim this or another gate holds stays compatible.
     const find = (runtime) => {
         const fields = resolveSteamFieldComponents(runtime);
         const resolvedReact = fields?.react ?? null;
@@ -295,19 +208,9 @@ function createScreensaverSettings() {
             return gateIncompatible("React runtime lacks useSyncExternalStore or useEffect", facts);
         }
         if (!fields?.dropdown) return gateIncompatible("the dropdown field was not a unique match", facts);
-        let customization: unknown = "";
-        try {
-            const pages = runtime.exported(
-                [...RouteTableTokens],
-                (value) => typeof value?.Settings?.Customization === "function",
-            ) as any;
-            customization = pages.Settings.Customization();
-        } catch (error) {
-            return gateIncompatible(`the route table was not a unique match: ${String(error)}`, facts);
-        }
-        if (typeof customization !== "string" || !customization.startsWith("/")) {
-            return gateIncompatible("the customization settings route is unavailable", facts);
-        }
+        const page = section.find(runtime);
+        if ("incompatible" in page) return gateIncompatible(page.incompatible, facts);
+        const customization = page.route;
         facts.route = customization;
         if (!facts.section) {
             return gateIncompatible("the screensaver section module was not a unique match", facts);
@@ -355,8 +258,8 @@ function createScreensaverSettings() {
             // The activity contract is reported in the status, never required.
             inputActivity.start(handles.runtime);
             ledger.add("screensaver input activity", () => inputActivity.stop());
-            const intercepted = ledger.memo(react, MemoName, transformPages);
-            if (!intercepted.ok) return intercepted.error ?? "React useMemo could not be intercepted";
+            const attached = section.attach(ledger, react, route);
+            if (attached) return attached;
             ledger.subscribe(patchId, (published) => {
                 const next = normalize(published);
                 if (!next) {
@@ -383,11 +286,10 @@ function createScreensaverSettings() {
             lastReport = "";
             commandError = "";
             local.changed();
-            pageCache.clear();
-            sectionCache.clear();
         },
         status: () => ({
-            claimed: memoIntercepted(react, MemoName),
+            claimed: section.attached(),
+            section: section.status(),
             route,
             settings: !!settings,
             tracking: !!useObserver,

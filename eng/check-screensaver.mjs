@@ -15,6 +15,7 @@ import {
     createReact,
     element,
     failingHost,
+    fragment,
     Fragment,
     gateSource,
     instantiate,
@@ -148,7 +149,7 @@ const globals = {
 // The shared useMemo claim is the asset's own, so another surface on it is exercised for real.
 const gate = instantiate(
     globals,
-    `${sharedFragments(asset)}\n${gateSource(asset, "gates/screensaver.ts")}`,
+    `${sharedFragments(asset)}\n${fragment(asset, "ui-flows.ts")}\n${gateSource(asset, "gates/screensaver.ts")}`,
     "{ gate: createScreensaverSettings(), interceptMemo, releaseMemo }",
 );
 const { interceptMemo, releaseMemo } = gate;
@@ -177,7 +178,7 @@ const renderPage = () => {
 };
 const renderSection = (tree) => {
     const section = tree.props.children.find(
-        (child) => child.type === ScreensaverSection || named("SteamUiScreensaverSection")(child),
+        (child) => child.type === ScreensaverSection || named("SteamUiSettingsSectionHost")(child),
     );
     return section.type(section.props);
 };
@@ -238,13 +239,13 @@ assert.deepEqual(requests.shift(), {
 let view = renderPage();
 assert.equal(view.list[0], system, "other pages must pass through untouched");
 assert.ok(
-    named("SteamUiCustomizationPage")(view.content),
+    named("SteamUiSettingsPage")(view.content),
     "the customization page must be wrapped",
 );
 assert.equal(pageList(), view.list, "an unchanged page list must keep its identity");
 assert.equal(view.tree.props.children[0].type, StartupSection, "other sections must stay Steam's");
 assert.ok(
-    named("SteamUiScreensaverSection")(view.tree.props.children[1]),
+    named("SteamUiSettingsSectionHost")(view.tree.props.children[1]),
     "the screensaver section must be wrapped",
 );
 

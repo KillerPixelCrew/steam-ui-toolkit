@@ -1,91 +1,6 @@
 // Host settings use Steam's native routed sidebar and fields. Missing component contracts refuse
 // installation; descriptors and command policy belong to the host.
 
-const SteamRoutedPagesTokens = ["disableRouteReporting"] as const;
-// The generic confirm modal, by three props only its module names together.
-const SteamConfirmModalTokens = ["strMiddleButtonText", "bProgressDialog", "bAlertDialog"] as const;
-
-/**
- * Resolves native Settings controls using unique authored-source and export-shape matches.
- * @param runtime The shared module resolver; matched factory loads can throw.
- * @returns The component collection, or null when required module evidence is absent.
- */
-const resolveSteamSettingsComponents = (runtime) => {
-    const ui = resolveSteamUiComponents(runtime);
-    const fieldsFactory = runtime.findUnique(FieldTokens);
-    if (!ui || !fieldsFactory) return null;
-    const fields = runtime(fieldsFactory[0]);
-
-    const settingsSection = uniqueSteamExport(fields, (value) =>
-        sourceOfSteamComponent(value).includes('"DialogSettingsSection"'),
-    );
-    // The name/value field sets `inlineWrap` to "shift-children-below" and makes the row focusable.
-    // The field layout it draws through reads the same props, but takes a second argument beside
-    // them; a component takes its props alone.
-    const valueField = uniqueSteamExport(fields, (value) => {
-        if (typeof value !== "function" || value.length !== 1) return false;
-        const source = String(value);
-        return ["inlineWrap", '"shift-children-below"', "focusable"].every((token) => source.includes(token));
-    });
-    const smallButton = uniqueSteamExport(fields, (value) => isSteamDialogButton(value, "Small"));
-    // Steam's inline list-builder input is independent of the popup menu lifecycle.
-    const listBuilder = uniqueSteamExport(fields, (value) => {
-        const source = sourceOfSteamComponent(value);
-        return source.includes("DialogListBuilderInput_List") && source.includes("OnBackgroundClick");
-    });
-    const routedPages = optionalSteamExport(
-        runtime,
-        [...SteamRoutedPagesTokens],
-        (value) =>
-            typeof value === "function" &&
-            String(value).includes("disableRouteReporting") &&
-            String(value).includes("pages"),
-    );
-    const confirmModal = optionalSteamExport(runtime, [...SteamConfirmModalTokens], (value) => {
-        const source = sourceOfSteamComponent(value);
-        return SteamConfirmModalTokens.every((token) => source.includes(token));
-    });
-
-    return {...ui, settingsSection, valueField, smallButton, listBuilder, routedPages, confirmModal};
-};
-
-/**
- * Component names required to draw every supported host Settings row.
- */
-const SteamSettingsRequired = [
-    "react",
-    "focusable",
-    "toggleField",
-    "dropdown",
-    "sliderField",
-    "textField",
-    "dialogButton",
-    "smallButton",
-    "valueField",
-    "settingsSection",
-    "routedPages",
-    "confirmModal",
-    "showModal",
-] as const;
-
-// Asks before a change the host marked as needing it, in Steam's own confirm modal. Cancelling
-// sends nothing, so the row keeps showing what the host last published.
-const confirmSteamSetting = (ui, confirmation, proceed: () => void) => {
-    const h = ui.react.createElement;
-    ui.showModal(
-        h(ui.confirmModal, {
-            strTitle: confirmation.title,
-            strDescription: confirmation.description,
-            strOKButtonText: confirmation.confirmLabel,
-            bDestructiveWarning: confirmation.destructive !== false,
-            onOK: proceed,
-            onCancel: () => {},
-        }),
-        window,
-        {strTitle: confirmation.title},
-    );
-};
-
 // A colour as hue, saturation, lightness and alpha, read from the hex, rgb(a) and hsl(a) forms a
 // theme's colour takes (comma or space separated), and written back as hsla() the way CSSLoader's
 // colour picker writes it. Anything else, a named colour or a variable, answers null, and the row
@@ -266,7 +181,14 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
     const send = (value) => {
         const confirmation = row.confirm;
         if (confirmation && value === confirmation.when) {
-            confirmSteamSetting(ui, confirmation, () => change(row, value));
+            // Cancelling sends nothing, so the row keeps showing what the host last published.
+            showSteamUiConfirm(ui, {
+                title: confirmation.title,
+                text: confirmation.description,
+                confirmLabel: confirmation.confirmLabel,
+                destructive: confirmation.destructive !== false,
+                onConfirm: () => change(row, value),
+            });
         } else {
             change(row, value);
         }

@@ -180,8 +180,15 @@ const resolveSteamFieldComponents = (runtime) => {
     };
 };
 
+// Steam's routed settings sidebar, by the prop only it reads.
+const SteamRoutedPagesTokens = ["disableRouteReporting"] as const;
+// The generic confirm modal, by three props only its module names together.
+const SteamConfirmModalTokens = ["strMiddleButtonText", "bProgressDialog", "bAlertDialog"] as const;
+
 /**
- * Resolves native page controls using shared module fingerprints and export shapes.
+ * Resolves every native control a host page, a settings page or a section draws with, from shared
+ * module fingerprints and export shapes. It is the one resolver: a component a page does not need
+ * costs nothing but its match, and what a page cannot draw without goes in its `required` list.
  * @param runtime Shared module resolver; matching factory loads may throw.
  * @returns The available component collection, or null when base fields cannot resolve.
  */
@@ -242,6 +249,40 @@ const resolveSteamUiComponents = (runtime) => {
             String(value).includes('"DialogCheckbox"'),
     );
 
+    // The settings page's own fields: its section, its name/value row, the small button, the inline
+    // list builder, the routed sidebar and Steam's confirm modal.
+    const fieldModule = runtime(runtime.findUnique(FieldTokens)[0]);
+    const settingsSection = uniqueSteamExport(fieldModule, (value) =>
+        sourceOfSteamComponent(value).includes('"DialogSettingsSection"'),
+    );
+    // The name/value field sets `inlineWrap` to "shift-children-below" and makes the row focusable.
+    // The field layout it draws through reads the same props, but takes a second argument beside
+    // them; a component takes its props alone.
+    const valueField = uniqueSteamExport(fieldModule, (value) => {
+        if (typeof value !== "function" || value.length !== 1) return false;
+        const source = String(value);
+        return ["inlineWrap", '"shift-children-below"', "focusable"].every((token) => source.includes(token));
+    });
+    const smallButton = uniqueSteamExport(fieldModule, (value) => isSteamDialogButton(value, "Small"));
+    // Steam's inline list-builder input is independent of the popup menu lifecycle.
+    const listBuilder = uniqueSteamExport(fieldModule, (value) => {
+        const source = sourceOfSteamComponent(value);
+        return source.includes("DialogListBuilderInput_List") && source.includes("OnBackgroundClick");
+    });
+    const routedPages = optionalSteamExport(
+        runtime,
+        [...SteamRoutedPagesTokens],
+        (value) =>
+            typeof value === "function" &&
+            String(value).includes("disableRouteReporting") &&
+            String(value).includes("pages"),
+    );
+    // Wanted, not required: `showSteamUiConfirm` draws the kit's own confirmation without it.
+    const confirmModal = optionalSteamExport(runtime, [...SteamConfirmModalTokens], (value) => {
+        const source = sourceOfSteamComponent(value);
+        return SteamConfirmModalTokens.every((token) => source.includes(token));
+    });
+
     return {
         ...fields,
         focusable,
@@ -249,6 +290,12 @@ const resolveSteamUiComponents = (runtime) => {
         modalRoot,
         showModal,
         checkbox,
+        settingsSection,
+        valueField,
+        smallButton,
+        listBuilder,
+        routedPages,
+        confirmModal,
     };
 };
 

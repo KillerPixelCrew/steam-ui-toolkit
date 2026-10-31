@@ -56,8 +56,9 @@ const kit = instantiate(
     "({steamUiKitStyle, renderSteamUiHeader, renderSteamUiGroup, renderSteamUiActions, renderSteamUiMore, renderSteamUiPane, renderSteamUiLevel," +
         " renderSteamUiSwatch, renderSteamUiCard, renderSteamUiGrid, renderSteamUiEmpty, renderSteamUiBanner," +
         " renderSteamUiToolbar, renderSteamUiTool, renderSteamUiChips, renderSteamUiBox, renderSteamUiGallery, renderSteamUiVideo," +
-        " renderSteamUiTabbedPage, renderSteamUiDetail, SteamUiTabbedPageRequired," +
-        " renderSteamUiChoice, renderSteamUiSelectRow, showSteamUiConfirm, showSteamUiPrompt, showSteamModal, SteamUiKitStyles})",
+        " renderSteamUiDetail, SteamUiPageRequired, renderSteamUiStatus, renderSteamUiProgress, renderSteamUiFields," +
+        " renderSteamUiIcon, renderSteamUiChoice, renderSteamUiSelectRow, showSteamUiConfirm, showSteamUiPrompt," +
+        " showSteamModal, SteamUiKitStyles})",
 );
 
 // The stylesheet is one element a root renders, and every class an element uses has a rule.
@@ -99,6 +100,15 @@ for (const cls of [
     "picker-path",
     "picker-count",
     "picker-actions",
+    "empty",
+    "status",
+    "status-line",
+    "progress",
+    "progress-track",
+    "progress-bar",
+    "progress-outcome",
+    "collection",
+    "list",
 ]) {
     assert.ok(
         kit.SteamUiKitStyles.includes(`.steam-ui-kit-${cls}`),
@@ -395,9 +405,38 @@ const noteCard = kit.renderSteamUiCard(ui, {
 assert.equal(noteCard.props.children[0].props.children[0], preview);
 noteCard.props.onActivate();
 assert.equal(opened, 2, "supplied card content retains the same single activation target");
+// An empty state says what kind it is: loading and unavailable are a status, an error an alert,
+// and a title makes it the large first-run panel with its one action under it.
+const failed = kit.renderSteamUiEmpty(ui, { kind: "error", text: "The store did not answer." });
+assert.equal(failed.props.className, "steam-ui-kit-empty error");
+assert.equal(failed.props.role, "alert");
+const loadingState = kit.renderSteamUiEmpty(ui, { kind: "loading", text: "Asking the store…" });
+assert.equal(loadingState.props.role, "status");
+assert.equal(loadingState.props["aria-busy"], true);
+assert.equal(kit.renderSteamUiEmpty(ui, { kind: "unavailable", text: "x" }).props.role, "status");
 assert.equal(
-    kit.renderSteamUiEmpty(react, "Nothing", true).props.className,
-    "steam-ui-kit-empty error",
+    kit.renderSteamUiEmpty(ui, { kind: "bogus", text: "x" }).props.className,
+    "steam-ui-kit-empty empty",
+    "an unknown kind is an empty list",
+);
+let browsed = 0;
+const firstRun = kit.renderSteamUiEmpty(ui, {
+    kind: "empty",
+    title: "No themes yet",
+    text: "Get started under Browse.",
+    action: { label: "Browse", onClick: () => browsed++ },
+});
+assert.equal(firstRun.props.className, "steam-ui-kit-empty empty large");
+assert.equal(firstRun.props.children[0].type, "h3");
+assert.equal(firstRun.props.children[1].type, "p");
+const emptyAction = firstRun.props.children[2].props.children[0];
+assert.equal(emptyAction.type, Primary, "the action is Steam's primary button");
+emptyAction.props.onClick();
+assert.equal(browsed, 1);
+assert.equal(
+    kit.renderSteamUiEmpty({ react }, { kind: "noMatch", text: "Nothing matched." }).props.children.length,
+    3,
+    "React alone draws an empty state without its action",
 );
 
 // A video preview plays the movie muted on a loop, shows the still without one, and says so without either.
@@ -415,37 +454,7 @@ assert.equal(
     "steam-ui-kit-hero-empty",
 );
 
-// A tabbed page draws only the active tab, falls back to the first for an unknown one, and shows a
-// banner only with text; a detail is Steam's Focusable, left with B, with Back last in its aside.
-const Tabs = "Tabs";
-const pageUi = { ...ui, tabs: Tabs };
-const shownTabs = [];
-const page = kit.renderSteamUiTabbedPage(pageUi, {
-    id: "p",
-    label: "P",
-    tabs: [
-        { id: "a", title: "A" },
-        { id: "b", title: "B" },
-    ],
-    active: "zzz",
-    onTab: () => {},
-    content: (tab) => {
-        shownTabs.push(tab);
-        return tab;
-    },
-    banner: { text: "", onDismiss: () => {} },
-});
-assert.equal(page.props.className, "steam-ui-kit-page");
-const tabsElement = page.props.children.find((child) => child?.type === Tabs);
-assert.equal(tabsElement.props.activeTab, "a");
-assert.deepEqual(
-    tabsElement.props.tabs.map((tab) => tab.content),
-    ["a", null],
-);
-assert.deepEqual(shownTabs, ["a"]);
-assert.ok(
-    !page.props.children.some((child) => child?.props?.className === "steam-ui-kit-page-banner"),
-);
+// A detail is Steam's Focusable, left with B, with Back last in its aside.
 let backed = 0;
 const detail = kit.renderSteamUiDetail(ui, {
     title: "T",
@@ -458,7 +467,9 @@ assert.equal(detail.type, Focusable);
 detail.props.onCancelButton();
 assert.equal(backed, 1);
 assert.equal(detail.props.children[1].props.children.at(-1).type, Button);
-assert.ok(kit.SteamUiTabbedPageRequired.includes("tabs"));
+for (const name of ["react", "focusable", "tabs", "settingsSection", "valueField", "showModal"]) {
+    assert.ok(kit.SteamUiPageRequired.includes(name), `a page requires ${name} by default`);
+}
 
 // A banner dismisses with the small button; a toolbar and chips are focusable rows of Steam's buttons.
 let dismissed = 0;
@@ -667,6 +678,162 @@ assert.equal(
     "no modal manager, no dialog, wide or not",
 );
 
+// Steam's own confirm modal where the client has one: its props carry the title, words, button and
+// the destructive warning, and only OK sends.
+const NativeConfirm = named("NativeConfirm");
+const nativeShown = [];
+let nativeConfirmed = 0;
+assert.equal(
+    kit.showSteamUiConfirm(
+        { ...ui, confirmModal: NativeConfirm, showModal: (modal) => nativeShown.push(modal) },
+        {
+            title: "Remove Sound Pack",
+            text: "Remove Chime?",
+            confirmLabel: "Remove",
+            onConfirm: () => nativeConfirmed++,
+        },
+    ),
+    true,
+);
+assert.equal(nativeShown[0].type, NativeConfirm, "the confirmation is Steam's own modal");
+assert.equal(nativeShown[0].props.strTitle, "Remove Sound Pack");
+assert.equal(nativeShown[0].props.strDescription, "Remove Chime?");
+assert.equal(nativeShown[0].props.strOKButtonText, "Remove");
+assert.equal(nativeShown[0].props.bDestructiveWarning, true, "a removal is destructive by default");
+nativeShown[0].props.onCancel();
+assert.equal(nativeConfirmed, 0, "cancelling sends nothing");
+nativeShown[0].props.onOK();
+assert.equal(nativeConfirmed, 1);
+kit.showSteamUiConfirm(
+    { ...ui, confirmModal: NativeConfirm, showModal: (modal) => nativeShown.push(modal) },
+    { title: "t", text: "x", confirmLabel: "Go", destructive: false, onConfirm: () => {} },
+);
+assert.equal(nativeShown[1].props.bDestructiveWarning, false);
+
+// A status stack is one line per message, notices and errors told apart, empty entries skipped,
+// and nothing at all without a message.
+let statusDismissed = 0;
+const stack = kit.renderSteamUiStatus(ui, [
+    "Scanning 3 folders.",
+    null,
+    { text: "", error: true },
+    { key: "skip", text: "2 files were skipped.", error: true, onDismiss: () => statusDismissed++ },
+]);
+assert.equal(stack.props.className, "steam-ui-kit-status");
+assert.equal(stack.props.children.length, 2);
+assert.equal(stack.props.children[0].props.className, "steam-ui-kit-status-line");
+assert.equal(stack.props.children[0].props.role, "status");
+assert.equal(stack.props.children[1].props.className, "steam-ui-kit-status-line error");
+assert.equal(stack.props.children[1].props.role, "alert");
+stack.props.children[1].props.children[1].props.onClick();
+assert.equal(statusDismissed, 1);
+assert.equal(kit.renderSteamUiStatus(ui, [null, "", false]), null);
+
+// Progress names its phase and counts, measures a bar against its total (and moves without one),
+// cancels while it runs and shows the outcome instead of the bar once it ended.
+let cancelled = 0;
+const running = kit.renderSteamUiProgress(ui, {
+    phase: "Installing",
+    done: 3,
+    total: 4,
+    detail: "RetroArch",
+    onCancel: () => cancelled++,
+});
+assert.equal(running.props["aria-busy"], true);
+assert.deepEqual(running.props.children[0].props.children[1].props.children, ["3 of 4"]);
+const track = running.props.children[1];
+assert.equal(track.props.role, "progressbar");
+assert.equal(track.props["aria-valuenow"], 3);
+assert.equal(track.props.children[0].props.style.width, "75%");
+assert.equal(running.props.children[2].props.className, "steam-ui-kit-progress-detail");
+running.props.children[3].props.onClick();
+assert.equal(cancelled, 1);
+const unmeasured = kit.renderSteamUiProgress(ui, { phase: "Scanning" });
+assert.equal(unmeasured.props.children[1].props.children[0].props.className, "steam-ui-kit-progress-bar indeterminate");
+const stopping = kit.renderSteamUiProgress(ui, { phase: "Installing", onCancel: () => cancelled++, cancelling: true });
+stopping.props.children.at(-1).props.onClick();
+assert.equal(cancelled, 1, "a cancel already asked for is not sent again");
+const ended = kit.renderSteamUiProgress(ui, {
+    phase: "Installed",
+    done: 4,
+    total: 4,
+    onCancel: () => cancelled++,
+    outcome: { text: "One core failed.", error: true },
+});
+assert.equal(ended.props["aria-busy"], undefined);
+assert.equal(ended.props.children[1].props.className, "steam-ui-kit-progress-outcome error");
+assert.equal(ended.props.children.at(-1), null, "an ended operation has no cancel");
+
+// Fields are a settings section of host rows over the drafts: a nested row is indented, and a
+// refused change is shown on the row that asked.
+const Section = named("Section");
+const Toggle = named("Toggle");
+const fieldsUi = { ...ui, settingsSection: Section, toggleField: Toggle, react };
+hooks.states = [];
+const effects = [];
+react.useEffect = (effect) => effects.push(effect);
+const sent = [];
+let refuse = null;
+const fieldRows = [
+    { key: "on", kind: "boolean", label: "Use themes", checked: false },
+    { key: "child", kind: "boolean", label: "Nested", checked: true, nested: true },
+];
+const fieldsElement = kit.renderSteamUiFields(fieldsUi, {
+    key: "themes",
+    title: "Themes",
+    rows: fieldRows,
+    revision: 1,
+    onChange: (row, value) => {
+        sent.push([row.key, value]);
+        return refuse ? Promise.reject(new Error(refuse)) : Promise.resolve();
+    },
+});
+assert.equal(fieldsElement.key, "themes");
+const drawFields = () => {
+    hooks.index = 0;
+    return fieldsElement.type(fieldsElement.props);
+};
+let section = drawFields();
+assert.equal(section.type, Section);
+assert.deepEqual(section.props.label, "Themes");
+assert.equal(section.props.children[0].type, Toggle);
+assert.equal(section.props.children[1].props.className, "steam-ui-kit-nested");
+refuse = "Themes are off in Settings.";
+section.props.children[0].props.onChange(true);
+assert.deepEqual(sent, [["on", true]], "a change is sent once");
+section = drawFields();
+assert.equal(section.props.children[0].props.checked, true, "the draft shows at once");
+await new Promise((resolve) => setImmediate(resolve));
+section = drawFields();
+assert.equal(section.props.children[0].props.checked, false, "a refused draft is dropped");
+assert.equal(
+    section.props.children[0].props.description,
+    "Themes are off in Settings.",
+    "the refusal is drawn on the row that asked",
+);
+delete react.useEffect;
+
+// A file-pick action opens Steam's picker and hands the chosen path on; a cancellation sends nothing.
+const pickedPaths = [];
+const pickShown = [];
+const pickUi = { ...ui, showModal: (modal) => pickShown.push(modal) };
+const pickAction = kit.renderSteamUiActions(pickUi, [
+    {
+        id: "import",
+        label: "Import a ZIP…",
+        pick: { title: "Choose an Audio Loader ZIP", extensions: [".zip"] },
+        onPick: (path) => pickedPaths.push(path),
+    },
+]);
+pickAction.props.children[0].props.onClick();
+assert.equal(pickShown.length, 1, "a file-pick action opens Steam's file picker");
+
+// Glyphs come from the one table: a known name draws, an unknown one draws nothing.
+assert.equal(kit.renderSteamUiIcon(react, "star", 13)?.type, "svg");
+assert.equal(kit.renderSteamUiIcon(react, "star", 13), kit.renderSteamUiIcon(react, "star", 13), "one element per size");
+assert.equal(kit.renderSteamUiIcon(react, "no-such-glyph"), null);
+
 console.log(
-    "UI kit: stylesheet, header, actions, card, banner, toolbar, chips, gallery, confirm, prompt and the wide dialog passed.",
+    "UI kit: stylesheet, header, actions and file-pick actions, card, empty kinds, status, progress, fields, banner," +
+        " toolbar, chips, gallery, glyphs, native and kit confirm, prompt and the wide dialog passed.",
 );

@@ -482,7 +482,7 @@ function createExtensionsTab() {
     // with a `type` the claim can replace and restore. The memo is an export, so nothing has to be
     // mounted; the views on screen are adopted at install.
     const find = (runtime) => {
-        const resolvedUi = resolveSteamSettingsComponents(runtime);
+        const resolvedUi = resolveSteamUiComponents(runtime);
         const resolvedPanel = resolveSteamPanelComponents(runtime);
         const missing: string[] = ExtensionsTabRequired.filter((name) => !resolvedUi?.[name]);
         if (!resolvedPanel) missing.push("panel section and row");

@@ -195,7 +195,7 @@ function createScreensaverContent(readSettings: () => any) {
                     String(value).includes("SteamClient.Settings.SetSetting") &&
                     String(value).includes("serializeBinaryToWriter"),
             );
-            ui = resolveSteamSettingsComponents(runtime);
+            ui = resolveSteamUiComponents(runtime);
             const claim = claimMember(
                 native,
                 "GetLocalScreensavers",

@@ -130,13 +130,15 @@ runtime.exported = (tokens, predicate) => {
 const api = instantiate(
     { window: {} },
     helperFragments(asset),
-    "{ resolveSteamSettingsComponents, SteamSettingsRequired, renderSteamSettings }",
+    "{ resolveSteamUiComponents, SteamUiPageRequired, renderSteamSettings }",
 );
 
 // Resolution: every component the page draws is Steam's, and all of them resolve.
-const resolved = api.resolveSteamSettingsComponents(runtime);
+const resolved = api.resolveSteamUiComponents(runtime);
 assert.ok(resolved, "the settings components must resolve");
-for (const name of api.SteamSettingsRequired) {
+for (const name of [...api.SteamUiPageRequired, "routedPages", "confirmModal"].filter(
+    (name) => name !== "tabs",
+)) {
     assert.ok(resolved[name], `${name} must resolve`);
 }
 assert.equal(resolved.routedPages, RoutedPages, "the sidebar must be Steam's routed pages");

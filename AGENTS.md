@@ -30,8 +30,9 @@ enabled; this repository supplies mechanisms and truthful state.
   and the running-app observer that tracks which apps Steam is running.
 - `SteamUiAssets/Source`: TypeScript bridge, ownership helpers, RPC support, shared gate helpers,
   gates, the component host, `settings.ts`, which draws a host's settings pages with Steam's own
-  routed sidebar, sections and fields, and `ui-kit.ts`, the elements a host draws around Steam's
-  fields.
+  routed sidebar, sections and fields, `ui-kit.ts`, the elements a host draws around Steam's
+  fields, `ui-flows.ts`, the flows a page is made of (collection, item detail with acquire, managed
+  list, Settings sections), and `page-gate.ts`, `registerSteamPage` and its routed page frame.
 - `eng/steam-ui-fragments.mjs`: the one fragment list and compile, shared by this repository's
   prelude build and a consumer's asset builder. `eng/build-prelude.mjs` is the CLI that writes
   `dist/` from it.
@@ -47,7 +48,8 @@ enabled; this repository supplies mechanisms and truthful state.
   `check-settings-fields` (the settings renderer), `check-pages`, `check-storage`, `check-library`
   (library badge, details stat, managed-shortcut availability and the JSX claim), `check-extension-surfaces` (the Extensions tab
   and the game context menu), `check-home-carousel`, `check-screensaver`, `check-power-menu`,
-  `check-theme-styles`, `check-sound-overrides` and `check-ui-kit`.
+  `check-theme-styles`, `check-sound-overrides`, `check-ui-kit` and `check-ui-flows` (the
+  collection, detail, managed list and the shared Settings sections).
 - `tests/SteamUiToolkit.Tests`: transport, bridge, lifecycle, extension, and surface contracts, with
   one shared set of fakes, builders and the recording backend under `Fakes/`.
 
@@ -83,18 +85,29 @@ mutations serialize.
 
 A host draws inside Steam with Steam's own fields wherever one fits: Focusable, ToggleField,
 DropDownField, SliderField, TextField, DialogButton, the tabs and the modals, resolved from Steam's
-modules by `gate-helpers.ts` and `settings.ts`. Everything else a page or a Quick Access section is
-made of comes from the UI kit, `SteamUiAssets/Source/ui-kit.ts`: a section header that folds, an
-action grid, a labelled control, a note, a swatch, a banner, a toolbar, chips, a box, a gallery, a
-card in a grid, a confirm and a prompt. That is the standing rule (maintainer, 2026-09-28): a
+modules by the one resolver, `resolveSteamUiComponents` in `gate-helpers.ts`, with
+`SteamUiPageRequired` as a page's default requirement. Everything else a page or a Quick Access
+section is made of comes from the UI kit, `SteamUiAssets/Source/ui-kit.ts`: a section header that
+folds, an action grid (with a file-pick action kind), a labelled control, a note, a swatch, a
+banner, a toolbar, chips, a box, a gallery, a card in a grid, empty states by kind, a status stack,
+progress, settings rows over drafts (`renderSteamUiFields`), one confirm (Steam's own confirm modal
+where resolved, the kit's modal otherwise) and a prompt. Glyphs come only from `icons.ts`, drawn by
+name with `renderSteamUiIcon`. The flows built from them live in `ui-flows.ts`: the collection
+browser, the item detail with its acquire box, the managed list and `registerSteamSettingsSection`,
+which every gate adding to a Steam Settings page shares. A host page's chrome is the routed page
+frame of `registerSteamPage` (tabs, footer action, banner, loading and refusal, style, header
+offset, the kit stylesheet), so a page draws content only, and its browse steps use the one
+vocabulary (`SteamUiBrowse`, `SteamUiModuleBuilder.BrowseCommands`). That is the standing rule
+(maintainer, 2026-09-28): a
 reusable element lives here, drawn once from plain elements and one stylesheet in the vocabulary of
 Steam's own panels, and never as one-off HTML inside a consumer's fragment. Add to the kit when a
 host needs something the kit lacks; extend an element rather than restyling it in place. Every kit
 element takes the page's resolved `ui`, builds with Steam's React, uses Steam's Focusable for focus
 and relies on the `gpfocus` class Steam sets, and its rules are flat `steam-ui-kit-*` classes so a
 host can add to them. The root that uses the kit renders `steamUiKitStyle(react)` once, so the
-stylesheet lands in that root's document. Cover a new element in `eng/check-extension-surfaces.mjs`
-or a check of its own.
+stylesheet lands in that root's document; the page frame does that for a page. Cover a new element
+in `eng/check-ui-kit.mjs`, a new flow in `eng/check-ui-flows.mjs` and a frame feature in
+`eng/check-pages.mjs`.
 
 ## Before any live debugger connection
 

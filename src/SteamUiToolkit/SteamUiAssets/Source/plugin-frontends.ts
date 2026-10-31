@@ -269,11 +269,17 @@ function createPluginFrontends() {
        * Resolves native settings controls; returns null when required evidence is absent.
        */
       resolveComponents: () =>
-        resolveSteamSettingsComponents(getWebpackRuntime("plugin-frontends")),
+        resolveSteamUiComponents(getWebpackRuntime("plugin-frontends")),
       /**
        * Native section, header and empty-state helpers for contributed surfaces.
        */
-      uiKit: { section: renderSteamUiGroup, header: renderSteamUiHeader, note: renderSteamUiEmpty },
+      uiKit: {
+        section: renderSteamUiGroup,
+        header: renderSteamUiHeader,
+        // The contract's note keeps its (react, text, error) shape over the kit's empty state.
+        note: (react: any, text: string, error = false) =>
+          renderSteamUiEmpty({ react }, { kind: error ? "error" : "empty", text }),
+      },
       /**
        * Wraps a callback so synchronous throws and rejected promises fail the owning plugin.
        * @param callback Callback to invoke with the original receiver and arguments.

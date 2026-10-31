@@ -148,8 +148,14 @@ An item folds, a setting can carry a description and belong to a switch on the s
 colour or a labelled slider are drawn the way the settings renderer draws them.
 
 **The UI kit** (`SteamUiAssets/Source/ui-kit.ts`) is what a host draws around Steam's own fields:
-groups with headings that fold, action grids, swatches, cards, banners, toolbars, chips, galleries,
-a confirm and a prompt, styled once in the vocabulary of Steam's panels. A host page uses Steam's
+groups with headings that fold, action grids (with a file-pick action kind), swatches, cards,
+banners, toolbars, chips, galleries, empty states of a kind (loading, empty, no match, unavailable,
+error), a status stack, an operation's progress, settings rows over drafts (`renderSteamUiFields`),
+glyphs from the one table in `icons.ts`, one confirm (Steam's own where the client has it) and a
+prompt, styled once in the vocabulary of Steam's panels. `ui-flows.ts` builds the flows a page is
+made of from them: a collection to browse, an item's detail with the box that acquires it, a
+managed list, and `registerSteamSettingsSection`, which adds a section to one of Steam's own
+Settings pages through one shared useMemo transform. A host page uses Steam's
 field where one fits and the kit for the rest, and adds to the kit rather than drawing its own. Use
 `renderSteamUiChoice` for dropdowns in narrow boxes or table cells, and `renderSteamUiSelectRow` for
 separate title/status/detail slots inside a native button. The shared picker fits its modal parent
@@ -163,7 +169,12 @@ documents through Steam's popup manager rather than a debugger session per windo
 translates and orders the themes; the toolkit appends, keeps in step and removes.
 
 **`registerSteamPage`** declares a host's own page inside Steam: its gate, its state subscription
-and the frame that says why it cannot draw yet, with **`SteamPagePatch.Create`** as its patch. Large
+and the whole frame it is drawn in (the kit stylesheet and the page's own, the header offset, the
+loading or refusal state, the banner with its dismiss command, and Steam's tabs, host-owned or local,
+with a footer action per tab), with **`SteamPagePatch.Create`** as its patch. The page draws only its
+content; its context's `act` shows a refused command in the banner, `send` hands the refusal back
+for a row to show, and `useState` lets a modal follow the page's state. A page's browse steps share
+one vocabulary with the host, declared with **`SteamUiModuleBuilder.BrowseCommands`**. Large
 state reaches a page in parts and is reassembled before the page sees it; a state too large to
 deliver at all reaches the page as a refusal it can show.
 
@@ -362,8 +373,9 @@ list can be restored; the host retains write policy. See
 
 Consumer-owned native pages declare the components they draw with in `registerSteamPage`, whose
 gate probes exactly those (its `components` and `required`), and use the composed asset's shared
-`resolveSteamUiComponents` helper for Steam's focusable, tabs, dialog buttons, fields, checkbox and
-modal manager. A consumer's own gate is a `defineGate` gate whose `find` is its probe; the host side
+`resolveSteamUiComponents` helper, the one resolver, for Steam's focusable, tabs, dialog buttons,
+fields, checkbox, settings sections, routed sidebar, confirm modal and modal manager, with
+`SteamUiPageRequired` as the default `required` list. A consumer's own gate is a `defineGate` gate whose `find` is its probe; the host side
 declares it as `new SteamGatePatch(id, gateName, fingerprint, subject)`. Missing or ambiguous controls are capabilities to
 refuse, not a reason to draw lookalike controls. Two elements Steam has no component for are built
 from its own classes and components instead: `createSteamCapsule` draws a library capsule for a

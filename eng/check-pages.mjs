@@ -297,43 +297,67 @@ assert.equal(gate.status().routeSource, "none", "removal must drop the borrowed 
 
 // A host page declared with registerSteamPage: its gate refuses until Steam's components resolve and
 // says which are missing, follows the host's state and refusals while installed, and its frame stops
-// drawing the page once the gate is removed.
+// drawing the page once the gate is removed. The frame is the page's chrome: the stylesheets, the
+// header offset, the loading and refusal state, the banner for the host's message and for a refused
+// command, Steam's tabs with their footer actions, and the hook a modal reads the page's state with.
 {
     const registered = new Map();
-    let published = null;
-    let refused = null;
+    const subscriptions = new Map();
+    const refusals = new Map();
     let components = null;
     let released = 0;
+    const requests = [];
+    let rejectNext = null;
+    const subscribedStores = [];
     const pageReact = createReact({
-        useSyncExternalStore: (_subscribe, snapshot) => snapshot(),
+        useSyncExternalStore: (subscribe, snapshot) => {
+            subscribedStores.push(subscribe);
+            return snapshot();
+        },
     });
     const { registerSteamPage, steamPageRenderers } = instantiate(
         {
             getWebpackRuntime: () => () => null,
             createIconRenderer: () => () => null,
-            request: () => Promise.resolve(),
-            subscribe: (_patchId, listener) => {
-                published = listener;
-                return () => {
-                    published = null;
-                };
+            request: (patchId, command, payload) => {
+                requests.push({ patchId, command, payload });
+                if (rejectNext) {
+                    const reason = rejectNext;
+                    rejectNext = null;
+                    return Promise.reject(new Error(reason));
+                }
+                return Promise.resolve({ ok: true });
             },
-            subscribeRefusal: (_patchId, listener) => {
-                refused = listener;
-                return () => {
-                    refused = null;
-                };
+            subscribe: (patchId, listener) => {
+                subscriptions.set(patchId, listener);
+                return () => subscriptions.delete(patchId);
+            },
+            subscribeRefusal: (patchId, listener) => {
+                refusals.set(patchId, listener);
+                return () => refusals.delete(patchId);
             },
             registerGate: (name, value) => registered.set(name, value),
         },
-        `${sharedFragments(asset)}\n${fragment(asset, "page-gate.ts")}\n${gateSource(asset, "gates/pages.ts")}`,
+        `${sharedFragments(asset)}\n${fragment(asset, "page-gate.ts")}\n${fragment(asset, "ui-flows.ts")}\n` +
+            `${fragment(asset, "ui-kit.ts")}\n${gateSource(asset, "gates/pages.ts")}`,
         "{ registerSteamPage, steamPageRenderers }",
     );
+    const children = (node) => pageReact.Children.toArray(node?.props?.children);
+    // The frame's page root: the div inside the focus root, or the div itself without Focusable.
+    const pageRoot = (frame) => {
+        const root = frame.type(frame.props);
+        return root.type === "div" ? root : children(root)[0];
+    };
+    const contentOf = (frame) => children(pageRoot(frame)).at(-1);
+    const bannerOf = (frame) =>
+        children(pageRoot(frame)).find((child) => child?.props?.className === "steam-ui-kit-page-banner");
+
     const Page = () => null;
     const definition = {
         template: "fixture-page",
         gate: "fixturePage",
         patchId: "fixture.page",
+        title: "Fixture",
         components: () => components,
         required: ["react", "field"],
         release: () => {
@@ -367,27 +391,89 @@ assert.equal(gate.status().routeSource, "none", "removal must drop the borrowed 
     assert.equal(waiting.props.role, "status", "a page that cannot resolve says why");
     assert.deepEqual(waiting.props.children, ["Native Steam components unavailable: field"]);
 
-    components = { react: pageReact, field: () => null };
+    const Button = "Button";
+    const Small = "Small";
+    const Tabs = "Tabs";
+    components = { react: pageReact, field: () => null, dialogButton: Button, smallButton: Small, tabs: Tabs };
     assert.equal(pageGate.probe().outcome, "ready");
     assert.equal(prepared, 0, "a probe must never prepare the page");
     assert.deepEqual(pageGate.install(), { ok: true, installed: true, reclaimed: false });
     assert.equal(prepared, 1, "the install prepares the page");
     assert.equal(pageGate.status().held, true);
     assert.equal(pageGate.status().claims, 4, "resources, state, refusals and the reset are on the ledger");
-    published({ value: 1 });
-    refused("too large");
-    assert.deepEqual(context.state(), { value: 1 });
+
+    // Until the host publishes, the frame says it is loading, or why the state could not arrive; the
+    // page itself never has to guard against a missing state.
+    const root = pageRoot(frame);
+    assert.equal(root.props.className, "steam-ui-kit-page", "the frame offsets below Steam's header");
+    assert.equal(root.props["aria-label"], "Fixture");
+    assert.equal(root.props.id, "steam-ui-page-fixture-page");
+    assert.equal(children(root)[0].type, "style", "the kit stylesheet lands in the page's document");
+    let shown = contentOf(frame);
+    assert.equal(shown.props.className, "steam-ui-kit-empty loading");
+    assert.deepEqual(children(shown), ["Loading Fixture…"]);
+    refusals.get("fixture.page")("too large");
     assert.equal(context.refusal(), "too large");
-    const drawn = frame.type(frame.props);
-    assert.equal(drawn.type, Page, "an installed page draws the host's component");
+    shown = contentOf(frame);
+    assert.equal(shown.props.className, "steam-ui-kit-empty unavailable", "a refused state is unavailable");
+    assert.deepEqual(children(shown), ["too large"]);
+
+    subscriptions.get("fixture.page")({ value: 1 });
+    assert.deepEqual(context.state(), { value: 1 });
+    const drawn = contentOf(frame);
+    assert.equal(drawn.type, Page, "an installed page with state draws the host's component");
     assert.equal(drawn.props.context, context);
+    assert.deepEqual(drawn.props.state, { value: 1 });
+    assert.equal(drawn.props.tab, "");
     assert.deepEqual(drawn.props.page, { id: "fixture" });
+    assert.equal(bannerOf(frame), undefined, "no message, no banner");
+
+    // The host's error is the banner, and Dismiss sends the page's dismiss command.
+    subscriptions.get("fixture.page")({ value: 2, error: "The store did not answer.", notice: "Installed." });
+    let banner = children(bannerOf(frame))[0];
+    assert.equal(banner.props.className, "steam-ui-kit-banner error", "an error outranks a notice");
+    assert.deepEqual(children(children(banner)[0]), ["The store did not answer."]);
+    children(banner)[1].props.onClick();
+    assert.deepEqual(requests.splice(0), [{ patchId: "fixture.page", command: "dismiss", payload: {} }]);
+    subscriptions.get("fixture.page")({ value: 3, notice: "Installed." });
+    banner = children(bannerOf(frame))[0];
+    assert.equal(banner.props.className, "steam-ui-kit-banner");
+
+    // A refused command is shown in the banner, ahead of the host's notice; act resolves undefined
+    // rather than rejecting, and the next command clears the message.
+    rejectNext = "That theme is not installed.";
+    assert.equal(await context.act("delete", { name: "x" }), undefined);
+    banner = children(bannerOf(frame))[0];
+    assert.equal(banner.props.className, "steam-ui-kit-banner error");
+    assert.deepEqual(children(children(banner)[0]), ["That theme is not installed."]);
+    assert.equal(pageGate.status().message, "That theme is not installed.");
+    assert.deepEqual(await context.act("refresh"), { ok: true });
+    assert.equal(pageGate.status().message, "", "the next command clears the page's message");
+    assert.deepEqual(children(children(bannerOf(frame))[0])[0].props.children, ["Installed."]);
+    context.report("Choose a ZIP archive.");
+    children(children(bannerOf(frame))[0])[1].props.onClick();
+    assert.equal(pageGate.status().message, "", "Dismiss clears the page's own message locally");
+    assert.deepEqual(
+        requests.splice(0).map((entry) => entry.command),
+        ["delete", "refresh"],
+        "dismissing the page's message sends nothing",
+    );
+    // send hands the refusal back to the caller that shows it, such as a settings row.
+    rejectNext = "Refused.";
+    await assert.rejects(context.send("set", { key: "k", value: 1 }), /Refused\./u);
+    assert.equal(pageGate.status().message, "", "send leaves the banner alone");
+    requests.length = 0;
+
+    // A modal reads the page's state through the hook, which subscribes to the frame's store.
+    subscribedStores.length = 0;
+    assert.deepEqual(context.useState(), { value: 3, notice: "Installed." });
+    assert.equal(subscribedStores.length, 1, "the hook subscribes to the frame's store");
 
     assert.deepEqual(pageGate.remove(), { ok: true, removed: true });
     assert.equal(pageGate.status().claims, 0);
     assert.equal(released, 1, "removal releases what the page prepared");
-    assert.equal(published, null, "removal ends the state subscription");
-    assert.equal(refused, null, "removal ends the refusal subscription");
+    assert.equal(subscriptions.has("fixture.page"), false, "removal ends the state subscription");
+    assert.equal(refusals.has("fixture.page"), false, "removal ends the refusal subscription");
     assert.equal(context.state(), null);
     assert.equal(context.refusal(), null);
     assert.equal(
@@ -395,9 +481,76 @@ assert.equal(gate.status().routeSource, "none", "removal must drop the borrowed 
         "status",
         "a removed page draws nothing of its own",
     );
+
+    // Tabs the host owns: the active tab is the host's, a change is the tab command, only the active
+    // tab is drawn, and a tab's footer action reaches Steam's footer legend.
+    const TabbedPage = () => null;
+    let filters = 0;
+    const tabbed = registerSteamPage({
+        template: "fixture-tabbed",
+        gate: "fixtureTabbed",
+        patchId: "fixture.tabbed",
+        title: "Tabbed",
+        id: "fixture-tabbed",
+        style: "#fixture-tabbed .x{}",
+        header: false,
+        components: () => components,
+        required: ["react", "tabs"],
+        tabs: {
+            source: "host",
+            list: [
+                { id: "browse", title: "Browse", footer: { label: "Filter", onActivate: () => filters++ } },
+                { id: "installed", title: "Installed" },
+            ],
+        },
+        Page: TabbedPage,
+    });
+    assert.ok(registered.get("fixtureTabbed").install().ok);
+    const tabbedFrame = steamPageRenderers.get("fixture-tabbed")(pageReact, null);
+    subscriptions.get("fixture.tabbed")({ activeTab: "installed" });
+    const tabbedRoot = pageRoot(tabbedFrame);
+    assert.equal(tabbedRoot.props.className, "steam-ui-kit-page flush tabbed", "header:false draws flush");
+    assert.deepEqual(children(children(tabbedRoot)[1]), ["#fixture-tabbed .x{}"], "the page's own style");
+    let tabsElement = contentOf(tabbedFrame);
+    assert.equal(tabsElement.type, Tabs);
+    assert.equal(tabsElement.props.activeTab, "installed");
+    assert.equal(tabsElement.props.tabs[0].content, null, "a hidden tab is not drawn");
+    assert.equal(tabsElement.props.tabs[1].content.type, TabbedPage);
+    assert.equal(tabsElement.props.tabs[1].content.props.tab, "installed");
+    assert.equal(tabsElement.props.tabs[1].footer, undefined);
+    tabsElement.props.tabs[0].footer.onSecondaryButton();
+    assert.equal(filters, 1);
+    assert.equal(tabsElement.props.tabs[0].footer.onSecondaryActionDescription, "Filter");
+    tabsElement.props.onShowTab("browse");
+    assert.deepEqual(requests.splice(0), [
+        { patchId: "fixture.tabbed", command: "setTab", payload: { tab: "browse" } },
+    ]);
+    assert.equal(tabbed.tab(), "installed", "a host tab moves when the host publishes it");
+    subscriptions.get("fixture.tabbed")({ activeTab: "nowhere" });
+    assert.equal(tabbed.tab(), "browse", "a tab the list does not carry shows the first");
+
+    // Tabs the page owns: a change is local and sends nothing.
+    const local = registerSteamPage({
+        template: "fixture-local",
+        gate: "fixtureLocal",
+        patchId: "fixture.local",
+        title: "Local",
+        components: () => components,
+        required: ["react", "tabs"],
+        tabs: { source: "local", initial: "b", list: [{ id: "a", title: "A" }, { id: "b", title: "B" }] },
+        Page: TabbedPage,
+    });
+    assert.ok(registered.get("fixtureLocal").install().ok);
+    const localFrame = steamPageRenderers.get("fixture-local")(pageReact, null);
+    subscriptions.get("fixture.local")({});
+    assert.equal(contentOf(localFrame).props.activeTab, "b", "a local page starts on its initial tab");
+    contentOf(localFrame).props.onShowTab("a");
+    assert.equal(local.tab(), "a");
+    assert.equal(contentOf(localFrame).props.activeTab, "a");
+    assert.deepEqual(requests, [], "a local tab change sends nothing");
 }
 
 console.log(
     "Custom pages: probe outcomes, borrowed Route, route-list discovery, override vs addition, " +
-        "validation, restoration of later mounts and the registerSteamPage lifecycle passed.",
+        "validation, restoration of later mounts, and the registerSteamPage lifecycle and frame passed.",
 );

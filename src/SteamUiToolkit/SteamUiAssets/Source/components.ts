@@ -1387,9 +1387,9 @@ function createNativeComponentHost() {
         }
         // The settings renderer's fields: a client without them keeps the rows that need only the
         // toggle, dropdown and slider.
-        let settingsUi: ReturnType<typeof resolveSteamSettingsComponents> = null;
+        let settingsUi: ReturnType<typeof resolveSteamUiComponents> = null;
         try {
-            settingsUi = resolveSteamSettingsComponents(runtime);
+            settingsUi = resolveSteamUiComponents(runtime);
         } catch {
             settingsUi = null;
         }

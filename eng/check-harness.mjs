@@ -140,6 +140,17 @@ export const sharedFragments = (asset) =>
     ]);
 
 /**
+ * Replaces one helper declaration in emitted code with a fixture expression, so a check can stand in
+ * for a shared helper (the component resolver) that the code also declares. The original stays
+ * declared under another name and is never called.
+ */
+export const substitute = (code, name, fixture) => {
+    const declaration = new RegExp(`^([ \t]*)const ${name} = `, "mu");
+    assert.match(code, declaration, `the code must declare ${name}`);
+    return code.replace(declaration, `$1const ${name} = ${fixture};\n$1const ${name}Replaced = `);
+};
+
+/**
  * Evaluates emitted code with named globals in scope and returns an expression over it. A global must
  * not share a name with anything the code declares.
  */

@@ -12,6 +12,7 @@ import {
   instantiate,
   loadAsset,
   sharedFragments,
+  substitute,
   withSource,
 } from "./check-harness.mjs";
 
@@ -89,7 +90,7 @@ const exposed = instantiate(
       if (!modulesLoaded) throw new Error("Steam modules unavailable");
       return runtime;
     },
-    resolveSteamSettingsComponents: () => ui,
+    fixtureComponents: () => ui,
     useSteamSettingDrafts: () => ({
       change: (send) => send,
       row: (row) => row,
@@ -107,7 +108,8 @@ const exposed = instantiate(
       return Promise.resolve();
     },
   },
-  sharedFragments(asset) + gateSource(asset, "gates/native-settings.ts"),
+  substitute(sharedFragments(asset), "resolveSteamUiComponents", "fixtureComponents") +
+    gateSource(asset, "gates/native-settings.ts"),
   "({gate:createNativeSettings(), interceptMemo, releaseMemo})",
 );
 const gate = exposed.gate;

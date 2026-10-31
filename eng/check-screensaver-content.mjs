@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { instantiate, loadAsset, sharedFragments } from "./check-harness.mjs";
+import { instantiate, loadAsset, sharedFragments, substitute } from "./check-harness.mjs";
 
 const settings = { screensaver_current_id: "" };
 const stock = [
@@ -54,11 +54,11 @@ const content = instantiate(
             assert.equal(command, "content");
             commands.push(payload);
         },
-        resolveSteamSettingsComponents: () => null,
+        fixtureComponents: () => null,
         performance: { now: () => now },
         settings,
     },
-    sharedFragments(loadAsset()),
+    substitute(sharedFragments(loadAsset()), "resolveSteamUiComponents", "fixtureComponents"),
     "createScreensaverContent(()=>settings)",
 );
 assert.equal(content.start(runtime).ok, true);

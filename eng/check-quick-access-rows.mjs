@@ -197,12 +197,13 @@ const render = instantiate(
             helpers("SteamAccentColor", "steamAccentDescription", "textOf"),
             "{ steamAccentDescription, textOf }",
         ),
+        // No row here asks before it changes; the one Confirm is the kit's.
+        showSteamUiConfirm: () => false,
     },
     settings(
         "steamSettingDescription",
         "steamSettingLabel",
         "steamSettingIcon",
-        "confirmSteamSetting",
         "renderSteamSettingRow",
         "steamSettingPublished",
         "useSteamSettingDrafts",
