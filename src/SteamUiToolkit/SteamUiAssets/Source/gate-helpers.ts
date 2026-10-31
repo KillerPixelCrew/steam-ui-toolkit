@@ -256,6 +256,9 @@ const resolveSteamUiComponents = (runtime) => {
 // titled section, and PanelSectionRow, which lays one control out inside it. Both come from the one
 // layout module that names them together; null when either is not a unique match there.
 const PanelLayoutTokens = ["PanelSectionTitle", "PanelSectionRow", "spinner"] as const;
+
+// Steam's route table, which names every Big Picture path including the external web browser.
+const RouteTableTokens = ["GameAPIOSK:", "/gameapiosk"] as const;
 /**
  * Resolves both native Quick Access section and row components.
  * @param runtime Shared module resolver.
@@ -416,6 +419,29 @@ const onSteamTriggers = (step: (delta: number) => void) => (event: any) => {
 };
 
 /**
+ * The documents of Steam's popup windows, as its popup manager lists them, with each popup's name.
+ * A navigating popup may refuse its document; that popup is skipped and read again by the next caller.
+ * @returns Each readable popup document once per popup; empty when the manager is absent.
+ */
+const steamPopupDocuments = () => {
+    const found: { document: any; name: string }[] = [];
+    let popups: any[] = [];
+    try {
+        const manager = window.g_PopupManager;
+        if (typeof manager?.GetPopups === "function") popups = Array.from(manager.GetPopups() ?? []);
+    } catch {
+        return found;
+    }
+    for (const popup of popups) {
+        try {
+            const doc = popup?.m_popup?.document;
+            if (doc) found.push({ document: doc, name: String(popup?.m_strName ?? "") });
+        } catch {}
+    }
+    return found;
+};
+
+/**
  * The Steam window an interaction happened in: Big Picture's main window or one game's overlay window.
  * In a game, Quick Access and the side menus are drawn in that game's overlay window, so a page opened
  * from them belongs there rather than in the hidden main window. Resolve it when the user acts: the
@@ -495,6 +521,26 @@ const navigateSteamRoute = (route, owner?) => {
     if (!history || typeof history.push !== "function") return false;
     history.push(route);
     return true;
+};
+
+/**
+ * Asks the host to activate one entry drawn in a Steam side panel, and opens the page it may answer
+ * with. The panel is closed first: a page opened behind it is, on a controller, a dead button.
+ * @param patchId Command namespace that owns the entry.
+ * @param id The entry's id.
+ */
+const activateSteamPanelEntry = (patchId, id) => {
+    // Read while the panel is open: over a game the panel, and the page, are the game overlay's.
+    const owner = steamInteractionWindow();
+    void request(patchId, "activate", { id }).then(
+        (answer: any) => {
+            if (answer?.route && closeSteamSideMenus(owner)) navigateSteamRoute(answer.route, owner);
+        },
+        () => {
+            // The host's refusal is already logged, and the entry stays truthful on the next state
+            // publication. A rejected press must not tear down the panel.
+        },
+    );
 };
 
 // Whether a source calls `call` and every such call passes a single argument. Counting the

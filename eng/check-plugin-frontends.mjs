@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { fragment, instantiate, loadAsset } from "./check-harness.mjs";
+import { declarations, fragment, instantiate, loadAsset } from "./check-harness.mjs";
 
 const failures = [];
 let gate;
@@ -36,7 +36,13 @@ const globals = {
   renderSteamUiEmpty: inert,
   steamPageRenderers: new Map(),
 };
-instantiate(globals, fragment(loadAsset(), "plugin-frontends"), "null");
+instantiate(
+  globals,
+  declarations(loadAsset(), "gate-helpers.ts", ["steamPopupDocuments"]) +
+    "\n" +
+    fragment(loadAsset(), "plugin-frontends"),
+  "null",
+);
 assert.equal(
   (
     await gate.load({

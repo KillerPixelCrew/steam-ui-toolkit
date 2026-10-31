@@ -77,11 +77,8 @@ public static class SteamSoundOverrideSurface
     {
         status = null!;
         if (!SteamUiPayload.HasExactly(payload, 4)
-            || !payload.TryGetProperty("revision", out var revision) || revision.ValueKind != JsonValueKind.Number
-            || !revision.TryGetInt64(out var version)
-            || version < 0
-            || !payload.TryGetProperty("loading", out var loading)
-            || loading.ValueKind is not (JsonValueKind.True or JsonValueKind.False)
+            || !SteamUiPayload.TryReadLong(payload, "revision", 0, out var version)
+            || !SteamUiPayload.TryReadBoolean(payload, "loading", out var loading)
             || !payload.TryGetProperty("resources", out var resources) || resources.ValueKind != JsonValueKind.Number
             || !resources.TryGetInt32(out var count)
             || count < 0
@@ -92,7 +89,7 @@ public static class SteamSoundOverrideSurface
             return false;
         }
 
-        status = new SteamSoundOverrideStatus(version, loading.GetBoolean(), count, error.GetString());
+        status = new SteamSoundOverrideStatus(version, loading, count, error.GetString());
         return true;
     }
 }

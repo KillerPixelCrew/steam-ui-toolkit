@@ -167,7 +167,6 @@ const globals = {
         requests.push(args);
         return refuseRequests ? Promise.reject(new Error("refused")) : Promise.resolve(nextAnswer);
     },
-    nextActionGeneration: () => 1,
     createIconRenderer: () => (name, size) => {
         iconCalls.push([name, size]);
         return null;

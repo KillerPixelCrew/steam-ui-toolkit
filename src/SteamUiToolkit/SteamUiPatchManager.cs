@@ -559,12 +559,11 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
         CancellationTokenSource? activeOperation = null;
         lock (entry.Sync)
         {
-            if (onlyWhenChanged && entry.Enabled == enabled)
+            if (onlyWhenChanged && entry.Snapshot.Enabled == enabled)
             {
                 return false;
             }
 
-            entry.Enabled = enabled;
             entry.Snapshot = entry.Snapshot with
             {
                 Enabled = enabled,
@@ -711,6 +710,11 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
                 }
             }
 
+            // The bridge before every other patch: every gate lives inside it. In plain id order,
+            // steam-ui.animations and steam-ui.artwork-browser were applied after a Big Picture
+            // restart before steam-ui.bridge: they installed into the old bridge and verified, then
+            // the new bridge replaced them with gates nobody installed, and both pages stayed on
+            // "Loading" until WSGM restarted (2026-09-29).
             var bridgeApplied = false;
             if (bridgeWanted && (kind == PassKind.Full || !Holds(bridge!)))
             {
@@ -721,7 +725,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
             }
 
             var bridgeHolds = !bridgeWanted || Holds(bridge!);
-            foreach (var entry in ApplyOrder(entries).Where(entry => entry != bridge && Wanted(entry)))
+            foreach (var entry in entries.Where(entry => entry != bridge && Wanted(entry)))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var insideBridge = bridgeWanted && entry.Patch.TargetRole == SteamUiTargetRole.SharedJsContext;
@@ -836,22 +840,6 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
         Write(line);
     }
 
-    /// <summary>Every patch in id order, except that the bridge comes first.</summary>
-    /// <param name="entries">The patches.</param>
-    /// <returns>The order patches are applied in.</returns>
-    /// <remarks>
-    ///     Every gate lives inside the bridge. In plain id order, steam-ui.animations and
-    ///     steam-ui.artwork-browser were applied after a Big Picture restart before steam-ui.bridge:
-    ///     they installed into the old bridge and verified, then the new bridge replaced them with
-    ///     gates nobody installed, and both pages stayed on "Loading" until WSGM restarted
-    ///     (2026-09-29).
-    /// </remarks>
-    private static IEnumerable<PatchEntry> ApplyOrder(IEnumerable<PatchEntry> entries)
-    {
-        return entries.OrderBy(entry => entry.Patch.Id != SteamUiBridgePatch.PatchId)
-            .ThenBy(entry => entry.Patch.Id, StringComparer.Ordinal);
-    }
-
     /// <summary>Every patch in id order, except that the bridge comes last.</summary>
     /// <param name="entries">The patches.</param>
     /// <returns>The order patches are removed in.</returns>
@@ -871,7 +859,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
 
         lock (entry.Sync)
         {
-            return entry.Enabled && entry.FaultReason is null && !entry.Removing;
+            return entry.Snapshot.Enabled && entry.FaultReason is null && !entry.Removing;
         }
     }
 
@@ -1551,7 +1539,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
         var generations = entry.TransportSnapshot?.Generations ?? default;
         entry.Snapshot = new SteamUiPatchSnapshot(
             entry.Patch.Id,
-            entry.Enabled,
+            entry.Snapshot.Enabled,
             state,
             fingerprint,
             generations,
@@ -1600,8 +1588,6 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
         // Built once at registration: the context only pairs the transport with the patch's
         // phase timeout, and every phase of every synchronization used an identical one.
         internal SteamUiPatchContext Context { get; } = context;
-
-        internal bool Enabled { get; set; } = true;
 
         // Why the module behind the patch failed. Set once; the patch stays off until unregistered.
         internal string? FaultReason { get; set; }

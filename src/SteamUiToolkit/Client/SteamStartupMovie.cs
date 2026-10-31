@@ -148,48 +148,30 @@ public sealed class SteamStartupMovie
     /// <returns>The outcome and any choice carried by the reply, including a choice preserved on failure.</returns>
     internal static SteamStartupMovieResult Parse(SteamUiEvaluationResult result)
     {
-        if (result.Dispatch != SteamUiDispatch.Answered)
+        return SteamClientScript.ParseWrite(
+            result,
+            static (outcome, detail) => new SteamStartupMovieResult(outcome, null, detail),
+            Read);
+    }
+
+    private static SteamStartupMovieResult Read(JsonElement root)
+    {
+        // Read whether or not the change completed: a set-aside that failed after its first write
+        // still answers what Steam held.
+        SteamStartupMovieChoice? choice = null;
+        if (root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty("choice", out var held)
+            && held.ValueKind == JsonValueKind.Object)
         {
-            return new SteamStartupMovieResult(
-                SteamClientScript.Unread(result.Dispatch), null, result.Error ?? "Steam did not answer.");
+            choice = new SteamStartupMovieChoice(
+                SteamClientScript.StringOf(held, "movieId"),
+                SteamClientScript.StringOf(held, "localPath"),
+                held.TryGetProperty("shuffle", out var shuffle) && shuffle.ValueKind == JsonValueKind.True);
         }
 
-        if (result.Error is not null)
-        {
-            return new SteamStartupMovieResult(SteamClientWriteOutcome.Rejected, null, result.Error);
-        }
-
-        if (result.Value is null)
-        {
-            return new SteamStartupMovieResult(SteamClientWriteOutcome.Unknown, null, "No response from Steam.");
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(result.Value);
-            var root = document.RootElement;
-            // Read whether or not the change completed: a set-aside that failed after its first write
-            // still answers what Steam held.
-            SteamStartupMovieChoice? choice = null;
-            if (root.ValueKind == JsonValueKind.Object
-                && root.TryGetProperty("choice", out var held)
-                && held.ValueKind == JsonValueKind.Object)
-            {
-                choice = new SteamStartupMovieChoice(
-                    SteamClientScript.StringOf(held, "movieId"),
-                    SteamClientScript.StringOf(held, "localPath"),
-                    held.TryGetProperty("shuffle", out var shuffle) && shuffle.ValueKind == JsonValueKind.True);
-            }
-
-            return SteamClientScript.IsOk(root)
-                ? new SteamStartupMovieResult(SteamClientWriteOutcome.Applied, choice, null)
-                : new SteamStartupMovieResult(SteamClientWriteOutcome.Rejected, choice,
-                    SteamClientScript.RefusalOf(root) ?? "Steam rejected the change.");
-        }
-        catch (JsonException ex)
-        {
-            return new SteamStartupMovieResult(
-                SteamClientWriteOutcome.Unknown, null, $"Steam's reply was unreadable: {ex.Message}");
-        }
+        return SteamClientScript.IsOk(root)
+            ? new SteamStartupMovieResult(SteamClientWriteOutcome.Applied, choice, null)
+            : new SteamStartupMovieResult(SteamClientWriteOutcome.Rejected, choice,
+                SteamClientScript.RefusalOf(root) ?? "Steam rejected the change.");
     }
 }

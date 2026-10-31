@@ -106,21 +106,8 @@ function createNavigationPanel() {
         (item.glyph ? renderSteamGlyph(react, item.glyph) : null) ??
         (item.icon && icon ? icon(item.icon) : null);
 
-    const activate = (id) => {
-        // Read while the menu is open: over a game the menu, and the page, are the game overlay's.
-        const owner = steamInteractionWindow();
-        void request(patchId, "activate", { id }, nextActionGeneration(patchId)).then(
-            (answer: any) => {
-                // An action may answer with a page to open. The menu is a side panel, so it is
-                // closed first; a page opened behind it is, on a controller, a dead button.
-                if (answer?.route && closeSteamSideMenus(owner))
-                    navigateSteamRoute(answer.route, owner);
-            },
-            () => {
-                // The host's refusal is already logged; a rejected press must not break the menu.
-            },
-        );
-    };
+    // The main menu is a side panel, which closes before any page it opens.
+    const activate = (id) => activateSteamPanelEntry(patchId, id);
 
     // One added entry, drawn by Valve's own component. An entry with a route uses the route entry,
     // which matches the route for its active state and navigates with Valve's own action exactly as

@@ -13,9 +13,6 @@ import { fileURLToPath } from "node:url";
 
 export const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-/** Reads a file by its path from the repository root. */
-export const readSource = (path) => readFileSync(join(repositoryRoot, path), "utf8");
-
 /** The asset named on the command line, or the prelude this repository builds. */
 export const loadAsset = (path = process.argv[2]) =>
     readFileSync(path ?? join(repositoryRoot, "dist", "prelude.js"), "utf8");

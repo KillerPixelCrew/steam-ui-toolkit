@@ -36,6 +36,22 @@ public static class SteamUiPayload
                && value <= maximum;
     }
 
+    /// <summary>Reads one required 64-bit integer with a lower bound, without an object-arity rule.</summary>
+    /// <param name="payload">The request payload.</param>
+    /// <param name="propertyName">The property to read.</param>
+    /// <param name="minimum">Lowest accepted value, inclusive.</param>
+    /// <param name="value">The value, when this returns true.</param>
+    /// <returns>Whether the property is present, numeric and at least <paramref name="minimum" />.</returns>
+    internal static bool TryReadLong(JsonElement payload, string propertyName, long minimum, out long value)
+    {
+        value = default;
+        return payload.ValueKind is JsonValueKind.Object
+               && payload.TryGetProperty(propertyName, out var property)
+               && property.ValueKind is JsonValueKind.Number
+               && property.TryGetInt64(out value)
+               && value >= minimum;
+    }
+
     /// <summary>Reads one required boolean property, without an object-arity rule.</summary>
     /// <param name="payload">The request payload.</param>
     /// <param name="propertyName">The property to read.</param>

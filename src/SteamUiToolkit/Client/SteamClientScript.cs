@@ -133,34 +133,55 @@ internal static class SteamClientScript
     /// <returns>A write outcome preserving dispatch uncertainty; an unreadable answer is Unknown, never retried here.</returns>
     internal static SteamClientWriteResult ParseWrite(SteamUiEvaluationResult result)
     {
+        return ParseWrite(
+            result,
+            static (outcome, detail) => new SteamClientWriteResult(outcome, detail),
+            static root => IsOk(root)
+                ? new SteamClientWriteResult(SteamClientWriteOutcome.Applied, null)
+                : new SteamClientWriteResult(
+                    SteamClientWriteOutcome.Rejected, RefusalOf(root) ?? "Steam rejected the change."));
+    }
+
+    /// <summary>
+    ///     Maps the reply of a write expression to a result of its own shape. Every reply that left no
+    ///     readable answer is mapped here, preserving dispatch uncertainty; only a parsed answer reaches
+    ///     <paramref name="answered" />.
+    /// </summary>
+    /// <typeparam name="T">The result.</typeparam>
+    /// <param name="result">The evaluation outcome.</param>
+    /// <param name="failed">Builds the result for a write with no readable answer, from its outcome and detail.</param>
+    /// <param name="answered">Builds the result from the parsed reply.</param>
+    /// <param name="reply">What the reply is called in the unreadable-reply detail.</param>
+    /// <returns>The result; an unreadable answer is Unknown, never retried here.</returns>
+    internal static T ParseWrite<T>(
+        SteamUiEvaluationResult result,
+        Func<SteamClientWriteOutcome, string, T> failed,
+        Func<JsonElement, T> answered,
+        string reply = "reply")
+    {
         if (result.Dispatch != SteamUiDispatch.Answered)
         {
-            return new SteamClientWriteResult(Unread(result.Dispatch), result.Error ?? "Steam did not answer.");
+            return failed(Unread(result.Dispatch), result.Error ?? "Steam did not answer.");
         }
 
         if (result.Error is not null)
         {
-            return new SteamClientWriteResult(SteamClientWriteOutcome.Rejected, result.Error);
+            return failed(SteamClientWriteOutcome.Rejected, result.Error);
         }
 
         if (result.Value is null)
         {
-            return new SteamClientWriteResult(SteamClientWriteOutcome.Unknown, "No response from Steam.");
+            return failed(SteamClientWriteOutcome.Unknown, "No response from Steam.");
         }
 
         try
         {
             using var document = JsonDocument.Parse(result.Value);
-            var root = document.RootElement;
-            return IsOk(root)
-                ? new SteamClientWriteResult(SteamClientWriteOutcome.Applied, null)
-                : new SteamClientWriteResult(
-                    SteamClientWriteOutcome.Rejected, RefusalOf(root) ?? "Steam rejected the change.");
+            return answered(document.RootElement);
         }
         catch (JsonException ex)
         {
-            return new SteamClientWriteResult(
-                SteamClientWriteOutcome.Unknown, $"Steam's reply was unreadable: {ex.Message}");
+            return failed(SteamClientWriteOutcome.Unknown, $"Steam's {reply} was unreadable: {ex.Message}");
         }
     }
 
@@ -217,9 +238,7 @@ internal static class SteamClientScript
     /// <returns>True only for an object with a boolean true ok property.</returns>
     internal static bool IsOk(JsonElement root)
     {
-        return root.ValueKind == JsonValueKind.Object
-               && root.TryGetProperty("ok", out var ok)
-               && ok.ValueKind == JsonValueKind.True;
+        return SteamUiPatchEvaluation.Flag(root, "ok");
     }
 
     /// <summary>

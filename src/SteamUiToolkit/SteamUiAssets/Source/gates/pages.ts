@@ -82,6 +82,14 @@ function createPageHost() {
         override?: boolean;
         template?: string;
     }[] = [];
+    // The host's pages, then the ones plugin frontends contribute.
+    const composePages = () => [
+        ...hostPages,
+        ...pluginFrontendItems("page").map((slot) => ({
+            ...slot.value,
+            template: slot.id,
+        })),
+    ];
     let lastOutcome = "never rendered";
     let observedRoutes: string[] = [];
 
@@ -194,10 +202,10 @@ function createPageHost() {
 
     const pageDescender = (type) =>
         function SteamUiPageDescend(props) {
-            return descend(type(props), 0);
+            return descend(type(props));
         };
-    const descend = (element, depth) => {
-        if (depth > MaximumDescent || !react.isValidElement(element)) return element;
+    const descend = (element) => {
+        if (!react.isValidElement(element)) return element;
         const replaced = replaceRouteList(element, 0);
         if (replaced !== element) return replaced;
         return descendInto(react, element, descendCache, pageDescender) ?? element;
@@ -277,7 +285,7 @@ function createPageHost() {
         const claim = claimMember(memo, "type", claimKeys, (original: any) => {
             if (typeof original !== "function") return original;
             return function SteamUiPageRouter(props) {
-                return descend(original(props), 0);
+                return descend(original(props));
             };
         });
         if (!claim.ok) {
@@ -306,8 +314,7 @@ function createPageHost() {
         Object.defineProperty(routeSwitchWrapper, "__steamUiPageSwitchOriginal", {
             value: originalSwitch,
         });
-        routeSwitchFiber.type = routeSwitchWrapper;
-        if (routeSwitchFiber.alternate) routeSwitchFiber.alternate.type = routeSwitchWrapper;
+        retargetFiber(routeSwitchFiber, routeSwitchWrapper);
 
         // The claim reaches the next mount only; the router already on screen is adopted, or the claim
         // is correct and inert until the user happens to remount it. See createMountedAdoption.
@@ -315,6 +322,8 @@ function createPageHost() {
 
         installed = true;
         lastError = "";
+        // Plugin pages already loaded are drawn from the start; neither subscription replays them.
+        pages = composePages();
         unsubscribe = subscribe(patchId, (state) => {
             const declared = Array.isArray(state?.pages) ? state.pages : [];
             const next = declared.filter(
@@ -331,25 +340,13 @@ function createPageHost() {
             // The wrappers read `pages` from their closure, so a publication changes nothing React can
             // see on its own. Only a changed list earns a render: the class above the router is the one
             // asked, and its render re-runs every route, the configurator's edit session included.
-            if (!publicationChanged(pages, next)) return;
+            if (!publicationChanged(hostPages, next)) return;
             hostPages = next;
-            pages = [
-                ...hostPages,
-                ...pluginFrontendItems("page").map((slot) => ({
-                    ...slot.value,
-                    template: slot.id,
-                })),
-            ];
+            pages = composePages();
             mounted.rerender();
         });
         unsubscribePlugins = subscribePluginFrontends(() => {
-            pages = [
-                ...hostPages,
-                ...pluginFrontendItems("page").map((slot) => ({
-                    ...slot.value,
-                    template: slot.id,
-                })),
-            ];
+            pages = composePages();
             mounted.rerender();
         });
         return { ok: true, installed: true, reclaimed: claim.reclaimed };

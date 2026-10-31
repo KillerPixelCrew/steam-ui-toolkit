@@ -137,51 +137,33 @@ public sealed class SteamCollections
     /// <returns>The sync outcome and any known collection id, including an id created before a later refusal.</returns>
     internal static SteamCollectionSyncResult ParseSync(SteamUiEvaluationResult result)
     {
-        if (result.Dispatch != SteamUiDispatch.Answered)
+        return SteamClientScript.ParseWrite(
+            result,
+            static (outcome, detail) => new SteamCollectionSyncResult(outcome, null, 0, detail),
+            ReadSync);
+    }
+
+    private static SteamCollectionSyncResult ReadSync(JsonElement root)
+    {
+        // The id is read whether or not the sync succeeded: a collection made before a later step
+        // failed is still the host's.
+        var id = root.ValueKind == JsonValueKind.Object
+                 && root.TryGetProperty("id", out var idProperty)
+                 && idProperty.ValueKind == JsonValueKind.String
+            ? idProperty.GetString()
+            : null;
+        if (!SteamClientScript.IsOk(root))
         {
-            return new SteamCollectionSyncResult(
-                SteamClientScript.Unread(result.Dispatch), null, 0, result.Error ?? "Steam did not answer.");
+            return new SteamCollectionSyncResult(SteamClientWriteOutcome.Rejected, id, 0,
+                SteamClientScript.RefusalOf(root) ?? "Steam rejected the change.");
         }
 
-        if (result.Error is not null)
-        {
-            return new SteamCollectionSyncResult(SteamClientWriteOutcome.Rejected, null, 0, result.Error);
-        }
-
-        if (result.Value is null)
-        {
-            return new SteamCollectionSyncResult(SteamClientWriteOutcome.Unknown, null, 0, "No response from Steam.");
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(result.Value);
-            var root = document.RootElement;
-            // The id is read whether or not the sync succeeded: a collection made before a later step
-            // failed is still the host's.
-            var id = root.ValueKind == JsonValueKind.Object
-                     && root.TryGetProperty("id", out var idProperty)
-                     && idProperty.ValueKind == JsonValueKind.String
-                ? idProperty.GetString()
-                : null;
-            if (!SteamClientScript.IsOk(root))
-            {
-                return new SteamCollectionSyncResult(SteamClientWriteOutcome.Rejected, id, 0,
-                    SteamClientScript.RefusalOf(root) ?? "Steam rejected the change.");
-            }
-
-            var count = root.TryGetProperty("count", out var countProperty)
-                        && countProperty.ValueKind == JsonValueKind.Number
-                        && countProperty.TryGetInt32(out var value)
-                ? value
-                : 0;
-            return new SteamCollectionSyncResult(SteamClientWriteOutcome.Applied, id, count, null);
-        }
-        catch (JsonException ex)
-        {
-            return new SteamCollectionSyncResult(
-                SteamClientWriteOutcome.Unknown, null, 0, $"Steam's reply was unreadable: {ex.Message}");
-        }
+        var count = root.TryGetProperty("count", out var countProperty)
+                    && countProperty.ValueKind == JsonValueKind.Number
+                    && countProperty.TryGetInt32(out var value)
+            ? value
+            : 0;
+        return new SteamCollectionSyncResult(SteamClientWriteOutcome.Applied, id, count, null);
     }
 
     private static string Ids(IReadOnlyCollection<uint> ids)

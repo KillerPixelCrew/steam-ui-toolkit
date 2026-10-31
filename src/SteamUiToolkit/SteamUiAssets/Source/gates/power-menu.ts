@@ -80,7 +80,7 @@ function createPowerMenu() {
     };
 
     const activate = () => {
-        void request(patchId, "switchToDesktop", {}, nextActionGeneration(patchId)).catch(() => {
+        void request(patchId, "switchToDesktop", {}).catch(() => {
             // A refusal stays host-authoritative and must not make Steam's menu fail.
         });
     };

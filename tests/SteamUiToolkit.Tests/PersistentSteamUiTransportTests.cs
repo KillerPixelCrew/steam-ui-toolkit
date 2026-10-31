@@ -23,7 +23,7 @@ public sealed class PersistentSteamUiTransportTests
             [
                 "Debugger.enable", "Debugger.setPauseOnExceptions", "Debugger.disable", "Runtime.enable", "Log.enable",
                 "Page.enable", "DOM.enable",
-                "Runtime.evaluate", "Runtime.releaseObjectGroup"
+                "Runtime.evaluate"
             ],
             factory.Wires.Single().Methods);
     }

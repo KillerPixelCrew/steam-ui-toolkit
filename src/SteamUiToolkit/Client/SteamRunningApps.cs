@@ -221,7 +221,7 @@ public sealed class SteamRunningAppsProbe
                 var result = await client.ReadAsync(RemoveExpression, EvaluationBudget, CancellationToken.None)
                     .ConfigureAwait(false);
                 if (result.Dispatch == SteamUiDispatch.Answered
-                    && (result.Error is not null || result.Value is not { } value || !IsOk(value)))
+                    && (result.Error is not null || result.Value is not { } value || !SteamUiPatchEvaluation.IsSuccessful(value)))
                 {
                     SteamUiLog.Warn(
                         $"Steam running-app observer cleanup was refused: {result.Error ?? result.Value ?? "no reply"}");
@@ -233,17 +233,5 @@ public sealed class SteamRunningAppsProbe
             }
         }
 
-        private static bool IsOk(string value)
-        {
-            try
-            {
-                using var document = JsonDocument.Parse(value);
-                return SteamClientScript.IsOk(document.RootElement);
-            }
-            catch (JsonException)
-            {
-                return false;
-            }
-        }
     }
 }

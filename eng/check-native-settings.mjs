@@ -94,7 +94,6 @@ const exposed = instantiate(
       requests.push(args);
       return Promise.resolve();
     },
-    nextActionGeneration: () => 1,
   },
   sharedFragments(asset) + gateSource(asset, "gates/native-settings.ts"),
   "({gate:createNativeSettings(), interceptMemo, releaseMemo})",

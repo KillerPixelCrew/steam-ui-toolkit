@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -308,24 +309,25 @@ internal sealed class SteamUiCefDiagnostics : IAsyncDisposable
         }
         finally
         {
-            foreach (var handle in handles)
+            if (!_shutdown.IsCancellationRequested)
             {
-                if (_shutdown.IsCancellationRequested)
-                {
-                    break;
-                }
-
-                try
-                {
-                    await _connection.InvokeAsync("Runtime.releaseObject",
-                        writer => writer.WriteString("objectId", handle),
-                        TimeSpan.FromMilliseconds(250), _shutdown.Token).ConfigureAwait(false);
-                }
-                catch (Exception)
-                {
-                    // A vanished context or closing connection already released its handles.
-                }
+                // Independent releases, sent together rather than one round trip at a time.
+                await Task.WhenAll(handles.Select(ReleaseAsync)).ConfigureAwait(false);
             }
+        }
+    }
+
+    private async Task ReleaseAsync(string handle)
+    {
+        try
+        {
+            await _connection.InvokeAsync("Runtime.releaseObject",
+                writer => writer.WriteString("objectId", handle),
+                TimeSpan.FromMilliseconds(250), _shutdown.Token).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // A vanished context or closing connection already released its handles.
         }
     }
 
@@ -380,8 +382,9 @@ internal sealed class SteamUiCefDiagnostics : IAsyncDisposable
         return Bound(query < 0 ? value : value[..query], 512);
     }
 
+    // Keeps up to length characters before the ellipsis, without splitting a surrogate pair.
     private static string Bound(string value, int length)
     {
-        return value.Length <= length ? value : value[..length] + "…";
+        return SteamUiShared.Bound(value, length + 1)!;
     }
 }

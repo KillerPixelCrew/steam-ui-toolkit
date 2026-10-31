@@ -232,9 +232,9 @@ function createNativeComponentHost() {
         listeners.add(listener);
         return () => listeners.delete(listener);
     };
-    // Every row command carries a fresh action generation, so its echo can be matched to the write.
-    const sendCommand = (definition, command, payload) =>
-        request(definition.patchId, command, payload, nextActionGeneration(definition.patchId));
+    // Every row command carries a fresh action generation, which request allocates, so its echo can
+    // be matched to the write.
+    const sendCommand = (definition, command, payload) => request(definition.patchId, command, payload);
     // A controlled switch's change: a boolean that differs from what the device reports is sent, and
     // its refusal goes to `refuse` for the row's description; the next change clears it ("").
     const toggleCommand = (definition, state, refuse: (text: string) => void) => (enabled) => {
@@ -2763,12 +2763,24 @@ function createNativeComponentHost() {
                 fallbackKey: "steam-ui-quick-settings-root",
             },
         ];
+        // What each memoized array was answered with. useMemo hands back the same array until its
+        // dependencies change, so a cached array is scanned once and the tab list keeps one identity,
+        // which spares the wrapped panels a render on every render of the tab host. The wrappers above
+        // are fixed for this closure, so an answer never goes stale.
+        const answered = new WeakMap<any[], any[]>();
         // The tab array passes through the one useMemo claim every surface shares (ownership.ts).
         const transformTabs = (value) => {
             // Every useMemo result in the client passes through here. A tab list holds tab objects, so an
             // empty array, or one that starts with a string or number, is answered before any filtering.
             if (!Array.isArray(value) || !value.length) return value;
             if (typeof value[0] === "string" || typeof value[0] === "number") return value;
+            const known = answered.get(value);
+            if (known) return known;
+            const result = wrapTabs(value);
+            answered.set(value, result);
+            return result;
+        };
+        const wrapTabs = (value) => {
             // Many memoized arrays hold objects too; only one with a tab's panel element is worth copying.
             let tabs = false;
             for (let index = 0; index < value.length && !tabs; index++) {

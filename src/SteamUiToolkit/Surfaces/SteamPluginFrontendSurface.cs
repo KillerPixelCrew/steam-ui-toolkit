@@ -103,8 +103,8 @@ public static class SteamPluginFrontendSurface
             CancellationToken cancellationToken)
         {
             return SteamUiPatchEvaluation.EvaluateProbeAsync(context, TargetRole,
-                Expression("return JSON.stringify(p.probe());"),
-                value => value.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True,
+                Expression("return JSON.stringify(bridge.probe());"),
+                value => SteamUiPatchEvaluation.Flag(value, "ok"),
                 "plugin-frontends/react-v1", "Steam frontend runtime unavailable.", cancellationToken);
         }
 
@@ -117,7 +117,7 @@ public static class SteamPluginFrontendSurface
             }
 
             var result = await SteamUiPatchEvaluation.EvaluateOutcomeAsync(context, TargetRole,
-                Expression("return JSON.stringify(await p.load(" + descriptor + "));"),
+                Expression("return JSON.stringify(await bridge.load(" + descriptor + "));"),
                 "Frontend load failed.", cancellationToken).ConfigureAwait(false);
             if (!result.Succeeded)
             {
@@ -131,7 +131,7 @@ public static class SteamPluginFrontendSurface
             CancellationToken cancellationToken)
         {
             var result = await SteamUiPatchEvaluation.EvaluateOutcomeAsync(context, TargetRole,
-                Expression("return JSON.stringify(await p.status(" + SteamCef.JsString(id) + "));"),
+                Expression("return JSON.stringify(await bridge.status(" + SteamCef.JsString(id) + "));"),
                 "Frontend verification failed.", cancellationToken).ConfigureAwait(false);
             if (!result.Succeeded)
             {
@@ -145,15 +145,14 @@ public static class SteamPluginFrontendSurface
             CancellationToken cancellationToken)
         {
             return SteamUiPatchEvaluation.EvaluateOutcomeAsync(context, TargetRole,
-                Expression("return JSON.stringify(await p.unload(" + SteamCef.JsString(id) + "));"),
+                Expression("return JSON.stringify(await bridge.unload(" + SteamCef.JsString(id) + "));"),
                 "Frontend removal failed.", cancellationToken);
         }
 
         private static string Expression(string body)
         {
-            return "(async()=>{const b=window[" + SteamCef.JsString(SteamUiBridgeIdentity.Namespace)
-                                                + "];const p=b?.gate('pluginFrontends');if(!p)return JSON.stringify({ok:false,error:'frontend runtime unavailable'});"
-                                                + body + "})()";
+            return SteamGatePatch.GateExpression("'pluginFrontends'", body,
+                "return JSON.stringify({ok:false,error:'frontend runtime unavailable'});", asynchronous: true);
         }
     }
 }

@@ -116,12 +116,10 @@ function createGameContextMenu() {
                         if (currentAppId === null) return;
                         // The window the menu was used in; a game's overlay opens the page itself.
                         const owner = steamInteractionWindow();
-                        void request(
-                            patchId,
-                            "activate",
-                            { appId: currentAppId, id: item.id },
-                            nextActionGeneration(patchId),
-                        ).then(
+                        void request(patchId, "activate", {
+                            appId: currentAppId,
+                            id: item.id,
+                        }).then(
                             (answer: any) => {
                                 if (answer?.route) navigateSteamRoute(answer.route, owner);
                             },
@@ -235,12 +233,9 @@ function createGameContextMenu() {
 
     // Keep the exact class transform for later parent renders too. The ref retains the actual native
     // instance, so multi-select uses GetTargetApps rather than guessing from the overview prop.
-    const captureMenu = (create, candidate, props, key) => {
-        if (typeof candidate !== "function") return;
-        const prototype = candidate.prototype;
-        if (!prototype) return;
-        // MobX may put render on an accessor or an observer superclass. Do not read it: that
-        // executes the observer getter before React supplies an instance. Match authored methods.
+    // MobX may put render on an accessor or an observer superclass. Do not read it: that executes
+    // the observer getter before React supplies an instance. Match authored methods.
+    const menuShaped = (prototype) => {
         const descriptor = (name) => {
             let owner = prototype;
             while (owner && owner !== Object.prototype) {
@@ -249,15 +244,24 @@ function createGameContextMenu() {
                 owner = Object.getPrototypeOf(owner);
             }
         };
-        const methods = MenuTokens.map(descriptor);
-        if (
-            !methods.every(
-                (method) =>
-                    typeof method?.value === "function" || typeof method?.get === "function",
-            ) ||
-            typeof descriptor(ActionMethod)?.value !== "function"
-        )
-            return;
+        return (
+            MenuTokens.every((name) => {
+                const method = descriptor(name);
+                return typeof method?.value === "function" || typeof method?.get === "function";
+            }) && typeof descriptor(ActionMethod)?.value === "function"
+        );
+    };
+    // Every element Steam creates passes the capture, so each component type is judged once. A class
+    // keeps the methods it was defined with, and this gate's own claims keep them functions.
+    const shapes = new WeakMap<Function, boolean>();
+    const captureMenu = (create, candidate, props, key) => {
+        if (typeof candidate !== "function" || !candidate.prototype) return;
+        let shaped = shapes.get(candidate);
+        if (shaped === undefined) {
+            shaped = menuShaped(candidate.prototype);
+            shapes.set(candidate, shaped);
+        }
+        if (!shaped) return;
         if (menuComponent && candidate !== menuComponent) {
             ambiguous = true;
             lastError = "Competing native game menu classes were observed";
@@ -321,6 +325,9 @@ function createGameContextMenu() {
             createClaimKeys,
             (original: any) =>
                 function SteamUiGameContextMenuCreate(type, props, ...children) {
+                    // Only a class can be the menu; anything else is created untouched, unexamined.
+                    if (typeof type !== "function" || !type.prototype)
+                        return original.call(react, type, props, ...children);
                     const supplied = children.length
                         ? { ...props, children: children.length === 1 ? children[0] : children }
                         : props;

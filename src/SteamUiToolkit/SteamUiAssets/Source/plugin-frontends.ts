@@ -40,9 +40,7 @@ const pluginFrontendElements = (kind: string, react: any, props: any = {}) =>
 function createPluginFrontends() {
   const documents = () => {
     const docs = new Set<Document>([document]);
-    for (const popup of (window as any).g_PopupManager?.GetPopups?.() ?? []) {
-      if (popup?.m_popup?.document) docs.add(popup.m_popup.document);
-    }
+    for (const popup of steamPopupDocuments()) docs.add(popup.document);
     return [...docs];
   };
   const reactRuntime = () => resolveReact(getWebpackRuntime("plugin-frontends"));

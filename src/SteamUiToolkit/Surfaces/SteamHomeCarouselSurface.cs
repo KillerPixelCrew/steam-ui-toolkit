@@ -131,7 +131,7 @@ public static class SteamHomeCarouselSurface
                   page=!type?'none':typeof type==='function'?'function':String(type.$$typeof);
                   // Home by its source, or one this gate already claimed, whose type is ours.
                   if(type&&typeof type==='object'&&typeof type.type==='function'
-                    &&(type.type.__steamUiHomeCarouselClaimed===true
+                    &&({{SteamUiProbeJs.Claimed("type.type", "HomeCarousel")}}
                       ||(String(type.type).includes('HomeTabsActive')
                         &&String(type.type).includes('HomeActiveTab'))))home=type;
                 }
@@ -161,7 +161,7 @@ public static class SteamHomeCarouselSurface
               page:page,
               claimable:{{SteamUiProbeJs.Replaceable("descriptor")}},
               // Already ours is compatible; see the remarks on this patch.
-              claimed:!!home&&home.type.__steamUiHomeCarouselClaimed===true,
+              claimed:{{SteamUiProbeJs.Claimed("home?.type", "HomeCarousel")}},
               stores:typeof window.collectionStore?.GetCollection==='function'
                 &&typeof window.appStore?.GetAppOverviewByAppID==='function',
               observer:count({{SteamUiProbeJs.ObserverTokens}}),

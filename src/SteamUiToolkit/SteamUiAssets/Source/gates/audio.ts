@@ -276,7 +276,7 @@ function createAudioNamespace() {
 
         const buildApi = () => ({
             GetDevices: () =>
-                request(patchId, "getDevices", null, 0).then((state: any) => ({
+                request(patchId, "getDevices", null).then((state: any) => ({
                     activeOutputDeviceId: numberFor(state?.activeOutputDeviceId ?? ""),
                     activeInputDeviceId: numberFor(state?.activeInputDeviceId ?? ""),
                     overrideOutputDeviceId: NO_DEVICE,

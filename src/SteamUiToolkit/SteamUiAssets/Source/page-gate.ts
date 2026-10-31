@@ -12,15 +12,9 @@ function registerSteamPage(definition: SteamPageDefinition): SteamPageContext {
     let lastError = "";
     let unsubscribe: (() => void) | null = null;
     let unsubscribeRefusal: (() => void) | null = null;
-    const listeners = new Set<() => void>();
-    const notify = () => {
-        for (const listener of [...listeners]) {
-            try {
-                listener();
-            } catch {
-            }
-        }
-    };
+    // What the frame redraws on: the gate's resolution, its state and refusals, and its removal.
+    const local = createLocalStore();
+    const notify = local.changed;
 
     const context: SteamPageContext = {
         react: () => react,
@@ -95,12 +89,7 @@ function registerSteamPage(definition: SteamPageDefinition): SteamPageContext {
     // component declared inside the renderer would be a new type each time: React would remount the
     // page and drop its state and the controller's focus.
     function SteamPageFrame(props: any) {
-        const [, setRevision] = react.useState(0);
-        react.useEffect(() => {
-            const listener = () => setRevision((value: number) => value + 1);
-            listeners.add(listener);
-            return () => listeners.delete(listener);
-        }, []);
+        react.useSyncExternalStore(local.subscribe, local.revision, local.revision);
         // After the hooks, so a render that finds the gate removed calls the same ones.
         if (!ui) {
             return react.createElement(

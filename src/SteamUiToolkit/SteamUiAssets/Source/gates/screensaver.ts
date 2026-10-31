@@ -7,7 +7,6 @@ function createScreensaverSettings() {
     const patchId = "steam-ui.screensaver";
     const MemoName = "screensaverSettings";
 
-    const RouteTokens = ["GameAPIOSK:", "/gameapiosk"] as const;
     const SectionTokens = ['"#Settings_Customization_Screensaver"', "ForceScreensaver"] as const;
     const PluggedInSetting = "system_idle_screensaver_ac_sec";
     const BatterySetting = "system_idle_screensaver_battery_sec";
@@ -293,7 +292,7 @@ function createScreensaverSettings() {
         }
         dropdown = fields.dropdown;
         const pages = runtime.exported(
-            [...RouteTokens],
+            [...RouteTableTokens],
             (value) => typeof value?.Settings?.Customization === "function",
         ) as any;
         route = pages.Settings.Customization();

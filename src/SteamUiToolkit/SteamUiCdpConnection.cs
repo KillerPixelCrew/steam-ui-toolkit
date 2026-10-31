@@ -285,6 +285,8 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(expression);
         var sent = false;
         var replied = false;
+        // Until a reply proves otherwise, the group may hold a result or exception object.
+        var retained = true;
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(timeout);
         var objectGroup = "steam-ui-evaluation-" + Interlocked.Increment(ref _nextEvaluationId);
@@ -319,6 +321,8 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
                     new InvalidDataException("Steam UI evaluation response lacked a result."));
             }
 
+            // A primitive result (every JSON.stringify answer) leaves nothing in the group.
+            retained = result.TryGetProperty("objectId", out _);
             try
             {
                 return await ReadEvaluationValueAsync(result, timeout, deadline.Token).ConfigureAwait(false);
@@ -341,7 +345,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
         }
         finally
         {
-            if (sent)
+            if (sent && retained)
             {
                 try
                 {

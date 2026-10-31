@@ -18,6 +18,7 @@ import {
   instantiate,
   loadAsset,
   sharedFragments,
+  withSource,
 } from "./check-harness.mjs";
 
 const asset = loadAsset();
@@ -28,9 +29,7 @@ function jsxProduction(type, props, key) {
 const { host: runtime, failNext } = failingHost({ jsx: jsxProduction, jsxs: jsxProduction });
 const originalJsx = runtime.jsx;
 const localize = (token) => (token === "#SwitchToDesktop" ? "Zum Desktop wechseln" : token);
-Object.defineProperty(localize, "toString", {
-  value: () => "function F(k,...E){let R=C.LocalizeString(k);return R===void 0?k:R}",
-});
+withSource(localize, "function F(k,...E){let R=C.LocalizeString(k);return R===void 0?k:R}");
 const modules = { react, runtime, menu: {}, localization: { we: localize } };
 const moduleFor = (tokens) =>
   tokens.includes("useState")
@@ -64,7 +63,6 @@ const globals = {
     requests.push(args);
     return Promise.reject(new Error("refused"));
   },
-  nextActionGeneration: () => 1,
   registerGate: () => {},
 };
 const gate = instantiate(

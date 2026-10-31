@@ -216,9 +216,7 @@ public static class SteamExtensionsTabSurface
         if (!SteamUiPayload.TryReadNonBlankString(payload, "id", out var id)
             || !SteamUiPayload.TryReadNonBlankString(payload, "key", out var key)
             || !payload.TryGetProperty("value", out var settingValue)
-            || !payload.TryGetProperty("revision", out var revisionProperty)
-            || !revisionProperty.TryGetInt64(out var revision)
-            || revision < 0
+            || !SteamUiPayload.TryReadLong(payload, "revision", 0, out var revision)
             || settingValue.ValueKind is not (JsonValueKind.True or JsonValueKind.False or JsonValueKind.Number
                 or JsonValueKind.String)
             || !SteamUiPayload.HasExactly(payload, 4))

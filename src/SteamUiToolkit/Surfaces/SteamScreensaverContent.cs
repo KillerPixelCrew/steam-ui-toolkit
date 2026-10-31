@@ -195,9 +195,8 @@ internal static class SteamScreensaverContent
                 return true;
             case "selectionResult":
                 if (!SteamUiPayload.HasExactly(payload, 3)
-                    || !payload.TryGetProperty("revision", out var revision) || revision.ValueKind != JsonValueKind.Number
-                    || !revision.TryGetInt64(out var operation)
-                    || operation <= 0 || !payload.TryGetProperty("error", out var error)
+                    || !SteamUiPayload.TryReadLong(payload, "revision", 1, out var operation)
+                    || !payload.TryGetProperty("error", out var error)
                     || error.ValueKind is not JsonValueKind.String and not JsonValueKind.Null
                     || error.ValueKind == JsonValueKind.String && error.GetString()!.Length > 512)
                 {

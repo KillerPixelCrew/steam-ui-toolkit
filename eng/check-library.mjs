@@ -35,6 +35,7 @@ import {
     instantiate,
     loadAsset,
     sharedFragments,
+    withSource,
 } from "./check-harness.mjs";
 
 const asset = loadAsset();
@@ -81,9 +82,7 @@ const shared = sharedFragments(asset);
     function SteamInputBadge() {
         return element("div", { className: "controller-support" });
     }
-    Object.defineProperty(SteamInputBadge, "toString", {
-        value: () => 'function(){ "ControllerSupportIcon"; }',
-    });
+    withSource(SteamInputBadge, 'function(){ "ControllerSupportIcon"; }');
     const Focusable = () => null;
     const Hover = () => null;
     function Tile(props) {
@@ -333,13 +332,9 @@ const shared = sharedFragments(asset);
         LastPlayedInfo: "info-hash",
     };
     const localize = (token) => (token === "#Settings_Page_Library" ? "Bibliothek" : token);
-    Object.defineProperty(localize, "toString", {
-        value: () => "function F(k,...E){let R=C.LocalizeString(k);return R===void 0?k:R}",
-    });
+    withSource(localize, "function F(k,...E){let R=C.LocalizeString(k);return R===void 0?k:R}");
     const quiet = () => "";
-    Object.defineProperty(quiet, "toString", {
-        value: () => "function v(k,...E){let R=C.LocalizeString(k,!0);return R===void 0?k:R}",
-    });
+    withSource(quiet, "function v(k,...E){let R=C.LocalizeString(k,!0);return R===void 0?k:R}");
     const modules = {
         react,
         runtime,

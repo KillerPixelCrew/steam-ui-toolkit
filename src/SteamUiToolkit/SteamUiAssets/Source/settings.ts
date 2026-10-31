@@ -258,7 +258,7 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
         case "curve": {
             const points = draft !== undefined ? draft : (row.curve ?? []);
             return h(ui.react.Fragment, {key},
-                h(ui.valueField, {name: row.label, description: steamSettingDescription(ui, row), focusable: false, value: null}),
+                h(ui.valueField, {name: row.label, description: common.description, focusable: false, value: null}),
                 ...points.map((point, index) => h(ui.sliderField, {
                     key: `${key}-${point.input}`,
                     label: `${point.input} °C`,
@@ -357,7 +357,7 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
             return h(ui.valueField, {
                 key,
                 name: row.label,
-                description: steamSettingDescription(ui, row),
+                description: common.description,
                 focusable: false,
                 value: h(
                     ui.focusable,
@@ -409,7 +409,7 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
             return h(
                 ui.react.Fragment,
                 {key},
-                h(ui.valueField, {name: row.label, value: null, description: steamSettingDescription(ui, row), focusable: false}),
+                h(ui.valueField, {name: row.label, value: null, description: common.description, focusable: false}),
                 ...values.map((value, index) =>
                     h(ui.valueField, {
                         key: `${key}-${value}`,
@@ -441,7 +441,7 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
             return h(ui.valueField, {
                 key,
                 name: row.label,
-                description: steamSettingDescription(ui, row),
+                description: common.description,
                 focusable: false,
                 value: h(
                     ui.dialogButton,
@@ -450,11 +450,11 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
                 ),
             });
         case "note":
-            return h(ui.valueField, {key, name: row.label, value: row.text ?? "", description: steamSettingDescription(ui, row)});
+            return h(ui.valueField, {key, name: row.label, value: row.text ?? "", description: common.description});
         default:
             // A kind this build does not know is shown as its label and nothing else, never as a
             // control that would send a value the host did not describe.
-            return h(ui.valueField, {key, name: row.label, value: "", description: steamSettingDescription(ui, row)});
+            return h(ui.valueField, {key, name: row.label, value: "", description: common.description});
     }
 };
 

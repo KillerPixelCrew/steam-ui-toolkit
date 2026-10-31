@@ -102,7 +102,7 @@ public sealed class SteamQuickAccessRowPatch : ISteamUiPatch
                                  profileProjection:count(['#PlatformPerformanceProfile_Label','steamos_platform_performance_profile','rgOptions']),
                                  performanceRoot:count(['#QuickAccess_Tab_Perf_Common_Settings','#QuickAccess_Tab_Perf_BatteryTimeRemaining','TS.ON_FRAME']),
                                  nativeFields:count({{SteamUiProbeJs.NativeFieldTokens}}),
-                                 nativeLayout:count(['PanelSectionTitle','PanelSectionRow','spinner']),
+                                 nativeLayout:count({{SteamUiProbeJs.PanelLayoutTokens}}),
                                  localization:count({{SteamUiProbeJs.LocalizationTokens}}),
                                  react:count({{SteamUiProbeJs.ReactTokens}})
                                });

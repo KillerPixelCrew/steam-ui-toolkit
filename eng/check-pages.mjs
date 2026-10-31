@@ -16,6 +16,7 @@ import {
     instantiate,
     loadAsset,
     sharedFragments,
+    withSource,
 } from "./check-harness.mjs";
 
 const asset = loadAsset();
@@ -26,12 +27,12 @@ const react = createReact();
 const SteamRoute = function () {
     return null;
 };
-Object.defineProperty(SteamRoute, "toString", {
-    value: () =>
-        'function Y(he){const{children:Z,...q}=he,pe=be=>typeof Z==="function"?Z(be):Z;' +
+withSource(
+    SteamRoute,
+    'function Y(he){const{children:Z,...q}=he,pe=be=>typeof Z==="function"?Z(be):Z;' +
         "return(0,h.jsx)(D.qh,{...q,children:be=>(0,h.jsx)(Q,{routePath:be.match?.path," +
         "disabled:!be.match,children:pe(be)})})}",
-});
+);
 
 const route = (path) => element(SteamRoute, { path }, path);
 const stockRoutes = [
@@ -47,17 +48,13 @@ function RouteSwitch(props) {
     const first = props.children.find((child) => child.props?.path === props.location);
     return first ?? null;
 }
-Object.defineProperty(RouteSwitch, "toString", {
-    value: () => 'function fd(){ "computedMatch"; "TopLevelTransition"; }',
-});
+withSource(RouteSwitch, 'function fd(){ "computedMatch"; "TopLevelTransition"; }');
 // One intermediate component, so the gate has to descend rather than read a fixed index.
 const Middle = (props) => element("div", { children: [element(RouteSwitch, props)] });
 function Router(props) {
     return element(Middle, { location: props.location, children: stockRoutes.slice() });
 }
-Object.defineProperty(Router, "toString", {
-    value: () => 'function(){ "Settings.Root()"; "TopLevelTransition"; }',
-});
+withSource(Router, 'function(){ "Settings.Root()"; "TopLevelTransition"; }');
 
 const { host: memo, failNext } = failingHost({
     $$typeof: Symbol.for("react.memo"),
@@ -260,8 +257,7 @@ assert.equal(gate.status().routeSource, "none", "removal must drop the borrowed 
     let components = null;
     let released = 0;
     const pageReact = createReact({
-        useState: (initial) => [initial, () => {}],
-        useEffect: () => {},
+        useSyncExternalStore: (_subscribe, snapshot) => snapshot(),
     });
     const { registerSteamPage, steamPageRenderers } = instantiate(
         {

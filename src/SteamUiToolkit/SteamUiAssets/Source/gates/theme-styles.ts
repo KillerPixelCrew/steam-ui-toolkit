@@ -86,22 +86,7 @@ function createThemeStyles() {
         // A window mid-navigation can refuse every read; it is looked at again next pass.
       }
     };
-    const manager = popupManager();
-    if (manager) {
-      let popups: any[] = [];
-      try {
-        popups = Array.from(manager.GetPopups() ?? []);
-      } catch {
-        popups = [];
-      }
-      for (const popup of popups) {
-        try {
-          consider(popup?.m_popup?.document, String(popup?.m_strName ?? ""));
-        } catch {
-          // As above.
-        }
-      }
-    }
+    for (const popup of steamPopupDocuments()) consider(popup.document, popup.name);
     walkFibers(reactRootFibers(), MaximumMountedNodes, (fiber) => {
       if (fiber.tag !== HostPortalTag) return false;
       const container = fiber.stateNode?.containerInfo;

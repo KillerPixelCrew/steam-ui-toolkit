@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { fragment, instantiate, loadAsset, withSource } from "./check-harness.mjs";
+import { declarations, fragment, instantiate, loadAsset, withSource } from "./check-harness.mjs";
 
 const history = () => {
     const listeners = new Set();
@@ -123,7 +123,7 @@ const browser = instantiate(
             resolve: () => jsx,
         },
     },
-    fragment(loadAsset(), "overlay-browser.ts"),
+    declarations(loadAsset(), "gate-helpers.ts", ["RouteTableTokens"]) + "\n" + fragment(loadAsset(), "overlay-browser.ts"),
     "resolveSteamOverlayBrowser(runtime)",
 );
 

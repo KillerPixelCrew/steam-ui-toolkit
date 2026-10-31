@@ -13,7 +13,7 @@ public sealed class SteamNativeSettingsSurfaceTests
     [InlineData("{\"key\":\"device/lighting\",\"value\":true,\"extra\":1}")]
     public async Task InvalidChangesNeverReachTheOwner(string payload)
     {
-        Backend backend = new();
+        RecordingBackend backend = new();
 
         var result = await DispatchAsync(Modules(backend), SteamNativeSettingsSurface.PatchId, "set", payload);
 
@@ -28,13 +28,13 @@ public sealed class SteamNativeSettingsSurfaceTests
     [InlineData("\"hsla(180, 50%, 50%, 1)\"")]
     public async Task PrimitiveValuesReachTheCurrentOwnerOnce(string value)
     {
-        Backend backend = new();
+        RecordingBackend backend = new();
 
         var result = await DispatchAsync(Modules(backend), SteamNativeSettingsSurface.PatchId, "set",
             "{\"key\":\"device/lighting\",\"value\":" + value + "}");
 
         Assert.True(result.Succeeded);
-        Assert.Equal(("device/lighting", value), Assert.Single(backend.Calls));
+        Assert.Equal($"setting device/lighting {value}", Assert.Single(backend.Calls));
     }
 
     [Theory]
@@ -49,7 +49,7 @@ public sealed class SteamNativeSettingsSurfaceTests
     [InlineData("{\"operation\":\"refresh\",\"extra\":1}", false)]
     public async Task ResolutionEditsKeepABoundedClosedVocabulary(string value, bool accepted)
     {
-        Backend backend = new();
+        RecordingBackend backend = new();
         var result = await DispatchAsync(Modules(backend), SteamNativeSettingsSurface.PatchId, "set",
             "{\"key\":\"resolutions\",\"value\":" + value + "}");
         Assert.Equal(accepted, result.Succeeded);
@@ -59,7 +59,7 @@ public sealed class SteamNativeSettingsSurfaceTests
     [Fact]
     public async Task BoundariesRefuseOversizedKeysAndStrings()
     {
-        Backend backend = new();
+        RecordingBackend backend = new();
         var modules = Modules(backend);
         var longKey = JsonSerializer.Serialize(new string('k', 1025));
         var longValue = JsonSerializer.Serialize(new string('v', 4097));
@@ -116,22 +116,11 @@ public sealed class SteamNativeSettingsSurfaceTests
         Assert.False(gate.Compatible(JsonSerializer.SerializeToElement(facts)));
     }
 
-    private static SteamUiModuleSet Modules(Backend backend)
+    private static SteamUiModuleSet Modules(RecordingBackend backend)
     {
         return new SteamUiModuleSet([
             SteamNativeSettingsSurface.Module(Always,
                 () => new ValueTask<SteamNativeSettingsState?>(null as SteamNativeSettingsState), backend)
         ]);
-    }
-
-    private sealed class Backend : ISteamNativeSettingsBackend
-    {
-        internal List<(string Key, string Value)> Calls { get; } = [];
-
-        public Task<SteamUiCommandResult> SetAsync(string key, JsonElement value, CancellationToken cancellationToken)
-        {
-            Calls.Add((key, value.GetRawText()));
-            return Task.FromResult(SteamUiCommandResult.Applied);
-        }
     }
 }

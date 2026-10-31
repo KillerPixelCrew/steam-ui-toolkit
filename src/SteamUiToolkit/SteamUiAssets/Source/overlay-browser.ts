@@ -5,7 +5,7 @@ function resolveSteamOverlayBrowser(runtime) {
         (value) => typeof value === "function" && String(value).includes(".useContext("),
     ) as () => any;
     const routes = runtime.exported(
-        ["GameAPIOSK:", "/gameapiosk"],
+        [...RouteTableTokens],
         (value) => typeof value?.GamepadUI?.ExternalWeb === "function",
     ) as any;
     const externalPath = routes?.GamepadUI?.ExternalWeb();

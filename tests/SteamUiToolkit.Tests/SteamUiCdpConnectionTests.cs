@@ -69,7 +69,8 @@ public sealed class SteamUiCdpConnectionTests
 
         Assert.Equal("ready", (await connection.EvaluateAsync("'ready'", TimeSpan.FromSeconds(1),
             CancellationToken.None)).Value);
-        Assert.Equal(["Runtime.evaluate", "Runtime.releaseObjectGroup"], methods);
+        // A primitive result leaves nothing in the group, so there is nothing to release.
+        Assert.Equal(["Runtime.evaluate"], methods);
     }
 
     [Theory]

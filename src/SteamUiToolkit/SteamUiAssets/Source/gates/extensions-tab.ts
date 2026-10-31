@@ -319,24 +319,8 @@ function createExtensionsTab() {
         react.useEffect(() => subscribe(patchId, redraw), []);
         const h = react.createElement;
         const items = desired.items;
-        const activate = (id) => {
-            // The window the tab is drawn in, read while its flyout is still open: over a game that is the
-            // game's overlay window, and the page opens there.
-            const owner = steamInteractionWindow();
-            void request(patchId, "activate", { id }).then(
-                (answer: any) => {
-                    // An action may answer with a page to open. The panel is closed first: this tab is
-                    // rendered inside the Quick Access flyout, so navigating with it open leaves the page
-                    // behind the panel, which on a controller is indistinguishable from a dead button.
-                    if (answer?.route && closeSteamSideMenus(owner))
-                        navigateSteamRoute(answer.route, owner);
-                },
-                () => {
-                    // The host's refusal is already logged and the row remains truthful on the next state
-                    // publication. A rejected click must not tear down the whole Quick Access panel.
-                },
-            );
-        };
+        // The tab is drawn inside the Quick Access flyout, which closes before any page it opens.
+        const activate = (id) => activateSteamPanelEntry(patchId, id);
         // The row renderer's change: a committed value is sent against the configuration it was made
         // against. A value the setting cannot take is refused here rather than sent to be refused.
         const change = (item, setting) =>

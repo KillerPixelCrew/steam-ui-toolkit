@@ -14,6 +14,7 @@ import {
   instantiate,
   loadAsset,
   sharedFragments,
+  withSource,
 } from "./check-harness.mjs";
 
 const asset = loadAsset();
@@ -46,9 +47,7 @@ function PanelRoot() {
   });
 }
 // The gate matches the root by source, exactly as it does against the live client.
-Object.defineProperty(PanelRoot, "toString", {
-  value: () => 'function(){ "#MainMenu_Title"; "RunnningAppSeparator"; }',
-});
+withSource(PanelRoot, 'function(){ "#MainMenu_Title"; "RunnningAppSeparator"; }');
 // One intermediate component, so the descent has to render something to reach the root at all.
 const Middle = () => element("div", { children: [element(PanelRoot, {})] });
 const Outer = () => element(Middle, {});
@@ -59,7 +58,7 @@ const { host: memo, failNext } = failingHost({
   compare: null,
 });
 const exports = { v_: memo };
-Object.defineProperty(Outer, "toString", { value: () => 'function(){ "MainNavMenuContainer"; }' });
+withSource(Outer, 'function(){ "MainNavMenuContainer"; }');
 
 const requests = [];
 const navigated = [];
@@ -76,7 +75,6 @@ const globals = {
   },
   createIconRenderer: () => (name) => element("svg", { name }),
   renderSteamGlyph: (_react, d) => (d.startsWith("M") ? element("svg", { d }) : null),
-  nextActionGeneration: () => 1,
   request: (patchId, command, payload) => {
     requests.push(`${command} ${payload.id}`);
     return Promise.resolve(answer);

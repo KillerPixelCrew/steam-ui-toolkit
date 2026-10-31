@@ -723,69 +723,52 @@ public sealed class SteamApps
     /// <returns>The outcome, returned id and readback confirmation; unreadable or unconfirmed creation remains uncertain.</returns>
     internal static SteamShortcutAddResult ParseAddShortcut(SteamUiEvaluationResult result)
     {
-        if (result.Dispatch != SteamUiDispatch.Answered)
+        return SteamClientScript.ParseWrite(
+            result,
+            static (outcome, detail) => new SteamShortcutAddResult(outcome, 0, false, detail),
+            ReadAddShortcut,
+            "shortcut reply");
+    }
+
+    private static SteamShortcutAddResult ReadAddShortcut(JsonElement root)
+    {
+        if (!SteamClientScript.IsOk(root))
+        {
+            var unconfirmed = root.ValueKind == JsonValueKind.Object
+                              && root.TryGetProperty("unconfirmed", out var flag)
+                              && flag.ValueKind == JsonValueKind.True;
+            return new SteamShortcutAddResult(
+                unconfirmed ? SteamClientWriteOutcome.Unknown : SteamClientWriteOutcome.Rejected,
+                0,
+                false,
+                SteamClientScript.RefusalOf(root) ?? "Steam refused to create the shortcut.");
+        }
+
+        var value = SteamClientScript.StringOf(root, "value");
+        if (!uint.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var appId))
         {
             return new SteamShortcutAddResult(
-                SteamClientScript.Unread(result.Dispatch), 0, false, result.Error ?? "Steam did not answer.");
+                SteamClientWriteOutcome.Unknown, 0, false, "Steam reported an unreadable shortcut id.");
         }
 
-        if (result.Error is not null)
-        {
-            return new SteamShortcutAddResult(SteamClientWriteOutcome.Rejected, 0, false, result.Error);
-        }
-
-        if (result.Value is null)
-        {
-            return new SteamShortcutAddResult(SteamClientWriteOutcome.Unknown, 0, false, "No response from Steam.");
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(result.Value);
-            var root = document.RootElement;
-            if (!SteamClientScript.IsOk(root))
-            {
-                var unconfirmed = root.ValueKind == JsonValueKind.Object
-                                  && root.TryGetProperty("unconfirmed", out var flag)
-                                  && flag.ValueKind == JsonValueKind.True;
-                return new SteamShortcutAddResult(
-                    unconfirmed ? SteamClientWriteOutcome.Unknown : SteamClientWriteOutcome.Rejected,
-                    0,
-                    false,
-                    SteamClientScript.RefusalOf(root) ?? "Steam refused to create the shortcut.");
-            }
-
-            var value = SteamClientScript.StringOf(root, "value");
-            if (!uint.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var appId))
-            {
-                return new SteamShortcutAddResult(
-                    SteamClientWriteOutcome.Unknown, 0, false, "Steam reported an unreadable shortcut id.");
-            }
-
-            if (!IsShortcutAppId(appId))
-            {
-                return new SteamShortcutAddResult(
-                    SteamClientWriteOutcome.Unknown, 0, false,
-                    $"Steam reported {appId}, which is not a non-Steam shortcut id.");
-            }
-
-            var confirmed = root.TryGetProperty("confirmed", out var confirmedFlag)
-                            && confirmedFlag.ValueKind == JsonValueKind.True;
-            var mismatch = SteamClientScript.StringOf(root, "mismatch");
-            return new SteamShortcutAddResult(
-                SteamClientWriteOutcome.Applied,
-                appId,
-                confirmed,
-                confirmed
-                    ? null
-                    : SteamClientScript.RefusalOf(root) ?? "The library did not confirm the new shortcut.",
-                mismatch.Length > 0 ? mismatch : null);
-        }
-        catch (JsonException ex)
+        if (!IsShortcutAppId(appId))
         {
             return new SteamShortcutAddResult(
-                SteamClientWriteOutcome.Unknown, 0, false, $"Steam's shortcut reply was unreadable: {ex.Message}");
+                SteamClientWriteOutcome.Unknown, 0, false,
+                $"Steam reported {appId}, which is not a non-Steam shortcut id.");
         }
+
+        var confirmed = root.TryGetProperty("confirmed", out var confirmedFlag)
+                        && confirmedFlag.ValueKind == JsonValueKind.True;
+        var mismatch = SteamClientScript.StringOf(root, "mismatch");
+        return new SteamShortcutAddResult(
+            SteamClientWriteOutcome.Applied,
+            appId,
+            confirmed,
+            confirmed
+                ? null
+                : SteamClientScript.RefusalOf(root) ?? "The library did not confirm the new shortcut.",
+            mismatch.Length > 0 ? mismatch : null);
     }
 
     /// <summary>Maps a shortcut-list reply to a read.</summary>

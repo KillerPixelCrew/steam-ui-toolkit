@@ -286,7 +286,7 @@ public static class SteamLibraryBadgeSurface
               // Writable and configurable, or the claim could neither replace nor restore it.
               claimable:{{SteamUiProbeJs.Replaceable("descriptor")}},
               // Already ours is compatible; see the remarks on this patch.
-              claimed:!!memo&&memo.type.__steamUiLibraryBadgeClaimed===true,
+              claimed:{{SteamUiProbeJs.Claimed("memo?.type", "LibraryBadge")}},
               settingsModule:count({{SteamUiProbeJs.SettingsStoreTokens}}),
               // The tile stylesheet's class map, read by Valve's names; wanted for focus-only
               // visibility, not required for the badge to draw.

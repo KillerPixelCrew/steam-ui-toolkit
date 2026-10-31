@@ -111,7 +111,7 @@ function createNativeSettings() {
       .find((candidate) => candidate.key === row.key);
     if (!installed || !current || current.disabled)
       return Promise.reject(new Error("This setting is unavailable."));
-    return request(patchId, "set", { key: row.key, value }, nextActionGeneration(patchId));
+    return request(patchId, "set", { key: row.key, value });
   };
 
   function SteamUiNativeSettingsSections({ id }) {
@@ -218,20 +218,8 @@ function createNativeSettings() {
   const nativeReactRoots = () => {
     const documents = new Set<any>();
     if (typeof document !== "undefined") documents.add(document);
-    // The same known popup handles the theme gate reads. A navigating popup may refuse its document.
-    try {
-      const manager = window.g_PopupManager;
-      if (typeof manager?.GetPopups === "function") {
-        let visited = 0;
-        for (const popup of manager.GetPopups() ?? []) {
-          if (visited++ >= 256) break;
-          try {
-            const doc = popup?.m_popup?.document;
-            if (doc) documents.add(doc);
-          } catch {}
-        }
-      }
-    } catch {}
+    // The same popup documents the theme gate reads.
+    for (const popup of steamPopupDocuments().slice(0, 256)) documents.add(popup.document);
     const found = new Set<any>();
     for (const doc of documents) {
       try {

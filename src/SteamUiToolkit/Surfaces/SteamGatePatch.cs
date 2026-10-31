@@ -148,6 +148,7 @@ public sealed class SteamGatePatch : ISteamUiPatch
     /// <param name="gate">The gate name as a JavaScript string literal.</param>
     /// <param name="body">Statements run with <c>bridge</c> bound to the gate.</param>
     /// <param name="unavailable">The statement run instead when no such gate is installed.</param>
+    /// <param name="asynchronous">Whether the body awaits, so the expression evaluates to a promise.</param>
     /// <returns>The complete self-invoking expression.</returns>
     /// <remarks>
     ///     A missing gate reads the same as a missing bridge, because from here they are the same
@@ -156,9 +157,11 @@ public sealed class SteamGatePatch : ISteamUiPatch
     internal static string GateExpression(
         string gate,
         string body,
-        string unavailable = BridgeUnavailable)
+        string unavailable = BridgeUnavailable,
+        bool asynchronous = false)
     {
-        return "(()=>{const b=window["
+        return (asynchronous ? "(async()=>{" : "(()=>{")
+               + "const b=window["
                + SteamCef.JsString(BridgeNamespace)
                + "];const bridge=b&&b.gate?b.gate(" + gate + "):null;"
                + "if(!bridge)" + unavailable

@@ -108,7 +108,7 @@ function createPerfNamespace() {
             UpdateSettings: (payload) => {
                 const delta = decodeSettingsUpdate(payload);
                 if (delta === null) return Promise.reject(new Error(lastError));
-                return request(patchId, "updateSettings", { delta }, 0);
+                return request(patchId, "updateSettings", { delta });
             },
             RegisterForStateChanges: () => ({
                 unregister: () => {},

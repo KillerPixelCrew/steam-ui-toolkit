@@ -11,6 +11,7 @@ import {
     loadAsset,
     sharedFragments,
     tick,
+    withSource,
 } from "./check-harness.mjs";
 
 const asset = loadAsset();
@@ -108,10 +109,10 @@ const shared = sharedFragments(asset);
         // module id or export name.
         const DisplayStore = function DisplayStore() {};
         DisplayStore.Get = () => store;
-        Object.defineProperty(DisplayStore, "toString", {
-            value: () =>
-                "class Au{static Get(){}m_msgSettings={};m_flDisplayBrightness=(0,a.Jc)(1)}",
-        });
+        withSource(
+            DisplayStore,
+            "class Au{static Get(){}m_msgSettings={};m_flDisplayBrightness=(0,a.Jc)(1)}",
+        );
         const runtime = () => {
             const require = () => {
                 throw new Error("the gate must not name a module id");

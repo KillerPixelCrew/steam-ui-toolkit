@@ -125,10 +125,9 @@ const accentHelpers = instantiate(
     assert.deepEqual(accentHelpers.accentDescription(runtime, true, "Ready").children, ["Ready"]);
     acceptedStates.set("quickAccessLayout", hostLayout);
 }
-// The host's own command sender over a fixture request, so a row's write carries the action
-// generation exactly as the shipped host attaches it.
-const createSender = (request) =>
-    instantiate({ request, nextActionGeneration: () => 1 }, host("sendCommand"), "sendCommand");
+// The host's own command sender over a fixture request, so a row's write reaches the request
+// exactly as the shipped host sends it.
+const createSender = (request) => instantiate({ request }, host("sendCommand"), "sendCommand");
 let state;
 const requests = [];
 const pending = [];
@@ -207,7 +206,7 @@ row.onChange({ data: "a" });
 assert.equal(requests.length, 0);
 row.onChange({ data: "b" });
 await tick();
-assert.deepEqual(requests[0], ["steam-ui.power-profile", "setPowerProfile", { target: "b" }, 1]);
+assert.deepEqual(requests[0], ["steam-ui.power-profile", "setPowerProfile", { target: "b" }]);
 assert.deepEqual(pending, [true, false]);
 // A refused write shows why in the row's description, whole, and the next write clears it.
 {
@@ -395,7 +394,6 @@ assert.deepEqual(requests.at(-1), [
     "steam-ui.power-preset",
     "setAcPowerPreset",
     { target: "b" },
-    1,
 ]);
 rows[1].props.onChange({ data: "" });
 await tick();
@@ -403,7 +401,6 @@ assert.deepEqual(requests.at(-1), [
     "steam-ui.power-preset",
     "setBatteryPowerPreset",
     { target: null },
-    1,
 ]);
 const before = requests.length;
 rows[0].props.onChange({ data: "missing" });
@@ -1009,7 +1006,7 @@ console.log("Host sections leave layout while every row under them draws nothing
     sliders[1].onChangeComplete(28);
     sliders[0].onChangeComplete(20);
     assert.equal(writes.length, 1, "both controls serialize against the pending command");
-    assert.deepEqual(writes[0], ["steam-ui.power-limit", "setBoostLimit", { watts: 28 }, 1]);
+    assert.deepEqual(writes[0], ["steam-ui.power-limit", "setBoostLimit", { watts: 28 }]);
     assert.ok(render().every((slider) => slider.disabled));
     replies.shift().resolve();
     await tick();
@@ -1021,7 +1018,7 @@ console.log("Host sections leave layout while every row under them draws nothing
         [37, 28],
     );
     sliders[0].onChangeComplete(20);
-    assert.deepEqual(writes[1], ["steam-ui.power-limit", "setPrimaryLimit", { watts: 20 }, 1]);
+    assert.deepEqual(writes[1], ["steam-ui.power-limit", "setPrimaryLimit", { watts: 20 }]);
     replies.shift().reject(new Error("Hardware outcome uncertain"));
     await tick();
     sliders = render();
