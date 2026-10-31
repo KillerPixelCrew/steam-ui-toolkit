@@ -68,7 +68,12 @@ public sealed record SteamSettingsCurvePreset(string Label, IReadOnlyList<SteamS
 /// <summary>One choice of a <see cref="SteamSettingsRowKind.Choice" /> or <see cref="SteamSettingsRowKind.Order" /> row.</summary>
 /// <param name="Value">What the host receives when it is picked.</param>
 /// <param name="Label">What the user sees.</param>
-public sealed record SteamSettingsChoice(string Value, string Label);
+/// <param name="Selectable">
+///     Whether the user can pick it. An unselectable choice names a state the user cannot choose, such
+///     as values that match none of the presets: it is listed only while it is the row's current value
+///     and is never sent.
+/// </param>
+public sealed record SteamSettingsChoice(string Value, string Label, bool Selectable = true);
 
 /// <summary>A change the user is asked about first, in Steam's own confirm modal.</summary>
 /// <param name="When">The boolean value that needs confirming; the other one is sent straight away.</param>
@@ -114,6 +119,18 @@ public sealed record SteamSettingsConfirmation(
 /// <param name="Curve">Fixed curve inputs and current output values.</param>
 /// <param name="CurvePresets">Host-sampled presets using the same fixed inputs.</param>
 /// <param name="ResolutionEditor">Resolution-list editing capabilities.</param>
+/// <param name="Icon">
+///     The name of the toolkit glyph drawn beside the field's label in Quick Access, such as
+///     <c>power</c>, or null for none. A name the toolkit does not draw leaves the row without one.
+/// </param>
+/// <param name="LabelToken">
+///     A Steam localization token naming the same thing as <paramref name="Label" />. Where the client
+///     localizes it, its text replaces the label; otherwise the label is shown.
+/// </param>
+/// <param name="Summary">
+///     What the row says on its Quick Access section's heading while the section is folded, such as
+///     the selected choice, or null for nothing. A section joins its rows' summaries in order.
+/// </param>
 public sealed record SteamSettingsRow(
     string Key,
     string Kind,
@@ -137,7 +154,10 @@ public sealed record SteamSettingsRow(
     bool ColorAlpha = true,
     IReadOnlyList<SteamSettingsCurvePoint>? Curve = null,
     IReadOnlyList<SteamSettingsCurvePreset>? CurvePresets = null,
-    SteamSettingsResolutionEditor? ResolutionEditor = null);
+    SteamSettingsResolutionEditor? ResolutionEditor = null,
+    string? Icon = null,
+    string? LabelToken = null,
+    string? Summary = null);
 
 /// <summary>A titled group of rows: one of Steam's settings sections.</summary>
 /// <param name="Title">The section heading, or null for an untitled section.</param>

@@ -206,6 +206,7 @@ assert.match(icons, /const createIconRenderer =/u);
 // The ownership primitives for the shared useMemo claim the host takes, and the gate helpers it
 // walks Steam's tree and resolves its fields with.
 const shared = sharedFragments(asset);
+const subscribed = new Set();
 const createHost = (window) =>
     runInNewContext(
         `${emittedResolver}
@@ -219,6 +220,12 @@ const createHost = (window) =>
             window,
             subscribePluginFrontends: () => () => {},
             pluginFrontendElements: () => [],
+            // The bridge's subscription, which the host's ledger takes for every publication it reads.
+            subscribe: (patchId) => {
+                subscribed.add(patchId);
+                return () => subscribed.delete(patchId);
+            },
+            request: () => Promise.resolve(),
         },
         { timeout: 1000 },
     );
@@ -267,37 +274,67 @@ function componentFixture() {
     });
     return f;
 }
-function assertRefused(host) {
-    const result = host.install("autoTdp");
+function assertRefused(host, pattern) {
+    const result = host.install();
     assert.equal(result.ok, false);
-    assert.match(result.error, /^native component runtime resolution failed/);
-    const status = host.status("autoTdp");
+    assert.match(result.error, pattern);
+    const status = host.status();
     assert.equal(status.lastError, result.error);
-    assert.equal(status.registered, false);
+    assert.equal(status.installed, false);
     assert.equal(status.performanceRootWrapped, false);
+    assert.equal(status.claims, 0);
 }
-assertRefused(createHost({}));
+// No webpack yet is a client still starting, never an incompatible one.
+{
+    const host = createHost({});
+    assertRefused(host, /^Steam modules unavailable/u);
+}
 for (const broken of ["react", "performance"]) {
-    const f = componentFixture();
-    const tokens = String(f.factories[broken]);
-    // Retain the real fingerprint but throw when that exact factory is resolved.
-    f.factories[broken] = new Function(`/* ${tokens} */ throw new Error('dependency missing');`);
+    const brokenFixture = () => {
+        const f = componentFixture();
+        const tokens = String(f.factories[broken]);
+        // Retain the real fingerprint but throw when that exact factory is resolved.
+        f.factories[broken] = new Function(`/* ${tokens} */ throw new Error('dependency missing');`);
+        return f;
+    };
+    // The probe asks the question install asks, and answers it without claiming anything.
+    const probed = brokenFixture();
+    assert.equal(createHost(probed.window).probe().outcome, "incompatible");
+    const f = brokenFixture();
     const host = createHost(f.window);
-    assertRefused(host);
+    assertRefused(host, /find failed: .*dependency missing/u);
     assert.ok(f.cache[broken], `the failure reached the ${broken} factory`);
     if (f.cache.react?.exports.useMemo)
         assert.equal(f.cache.react.exports.useMemo.name, "originalUseMemo");
-    host.remove("autoTdp");
-    host.dispose();
+    assert.equal(host.remove().ok, true);
 }
 {
     const f = componentFixture();
     const host = createHost(f.window);
-    const installed = host.install("autoTdp");
-    assert.equal(installed.ok, true, JSON.stringify(installed));
-    assert.equal(host.status("autoTdp").performanceRootWrapped, true);
-    host.remove("autoTdp");
+    // The probe is pure: answering ready takes nothing.
+    assert.equal(host.probe().outcome, "ready", JSON.stringify(host.probe()));
     assert.equal(f.cache.react.exports.useMemo.name, "originalUseMemo");
+    const installed = host.install();
+    assert.equal(installed.ok, true, JSON.stringify(installed));
+    const status = host.status();
+    assert.equal(status.performanceRootWrapped, true);
+    assert.equal(status.installed, true);
+    assert.equal(status.held, true);
+    // One subscription per publication the host draws from, all through its ledger.
+    assert.deepEqual([...subscribed].sort(), [
+        "steam-ui.frame-limit",
+        "steam-ui.lighting-zones",
+        "steam-ui.panel-folds",
+        "steam-ui.performance",
+        "steam-ui.quick-access-layout",
+        "steam-ui.quick-access-rows",
+    ]);
+    assert.equal(host.probe().installed, true, "an installed host answers from what it holds");
+    const removed = host.remove();
+    assert.equal(removed.ok, true, JSON.stringify(removed));
+    assert.equal(f.cache.react.exports.useMemo.name, "originalUseMemo");
+    assert.equal(subscribed.size, 0, "removal releases every subscription");
+    assert.equal(host.status().claims, 0);
 }
 
 console.log("Steam startup: missing factories stay uncached.");
@@ -307,15 +344,19 @@ console.log("Steam startup: missing factories stay uncached.");
 // bridge object it publishes.
 const bridgeSource = fragment(asset, "bridge.ts");
 // Every identity the asset names: a gate's own patch id, a publication it reads under another
-// gate's id, and each row definition's patch id.
+// gate's id, and each publication the Quick Access host reads.
 const ids = [
     ...new Set(
-        [...asset.matchAll(/(?:const (?:patchId|publicationId) = |\bpatchId: )"([^"]+)"/gu)].map(
+        [...asset.matchAll(/(?:const (?:[A-Za-z]*PatchId|patchId|publicationId) = |\bpatchId: )"([^"]+)"/gu)].map(
             (m) => m[1],
         ),
     ),
 ];
-assert.ok(ids.includes("steam-ui.power-limit") && ids.length >= 6);
+assert.ok(
+    ids.includes("steam-ui.quick-access-rows") &&
+        ids.includes("steam-ui.lighting-zones") &&
+        ids.length >= 6,
+);
 const bridgeConfig = {
     namespace: "__steamUiBridgeFixture",
     binding: "__steamUiBindingFixture",

@@ -1,12 +1,9 @@
-using System.Collections.Generic;
-using System.Text.Json;
-
 namespace SteamUiToolkit;
 
 /// <summary>Shared JavaScript fragments for the read-only webpack probes of patches that are not gates.</summary>
 /// <remarks>
 ///     A gate's probe is the gate's own <c>probe()</c>, so a gate never needs anything here. What stays is
-///     what the bridge's own probe and the Quick Access rows still evaluate standalone. The preamble
+///     what the bridge's own probe and the native surface commands still evaluate standalone. The preamble
 ///     captures webpack's require by pushing an empty chunk, which evaluates nothing; a probe built on it
 ///     then reads factory source as text and resolves each module by the source tokens its authors
 ///     typed, never by a module id. Constructing exports is the one thing a probe must never do: it has
@@ -25,23 +22,8 @@ public static class SteamUiProbeJs
     public const string ReactTokens =
         "['react.transitional.element','useState','cloneElement','createElement']";
 
-    /// <summary>The source tokens of the module exporting Valve's slider and dropdown fields.</summary>
-    public const string NativeFieldTokens = "['DialogSlider_Container','DropDownField','SliderField']";
-
-    /// <summary>The source tokens of the layout module exporting Valve's PanelSection and PanelSectionRow.</summary>
-    /// <remarks>The tokens <c>resolveSteamPanelComponents</c> resolves the module by.</remarks>
-    public const string PanelLayoutTokens = "['PanelSectionTitle','PanelSectionRow','spinner']";
-
-    /// <summary>The source tokens of Steam's localizer module.</summary>
-    internal const string LocalizationTokens =
-        "['Attempting to localize token','Unable to find localization token','LocalizeString']";
-
     /// <summary>The source tokens of the module holding Steam's route table.</summary>
     internal const string RouteTableTokens = "['GameAPIOSK:','/gameapiosk']";
-
-    /// <summary>The source tokens of the performance-actions module the rows ride by default.</summary>
-    internal static IReadOnlyList<string> PerformanceActionTokens { get; } =
-        ["SetFPSLimitEnabled", "SetFPSLimit", "SetPerfOverlayLevel", "SteamClient.System.Perf"];
 
     /// <summary>Opens a probe IIFE, captures webpack's require and defines the token counter.</summary>
     /// <param name="chunkLabel">The stable chunk-label prefix, kept per probe for live diagnostics.</param>
@@ -56,13 +38,5 @@ public static class SteamUiProbeJs
                    const req={{SteamUiModuleResolver.CreateExpression(chunkLabel)}};
                    const count=req.count;
                  """;
-    }
-
-    /// <summary>Writes a token list as the JavaScript array a probe's counter takes.</summary>
-    /// <param name="tokens">The literal source tokens.</param>
-    /// <returns>A JSON array literal, which JavaScript reads unchanged.</returns>
-    internal static string Tokens(IReadOnlyList<string> tokens)
-    {
-        return JsonSerializer.Serialize(tokens, SteamSurfaceJsonContext.Default.IReadOnlyListString);
     }
 }

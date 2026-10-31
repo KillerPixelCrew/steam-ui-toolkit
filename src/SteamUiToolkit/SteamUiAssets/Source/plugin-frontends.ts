@@ -194,7 +194,6 @@ function createPluginFrontends() {
       value: any,
       render: any,
       gate: string,
-      gateKind?: string,
     ) => {
       const module = `${spec.module}/${id}`;
       const key = `${spec.id}/${id}`;
@@ -206,7 +205,7 @@ function createPluginFrontends() {
       if (render != null && typeof render !== "function")
         throw new Error(`${module}: renderer must be a function`);
       const work = (async () => {
-        await ready(entry, module, () => (bridge.gate(gate) as any)?.install(gateKind));
+        await ready(entry, module, () => (bridge.gate(gate) as any)?.install());
         const react = reactRuntime();
         if (!react) throw new Error("Steam React runtime unavailable");
         const Component = render ? boundary(react, entry, module, render) : null;
@@ -222,8 +221,8 @@ function createPluginFrontends() {
         entry.verifiers.push({
           module,
           check: () => {
-            const state: any = (bridge.gate(gate) as any)?.status(gateKind);
-            return state?.installed === true || state?.registered === true;
+            const state: any = (bridge.gate(gate) as any)?.status();
+            return state?.installed === true;
           },
         });
         if (kind === "page") {
@@ -361,7 +360,6 @@ function createPluginFrontends() {
           {},
           render,
           "nativeComponents",
-          "settingsSections",
         ),
       /**
        * Contributes a library-card addition receiving the current surface props.

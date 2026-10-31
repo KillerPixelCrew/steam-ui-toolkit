@@ -133,8 +133,8 @@ patches reach them through `window[namespace].gate(name)`, exactly as the shippe
 | Extensions    | `SteamUiExtensionHost` (static), `SteamUiExtension`, `SteamUiExtensionManifest`, `SteamUiExtensionRejection`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | Logging       | `ISteamUiLog { Info, Warn, Change(key, message, warning) }`, static `SteamUiLog` with a discarding default                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | Client        | `SteamClient`, `SteamClientWriteOutcome`, `SteamReadResult<T>`, `SteamApps`, `SteamAppDetails`, `SteamArtworkSlot`, `SteamArtworkFormat`, `SteamClientWriteResult`, `SteamInstallFolders` with its add/remove/label result types, `SteamDownloadActivity`, `SteamDownloadOverview`, `SteamLibraryData`, `SteamCollectionInfo`, `SteamCollections`, `SteamCollectionSyncResult`, `SteamStartupMovie`, `SteamStartupMovieChoice`, `SteamStartupMovieResult`, `SteamLibraryApp`, `SteamStoreTag`, `SteamCurrentPage`, `SteamCurrentApp`, `SteamRunningAppsProbe`, `SteamRunningAppsObservation` (§16)  |
-| Surfaces      | `SteamAudioSurface`, `SteamNetworkSurface`, `SteamBluetoothSurface`, `SteamBrightnessSurface`, `SteamPerformanceSurface`, `SteamPowerLimitSurface`, `SteamFrameLimitRow`, `SteamVariableRefreshRow`, `SteamResolutionRow`, `SteamAudioFormatRow`, `SteamAutoTdpRow`, `SteamControllerTargetRow`, `SteamDeviceControlsRow`, `SteamNavigationPanelSurface`, `SteamPageSurface`, `SteamExtensionsTabSurface`, `SteamGameContextMenuSurface`, `SteamPowerMenuSurface`, `SteamStorageSurface`, `SteamLibraryBadgeSurface`, `SteamHomeCarouselSurface`, each with typed state and backend contracts (§15) |
-| Patch helpers | `SteamUiBridgePatch`, `SteamGatePatch`, `SteamQuickAccessRowPatch`; readers `SteamUiPayload`, `SteamPerformanceDeltaReader`, `SteamOverlayLevelWire`; `SteamUiProbeJs`                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Surfaces      | `SteamAudioSurface`, `SteamNetworkSurface`, `SteamBluetoothSurface`, `SteamBrightnessSurface`, `SteamPerformanceSurface`, `SteamQuickAccessRowsSurface`, `SteamFrameLimitRow`, `SteamLightingZonesRow`, `SteamNavigationPanelSurface`, `SteamPageSurface`, `SteamExtensionsTabSurface`, `SteamGameContextMenuSurface`, `SteamPowerMenuSurface`, `SteamStorageSurface`, `SteamLibraryBadgeSurface`, `SteamHomeCarouselSurface`, each with typed state and backend contracts (§15) |
+| Patch helpers | `SteamUiBridgePatch`, `SteamGatePatch`; readers `SteamUiPayload`, `SteamPerformanceDeltaReader`, `SteamOverlayLevelWire`; `SteamUiProbeJs`                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | Assets        | `SteamUiAssets/Source/types.ts`, `bridge.ts`, `ownership.ts`, `rpc.ts`, `gate-helpers.ts`, `icons.ts`, `module-resolver.ts`, `gates/*.ts`, `components.ts`, `epilogue.ts`; listed by `eng/steam-ui-fragments.mjs`, built by `eng/build-prelude.mjs`, checked by `eng/check-*.mjs`                                                                                                                                                                                                                                                                                                                   |
 
 A gate's probe is the gate's own `probe()` (§9), so it asks exactly the question its install asks:
@@ -646,24 +646,12 @@ Subscriber exceptions are isolated during cached replay as well as later deliver
 callback cannot prevent `subscribe` from returning its cleanup handle or stop another subscriber.
 The emitted `eng/check-startup.mjs` fixtures exercise both paths across the built-in module IDs.
 
-`SteamPowerLimitSurface` publishes independent sustained (PL1) and boost (PL2) ranges with
-availability, minimum/maximum/step watts, observed watts, progress and status. Its `powerLimit`
-control uses Valve slider primitives and follows the host's value after profile or external edits.
-Only a completed slider edit sends `setPrimaryLimit` or `setBoostLimit` with exactly `{watts}` (a
-positive integer). The host validates the current descriptor; its range is the device's, with no
-ceiling of the toolkit's. The sliders share a pending-command guard, show refusals and never retry
-automatically. Mounting, publication and profile changes issue no writes.
-
-No range row is gated on a reading. A valid descriptor (whole bounds, minimum below maximum, a
-positive step) draws the power-limit, charge-limit and lighting-brightness sliders; the value shown
-is the host's, clamped into the range, and an off-step one is shown as is until the user moves it. A
-range with no value sits at its minimum with its number hidden and sends nothing until moved. The
-frame-limit row draws with no observed or desired cap the same way, and the controller row draws its
-dropdown with nothing selected when neither the observed nor the selected target is offered. The
-former SteamOS Manager overlay and settings watcher are removed; Steam's persisted TDP setting has
-no authority over this surface. `eng/check-power-profile.mjs` exercises profile updates, drag
-echoes, independent commands, unavailable readback, bounds, pending commands and failures using the
-emitted controls.
+No Quick Access range is gated on a reading. A host row's range draws from its descriptor: the
+value shown is the host's, and a range with no value sits at its minimum with its number hidden and
+sends nothing until moved. The frame-limit row draws with no observed or desired cap the same way.
+Steam's persisted TDP setting has no authority over a host's power rows: they are the host's
+`SteamQuickAccessRowsSurface` rows, written through its `set` command. Mounting, publication and
+profile changes issue no writes.
 
 The bridge object is frozen and defined on `window` as non-enumerable, non-writable, configurable.
 `installResult` is assigned, not returned; `epilogue.ts` returns it after every fragment ran,
@@ -922,6 +910,7 @@ runs while the bundle is evaluated and its place among the discovered fragments 
 | Client call budgets: app write, install folder, library read, page read, running apps | 20 s, 10 s, 12 s, 8 s, 4 s                                     |
 | App-details subscription bound, new shortcut read-back, artwork clear settle          | 3 s, 2 s, 500 ms                                               |
 | Running-app observer                                                                  | `window.__steamUiRunningApps`                                  |
+| Quick Access rows: key, text, curve points; host patch                                | 256, 4096, 64; `steam-ui.quick-access`                         |
 
 ## 14. Tests
 
@@ -936,9 +925,10 @@ runs while the bundle is evaluated and its place among the discovered fragments 
 | `NativeTcpTests`, `SteamCefTests`                                | the table decoder; the debug-flag opt-in, the URL gate, the four port-owner reasons and the passive Closed/Open/Unavailable listener states, including loopback squatter ordering and stale owner lookup                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `SteamClientTests`                                               | the client layer: unreachable against refused, app-id normalization, the details and library parsers, install-folder script selection and reply statuses, download activity, and the running-app observer's reading and lease                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `SteamSurfaceModuleTests`                                        | each surface's `Commands` against its module's vocabulary, each refusal reason against its payload, a null reading publishing nothing                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `eng/check-quick-access-rows.mjs`                                | the emitted component host: the rows publication validated per group and row, fields with glyphs, label tokens and unselectable choices, refusals through drafts, placement by the layout and the folded headings, titled unplaced groups, Valve's components gated on the performance publication, the frame-limit row, the lighting editor, the glyph table and the slider echo |
 | `SteamGatePatchContractTests`                                    | every gate probing through its own bridge gate and sharing one verify and one removal predicate, the standard probe answer read as ready, not ready or incompatible with the whole answer kept as the diagnostic, an unreachable target read as absent and a thrown evaluation as incompatible |
-| `SteamPanelFoldsTests`, `eng/check-power-profile.mjs` (sections) | the open list's wire shape, that the surface mounts nothing, and its one command with a nested id; the emitted panel drawing every section as a kit group with its glyph and summary, Profile scope fixed, Reset headless, folds sent under the section's title                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `SteamChoiceRowTests`, `SteamWindowSurfaceTests`                 | power-profile, preset and core-preference serialization and dispatch; side-menu observation, native button replay, game-window and overlay activation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `SteamPanelFoldsTests`, `eng/check-quick-access-rows.mjs`        | the open list's wire shape, that the surface mounts nothing, and its one command with a nested id; the emitted panel drawing every section as a kit group with its glyph and the summaries of its rows, Profile scope fixed, Reset headless and last, folds sent under the section's id                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `SteamQuickAccessRowsSurfaceTests`, `SteamWindowSurfaceTests`    | the rows' `set` payload bounds (blank, oversized and extra fields, objects, arrays past their bound), every value kind reaching the backend, the wire shape with icon, label token, summary and unselectable choices, the module's one host patch, publication and command, the host patch's gate expressions and its status report; side-menu observation, native button replay, game-window and overlay activation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `SteamNavigationPanelTests`                                      | the panel probe's separate structural facts, selection by what an export draws rather than by its minified name, already-claimed compatibility, the published wire shape                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `eng/check-navigation-panel.mjs`                                 | the emitted gate against an inert React fixture: descent to the panel root, anchoring by route and by descriptor key, orphan reporting, hiding before insertion, activation, exact restoration, reinstall                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `SteamPageTests`, `eng/check-pages.mjs`                          | the page probe's separate facts and its rendered-tree search; the emitted gate's route-list discovery by content, an addition losing to Steam's own route and an override winning, path validation, exact restoration, reinstall, and a page declared with `registerSteamPage` refusing, following state and refusals, and removed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
@@ -946,14 +936,13 @@ runs while the bundle is evaluated and its place among the discovered fragments 
 | `SteamHomeCarouselTests`, `eng/check-home-carousel.mjs`          | the published wire shape and the exact report payload; the emitted gate's probe answering not ready with no route list mounted, incompatible when the route draws something else and ready from its handles while installed, with the search as its facts; finding Home through the route list from the root's `current`, adopting a mounted Home on both fibers and asking the switch to render, replacing `games` for the carousel and the background, clearing the whole-list overscan, the documented order, disconnected games leaving, uninstalled games greyed, no rebuild or report without a change, the fallback to Steam's list, bounded publications, a mounted wrapper passing through after removal, exact restoration of the memo, the adopted fibers and a Home mounted after install, each asked to render, reinstall adopting again |
 | `SteamScreensaverTests`, `eng/check-screensaver.mjs`             | the probe's separate facts and that it names no module id or export, the published wire shape, the exact report and choice payloads and their refusals; the emitted gate wrapping only the customization page and only its Screensaver section, appending the rows after Steam's own, reporting on first read, on change and on page open, sending a choice once and disabling the row while pending, refusing a malformed state whole, the bounded first-report retry, keeping the shared `useMemo` claim for another surface on removal and handing it back with the last                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `SteamFilePickerSurfaceTests`, `eng/check-file-picker.mjs`       | the host side: the all-files and folders-only filters, folders before files in name order with hidden and system entries skipped, extended, slashed, trailing-separator and `..` paths listed as one ordinary form, device paths and legacy device names refused before anything is opened, partial paths refused instead of resolved against the working directory, Downloads and Documents as the known folders Windows reports, a 3,050-entry folder answered whole past the part size, a denied folder refused rather than shown empty, a gone folder and a gone drive told apart, links marked and entered under their own path, a cancelled listing stopping, a chosen file or folder revalidated for existence, kind and type and a folder replaced by a file refused, the exact `resolve` payload and the module's three commands; the emitted picker: places then the start folder, file and folder choices answered only as the host resolves them, a late listing never replacing the folder on screen and the superseded listing cancelled at the host, a refused choice shown with the folder listed again and nothing settled, a listing error re-listing the places and refusing "Use this folder", an unlistable start falling back to the first place, AbortSignal, Steam's modal cancel and unmount each settling null once, a missing modal reported as failed, and a 407-row folder paged by buttons and triggers with every row reachable, the page keyed for fresh focus and a junction shown as a link |
-| `eng/check-startup.mjs` (resolver)                               | missing factories staying uncached, unique resolution, and `exported` counting aliases once, refusing two distinct fits, no fit, a missing module and an invalid predicate                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `eng/check-startup.mjs` (resolver)                               | missing factories staying uncached, the Quick Access host's probe, install and ledgered removal, unique resolution, and `exported` counting aliases once, refusing two distinct fits, no fit, a missing module and an invalid predicate                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `SteamLibraryBadgeTests`, `eng/check-library.mjs` (details)      | the stat patch's compatibility, its Valve-named row lookup and shared runtime resource, the module declaring both patches under one publication; the emitted stat only on the stats row, Valve's classes and the localized label, the badge's naming rules and dimming, no duplicate, an `elements` gate transform coexisting on the one claim, a throwing transform skipped, and `jsx` and `jsxs` handed back only with the last transform                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `eng/check-ui-kit.mjs`                                           | every kit element: the stylesheet's rules, the header's fold and its own caret, the group's body and hidden state, the action grid and its wide label, the card's parts and activation, the banner's dismiss, the toolbar, chips, box and gallery, a confirm sending only on OK, a prompt sending only a trimmed non-empty answer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `SteamThemeStyleTests`, `eng/check-theme-styles.mjs`             | the theme-styles probe reading only Steam's popup manager, the wire shape, the revision-stamped publication; the emitted gate's targeting by title, URL and root class, the published order, an unchanged block kept, a changed block rebuilt, a late window styled on the next pass, a broken pattern matching nothing, removal leaving no node                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `SteamLibraryBadgeTests`, `eng/check-library.mjs` (badge)        | the badge probe's separate structural facts, selection of the tile and the badge by what they are rather than by name, the published wire shape, the exact layout payload; the emitted gate placing the badge left of Valve's in one row, naming the library or the internal label, green for installed and grey otherwise, no badge for a game installed nowhere, an anchorless tile left untouched, Big Art reported once per change, exact restoration, reinstall                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
-Additional regression sources execute the actual C# row probes and the gate expressions against a
-stand-in gate (`SteamProbeExecutionTests`), client scripts (`SteamClientScriptExecutionTests`), native replay,
+Additional regression sources execute the actual C# gate expressions against a stand-in gate (`SteamProbeExecutionTests`), client scripts (`SteamClientScriptExecutionTests`), native replay,
 sound publications, command refusals/cancellation and full error delivery. The surface module test
 discovers all public surface factories rather than keeping a partial list. These sources still need
 to run with the rebuilt emitted asset before their behavior is considered verified.
@@ -987,14 +976,8 @@ for fixtures and diagnostics.
 | `SteamBluetoothSurface`       | Bluetooth page and panel                                  | replaces the service stub's methods, invalidates the query                                         | `SteamBluetoothState`        | discovery, pair, connect, disconnect, forget; trusted and wake-allowed accepted by default |
 | `SteamBrightnessSurface`      | brightness slider                                         | reveals the flag, claims `SetBrightness`, feeds the observable                                     | `SteamBrightnessState`       | set brightness                                                                             |
 | `SteamPerformanceSurface`     | Performance tab and its Valve rows                        | supplies `SteamClient.System.Perf`, writes the store, decodes deltas                               | `SteamPerformanceState`      | apply a `SteamPerformanceDelta`                                                            |
-| `SteamPowerLimitSurface`      | Sustained and boost power sliders                         | Valve field primitives driven by host observations or dispatched writes                            | `SteamPowerLimitState`       | set PL1 or PL2 independently                                                               |
-| `SteamFrameLimitRow`          | unified frame-limit row                                   | row on Valve's slider and toggle                                                                   | `SteamFrameLimitState`       | frame cap, refresh rate                                                                    |
-| `SteamVariableRefreshRow`     | VRR switch                                                | row on Valve's toggle                                                                              | `SteamVariableRefreshState`  | VRR on/off                                                                                 |
-| `SteamResolutionRow`          | resolution dropdown (Quick Settings)                      | row on Valve's dropdown                                                                            | `SteamResolutionState`       | apply a mode                                                                               |
-| `SteamAudioFormatRow`         | channel/default-format and spatial sound (Quick Settings) | rows on Valve's dropdown                                                                           | `SteamAudioFormatState`      | apply a format or spatial sound choice                                                     |
-| `SteamAutoTdpRow`             | automatic power-limit switch and its frame-rate target    | row on Valve's toggle; target slider on Valve's slider while on                                    | `SteamAutoTdpState`          | setting on/off; set the target                                                             |
-| `SteamControllerTargetRow`    | controller-target dropdown                                | row on Valve's dropdown                                                                            | `SteamControllerTargetState` | choose a target                                                                            |
-| `SteamDeviceControlsRow`      | charge, lighting and host descriptor controls             | native sliders, dropdowns and shared settings rows                                                 | `SteamDeviceControlsState`   | charge/brightness/color writes and `setControl`                                            |
+| `SteamFrameLimitRow`          | unified frame-limit row                                   | drawn by the component host on Valve's slider and toggle while published                           | `SteamFrameLimitState`       | frame cap, refresh rate                                                                    |
+| `SteamLightingZonesRow`       | inline lighting-colour editor (Quick Settings)            | drawn by the component host while published                                                        | `SteamLightingZonesState`    | one zone's colour                                                                          |
 | `SteamNavigationPanelSurface` | left slideout navigation panel                            | claims the exported memo's `type`, reaches the panel root by rendering                             | `SteamNavigationPanelState`  | activate an added entry                                                                    |
 | `SteamPageSurface`            | custom pages in Steam's router                            | claims the router memo's `type`, inserts routes into the route list                                | `SteamPageState`             | none: a page is declared, not commanded                                                    |
 | `SteamStorageSurface`         | SteamOS storage management pages                          | claims `SendMsg` on the service transport, answers `StorageDeviceManager.*`                        | `SteamStorageState`          | adopt, unmount, eject, format, trim                                                        |
@@ -1008,13 +991,9 @@ The other built-in surface contracts use the same runtime and lifetime rules:
 
 | Surface                         | State and frontend                                        | Backend or command                                                   |
 | ------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------- |
-| `SteamPowerProfileRow`          | `SteamPowerProfileState`, component host                  | `setPowerProfile` through `ISteamPowerProfileBackend`.               |
-| `SteamPowerPresetRow`           | `SteamPowerPresetState`, component host                   | Separate `setAcPowerPreset` / `setBatteryPowerPreset`.               |
-| `SteamCpuBoostRow`              | `SteamCpuBoostState`, component host                      | `setCpuBoost` through `ISteamCpuBoostBackend`.                       |
-| `SteamHybridCoreRow`            | `SteamHybridCoreState`, component host                    | `setHybridCores` through `ISteamHybridCoreBackend`.                  |
 | `SteamPanelFoldsSurface`        | `SteamPanelFoldsState`, shared fold helper                | `setFolded`; the host persists state.                                |
 | `SteamQuickAccessLayoutSurface` | `SteamQuickAccessLayout`, component host                  | Publication-only section/row placement.                              |
-| `SteamSettingsQuickAccessRow`   | `SteamSettingsQuickAccessState`, shared settings renderer | `set {key,value}` through its backend.                               |
+| `SteamQuickAccessRowsSurface`   | `SteamQuickAccessRowsState`, component host               | `set {key,value}`; registers the one host patch.                     |
 | `SteamNativeSettingsSurface`    | `SteamNativeSettingsState`, `nativeSettings` gate         | `set {key,value}` on existing Steam Settings pages.                  |
 | `SteamExtensionsTabSurface`     | `SteamExtensionsTabState`, `extensionsTab` gate           | `activate` and `configure`, host-rendered plugin descriptors.        |
 | `SteamGameContextMenuSurface`   | `SteamGameContextMenuState`, `gameContextMenu` gate       | `activate` with a selected positive app id and command id.           |
@@ -1772,6 +1751,11 @@ The toggle, dropdown, slider, text field, dialog button and `showModal` are the 
   RGB controls. No hex text sits beside the swatch, which a narrow row wrapped mid-value; the
   swatch's accessible name is the row label and value, and the button's is `Edit <label>`. On a
   client without a modal the row is a text field.
+- A `choice` with an unselectable `SteamSettingsChoice` (`Selectable = false`) lists it only while
+  it is the current value and never sends it; picking the current value sends nothing either.
+- `icon` names a toolkit glyph and `labelToken` a Steam localization token. They are drawn where the
+  surface supplies a glyph renderer and a localizer, as Quick Access does; a settings page shows the
+  `label` and no glyph. `summary` is read only by Quick Access's folded headings.
 - A kind the renderer does not know is shown as its label with nothing that sends.
 - A row with `confirm` asks first, in Steam's confirm modal, when the new value equals `when`.
   Cancelling sends nothing, so the row keeps what the host last published.
@@ -1794,82 +1778,84 @@ overlapping requests, failures and reinstall against the emitted JavaScript with
 session.
 
 Semantic slider completion also suppresses an unchanged observed value. Programmatic refresh and
-command acknowledgments cannot become new user writes. `eng/check-power-profile.mjs` checks the
+command acknowledgments cannot become new user writes. `eng/check-quick-access-rows.mjs` checks the
 emitted echo hook with an inert React fixture.
 
-`SteamPowerProfileRow` adds a dropdown on Performance through patch `steam-ui.power-profile`, kind
-`powerProfile`, and command `setPowerProfile`. Payloads are exactly `{ target: "id" }`, validated
-with `TryReadTarget`. `SteamPowerProfileState` carries any number of unique id/label options,
-observed `Current`, `Available` and `StatusText`. Unknown current ids select nothing. Labels arrive
-whole. Unavailable state with options stays visible but disabled; a state with no options hides the
-row and records its status text in `renderOutcomes`. Selection is also disabled while its request is
-pending, and a refused selection shows the host's reason as the row's description until the next
-selection. The host owns validation, OS writes and persistence. Readback does not decide write
-success or control availability. `SteamChoiceRowTests` covers serialization and dispatch,
-`SteamSurfaceModuleTests` the module vocabulary; `eng/check-power-profile.mjs` checks the emitted
-dropdown, rejected choices, malformed states and Performance placement with inert React/bridge
-fixtures.
+### Quick Access rows
 
-`SteamHybridCoreRow` adds a second dropdown on Performance through patch `steam-ui.hybrid-cores`,
-kind `hybridCores`, and command `setHybridCores`. `SteamHybridCoreState` is the same shape as the
-power-profile state and reuses `SteamPowerProfileOption`, because it is the same control: host-named
-choices, the one observed, and a status line. The host owns what a choice means, whether the machine
-supports any, and the OS write. An empty `Current` is the honest answer for a machine set to
-something the host does not offer, and selects nothing. A machine without a choice publishes no
-options, which hides the row like the power-profile dropdown.
+`SteamQuickAccessRowsSurface` is how a host adds rows to Steam's Quick Access Performance and Quick
+Settings tabs. It publishes `SteamQuickAccessRowsState {Sections, Revision}` under
+`steam-ui.quick-access-rows`: groups of the same `SteamSettingsRow` descriptors the settings pages
+draw, each a `SteamQuickAccessRowSection {Id, Rows, Title?, Glyph?, Groups?}`. One command, `set`,
+carries exactly `{key, value}`: a non-blank key of at most `MaximumKeyLength` (256) characters and a
+boolean, a number, a string of at most `MaximumTextLength` (4096) characters or, for a curve row, an
+array of at most `MaximumArrayLength` (64) points. Anything else is refused with "The Quick Access
+row payload is invalid." before `ISteamQuickAccessRowsBackend.SetAsync` runs. An action row sends
+`true`. The host validates the key and value against its current rows and answers truthfully; a
+refusal's reason is shown on the row until the next write.
 
-`SteamCpuBoostRow` adds a third dropdown through patch `steam-ui.cpu-boost`, kind `cpuBoost`, and
-command `setCpuBoost`. `SteamCpuBoostState` is the power-profile shape plus `Accent`, which the row
-draws as the same marked description the other rows use. The host owns the modes (Handheld
-Companion's five), the per-game resolution and the Windows write.
+Each row is drawn by `renderSteamSettingRow` with Steam's own field for its kind, inside one of
+Valve's panel rows, with a dropdown below its label, and through `useSteamSettingDrafts` keyed by the
+publication's revision: a pick shows while it is sent, a refusal reverts it and stands on the row,
+and a publication that changes another row keeps what is being edited. Three descriptor fields
+serve Quick Access: `Icon`, the name of a toolkit glyph beside the label; `LabelToken`, a Steam
+localization token whose string replaces `Label` where the client has one; and `Summary`, what the
+row says on its section's folded heading. A `SteamSettingsChoice` with `Selectable = false` names a
+state the user cannot pick, such as values that match none of the presets: it is listed only while
+it is the row's current value and is never sent, on the settings pages too. A range row with no
+`Number` sits at its minimum with its number hidden and sends nothing until moved. A row whose Steam
+field this client did not resolve is left out and named in the host's render outcomes.
 
-The three rows share one dropdown factory, which the boost row gives its own normalizer and
-description. Each row still passes its glyph as a function around its own `icon()` call with a
-string literal, because a factory taking the name as an argument would make the rows invisible to
-the check that proves every glyph is placed exactly once and every placement names a drawn glyph.
-The core row draws `cores`, its own glyph.
+The component host is one gate, `nativeComponents`, behind one patch,
+`SteamQuickAccessRowsSurface.HostPatch` (`steam-ui.quick-access`), which the rows module registers.
+Its `defineGate` find resolves the performance panel's factory and root, Valve's field and panel
+components and the localizer, and answers incompatible when one is missing or matches twice; the
+settings fields and Valve's performance components are wanted, not required. Its bind takes the
+shared `useMemo` claim the tab array passes through and subscribes, through its ledger, to every
+publication it draws from, so removal releases both and a mounted tab draws Valve's tree untouched
+from its next render. Verification logs the host's status once per change under
+`steam.ui.append.quick-access`: each tab's append outcome, why each control did or did not draw,
+and whether Steam's toggle resolved.
 
-`SteamPowerPresetRow` publishes `SteamPowerPresetState`: preset options, observed label, independent
-AC/battery assignment IDs, scope, unset label and status. `ISteamPowerPresetBackend` owns assignment
-policy. Its patch `steam-ui.power-preset` and kind `powerPreset` accept only `setAcPowerPreset` and
-`setBatteryPowerPreset`. Each payload has exactly one `target`: a target ID or null to clear the
-local assignment. An option published with `Selectable = false` names a state the user cannot pick,
-such as a saved assignment that matches no preset: it is listed only in a dropdown whose current
-value it is, and the page never sends it. The row does not check selectability itself; the host's
-backend refuses any id it does not offer. The power-profile, hybrid-core and CPU boost dropdowns
-treat the flag the same way. Empty options hide the controls. The C# tests cover routing,
-cancellation forwarding and payload refusals; emitted tests cover both source selectors, clearing,
-disabled state and malformed publications.
+What stays bespoke is one table of `[kind, key, tab, component, publication]`: Valve's profile
+header and per-game toggle (`valveProfileHeader`), overlay level (`valveOverlayLevel`), manual
+refresh rate (`valveRefreshRate`, Quick Settings) and reset (`valveReset`), drawn while
+`steam-ui.performance` has published a state, since that is what they read; the frame-limit row
+(`frameLimit`, `SteamFrameLimitRow`), drawn while its state is published; and the inline lighting
+editor (`lightingZones`, `SteamLightingZonesRow`, Quick Settings): an Edit color switch that opens
+the zone, a preview and hue, saturation and value sliders, whose release queues one
+`setLightingColor {zone, color}` 350 ms after the last change. Neither row module registers a patch
+of its own.
 
-The shared row host draws its rows in the kit's groups (`renderSteamUiGroup`), each a block with a
-subtle fill and border under a heading that carries the section's glyph. The sections are the
-host's: `SteamQuickAccessLayoutSurface` publishes `SteamQuickAccessLayout` under
+The host draws its rows in the kit's groups (`renderSteamUiGroup`), each a block with a subtle fill
+and border under a heading that carries the section's glyph. The sections are the host's:
+`SteamQuickAccessLayoutSurface` publishes `SteamQuickAccessLayout` under
 `steam-ui.quick-access-layout`, and each `SteamQuickAccessSection` names its id, title, glyph,
-whether it folds and the row kinds drawn in it. Rows draw in the order the section names their
-kinds, rows sharing a kind keep the toolkit's order, and a kind no section names is not drawn while
-a layout is published. Without a layout each tab draws its rows in one untitled group. Performance
-draws `Performance` after Steam's battery line, then the host's settings sections, then
-`PerformanceEnd`. Quick Settings draws `QuickSettings` before Valve's common controls; the device
-controls draw their two groups, the kinds `charging` and `lighting`, after Valve's sections, in
-whichever section of `QuickSettings` or `QuickSettingsEnd` names each. Valve's own sections between
-are wrapped in `steam-ui-kit-valve`, which gives their `PanelSection`s the same block look and the
-kit's heading. Steam's own FPS counter rows are hidden only when the layout sets `HideValveFpsRows`,
-for a host whose own overlay replaces them. What remains of Valve's Performance tree once they are
-hidden is the battery line, wrapped in `steam-ui-kit-battery`, which draws it at one line's height:
-the row is found as the element with three children whose middle one, the percentage, is not empty
-(the section around it has three too, two of them empty), so no hashed class is named. RGB
-brightness stays visible; an Edit color toggle reveals the zone and HSV controls. If Valve's toggle
-component is unavailable, the color editor is omitted while charging and brightness remain usable. A
-group with no registered row is omitted. A group whose host rows all render nothing, such as Power
-limits and Controller without a device, stays mounted with the kit's `hidden` class so its rows keep
-their subscriptions. Rows report drawing through `drew` and not drawing through `note`, and a change
-queues one re-render of the panel roots. Valve's own rows report nothing and count as drawn. Each
-control retains the existing bridge and patch ownership.
+whether it folds and the kinds drawn in it: a bespoke kind or a published row group's `Id`. Rows
+draw in the order the section names their kinds, rows sharing a kind keep the toolkit's order, and a
+kind no section names is not drawn while a layout is published. A row group no layout section names
+but that carries a `Title` is drawn as a folding section of its own on Performance, with its `Glyph`
+and then its `Groups` as titled sub-groups, after the layout's `Performance` sections and before the
+plugins' rows and `PerformanceEnd`; its fold is kept under its `Id`. Without a layout each tab draws
+its rows in one untitled group, and every row group draws on Performance. Quick Settings draws
+`QuickSettings` before Valve's common controls and `QuickSettingsEnd` after them. Valve's own
+sections between are wrapped in `steam-ui-kit-valve`, which gives their `PanelSection`s the same
+block look and the kit's heading. Steam's own FPS counter rows are hidden only when the layout sets
+`HideValveFpsRows`, for a host whose own overlay replaces them. What remains of Valve's Performance
+tree once they are hidden is the battery line, wrapped in `steam-ui-kit-battery`, which draws it at
+one line's height: the row is found as the element with three children whose middle one, the
+percentage, is not empty (the section around it has three too, two of them empty), so no hashed
+class is named. A section with nothing published is omitted. A section whose bespoke rows all render
+nothing stays mounted with the kit's `hidden` class so its rows keep drawing from their state.
+Bespoke rows report drawing through `drew` and not drawing through `note`, and a change queues one
+re-render of the panel roots; Valve's rows count as drawn while mounted, a row group while it has
+rows. Reset to Default stays the last control because `PerformanceEnd` follows every other group.
 
 A section folds when the layout says so, and one with an empty title is a plain block with no
-heading. A folded group's heading reports what its rows hold: each row leaves a line through
-`summarize` as it renders (the chosen profile, `60 fps cap`, `17 W sustained · 25 W boost`,
-`Limit 80%`), and the heading joins the lines of the section's kinds. Rows stay mounted while
+heading. A folded group's heading reports what its rows hold: a host row's `Summary` (the chosen profile,
+`17 W sustained · 25 W boost`, `Limit 80%`), and a bespoke control's line, left through `summarize`
+as it renders (`60 fps cap`, the lighting zone); the heading joins the lines of the section's kinds
+in order. Rows stay mounted while
 folded, so the line stays current. Every section starts folded. Folds are one mechanism for every
 Quick Access tab, `createSteamFolds` in `gate-helpers.ts`: the host publishes the open sections' ids
 as `SteamPanelFoldsState` under `steam-ui.panel-folds`, a heading sends `setFolded {id, folded}`,
@@ -1879,21 +1865,18 @@ that keeps folds has the last word and one without the module leaves them to las
 Quick Settings section is named by its layout id, an Extensions tab item as `extensions:<item>`, a
 switch's settings as `extensions:<item>:<key>`; the host keeps the ids as given.
 
-Rows and section headers carry a glyph. `icons.ts` holds the drawings — the toolkit's own, on a
+Rows and section headers carry a glyph. `icons.ts` holds the drawings, the toolkit's own on a
 24x24 grid, filled with `currentColor` and cut with `fill-rule="evenodd"`, because the client's
 artwork is Valve's and cannot be vendored. `createIconRenderer(react)` builds them with Steam's
 React and caches one element per name and size, and the control runtime exposes it as
-`controlRuntime.icon(name, size = 20)`. A row passes the result as Field's `icon` prop, which
-`SliderField`, `ToggleField` and `DropDownField` all forward; sliders also pass
+`controlRuntime.icon(name, size = 20)`. A host row names its glyph as data (`Icon`), which the
+renderer resolves through the same table; a bespoke control names its own. Field's `icon` prop is
+forwarded by `SliderField`, `ToggleField` and `DropDownField`; sliders also pass
 `iconLocation: "front"`, because `SliderField` otherwise places the glyph beside the track rather
 than the label. A section heading takes the 18px glyph its layout section names through the kit
 group's `icon`. An unknown name renders no glyph rather than failing the row, so a mistyped name
-costs an icon and nothing else.
-
-Every glyph is used exactly once. A panel like this is scanned by shape before it is read, so a
-glyph on a header that reappears on a row inside it, or on two rows that do different things, says
-those controls are the same control. Adding a row means drawing a shape, not borrowing one, and
-`eng/check-power-profile.mjs` fails the build on a repeat.
+costs an icon and nothing else. `eng/check-quick-access-rows.mjs` proves every glyph the asset and
+the host layout name is one the table draws.
 
 Valve's own rows take no props, so `withIcon` renders one and clones what it returned. Only the
 overlay-level row qualifies: it returns Valve's slider wrapper, which spreads every unrecognized
@@ -1901,17 +1884,10 @@ prop into `SliderField` and on into `Field`. The per-game toggle returns a Fragm
 prop but `key`; the reset row is a button rather than a field; the profile header already draws the
 game's capsule art.
 
-The profile a preset row reports, rather than sets, uses Valve's `LabelField` — resolved from the
-Field module, whose `#Field_MoreInfo_Action` token occurs once in the whole client bundle — with the
-scope and status as its description. Like the toggle, it is outside `createControlRuntime`'s guard:
-a client where it cannot be resolved loses that one line and keeps the assignments.
-
-The Performance surface's module also mounts Valve's profile header and per-game toggle, reset
-button, overlay-level selector and manual refresh-rate row. Which of them show anything is decided
-entirely by which fields the published `SteamPerformanceState` carries, because Valve's wrappers
-read availability out of that state. Its state, delta and overlay-level types follow Valve's
-protobuf field names; the two-layer hiding rule, the external-display twins, the 769 "no game" id
-and the limits-and-settings pairing are documented on the types.
+Valve's own components read `SteamPerformanceState`, so which of them show anything is decided
+entirely by which fields the published state carries. Its state, delta and overlay-level types
+follow Valve's protobuf field names; the two-layer hiding rule, the external-display twins, the 769
+"no game" id and the limits-and-settings pairing are documented on the types.
 
 A command that opens a page answers `SteamUiCommandResult.Route(route)`, the `{ route }` the
 Extensions tab, the game context menu and the navigation panel follow. A payload of one field is
@@ -1924,18 +1900,13 @@ string, a string that may be empty (`TryReadString`), one that may be null for "
 (`TryReadNullableString`), an array of strings (`TryReadStrings`), booleans and integers.
 `SteamUiBridgePatch` installs the bridge; register it in the same manager as dependent surfaces, but
 do not rely on call order: the manager applies the bridge before every other patch and removes it
-after them. Its probe asks only for webpack and React (`steam-ui-bridge-v1:webpack+react`); every
-Quick Access row probes the performance root, fields, layout, localization, React and
-performance-actions modules the component host draws with, so a Steam build that moves one of them
-takes the rows and nothing else. A row's probe count name must be a JavaScript identifier. Patch ids are `steam-ui.*`,
+after them. Its probe asks only for webpack and React (`steam-ui-bridge-v1:webpack+react`); the
+Quick Access component host probes through its own gate, so a Steam build that moves the
+performance root, fields, layout or localization modules it draws with takes the Quick Access rows
+and nothing else. Patch ids are `steam-ui.*`,
 the markers the live client carries are `__steamUi*`, and both are public constants: a consumer's
 kill-switch policy names patches by them and a probe from a separate CDP call reads the markers
 back.
-
-Power-limit state additionally carries unified and canSelectMode. The optional mode toggle sends
-setUnifiedMode with exactly one boolean unified property. Consumers own persistence and paired
-hardware dispatch. Unified presentation hides the independent boost slider while showing both
-observed values in the TDP description. Default state retains the existing split presentation.
 
 ### Host-owned plugin surfaces
 
@@ -2236,29 +2207,18 @@ restoration. The opaque color path is covered by `eng/check-settings-fields.mjs`
 
 ### Host settings sections in native Quick Access
 
-`SteamSettingsQuickAccessRow` mounts `SteamSettingsQuickAccessState.Pages` in Performance using the
-shared native settings fields and UI kit groups. Each page is one folding group titled by the page;
-its sections are plain inner groups. The host owns row keys, revision, capability availability and
-command validation through `ISteamSettingsQuickAccessBackend.SetAsync`. Its only command is `set`
-with `{key,value}`; arrays, objects, blank keys and extra fields are refused. A null C# reading
-withholds publication; publish an empty `Pages` list to clear previously rendered sections.
+A host's own settings categories in Quick Access are `SteamQuickAccessRowsSurface` row groups no
+layout section names: each carries a `Title` and `Glyph`, folds under its `Id` and draws its
+`Groups` as plain or titled inner groups, after the layout's Performance sections. The host owns row
+keys, the revision, capability availability and command validation through
+`ISteamQuickAccessRowsBackend.SetAsync`. A null C# reading withholds publication; publish an empty
+`Sections` list to clear previously rendered rows.
 
-The four-argument `Module(enabled, read, backend, revision)` overload accepts a cheap revision
-callback. Once the current document has that revision, the bridge skips `read` and serialization on
-publication rounds raised by other surfaces. Change the revision for every state change, including
-an empty `Pages` list. Document replacement still republishes the same current state. The existing
-three-argument overload, or a null revision callback, retains publication without a revision
-shortcut.
-
-`SteamAudioFormatState` publishes independent `ChannelOptions`/`CurrentChannels` and
-`FormatOptions`/`CurrentFormat` alongside Spatial choices. Both playback selectors send the offered
-complete format id to `setFormat`; the host supplies supported combinations and preserves encoding
-where possible. Quick Settings groups those fields under Audio, separately from Display.
-
-The audio row's `setFormat` and `setSpatial` commands accept exactly one nonblank `target` string,
-bounded to 256 characters. Format IDs may contain colons, as the Windows host's complete format
-identity does; they are not controller target identifiers. The backend still checks the current
-endpoint and its offered choices before a write.
+`Module(enabled, read, backend, revision)` accepts a cheap revision callback. Once the current
+document has that revision, the bridge skips `read` and serialization on publication rounds raised
+by other surfaces. Change the revision for every state change, including an empty `Sections` list.
+Document replacement still republishes the same current state. A null revision callback retains
+publication without a revision shortcut.
 
 ### Truthful library reads
 

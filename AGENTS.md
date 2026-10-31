@@ -41,8 +41,9 @@ enabled; this repository supplies mechanisms and truthful state.
   and gate helpers, and a React stand-in).
 - `eng/check-*.mjs`: the emitted-asset checks. `check-ownership-claims` (claim primitives),
   `check-startup` (module resolver, component host, network probe, bridge replay),
-  `check-power-profile` (row dropdowns, glyphs, device controls, sections, power sliders and the
-  slider echo), `check-service-gates` (Bluetooth and brightness), `check-navigation-panel`,
+  `check-quick-access-rows` (host rows, their placement and folded summaries, glyphs, the bespoke
+  frame-limit and lighting rows, Valve's components and the slider echo), `check-service-gates`
+  (Bluetooth and brightness), `check-navigation-panel`,
   `check-settings-fields` (the settings renderer), `check-pages`, `check-storage`, `check-library`
   (library badge, details stat, managed-shortcut availability and the JSX claim), `check-extension-surfaces` (the Extensions tab
   and the game context menu), `check-home-carousel`, `check-screensaver`, `check-power-menu`,

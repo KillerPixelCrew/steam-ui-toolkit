@@ -74,7 +74,7 @@ public sealed record SteamPerformanceState
 ///     <c>is_dynamic_refresh_rate_in_steam_supported</c>; none is modelled, so none of those controls
 ///     renders. <c>tdp_limit_min</c>/<c>tdp_limit_max</c> exist in this message and are also not
 ///     modelled: no component in the performance bundle renders a TDP control, so the fields would be
-///     read by nothing. Valve's TDP row comes from <see cref="SteamPowerLimitSurface" /> instead.
+///     read by nothing. A host's TDP rows are <see cref="SteamQuickAccessRowsSurface" /> rows instead.
 /// </remarks>
 public sealed record SteamPerformanceLimits
 {
@@ -537,9 +537,9 @@ public interface ISteamPerformanceBackend
 ///     that does not exist on Windows, so its state stays empty and every control renders null. The
 ///     gate supplies that namespace, writes the published state into the store, and decodes each
 ///     setter's protobuf delta through the message's own <c>deserializeBinary</c> before forwarding.
-///     The module also mounts Valve's own rows that read that store: the profile header and its
-///     per-game toggle, the reset button, the overlay-level selector, and the manual refresh-rate row
-///     in Quick Settings. Which of them show anything is decided entirely by which fields the
+///     While the state is published the Quick Access component host mounts Valve's own rows that read
+///     that store: the profile header and its per-game toggle, the reset button, the overlay-level
+///     selector, and the manual refresh-rate row in Quick Settings. Which of them show anything is decided entirely by which fields the
 ///     published state carries.
 /// </remarks>
 public static class SteamPerformanceSurface
@@ -552,8 +552,8 @@ public static class SteamPerformanceSurface
 
     /// <summary>The gate that supplies the performance backend behind <c>SteamClient.System.Perf</c>.</summary>
     /// <remarks>
-    ///     Its own resource key, separate from the row patches that mount into the panel: this
-    ///     supplies data, they render, and a failure in one must not disable the other. The probe is the
+    ///     Its own resource key, separate from the component host that mounts into the panel: this
+    ///     supplies data, the host renders, and a failure in one must not disable the other. The probe is the
     ///     gate's own find: the store module by the source tokens that make it the perf store and its
     ///     singleton by the one exported class whose body declares the state, never a module id.
     ///     Incompatible when either is not a unique match or a real backend occupies the namespace; not
@@ -565,44 +565,6 @@ public static class SteamPerformanceSurface
         "steam-ui-perf-v1:store+absent-namespace+reachable-singleton",
         "Performance namespace");
 
-    /// <summary>Valve's profile header and the per-game profile toggle, as one row kind.</summary>
-    /// <remarks>
-    ///     Two separate exports of the perf-components module on the current client — re-probed
-    ///     2026-09-02 after the header rendered with no way to enable a profile — mounted as two rows
-    ///     under this one kind because they are halves of one feature: the header names whose profile
-    ///     is on screen, the toggle is the only control that can change that.
-    /// </remarks>
-    public static SteamQuickAccessRowPatch ProfileHeaderRow { get; } = new(
-        "steam-ui.valve-profile-header",
-        "valveProfileHeader",
-        "steam-ui-valve-profile-header-v1:performance-actions+performance-root+valve-header",
-        "steam_ui_valve_header_probe_");
-
-    /// <summary>Valve's reset-to-default button, rendered last because it undoes everything above it.</summary>
-    public static SteamQuickAccessRowPatch ResetRow { get; } = new(
-        "steam-ui.valve-reset",
-        "valveReset",
-        "steam-ui-valve-reset-v1:performance-actions+performance-root+valve-reset",
-        "steam_ui_valve_reset_probe_");
-
-    /// <summary>Valve's own performance-overlay selector.</summary>
-    public static SteamQuickAccessRowPatch OverlayLevelRow { get; } = new(
-        "steam-ui.valve-overlay-level",
-        "valveOverlayLevel",
-        "steam-ui-valve-overlay-level-v1:performance-actions+performance-root+valve-selector",
-        "steam_ui_valve_overlay_probe_");
-
-    /// <summary>Valve's manual refresh-rate row, mounted into Quick Settings.</summary>
-    /// <remarks>
-    ///     It reads <c>limits.display_refresh_manual_hz_*</c> from the published state, so
-    ///     it appears exactly when the backend supplies those fields.
-    /// </remarks>
-    public static SteamQuickAccessRowPatch RefreshRateRow { get; } = new(
-        "steam-ui.valve-refresh-rate",
-        "valveRefreshRate",
-        "steam-ui-valve-refresh-rate-v1:performance-actions+performance-root+valve-refresh",
-        "steam_ui_valve_refresh_probe_");
-
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
     /// <param name="state">The state to serialize.</param>
     /// <returns>The wire payload.</returns>
@@ -612,7 +574,12 @@ public static class SteamPerformanceSurface
             state, SteamSurfaceJsonContext.Default.SteamPerformanceState);
     }
 
-    /// <summary>Declares the surface as one module: the gate, Valve's rows, the state and the answer.</summary>
+    /// <summary>Declares the surface as one module: the gate, the state and the answer.</summary>
+    /// <remarks>
+    ///     Valve's own Quick Access components that read this state (the profile header and per-game
+    ///     toggle, the overlay level, the refresh rate and the reset button) are mounted by
+    ///     <see cref="SteamQuickAccessRowsSurface.HostPatch" /> while this state is published.
+    /// </remarks>
     /// <param name="enabled">Whether the state may be published right now.</param>
     /// <param name="read">The current state, or null to publish nothing this round.</param>
     /// <param name="backend">What applies the panel's writes.</param>
@@ -631,7 +598,7 @@ public static class SteamPerformanceSurface
             enabled,
             read,
             SteamSurfaceJsonContext.Default.SteamPerformanceState,
-            [Patch, ProfileHeaderRow, ResetRow, OverlayLevelRow, RefreshRateRow],
+            [Patch],
             [
                 // A refusal needs no log of its own: the module runtime logs every refused request
                 // with its reason and payload.

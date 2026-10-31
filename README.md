@@ -97,11 +97,9 @@ product page or artwork browser.
 A renderer for a settings page can hand its rows to `renderSteamSettings`, which draws them with
 Steam's own routed sidebar, settings sections, fields, small buttons and confirm modal, exactly as
 Steam's Settings page looks and navigates. Publish `SteamSettingsPage`s of `SteamSettingsRow`s,
-described by `SteamSettingsRowKind`; `docs/reference.md` lists what each kind draws. Device Quick
-Access controls can publish the same rows through `SteamDeviceControlsState.Sections`. `setControl`
-carries an opaque current descriptor key and its editor value. The host validates identity, values
-and profile scope. Fixed fan curves use native sliders, host-sampled presets and explicit Apply.
-Returning device controls to Global follows Steam's existing profile reset.
+described by `SteamSettingsRowKind`; `docs/reference.md` lists what each kind draws. Quick Access
+rows are the same rows (see below), so one producer serves both. Fixed fan curves use native
+sliders, host-sampled presets and explicit Apply.
 
 **`SteamNativeSettingsSurface.Module`** appends those same native fields to Steam's existing
 Display, Power, Audio and Controller pages. Publish `SteamNativeSettingsState` with
@@ -177,17 +175,21 @@ passes straight through with its own arguments and receiver, and removal deletes
 Valve's method shows through again. The injected half performs no storage operation itself, which
 keeps one Windows implementation behind both Steam's pages and your own.
 
-**`SteamPowerProfileRow.Module`** adds a Windows power-profile dropdown to QAM Performance. Supply
-stable ids, display labels and observed state through `SteamPowerProfileState`, and implement
-`ISteamPowerProfileBackend` to validate and apply selections. **`SteamPowerPresetRow.Module`** adds
-independent AC and battery assignments with `SteamPowerPresetState` and `ISteamPowerPresetBackend`.
-The active preset is read-only. An option published with `Selectable = false` is displayed only in a
-dropdown whose current value it is and never sent as a selection command. Empty preset options hide
-those controls. The toolkit does not change OS power settings itself.
+**`SteamQuickAccessRowsSurface.Module`** adds a host's rows to Quick Access Performance and Quick
+Settings. Publish `SteamQuickAccessRowsState`: groups of `SteamSettingsRow`s, each with an id the
+layout places it by, and implement `ISteamQuickAccessRowsBackend.SetAsync(key, value)` to validate
+and apply a change against the rows you published. A row can name a toolkit glyph (`Icon`), a Steam
+localization token for its label (`LabelToken`) and what it says on its folded section's heading
+(`Summary`); a choice with `Selectable = false` is shown only while it is current and never sent. The
+module also registers the one component host patch every Quick Access row draws through, including
+the frame-limit row (`SteamFrameLimitRow`), the inline lighting editor (`SteamLightingZonesRow`) and
+Valve's own performance components, which draw while `SteamPerformanceSurface` publishes. The
+toolkit does not change OS settings itself.
 
 The host lays the rows out: `SteamQuickAccessLayoutSurface` publishes the sections of each Quick
-Access tab, their titles, glyphs and folds, which row kinds each holds, whether Steam's own FPS rows
-are hidden and the label a marked row's description leads with. Without a layout each tab's rows
+Access tab, their titles, glyphs and folds, which row groups and bespoke kinds each holds, whether
+Steam's own FPS rows are hidden and the label a marked row's description leads with. A titled row
+group no section names gets a section of its own on Performance. Without a layout each tab's rows
 draw in one untitled group.
 
 ## Reading and driving the client
@@ -287,14 +289,9 @@ return failed transport replies, and device detail queries preserve the semantic
 State callbacks are isolated during both cached replay and later publications, so a failing
 subscriber cannot interrupt another subscriber or stop installation cleanup being registered.
 
-Power controls use two Valve slider primitives, for sustained (PL1) and boost (PL2) power. Both
-follow hardware observations, profile changes included, and write only on a completed user edit.
-Steam's own saved TDP setting is never applied or polled. A consumer can also publish `Unified` and
-`CanSelectMode` and implement `SetUnifiedModeAsync`, which renders one TDP slider with both limit
-readbacks; its toggle saves policy only.
-
-Semantic sliders render hardware observations and suppress unchanged completion echoes, so a live
-power-limit update does not dispatch a manual write back to its owner.
+Range rows draw the value the host publishes and write only on a completed user edit; Steam's own
+saved TDP setting is never applied or polled. Semantic sliders suppress unchanged completion echoes,
+so a live update does not dispatch a manual write back to its owner.
 
 Brightness hosts publish confirmed percentages with increasing observation revisions and return
 readback in successful command responses. The native slider consumes that state without sending
@@ -437,10 +434,9 @@ has been done and what has not.
 
 MIT, see `LICENSE`.
 
-`SteamSettingsQuickAccessRow` draws host-owned settings categories as folding groups in Performance
-with the shared native fields. Its `Module` overload accepts a publication revision callback so
-unchanged sections skip reading and serialization during other surfaces' updates. Advanced audio in
-Quick Settings uses separate channel and format selectors under Audio. See
+A titled `SteamQuickAccessRowsSurface` row group draws a host's own settings category as a folding
+group in Performance with the shared native fields. The module accepts a publication revision
+callback so unchanged rows skip reading and serialization during other surfaces' updates. See
 [the surface contract](docs/reference.md).
 
 For a game picker, use `SteamClient.Library.ReadGamesAsync` to distinguish an unavailable or invalid

@@ -230,6 +230,24 @@ const showSteamColorEditor = (ui, title: string, current: SteamColor, send: (val
 const steamSettingDescription = (ui, row) =>
     steamAccentDescription(ui.react, row.description, row.accent === true);
 
+// A row's label: Steam's own string for its token where the client has one, else the host's words.
+// Steam's localizer answers with a React element wrapping the string and hands an unknown token back
+// as itself, so the text inside is what is tested.
+const steamSettingLabel = (ui, row) => {
+    if (!row.labelToken || typeof ui.localize !== "function") return row.label;
+    try {
+        const localized = ui.localize(row.labelToken);
+        const text = textOf(localized);
+        return text && text[0] !== "#" && text !== row.labelToken ? localized : row.label;
+    } catch {
+        return row.label;
+    }
+};
+
+// A row's glyph, by its toolkit name, where the surface draws glyphs; null for none or an unknown name.
+const steamSettingIcon = (ui, row) =>
+    row.icon && typeof ui.icon === "function" ? (ui.icon(row.icon) ?? undefined) : undefined;
+
 /**
  * Renders one typed host setting with native fields and shared refusal/draft handling.
  * @param ui Steam's resolved React and native control components.
@@ -242,7 +260,9 @@ const steamSettingDescription = (ui, row) =>
 const renderSteamSettingRow = (ui, row, draft, change, action) => {
     const h = ui.react.createElement;
     const key = `steam-setting-${row.key}`;
-    const common = {label: row.label, description: steamSettingDescription(ui, row), disabled: !!row.disabled};
+    const label = steamSettingLabel(ui, row);
+    const icon = steamSettingIcon(ui, row);
+    const common = {label, icon, description: steamSettingDescription(ui, row), disabled: !!row.disabled};
     const send = (value) => {
         const confirmation = row.confirm;
         if (confirmation && value === confirmation.when) {
@@ -258,7 +278,7 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
         case "curve": {
             const points = draft !== undefined ? draft : (row.curve ?? []);
             return h(ui.react.Fragment, {key},
-                h(ui.valueField, {name: row.label, description: common.description, focusable: false, value: null}),
+                h(ui.valueField, {name: label, icon, description: common.description, focusable: false, value: null}),
                 ...points.map((point, index) => h(ui.sliderField, {
                     key: `${key}-${point.input}`,
                     label: `${point.input} °C`,
@@ -295,17 +315,28 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
                 checked: draft !== undefined ? draft : !!row.checked,
                 onChange: (value) => send(!!value),
             });
-        case "choice":
+        case "choice": {
+            const selected = draft !== undefined ? draft : row.text;
+            // An unselectable choice names a state the user cannot pick: it is listed only while it is
+            // the current value, and never sent.
+            const choices = (row.choices ?? []).filter(
+                (choice) => choice.selectable !== false || choice.value === selected,
+            );
+            const selectable = (value) =>
+                choices.some((choice) => choice.value === value && choice.selectable !== false);
             return h(ui.dropdown, {
                 key,
                 ...common,
-                rgOptions: (row.choices ?? []).map((choice) => ({data: choice.value, label: choice.label})),
-                selectedOption: draft !== undefined ? draft : row.text,
-                onChange: (option) => send(option?.data),
+                rgOptions: choices.map((choice) => ({data: choice.value, label: choice.label})),
+                selectedOption: selected,
+                onChange: (option) => {
+                    if (option && option.data !== selected && selectable(option.data)) send(option.data);
+                },
                 // A row may ask for the control under its label rather than beside it, which is
                 // how a dropdown fits a narrow panel.
                 layout: row.layout === "below" ? "below" : undefined,
             });
+        }
         case "range": {
             // A range with labels is one of them by index: Steam's slider names each notch and the
             // value is the notch, not a number worth printing beside the track.
@@ -313,6 +344,9 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
             return h(ui.sliderField, {
                 key,
                 ...common,
+                // A labelled slider keeps its glyph with the label, so every row of a section lines its
+                // glyph up in one column; Steam would otherwise put it beside the track.
+                iconLocation: icon ? "front" : undefined,
                 value: draft !== undefined ? draft : (row.number ?? row.minimum ?? 0),
                 min: labels ? 0 : (row.minimum ?? 0),
                 max: labels ? labels.length - 1 : (row.maximum ?? 100),
@@ -356,7 +390,8 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
             }
             return h(ui.valueField, {
                 key,
-                name: row.label,
+                name: label,
+                icon,
                 description: common.description,
                 focusable: false,
                 value: h(
@@ -409,7 +444,7 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
             return h(
                 ui.react.Fragment,
                 {key},
-                h(ui.valueField, {name: row.label, value: null, description: common.description, focusable: false}),
+                h(ui.valueField, {name: label, icon, value: null, description: common.description, focusable: false}),
                 ...values.map((value, index) =>
                     h(ui.valueField, {
                         key: `${key}-${value}`,
@@ -440,7 +475,8 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
         case "action":
             return h(ui.valueField, {
                 key,
-                name: row.label,
+                name: label,
+                icon,
                 description: common.description,
                 focusable: false,
                 value: h(
@@ -450,11 +486,11 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
                 ),
             });
         case "note":
-            return h(ui.valueField, {key, name: row.label, value: row.text ?? "", description: common.description});
+            return h(ui.valueField, {key, name: label, icon, value: row.text ?? "", description: common.description});
         default:
             // A kind this build does not know is shown as its label and nothing else, never as a
             // control that would send a value the host did not describe.
-            return h(ui.valueField, {key, name: row.label, value: "", description: common.description});
+            return h(ui.valueField, {key, name: label, icon, value: "", description: common.description});
     }
 };
 

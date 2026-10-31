@@ -6,29 +6,19 @@ namespace SteamUiToolkit.Tests.Fakes;
 /// <summary>One backend for every surface, recording what reached it in a readable form.</summary>
 internal sealed class RecordingBackend :
     ISteamAudioBackend,
-    ISteamAudioFormatBackend,
-    ISteamSettingsQuickAccessBackend,
     ISteamNativeSettingsBackend,
+    ISteamQuickAccessRowsBackend,
+    ISteamLightingZonesBackend,
     ISteamNetworkBackend,
     ISteamBluetoothBackend,
     ISteamBrightnessBackend,
-    ISteamPowerLimitBackend,
     ISteamPerformanceBackend,
     ISteamFrameLimitBackend,
-    ISteamVariableRefreshBackend,
-    ISteamResolutionBackend,
-    ISteamAutoTdpBackend,
-    ISteamControllerTargetBackend,
-    ISteamDeviceControlsBackend,
     ISteamNavigationPanelBackend,
     ISteamLibraryBadgeBackend,
     ISteamHomeCarouselBackend,
     ISteamScreensaverBackend,
     ISteamStorageBackend,
-    ISteamPowerProfileBackend,
-    ISteamPowerPresetBackend,
-    ISteamHybridCoreBackend,
-    ISteamCpuBoostBackend,
     ISteamExtensionsTabBackend,
     ISteamGameContextMenuBackend,
     ISteamPowerMenuBackend,
@@ -50,26 +40,6 @@ internal sealed class RecordingBackend :
     public Task<SteamUiCommandResult> SetVolumeAsync(int percent, bool input, CancellationToken cancellationToken)
     {
         return Record($"volume {percent} {(input ? "input" : "output")}", cancellationToken);
-    }
-
-    public Task<SteamUiCommandResult> SetFormatAsync(string formatId, CancellationToken cancellationToken)
-    {
-        return Record($"audio format {formatId}", cancellationToken);
-    }
-
-    public Task<SteamUiCommandResult> SetSpatialAsync(string spatialId, CancellationToken cancellationToken)
-    {
-        return Record($"spatial audio {spatialId}", cancellationToken);
-    }
-
-    public Task<SteamUiCommandResult> SetAutoTdpAsync(bool enabled, CancellationToken cancellationToken)
-    {
-        return Record($"auto {enabled}", cancellationToken);
-    }
-
-    public Task<SteamUiCommandResult> SetAutoTdpTargetAsync(int fps, CancellationToken cancellationToken)
-    {
-        return Record($"auto target {fps}", cancellationToken);
     }
 
     public Task<SteamUiCommandResult> SetDiscoveringAsync(bool discovering, CancellationToken cancellationToken)
@@ -107,26 +77,6 @@ internal sealed class RecordingBackend :
         return Record($"brightness {percent}", cancellationToken);
     }
 
-    public Task<SteamUiCommandResult> SetControllerTargetAsync(string target, CancellationToken cancellationToken)
-    {
-        return Record($"target {target}", cancellationToken);
-    }
-
-    public Task<SteamUiCommandResult> SetCpuBoostAsync(string option, CancellationToken cancellationToken)
-    {
-        return Record($"cpu boost {option}", cancellationToken);
-    }
-
-    public Task<SteamUiCommandResult> SetChargeLimitAsync(int percent, CancellationToken cancellationToken)
-    {
-        return Record($"charge {percent}", cancellationToken);
-    }
-
-    public Task<SteamUiCommandResult> SetLightingBrightnessAsync(int percent, CancellationToken cancellationToken)
-    {
-        return Record($"lighting {percent}", cancellationToken);
-    }
-
     public Task<SteamUiCommandResult> SetLightingColorAsync(string zone, int color, CancellationToken cancellationToken)
     {
         return Record($"color {zone} {color:X6}", cancellationToken);
@@ -161,11 +111,6 @@ internal sealed class RecordingBackend :
     public Task<SteamUiCommandResult> ReportAsync(SteamHomeCarouselReport report, CancellationToken cancellationToken)
     {
         return Record($"home carousel {report.Items}", cancellationToken, "homeCarousel.ReportAsync");
-    }
-
-    public Task<SteamUiCommandResult> SetHybridCoresAsync(string option, CancellationToken cancellationToken)
-    {
-        return Record($"hybrid {option}", cancellationToken);
     }
 
     public Task<SteamUiCommandResult> HomeLayoutAsync(bool bigArt, CancellationToken cancellationToken)
@@ -224,34 +169,9 @@ internal sealed class RecordingBackend :
             cancellationToken);
     }
 
-    public Task<SteamUiCommandResult> SetPrimaryLimitAsync(int watts, CancellationToken cancellationToken)
-    {
-        return Record($"limit {watts}", cancellationToken);
-    }
-
-    public Task<SteamUiCommandResult> SetBoostLimitAsync(int watts, CancellationToken cancellationToken)
-    {
-        return Record($"boost power {watts}", cancellationToken);
-    }
-
     public Task<SteamUiCommandResult> SwitchToDesktopAsync(CancellationToken cancellationToken)
     {
         return Record("switch-to-desktop", cancellationToken);
-    }
-
-    public Task<SteamUiCommandResult> SetAssignmentAsync(bool ac, string? option, CancellationToken cancellationToken)
-    {
-        return Record($"preset {(ac ? "ac" : "battery")} {option ?? "null"}", cancellationToken);
-    }
-
-    public Task<SteamUiCommandResult> SetPowerProfileAsync(string option, CancellationToken cancellationToken)
-    {
-        return Record($"profile {option}", cancellationToken);
-    }
-
-    public Task<SteamUiCommandResult> SetResolutionAsync(string option, CancellationToken cancellationToken)
-    {
-        return Record($"resolution {option}", cancellationToken);
     }
 
     public Task<SteamUiCommandResult> ReportAsync(SteamScreensaverReport report, CancellationToken cancellationToken)
@@ -269,11 +189,6 @@ internal sealed class RecordingBackend :
     public Task<SteamUiCommandResult> SetAsync(string key, JsonElement value, CancellationToken cancellationToken)
     {
         return Record($"setting {key} {value.GetRawText()}", cancellationToken);
-    }
-
-    public Task<SteamUiCommandResult> SetControlAsync(string key, JsonElement value, CancellationToken cancellationToken)
-    {
-        return Record($"device {key} {value.GetRawText()}", cancellationToken);
     }
 
     public Task<SteamUiCommandResult> AdoptAsync(uint driveId, string label, bool validate,
@@ -295,11 +210,6 @@ internal sealed class RecordingBackend :
     public Task<SteamUiCommandResult> TrimAllAsync(CancellationToken cancellationToken)
     {
         return Record("trimall", cancellationToken);
-    }
-
-    public Task<SteamUiCommandResult> SetVariableRefreshRateAsync(bool enabled, CancellationToken cancellationToken)
-    {
-        return Record($"vrr {enabled}", cancellationToken);
     }
 
     public Task<SteamUiCommandResult> SetFoldedAsync(string id, bool folded, CancellationToken cancellationToken)

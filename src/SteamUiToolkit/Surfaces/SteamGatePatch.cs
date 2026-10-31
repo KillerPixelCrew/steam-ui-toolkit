@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -47,13 +48,24 @@ public sealed class SteamGatePatch : ISteamUiPatch
     private readonly string _removeExpression;
     private readonly string _subject;
     private readonly string _verifyExpression;
+    private readonly Action<JsonElement, string?>? _verifyObserver;
 
     /// <summary>Declares one gate.</summary>
     /// <param name="id">Stable patch id.</param>
     /// <param name="gateName">The name the injected bridge registers this gate under.</param>
     /// <param name="fingerprint">Stable structural fingerprint reported on a positive probe.</param>
     /// <param name="subject">Diagnostic subject, e.g. "Audio namespace".</param>
-    public SteamGatePatch(string id, string gateName, string fingerprint, string subject)
+    /// <param name="verifyObserver">
+    ///     Hears every verification's result with the gate's <c>status</c>, or the page's error when the
+    ///     gate could not be reached, for diagnostics a gate reports beyond its standard status. It
+    ///     decides nothing; null for none.
+    /// </param>
+    public SteamGatePatch(
+        string id,
+        string gateName,
+        string fingerprint,
+        string subject,
+        Action<JsonElement, string?>? verifyObserver = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
         ArgumentException.ThrowIfNullOrWhiteSpace(gateName);
@@ -63,6 +75,7 @@ public sealed class SteamGatePatch : ISteamUiPatch
         GateName = gateName;
         _fingerprint = fingerprint;
         _subject = subject;
+        _verifyObserver = verifyObserver;
         var gate = SteamCef.JsString(gateName);
         ProbeExpression = GateExpression(gate, ProbeBody, ProbeUnavailable);
         _applyExpression = GateExpression(gate, "return JSON.stringify(bridge.install());");
@@ -124,6 +137,7 @@ public sealed class SteamGatePatch : ISteamUiPatch
             SteamUiTargetRole.SharedJsContext,
             _verifyExpression,
             _subject + " verification failed.",
+            _verifyObserver,
             cancellationToken);
     }
 

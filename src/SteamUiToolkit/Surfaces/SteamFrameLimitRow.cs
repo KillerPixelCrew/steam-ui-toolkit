@@ -100,7 +100,9 @@ public interface ISteamFrameLimitBackend
 /// <remarks>
 ///     Deliberately not Valve's own component: that one is a notch slider fed by
 ///     <c>fps_limit_options</c>, and a free 30-120 range made it unusable. This row is built from
-///     Valve's slider and toggle fields and labelled by Valve's own tokens, so it reads as native.
+///     Valve's slider and toggle fields and labelled by Valve's own tokens, so it reads as native. It is
+///     the layout kind <c>frameLimit</c>, mounted by <see cref="SteamQuickAccessRowsSurface.HostPatch" />
+///     and drawn while this state is published.
 /// </remarks>
 public static class SteamFrameLimitRow
 {
@@ -110,13 +112,6 @@ public static class SteamFrameLimitRow
     /// <summary>The exact command vocabulary the injected row sends.</summary>
     public static IReadOnlyList<string> Commands { get; } = ["setFrameLimit", "setRefreshRate"];
 
-    /// <summary>The row patch.</summary>
-    public static SteamQuickAccessRowPatch Patch { get; } = new(
-        PatchId,
-        "frameLimit",
-        "steam-ui-frame-limit-v1:performance-actions+performance-root+valve-slider",
-        "steam_ui_frame_limit_probe_");
-
     /// <summary>Serializes a state exactly as the module publishes it.</summary>
     /// <param name="state">The state to serialize.</param>
     /// <returns>The wire payload.</returns>
@@ -125,7 +120,7 @@ public static class SteamFrameLimitRow
         return JsonSerializer.SerializeToElement(state, SteamSurfaceJsonContext.Default.SteamFrameLimitState);
     }
 
-    /// <summary>Declares the row as one module: the patch, the state, and the answers.</summary>
+    /// <summary>Declares the row's state and answers. The component host draws it.</summary>
     /// <param name="enabled">Whether the state may be published right now.</param>
     /// <param name="read">The current state, or null to publish nothing this round.</param>
     /// <param name="backend">What answers the row's writes.</param>
@@ -144,7 +139,7 @@ public static class SteamFrameLimitRow
             enabled,
             read,
             SteamSurfaceJsonContext.Default.SteamFrameLimitState,
-            [Patch],
+            [],
             [
                 new SteamUiCommandHandler(PatchId, "setFrameLimit", (request, cancellationToken) =>
                     TryReadValue(request.Payload, out var fps)

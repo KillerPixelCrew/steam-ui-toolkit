@@ -161,55 +161,6 @@ public sealed class SteamSurfaceModuleTests
     }
 
     [Fact]
-    public void AudioFormatStateKeepsOptionIdentitySeparateFromTheLabelTheUserReads()
-    {
-        var wire = SteamAudioFormatRow.Serialize(new SteamAudioFormatState(true,
-            [new SteamAudioFormatOption("8ch-24-48000", "7.1")], "8ch-24-48000",
-            [new SteamAudioFormatOption("2ch-16-48000", "Stereo"), new SteamAudioFormatOption("8ch-24-48000", "7.1")],
-            "8ch-24-48000",
-            [new SteamAudioFormatOption("off", "Off"), new SteamAudioFormatOption("dolby", "Dolby Atmos")],
-            "off",
-            "Exclusive mode is in use."));
-
-        Assert.True(wire.GetProperty("available").GetBoolean());
-        Assert.Equal("8ch-24-48000", wire.GetProperty("currentChannels").GetString());
-        Assert.Equal("7.1", wire.GetProperty("channelOptions")[0].GetProperty("label").GetString());
-        Assert.Equal("8ch-24-48000", wire.GetProperty("currentFormat").GetString());
-        Assert.Equal("2ch-16-48000", wire.GetProperty("formatOptions")[0].GetProperty("id").GetString());
-        Assert.Equal("7.1", wire.GetProperty("formatOptions")[1].GetProperty("label").GetString());
-        Assert.Equal("off", wire.GetProperty("currentSpatial").GetString());
-        Assert.Equal("dolby", wire.GetProperty("spatialOptions")[1].GetProperty("id").GetString());
-        Assert.Equal("Exclusive mode is in use.", wire.GetProperty("statusText").GetString());
-    }
-
-    [Fact]
-    public async Task BothAudioFormatChoicesReachTheBackendAndAMalformedOneIsRefusedByItsOwnName()
-    {
-        RecordingBackend backend = new();
-        SteamUiModuleSet set = new([
-            SteamAudioFormatRow.Module(Always,
-                () => new ValueTask<SteamAudioFormatState?>(null as SteamAudioFormatState), backend)
-        ]);
-
-        var format = await DispatchAsync(
-            set, SteamAudioFormatRow.PatchId, "setFormat", """{"target":"2:48000:24:24:3:0"}""");
-        var spatial = await DispatchAsync(
-            set, SteamAudioFormatRow.PatchId, "setSpatial", """{"target":"dolby"}""");
-        var refusedFormat = await DispatchAsync(
-            set, SteamAudioFormatRow.PatchId, "setFormat", """{"target":42}""");
-        var refusedSpatial = await DispatchAsync(
-            set, SteamAudioFormatRow.PatchId, "setSpatial", "null");
-
-        Assert.True(format.Succeeded);
-        Assert.True(spatial.Succeeded);
-        Assert.Equal(["audio format 2:48000:24:24:3:0", "spatial audio dolby"], backend.Calls);
-        Assert.False(refusedFormat.Succeeded);
-        Assert.Equal("The audio format payload is invalid.", refusedFormat.Error);
-        Assert.False(refusedSpatial.Succeeded);
-        Assert.Equal("The spatial audio payload is invalid.", refusedSpatial.Error);
-    }
-
-    [Fact]
     public async Task BluetoothDeviceOperationsCarryTheDeviceIdAndTheBlueZFlagsAreAcceptedByDefault()
     {
         RecordingBackend backend = new();
@@ -238,61 +189,6 @@ public sealed class SteamSurfaceModuleTests
         Assert.False(refused.Succeeded);
         Assert.Equal("The Bluetooth device payload is invalid.", refused.Error);
         Assert.Equal("The Bluetooth device payload is invalid.", flagless.Error);
-    }
-
-    [Fact]
-    public async Task PowerLimitsRouteIndependentExplicitWrites()
-    {
-        RecordingBackend backend = new();
-        SteamUiModuleSet set = new([
-            SteamPowerLimitSurface.Module(Always,
-                () => new ValueTask<SteamPowerLimitState?>(null as SteamPowerLimitState), backend)
-        ]);
-
-        var released = await DispatchAsync(
-            set, SteamPowerLimitSurface.PatchId, "setPrimaryLimit", """{"watts":15}""");
-        var refused = await DispatchAsync(
-            set, SteamPowerLimitSurface.PatchId, "setPrimaryLimit", """{"watts":"15"}""");
-
-        Assert.True(released.Succeeded);
-        Assert.Equal("limit 15", Assert.Single(backend.Calls));
-        Assert.Equal("The sustained power-limit payload is invalid.", refused.Error);
-        var boosted = await DispatchAsync(
-            set, SteamPowerLimitSurface.PatchId, "setBoostLimit", """{"watts":30}""");
-        Assert.True(boosted.Succeeded);
-        Assert.Equal(["limit 15", "boost power 30"], backend.Calls);
-    }
-
-    [Theory]
-    [InlineData("{}")]
-    [InlineData("{\"watts\":0}")]
-    [InlineData("{\"watts\":20.5}")]
-    [InlineData("{\"watts\":\"20\"}")]
-    [InlineData("{\"watts\":20,\"enabled\":true}")]
-    [InlineData("{\"watts\":20,\"watts\":21}")]
-    public async Task PowerSlidersRejectInvalidOrLegacyPayloads(string payload)
-    {
-        RecordingBackend backend = new();
-        SteamUiModuleSet set = new([
-            SteamPowerLimitSurface.Module(Always,
-                () => new ValueTask<SteamPowerLimitState?>(null as SteamPowerLimitState), backend)
-        ]);
-        foreach (var command in SteamPowerLimitSurface.Commands)
-        {
-            Assert.False((await DispatchAsync(set, SteamPowerLimitSurface.PatchId, command, payload)).Succeeded);
-        }
-
-        Assert.Empty(backend.Calls);
-    }
-
-    [Fact]
-    public void PowerSlidersSerializeSeparateHardwareReadbacks()
-    {
-        SteamPowerLimitRangeState sustained = new(true, 8, 37, 1, 23, "", "");
-        var wire = SteamPowerLimitSurface.Serialize(new SteamPowerLimitState(sustained,
-            sustained with { ObservedWatts = 37 }));
-        Assert.Equal(23, wire.GetProperty("sustained").GetProperty("observedWatts").GetInt32());
-        Assert.Equal(37, wire.GetProperty("boost").GetProperty("observedWatts").GetInt32());
     }
 
     [Fact]
@@ -341,41 +237,33 @@ public sealed class SteamSurfaceModuleTests
     }
 
     [Fact]
-    public async Task DeviceColourRequiresExactlyZoneAndColour()
+    public async Task LightingColourRequiresExactlyZoneAndColourAndTheEditorMountsNoPatch()
     {
         RecordingBackend backend = new();
-        SteamUiModuleSet set = new([
-            SteamDeviceControlsRow.Module(Always,
-                () => new ValueTask<SteamDeviceControlsState?>(null as SteamDeviceControlsState), backend)
-        ]);
+        var module = SteamLightingZonesRow.Module(Always,
+            () => new ValueTask<SteamLightingZonesState?>(null as SteamLightingZonesState), backend);
+        SteamUiModuleSet set = new([module]);
 
         var applied = await DispatchAsync(
-            set, SteamDeviceControlsRow.PatchId, "setLightingColor", """{"zone":"ring","color":16711680}""");
+            set, SteamLightingZonesRow.PatchId, "setLightingColor", """{"zone":"ring","color":16711680}""");
         var extra = await DispatchAsync(
-            set, SteamDeviceControlsRow.PatchId, "setLightingColor", """{"zone":"ring","color":1,"alpha":1}""");
-        var charge = await DispatchAsync(
-            set, SteamDeviceControlsRow.PatchId, "setChargeLimit", """{"percent":80}""");
+            set, SteamLightingZonesRow.PatchId, "setLightingColor", """{"zone":"ring","color":1,"alpha":1}""");
+        var outOfRange = await DispatchAsync(
+            set, SteamLightingZonesRow.PatchId, "setLightingColor", """{"zone":"ring","color":16777216}""");
 
         Assert.True(applied.Succeeded);
         Assert.Equal("The lighting-color payload is invalid.", extra.Error);
-        Assert.True(charge.Succeeded);
-        Assert.Equal(["color ring FF0000", "charge 80"], backend.Calls);
-    }
-
-    [Fact]
-    public async Task DescriptorCommandsPreserveTypedValuesAndRejectExtraPayloadFields()
-    {
-        RecordingBackend backend = new();
-        SteamUiModuleSet set = new([
-            SteamDeviceControlsRow.Module(Always, () => new ValueTask<SteamDeviceControlsState?>((SteamDeviceControlsState?)null), backend)
-        ]);
-        var applied = await DispatchAsync(set, SteamDeviceControlsRow.PatchId, "setControl",
-            """{"key":"current-fan","value":[{"input":40,"output":35}]}""");
-        var invalid = await DispatchAsync(set, SteamDeviceControlsRow.PatchId, "setControl",
-            """{"key":"current-fan","value":35,"instance":"left"}""");
-        Assert.True(applied.Succeeded);
-        Assert.False(invalid.Succeeded);
-        Assert.Equal(["device current-fan [{\"input\":40,\"output\":35}]"], backend.Calls);
+        Assert.False(outOfRange.Succeeded);
+        Assert.Equal(["color ring FF0000"], backend.Calls);
+        // The component host draws the editor; the module only publishes and answers.
+        Assert.Empty(module.Patches);
+        var wire = SteamLightingZonesRow.Serialize(new SteamLightingZonesState(
+            [new SteamLightingZoneState("ring", "Ring", true, null, 0x00FF00, "", "", true)]));
+        var zone = wire.GetProperty("zones")[0];
+        Assert.Equal("ring", zone.GetProperty("id").GetString());
+        Assert.Equal(0x00FF00, zone.GetProperty("observedColor").GetInt32());
+        Assert.Equal(JsonValueKind.Null, zone.GetProperty("desiredColor").ValueKind);
+        Assert.True(zone.GetProperty("accent").GetBoolean());
     }
 
     [Theory]

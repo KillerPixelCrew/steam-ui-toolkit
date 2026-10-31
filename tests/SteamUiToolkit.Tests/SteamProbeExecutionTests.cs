@@ -5,49 +5,11 @@ namespace SteamUiToolkit.Tests;
 /// <summary>Executes the actual injected expressions, including their embedded resolver and lifecycle wrappers.</summary>
 /// <remarks>
 ///     A gate's probe is the gate's own <c>probe()</c>, so what it finds is exercised against the emitted
-///     asset by the <c>eng/check-*.mjs</c> checks. What stays here is what C# builds: the row probes,
-///     and the gate expressions that bind to the bridge and read its standard answers.
+///     asset by the <c>eng/check-*.mjs</c> checks. What stays here is what C# builds: the gate
+///     expressions that bind to the bridge and read its standard answers.
 /// </remarks>
 public sealed class SteamProbeExecutionTests
 {
-    [Fact]
-    public async Task EveryQuickAccessRowExecutesItsRealProbeAndRefusesMissingModules()
-    {
-        var rows = SteamSurfaceModuleTests.BuildSurfaces(new RecordingBackend())
-            .SelectMany(surface => surface.Module.Patches).OfType<SteamQuickAccessRowPatch>()
-            .DistinctBy(patch => patch.Id).ToArray();
-        Assert.NotEmpty(rows);
-        var expressions = new List<string>();
-        foreach (var row in rows)
-        {
-            await using var transport = new FakeSteamUiTransport();
-            await row.ProbeAsync(new SteamUiPatchContext(transport, TimeSpan.FromSeconds(1)), CancellationToken.None);
-            expressions.Add(Assert.Single(transport.Expressions));
-        }
-
-        const string script = """
-            const assert=require('node:assert/strict'),vm=require('node:vm');
-            let input='';process.stdin.on('data',s=>input+=s);process.stdin.on('end',()=>{
-              const runtime=()=>{throw Error('missing module invoked')};runtime.m={};
-              const window={webpackChunksteamui:{push:chunk=>chunk[2](runtime)}};
-              const results=JSON.parse(input).map(expression=>{
-                const value=JSON.parse(vm.runInNewContext(expression,{window},{timeout:1000}));
-                assert.equal(value.error,undefined);return value;
-              });process.stdout.write(JSON.stringify(results));
-            });
-            """;
-        var output = await NodeScript.RunAsync(script, expressions);
-        using var results = JsonDocument.Parse(output);
-        for (var index = 0; index < rows.Length; index++)
-        {
-            await using var transport = new FakeSteamUiTransport { EvaluationValue = results.RootElement[index].GetRawText() };
-            var probe = await rows[index].ProbeAsync(new SteamUiPatchContext(transport, TimeSpan.FromSeconds(1)),
-                CancellationToken.None);
-            Assert.True(probe.TargetPresent);
-            Assert.False(probe.Compatible, rows[index].Id);
-        }
-    }
-
     [Fact]
     public async Task EveryBuiltInGateBindsItsProbeVerifyAndRemovalToTheGateAndItsStandardStatus()
     {
@@ -160,61 +122,6 @@ public sealed class SteamProbeExecutionTests
         Assert.Equal(["ready", "notReady", "incompatible", "notReady"], outcomes);
         Assert.All(results.RootElement.GetProperty("unbridged").EnumerateArray(),
             answer => Assert.Equal("notReady", answer.GetProperty("outcome").GetString()));
-    }
-
-    [Fact]
-    public async Task QuickAccessRowsRequireUniqueDependenciesEvenAfterTheirComponentsAreOwned()
-    {
-        var rows = SteamSurfaceModuleTests.BuildSurfaces(new RecordingBackend())
-            .SelectMany(surface => surface.Module.Patches).OfType<SteamQuickAccessRowPatch>()
-            .DistinctBy(patch => patch.Id).ToArray();
-        Assert.NotEmpty(rows);
-        var expressions = new List<string>();
-        foreach (var row in rows)
-        {
-            await using var transport = new FakeSteamUiTransport();
-            await row.ProbeAsync(new SteamUiPatchContext(transport, TimeSpan.FromSeconds(1)), CancellationToken.None);
-            expressions.Add(Assert.Single(transport.Expressions));
-        }
-
-        // Every module a row counts: every row today rides the performance-actions module.
-        const string script = """
-            const assert=require('node:assert/strict'),vm=require('node:vm');
-            let input='';process.stdin.on('data',s=>input+=s);process.stdin.on('end',()=>{
-              const results=[];
-              const sources=[
-                'SetFPSLimitEnabled SetFPSLimit SetPerfOverlayLevel SteamClient.System.Perf',
-                '#QuickAccess_Tab_Perf_Common_Settings #QuickAccess_Tab_Perf_BatteryTimeRemaining TS.ON_FRAME',
-                'DialogSlider_Container DropDownField SliderField',
-                'PanelSectionTitle PanelSectionRow spinner',
-                'Attempting to localize token Unable to find localization token LocalizeString',
-                'react.transitional.element useState cloneElement createElement'
-              ];
-              for(const expression of JSON.parse(input))for(const mode of ['unique','owned','ambiguous','missing']){
-                let loads=0;const runtime=()=>{loads++;throw Error('row probe loaded exports')};runtime.m={};
-                sources.forEach((source,index)=>runtime.m['module'+index]=new Function('// '+source));
-                if(mode==='ambiguous')runtime.m.twin=runtime.m.module2;
-                if(mode==='missing')delete runtime.m.module2;
-                const window={webpackChunksteamui:{push:chunk=>chunk[2](runtime)}};
-                if(mode==='owned')window.SteamClient={System:{Perf:{__steamUiOwnedNamespace:true}}};
-                const result=JSON.parse(vm.runInNewContext(expression,{window},{timeout:1000}));
-                assert.equal(result.error,undefined);assert.equal(loads,0);
-                results.push({mode,result});
-              }
-              process.stdout.write(JSON.stringify(results));
-            });
-            """;
-        var output = await NodeScript.RunAsync(script, expressions);
-        using var results = JsonDocument.Parse(output);
-        Assert.Equal(rows.Length * 4, results.RootElement.GetArrayLength());
-        for (var index = 0; index < results.RootElement.GetArrayLength(); index++)
-        {
-            var result = results.RootElement[index];
-            await using var transport = new FakeSteamUiTransport { EvaluationValue = result.GetProperty("result").GetRawText() };
-            var probe = await rows[index / 4].ProbeAsync(new SteamUiPatchContext(transport, TimeSpan.FromSeconds(1)),
-                CancellationToken.None);
-            Assert.Equal(result.GetProperty("mode").GetString() is "unique" or "owned", probe.Compatible);
-        }
     }
 
     private static SteamUiPatchProbeResult Parse(JsonElement answer)
