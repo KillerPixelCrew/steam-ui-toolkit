@@ -147,6 +147,8 @@ state = {
             hasPreview: true,
             previewRevision: "one",
             imageCount: 20,
+            kind: "Image folder",
+            summary: "20 images · Shuffle · 15 seconds",
             intervalSeconds: 15,
             shuffle: true,
             fill: false,

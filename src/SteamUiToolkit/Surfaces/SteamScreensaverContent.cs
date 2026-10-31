@@ -38,6 +38,10 @@ public sealed record SteamScreensaverSource
     public bool Fill { get; init; }
     /// <summary>Maximum scene animation callback rate.</summary>
     public int FramesPerSecond { get; init; }
+    /// <summary>The host's name for the kind of source, such as an image folder or a scene pack.</summary>
+    public string Kind { get; init; } = "";
+    /// <summary>The host's one-line summary of the playable content, shown while the source is available.</summary>
+    public string Summary { get; init; } = "";
 }
 
 /// <summary>Detached host-owned screensaver discovery, configuration and playback state.</summary>

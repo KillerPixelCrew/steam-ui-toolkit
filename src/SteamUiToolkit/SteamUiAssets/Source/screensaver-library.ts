@@ -1,14 +1,8 @@
 // Trusted configuration UI. Covers are requested by source identity only; scene code never runs here.
 function createScreensaverLibrary({ getUi, getState, local, act, ready }) {
     let closeManager: (() => void) | null = null;
-    const kind = (source) =>
-        source.type === "scene" ? "Scene pack" : source.pack ? "Image pack" : "Image folder";
     const duration = (seconds) =>
         seconds < 60 ? `${seconds} seconds` : seconds < 3600 ? `${seconds / 60} minutes` : "1 hour";
-    const describe = (source) =>
-        source.type === "scene"
-            ? `${source.framesPerSecond} fps animation`
-            : `${source.imageCount ?? 0} ${(source.imageCount ?? 0) === 1 ? "image" : "images"} · ${source.shuffle ? "Shuffle" : "Filename order"} · ${duration(source.intervalSeconds)}`;
 
     function useCover(source) {
         const react = getUi().react;
@@ -39,15 +33,15 @@ function createScreensaverLibrary({ getUi, getState, local, act, ready }) {
         return renderSteamUiCard(ui, {
             key: source.id,
             image: useCover(source),
-            placeholder: kind(source),
+            placeholder: source.kind,
             title: source.name,
             badge: !source.available
                 ? { text: "Needs attention", warn: true }
                 : selected
                   ? { text: "Selected" }
                   : null,
-            stats: [{ text: kind(source) }],
-            meta: [source.available ? describe(source) : source.detail],
+            stats: [{ text: source.kind }],
+            meta: [source.available ? source.summary : source.detail],
             onActivate: open,
         });
     }
@@ -164,13 +158,13 @@ function createScreensaverLibrary({ getUi, getState, local, act, ready }) {
                   ];
         return renderSteamUiDetail(ui, {
             title: source.name,
-            badge: selected ? "Selected" : kind(source),
-            media: renderSteamUiImagePreview(ui, image, source.fill, kind(source)),
+            badge: selected ? "Selected" : source.kind,
+            media: renderSteamUiImagePreview(ui, image, source.fill, source.kind),
             main: [
                 h(
                     "p",
                     { className: "steam-ui-kit-muted" },
-                    source.available ? describe(source) : source.detail,
+                    source.available ? source.summary : source.detail,
                 ),
                 renderSteamUiToolbar(
                     ui,

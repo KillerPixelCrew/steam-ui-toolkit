@@ -1357,9 +1357,10 @@ for settings-row compatibility with clients whose service contract no longer mat
 Optional `Content` adds host sources to `GetLocalScreensavers` while retaining native choices.
 `screensaver-library.ts` renders one settings action opening a native wide modal with source cards,
 folder-first image/pack import, a still preview and per-source settings. Each source carries `Pack`,
-`ImageCount`, `HasPreview` and `PreviewRevision`; image bytes are absent from publications. Mounted
-cards request `content { action: "thumbnail", id }` and cancel on unmount. The host returns a
-bounded JPEG data URI or null for that registered source. `rename { id, name }` and
+`ImageCount`, `HasPreview` and `PreviewRevision`, and the host's own `Kind` and `Summary` labels,
+which the cards show as they are; image bytes are absent from publications. Mounted cards request
+`content { action: "thumbnail", id }` and cancel on unmount. The host returns a bounded JPEG data
+URI or null for that registered source. `rename { id, name }` and
 `relocate { id, folder }` retain source identity and preferences. Commands reject extra fields. The
 modal owns picker and cover cancellation and closes on gate removal. Scene scripts execute only in
 the host's isolated player, never in this trusted configuration UI.
