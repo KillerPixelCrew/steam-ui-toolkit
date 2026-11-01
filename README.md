@@ -151,8 +151,9 @@ colour or a labelled slider are drawn the way the settings renderer draws them.
 groups with headings that fold, action grids (with a file-pick action kind), swatches, cards,
 banners, toolbars, chips, galleries, empty states of a kind (loading, empty, no match, unavailable,
 error), a status stack, an operation's progress, settings rows over drafts (`renderSteamUiFields`),
-glyphs from the one table in `icons.ts`, one confirm (Steam's own where the client has it) and a
-prompt, styled once in the vocabulary of Steam's panels. `ui-flows.ts` builds the flows a page is
+glyphs from the one table in `icons.ts`, status tags, a page's hero band, an item heading, a side
+panel beside a main column, one confirm (Steam's own where the client has it, with Cancel focused on
+request) and a prompt, styled once in the vocabulary of Steam's panels. `ui-flows.ts` builds the flows a page is
 made of from them: a collection to browse, an item's detail with the box that acquires it, a
 managed list, and `registerSteamSettingsSection`, which adds a section to one of Steam's own
 Settings pages through one shared useMemo transform. A host page uses Steam's

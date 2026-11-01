@@ -58,7 +58,8 @@ const kit = instantiate(
         " renderSteamUiToolbar, renderSteamUiTool, renderSteamUiChips, renderSteamUiBox, renderSteamUiGallery, renderSteamUiVideo," +
         " renderSteamUiDetail, SteamUiPageRequired, renderSteamUiStatus, renderSteamUiProgress, renderSteamUiFields," +
         " renderSteamUiIcon, renderSteamUiChoice, renderSteamUiSelectRow, showSteamUiConfirm, showSteamUiPrompt," +
-        " showSteamModal, SteamUiKitStyles})",
+        " showSteamModal, SteamUiKitStyles, renderSteamUiTag, renderSteamUiTags, renderSteamUiArt, renderSteamUiHero," +
+        " renderSteamUiItemHeading, renderSteamUiSidePanel})",
 );
 
 // The stylesheet is one element a root renders, and every class an element uses has a rule.
@@ -110,6 +111,34 @@ for (const cls of [
     "progress-outcome",
     "collection",
     "list",
+    "selected",
+    "select-row-media",
+    "tags",
+    "tag",
+    "card-tags",
+    "hero-band",
+    "hero-band-art",
+    "hero-band-scrim",
+    "hero-band-eyebrow",
+    "hero-band-title",
+    "hero-band-detail",
+    "item-heading",
+    "item-heading-title",
+    "item-heading-fact",
+    "item-heading-summary",
+    "side",
+    "side-label",
+    "side-section",
+    "side-value",
+    "side-detail",
+    "side-rule",
+    "side-note",
+    "banner-text",
+    "banner-title",
+    "progress-steps",
+    "progress-step",
+    "progress-dot",
+    "progress-note",
 ]) {
     assert.ok(
         kit.SteamUiKitStyles.includes(`.steam-ui-kit-${cls}`),
@@ -855,6 +884,364 @@ const pickAction = kit.renderSteamUiActions(pickUi, [
 pickAction.props.children[0].props.onClick();
 assert.equal(pickShown.length, 1, "a file-pick action opens Steam's file picker");
 
+// A list row is a full-width native button by default, and a list can lay its rows out in columns
+// that shrink to one instead of overflowing.
+assert.match(
+    kit.SteamUiKitStyles,
+    /\.steam-ui-kit-list \.DialogButton\{width:100%;min-width:0;max-width:100%;height:auto;padding:10px 14px;box-sizing:border-box/u,
+    "list rows are full-width buttons that grow with their content",
+);
+assert.match(
+    kit.SteamUiKitStyles,
+    /\.steam-ui-kit-list\.columns\{display:grid;grid-template-columns:repeat\(auto-fill,minmax\(min\(100%,\d+px\),1fr\)\)/u,
+    "a column list shrinks to one column instead of overflowing",
+);
+
+// A selected row keeps Steam's accent bar; while it has focus (Steam draws it white) its detail
+// turns dark, so grey or light red on white is never what the user reads.
+assert.match(
+    kit.SteamUiKitStyles,
+    /\.DialogButton\.steam-ui-kit-selected\{box-shadow:inset 3px 0 0 #1a9fff\}/u,
+);
+assert.match(
+    kit.SteamUiKitStyles,
+    /\.DialogButton\.gpfocus \.steam-ui-kit-select-row-detail,[^{]*\{color:#3d4450\}/u,
+    "a focused row's detail is dark on Steam's white focus",
+);
+assert.match(
+    kit.SteamUiKitStyles,
+    /\.DialogButton\.gpfocus \.steam-ui-kit-select-row-detail\.error,[^{]*\{color:#b3261e\}/u,
+    "a focused row's error stays red but dark enough on white",
+);
+const selectedRow = kit.renderSteamUiSelectRow(ui, {
+    key: "game",
+    title: "Game.exe",
+    detail: "Largest program",
+    status: kit.renderSteamUiTag(react, { text: "In use", tone: "success" }),
+    selected: true,
+    media: "art",
+    description: "Use this program",
+    onClick: () => ran.push("game"),
+});
+assert.equal(selectedRow.props.className, "steam-ui-kit-selected");
+assert.equal(selectedRow.props.onOKActionDescription, "Use this program");
+const selectedContent = selectedRow.props.children[0];
+assert.equal(selectedContent.props.className, "steam-ui-kit-select-row media");
+assert.equal(selectedContent.props.children[0].props.className, "steam-ui-kit-select-row-media");
+assert.equal(selectedContent.props.children[1].props.children[0], "Game.exe");
+assert.equal(selectedContent.props.children[2].props.className, "steam-ui-kit-tag success");
+selectedRow.props.onClick();
+assert.equal(ran.at(-1), "game");
+const lockedRow = kit.renderSteamUiSelectRow(ui, {
+    key: "locked",
+    title: "Other.exe",
+    disabled: true,
+    onClick: () => ran.push("locked"),
+});
+assert.equal(lockedRow.props.disabled, true);
+assert.equal(lockedRow.props["aria-disabled"], true);
+assert.equal(lockedRow.props.className, undefined, "an unselected row has no accent bar");
+lockedRow.props.onClick();
+assert.notEqual(ran.at(-1), "locked", "a row that can't be used refuses its activation");
+
+// A filter chip says which one is current; an ordinary chip says nothing about selection.
+const filters = kit.renderSteamUiChips(ui, [
+    { label: "All 42", onClick: () => {}, selected: true },
+    { label: "Updates 1", onClick: () => {}, selected: false },
+    { label: "Plain", onClick: () => {} },
+]);
+assert.equal(filters.props.children[0].props.className, "steam-ui-kit-selected");
+assert.equal(filters.props.children[0].props["aria-pressed"], true);
+assert.equal(filters.props.children[1].props["aria-pressed"], false);
+assert.equal(filters.props.children[2].props["aria-pressed"], undefined);
+
+// A tag is text in one of five tones; an unknown tone is neutral, a row of tags skips the empty
+// ones, and every fill is opaque so a tag reads the same inside a white focused row.
+assert.equal(
+    kit.renderSteamUiTag(react, { text: "Not installed" }).props.className,
+    "steam-ui-kit-tag",
+);
+for (const tone of ["info", "success", "update", "danger"]) {
+    assert.equal(
+        kit.renderSteamUiTag(react, { text: "t", tone }).props.className,
+        `steam-ui-kit-tag ${tone}`,
+    );
+    assert.ok(kit.SteamUiKitStyles.includes(`.steam-ui-kit-tag.${tone}{`), `a rule for ${tone}`);
+}
+assert.equal(
+    kit.renderSteamUiTag(react, { text: "t", tone: "loud" }).props.className,
+    "steam-ui-kit-tag",
+);
+const tagRow = kit.renderSteamUiTags(react, [
+    { text: "Installed 0.9.1", tone: "success" },
+    null,
+    { text: "" },
+    { text: "Nightly", tone: "info" },
+]);
+assert.equal(tagRow.props.className, "steam-ui-kit-tags");
+assert.equal(tagRow.props.children.length, 2);
+assert.equal(kit.renderSteamUiTags(react, [null, { text: "" }]), null);
+for (const [, declarations] of kit.SteamUiKitStyles.matchAll(
+    /\.steam-ui-kit-tag(?:\.[a-z]+)?\{([^}]*)\}/gu,
+)) {
+    const fill = declarations.match(/background:([^;]+)/u)?.[1];
+    if (fill) assert.match(fill, /^#[0-9a-f]{6}$/u, "tag fills are opaque");
+}
+
+// A card can carry tags under its title.
+const taggedCard = kit.renderSteamUiCard(ui, {
+    title: "Cyberpunk 2077",
+    tags: [{ text: "Update 0.9.3", tone: "update" }],
+    meta: ["OptiScaler 0.9.1 as dxgi.dll"],
+    onActivate: () => {},
+});
+assert.equal(
+    taggedCard.props.children[2].props.className,
+    "steam-ui-kit-tags steam-ui-kit-card-tags",
+);
+assert.equal(taggedCard.props.children[3].props.className, "steam-ui-kit-card-meta");
+
+// Art tries each source in turn and draws the fallback once every source failed.
+hooks.states = [];
+const art = kit.renderSteamUiArt(react, { images: ["custom.png", "", "cached.jpg"] });
+const drawArt = () => {
+    hooks.index = 0;
+    return art.type(art.props);
+};
+let artImage = drawArt();
+assert.equal(artImage.type, "img");
+assert.equal(artImage.props.src, "custom.png");
+assert.equal(artImage.props.alt, "", "art is decorative");
+artImage.props.onError();
+artImage = drawArt();
+assert.equal(artImage.props.src, "cached.jpg", "an empty source is skipped and the next one tried");
+artImage.props.onError();
+assert.equal(drawArt(), null, "no source left and no fallback draws nothing");
+hooks.states = [];
+hooks.index = 0;
+const fallbackArt = kit.renderSteamUiArt(react, { images: [], fallback: "placeholder" });
+assert.equal(fallbackArt.type(fallbackArt.props), "placeholder");
+
+// The hero band: art under a scrim, the eyebrow, title and purpose line; compact without a purpose
+// line, and no art layer at all without images. It takes no focus.
+const hero = kit.renderSteamUiHero(ui, {
+    title: "Alan Wake 2",
+    eyebrow: "Game Tools",
+    detail: "Add upscaler mods to Alan Wake 2.",
+    images: ["hero.jpg"],
+});
+assert.equal(hero.type, "header");
+assert.equal(hero.props.className, "steam-ui-kit-hero-band");
+assert.equal(hero.props.children[0].props.className, "steam-ui-kit-hero-band-art");
+assert.equal(hero.props.children[1].props.className, "steam-ui-kit-hero-band-scrim");
+const heroText = hero.props.children[2];
+assert.deepEqual(heroText.props.children[0].props.children, ["Game Tools"]);
+assert.equal(heroText.props.children[1].type, "h1");
+assert.deepEqual(heroText.props.children[1].props.children, ["Alan Wake 2"]);
+assert.equal(heroText.props.children[2].props.className, "steam-ui-kit-hero-band-detail");
+const plainHero = kit.renderSteamUiHero(ui, { title: "Game Tools" });
+assert.equal(plainHero.props.className, "steam-ui-kit-hero-band compact");
+assert.equal(plainHero.props.children[0], null);
+assert.equal(plainHero.props.children[1], null);
+assert.match(kit.SteamUiKitStyles, /\.steam-ui-kit-hero-band\{[^}]*min-height:168px;min-width:0/u);
+assert.match(kit.SteamUiKitStyles, /\.steam-ui-kit-hero-band\.compact\{min-height:132px/u);
+
+// The item heading: name, tags and fact on one wrapping line, then the summary.
+const itemHeading = kit.renderSteamUiItemHeading(ui, {
+    title: "OptiScaler",
+    tags: [{ text: "Not installed" }],
+    fact: "Latest 0.9.3",
+    summary: "Replaces the game's upscaler.",
+});
+const headingLine = itemHeading.props.children[0];
+assert.equal(headingLine.props.children[0].type, "h2");
+assert.equal(headingLine.props.children[1].props.className, "steam-ui-kit-tags");
+assert.equal(headingLine.props.children[2].props.className, "steam-ui-kit-item-heading-fact");
+assert.equal(itemHeading.props.children[1].props.className, "steam-ui-kit-item-heading-summary");
+assert.equal(kit.renderSteamUiItemHeading(ui, { title: "T" }).props.children[1], null);
+
+// The side panel: a labelled column of sections; only a section with an action is a navigation
+// node, a disabled action refuses, a rule draws the hairline and the note closes it.
+let changedProgram = 0;
+const side = kit.renderSteamUiSidePanel(ui, {
+    label: "This game",
+    sections: [
+        {
+            key: "program",
+            value: "AlanWake2.exe",
+            detail: "64-bit · only plausible program",
+            action: { label: "Change program…", onClick: () => changedProgram++ },
+        },
+        null,
+        {
+            key: "upscalers",
+            label: "Upscalers in the folder",
+            tags: [{ text: "DLSS 3.7" }],
+            rule: true,
+        },
+        { key: "anticheat", label: "Anti-cheat", value: "None found" },
+        {
+            key: "locked",
+            value: "x",
+            action: { label: "Change program…", disabled: true, onClick: () => changedProgram++ },
+        },
+    ],
+    note: "E:\\Games\\Alan Wake 2",
+});
+assert.equal(side.type, Focusable);
+assert.equal(side.props["flow-children"], "column");
+assert.equal(side.props["aria-label"], "This game");
+const [sideLabel, program, sideRule, upscalers, antiCheat, lockedSection, sideNote] =
+    side.props.children;
+assert.deepEqual(sideLabel.props.children, ["This game"]);
+assert.equal(program.type, Focusable, "a section with an action is a navigation node");
+assert.equal(program.props.children.at(-1).type, Button);
+program.props.children.at(-1).props.onClick();
+assert.equal(changedProgram, 1);
+assert.equal(sideRule.props.className, "steam-ui-kit-side-rule");
+assert.equal(upscalers.type, "div", "a section without an action is text");
+assert.equal(upscalers.props.children[2].props.className, "steam-ui-kit-tags");
+assert.deepEqual(antiCheat.props.children[1].props.children, ["None found"]);
+lockedSection.props.children.at(-1).props.onClick();
+assert.equal(changedProgram, 1, "a disabled action refuses");
+assert.equal(lockedSection.props.children.at(-1).props["aria-disabled"], true);
+assert.equal(sideNote.props.className, "steam-ui-kit-side-note");
+assert.match(
+    kit.SteamUiKitStyles,
+    /\.steam-ui-kit-side\{[^}]*width:340px;flex:0 0 340px;max-width:100%;min-width:0/u,
+);
+assert.match(
+    kit.SteamUiKitStyles,
+    /@media\(max-width:760px\)\{\.steam-ui-kit-side\{width:100%/u,
+    "the panel stacks on a narrow page",
+);
+
+// A success banner is a status with the check glyph; an error is an alert; a title leads in bold.
+const saved = kit.renderSteamUiBanner(ui, { text: "Menu scale saved.", success: true });
+assert.equal(saved.props.className, "steam-ui-kit-banner success");
+assert.equal(saved.props.role, "status");
+assert.equal(saved.props.children[0].props.children[0].type, "svg", "a success leads with a check");
+const titled = kit.renderSteamUiBanner(ui, {
+    title: "Easy Anti-Cheat found",
+    text: "Do not use online.",
+    error: true,
+});
+assert.equal(titled.props.className, "steam-ui-kit-banner error");
+assert.equal(titled.props.role, "alert");
+assert.equal(titled.props.children[0].props.children[0], null, "an error carries no check glyph");
+assert.equal(
+    titled.props.children[0].props.children[1].props.children[0].props.className,
+    "steam-ui-kit-banner-title",
+);
+
+// Progress made of steps: the ones done are checked and the current one marked; the count can be
+// the caller's own text, and the note follows Cancel.
+const stepped = kit.renderSteamUiProgress(ui, {
+    phase: "Installing 0.9.3…",
+    done: 12,
+    total: 31,
+    count: "12 MB of 31 MB",
+    steps: ["Download", "Check the package", "Back up and copy", "Apply settings"],
+    step: 1,
+    detail: "Checking the package",
+    note: "Nothing in the game folder has changed yet.",
+    onCancel: () => cancelled++,
+});
+const stepList = stepped.props.children[0];
+assert.equal(stepList.type, "ol");
+assert.equal(stepList.props.children.length, 4);
+assert.equal(stepList.props.children[0].props.className, "steam-ui-kit-progress-step done");
+assert.equal(stepList.props.children[0].props.children[0].props.children[0].type, "svg");
+assert.equal(stepList.props.children[1].props.className, "steam-ui-kit-progress-step current");
+assert.equal(stepList.props.children[1].props["aria-current"], "step");
+assert.deepEqual(stepList.props.children[2].props.children[0].props.children, ["3"]);
+assert.deepEqual(stepped.props.children[1].props.children[1].props.children, ["12 MB of 31 MB"]);
+assert.equal(stepped.props.children.at(-1).props.className, "steam-ui-kit-progress-note");
+assert.equal(stepped.props.children.at(-2).type, Button, "Cancel comes before the note");
+const allDone = kit.renderSteamUiProgress(ui, { phase: "Checking", steps: ["A", "B"], step: 2 });
+assert.ok(
+    allDone.props.children[0].props.children.every((step) =>
+        step.props.className.endsWith(" done"),
+    ),
+);
+
+// Steam's confirm keeps paragraphs and can put the controller on Cancel; the kit's fallback draws a
+// paragraph each and focuses its Cancel the same way.
+const careful = [];
+kit.showSteamUiConfirm(
+    { ...ui, confirmModal: NativeConfirm, showModal: (modal) => careful.push(modal) },
+    {
+        title: "Install anyway?",
+        text: "Anti-cheat was found.\n\nOnly continue offline.",
+        confirmLabel: "Install anyway",
+        focusCancel: true,
+        onConfirm: () => {},
+    },
+);
+assert.equal(careful[0].props.focusButton, "secondary", "Cancel takes the initial focus");
+assert.equal(careful[0].props.strDescription.props.style.whiteSpace, "pre-line");
+assert.equal(nativeShown[0].props.focusButton, undefined, "OK keeps Steam's focus otherwise");
+kit.showSteamUiConfirm(ui, {
+    title: "Install anyway?",
+    text: "Anti-cheat was found.\n\nOnly continue offline.",
+    confirmLabel: "Install anyway",
+    focusCancel: true,
+    onConfirm: () => {},
+});
+const carefulBody = renderModal(shown.at(-1));
+assert.equal(carefulBody.props.children[0].type, "p");
+assert.equal(carefulBody.props.children[1].type, "p");
+assert.equal(carefulBody.props.children[2].props.children[0].props.autoFocus, true);
+
+// Steam's artwork and game list come from its own stores, best source first, and an absent store
+// is nothing rather than a guess.
+const steamWindow = {
+    appStore: { GetAppOverviewByAppID: (appId) => (appId === 70 ? { appid: 70 } : null) },
+    appDetailsStore: {
+        GetHeroImages: (overview) => ({
+            rgHeroImages: [`custom/${overview.appid}_hero.png`, "", 7, "cache/hero.jpg"],
+        }),
+        GetHeaderImages: () => ["cache/header.jpg"],
+    },
+    collectionStore: {
+        GetCollection: (id) =>
+            id === "type-games" ? { allApps: [{ appid: 70 }, { appid: 20 }] } : null,
+        allAppsCollection: {
+            allApps: [
+                { appid: 70, display_name: "half-life" },
+                { appid: 20, display_name: "Team Fortress Classic" },
+                { appid: 1840, display_name: "Source Filmmaker" },
+                { appid: 3000000000, display_name: "Emulator", BIsShortcut: () => true },
+                { appid: 70, display_name: "half-life" },
+            ],
+        },
+    },
+};
+const library = instantiate(
+    { window: steamWindow },
+    helperFragments(asset),
+    "({steamAppHeroImages, steamAppHeaderImages, readSteamLibraryGames})",
+);
+assert.deepEqual(library.steamAppHeroImages(70), ["custom/70_hero.png", "cache/hero.jpg"]);
+assert.deepEqual(library.steamAppHeaderImages(70), ["cache/header.jpg"]);
+assert.deepEqual(library.steamAppHeroImages(71), [], "an app Steam doesn't know has no art");
+assert.deepEqual(
+    library.readSteamLibraryGames(),
+    [
+        { appId: 3000000000, name: "Emulator", shortcut: true },
+        { appId: 70, name: "half-life", shortcut: false },
+        { appId: 20, name: "Team Fortress Classic", shortcut: false },
+    ],
+    "games and shortcuts, once each, by name; other apps are left out",
+);
+const bare = instantiate(
+    { window: {} },
+    helperFragments(asset),
+    "({steamAppHeroImages, readSteamLibraryGames})",
+);
+assert.deepEqual(bare.steamAppHeroImages(70), []);
+assert.equal(bare.readSteamLibraryGames(), null, "no collection store is not an empty library");
+
 // Glyphs come from the one table: a known name draws, an unknown one draws nothing.
 assert.equal(kit.renderSteamUiIcon(react, "star", 13)?.type, "svg");
 assert.equal(kit.renderSteamUiIcon(react, "star", 13), kit.renderSteamUiIcon(react, "star", 13), "one element per size");
@@ -862,5 +1249,7 @@ assert.equal(kit.renderSteamUiIcon(react, "no-such-glyph"), null);
 
 console.log(
     "UI kit: stylesheet, header, actions and file-pick actions, card, empty kinds, status, progress, fields, banner," +
-        " toolbar, chips, gallery, glyphs, native and kit confirm, prompt and the wide dialog passed.",
+        " toolbar, chips, gallery, glyphs, native and kit confirm, prompt, the wide dialog, list rows, selected and" +
+        " focused rows, filter chips, tags, art, the hero band, the item heading, the side panel, the success" +
+        " banner, progress steps and Steam's artwork and game list passed.",
 );

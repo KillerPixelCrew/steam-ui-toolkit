@@ -153,3 +153,80 @@ const createSteamCapsule = (ui, classes) => {
         );
     };
 };
+
+// Steam's own artwork and game list for a host page, read from the stores Steam's library draws
+// from. Each answers what Steam holds now and nothing when a store is not there; none of them
+// fetches, and an image list is tried in order by `renderSteamUiArt`.
+
+/**
+ * Reads one app's overview from Steam's app store.
+ * @param appId The Steam AppID or shortcut id.
+ * @returns The overview, or null when Steam has none or its store is unavailable.
+ */
+const steamAppOverview = (appId: number) => {
+    try {
+        return (window as any).appStore?.GetAppOverviewByAppID(appId) ?? null;
+    } catch {
+        return null;
+    }
+};
+
+/**
+ * Lists one app's images of a kind the way Steam's game page tries them: a custom image first, then
+ * Steam's cached and published copies.
+ * @param appId The Steam AppID or shortcut id.
+ * @param kind `hero` for the library hero, `header` for the wide header capsule.
+ * @returns The image URLs, best first; empty when Steam has none or its stores are unavailable.
+ */
+const steamAppImages = (appId: number, kind: "hero" | "header"): string[] => {
+    const overview = steamAppOverview(appId);
+    if (!overview) return [];
+    try {
+        const store = (window as any).appDetailsStore;
+        const images =
+            kind === "hero"
+                ? store?.GetHeroImages?.(overview)?.rgHeroImages
+                : store?.GetHeaderImages?.(overview);
+        return Array.isArray(images)
+            ? images.filter((image) => typeof image === "string" && image.length > 0)
+            : [];
+    } catch {
+        return [];
+    }
+};
+
+/** One app's library hero art, best first. */
+const steamAppHeroImages = (appId: number) => steamAppImages(appId, "hero");
+
+/** One app's wide header capsule, best first. */
+const steamAppHeaderImages = (appId: number) => steamAppImages(appId, "header");
+
+/**
+ * Reads the games in the Steam library, with the non-Steam shortcuts, by name: the same list the
+ * toolkit's `SteamLibraryData.ReadGamesAsync` answers the host with.
+ * @returns The games, or null when Steam's collection store is unavailable (not an empty library).
+ */
+const readSteamLibraryGames = (): { appId: number; name: string; shortcut: boolean }[] | null => {
+    try {
+        const store = (window as any).collectionStore;
+        if (!store || typeof store.GetCollection !== "function") return null;
+        const typed = store.GetCollection("type-games");
+        const games = (typed && (typed.allApps || typed.visibleApps)) || [];
+        const ids = new Set(games.map((app) => app.appid >>> 0));
+        const every = store.allAppsCollection;
+        const all = (every && (every.allApps || every.visibleApps)) || games;
+        const seen = new Set<number>();
+        const out: { appId: number; name: string; shortcut: boolean }[] = [];
+        for (const app of all) {
+            const appId = app.appid >>> 0;
+            const shortcut =
+                typeof app.BIsShortcut === "function" ? !!app.BIsShortcut() : appId >= 2147483648;
+            if ((!ids.has(appId) && !shortcut) || seen.has(appId)) continue;
+            seen.add(appId);
+            out.push({ appId, name: app.display_name || String(appId), shortcut });
+        }
+        return out.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    } catch {
+        return null;
+    }
+};

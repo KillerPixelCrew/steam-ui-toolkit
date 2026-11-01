@@ -175,7 +175,7 @@ const SteamUiKitStyles = `
 .steam-ui-kit-choice>div{width:100%!important;min-width:0;max-width:100%;box-sizing:border-box;--field-negative-horizontal-margin:0px}
 .steam-ui-kit-select-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;width:100%;min-width:0;text-align:left;box-sizing:border-box}
 .steam-ui-kit-select-row-title{min-width:0;overflow-wrap:anywhere}
-.steam-ui-kit-select-row-detail{grid-column:1 / -1;min-width:0;font-size:13px;color:#8b929a;white-space:normal;overflow-wrap:anywhere}
+.steam-ui-kit-select-row-detail{grid-column:1 / -1;min-width:0;font-size:13px;color:#8b929a;white-space:pre-line;overflow-wrap:anywhere}
 .steam-ui-kit-select-row-detail.error{color:#ff6d6d}
 .steam-ui-kit-picker{display:flex;flex-direction:column;gap:12px;min-width:0;width:900px;max-width:100%;box-sizing:border-box}
 .steam-ui-kit-picker-body{display:grid;grid-template-columns:minmax(140px,1fr) minmax(0,2fr);gap:16px;min-height:0;height:clamp(200px,90vh - 310px,520px)}
@@ -205,6 +205,62 @@ const SteamUiKitStyles = `
 .steam-ui-kit-modal-title{margin:0 0 12px;font-size:24px;line-height:1.25;color:#fff}
 .steam-ui-kit-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
 .steam-ui-kit-modal-wide{width:min(1000px,calc(100vw - 64px))!important;max-width:calc(100vw - 64px)!important;min-width:0!important;box-sizing:border-box;padding:clamp(16px,3vw,32px)!important}
+.steam-ui-kit-list .DialogButton{width:100%;min-width:0;max-width:100%;height:auto;padding:10px 14px;box-sizing:border-box;margin:0}
+.steam-ui-kit-list.columns{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,360px),1fr));gap:8px}
+.steam-ui-kit-select-row.media{grid-template-columns:auto minmax(0,1fr) auto}
+.steam-ui-kit-select-row-media{grid-row:1 / span 2;align-self:center;width:120px;aspect-ratio:460 / 215;border-radius:3px;overflow:hidden;background:#10151c}
+.steam-ui-kit-select-row-media img{width:100%;height:100%;object-fit:cover;display:block}
+.steam-ui-kit-select-row.media .steam-ui-kit-select-row-detail{grid-column:2 / -1}
+.steam-ui-kit-select-row>.steam-ui-kit-tags{justify-content:flex-end}
+.DialogButton.steam-ui-kit-selected{box-shadow:inset 3px 0 0 #1a9fff}
+.DialogButton.gpfocus .steam-ui-kit-select-row-detail,.DialogButton:focus-visible .steam-ui-kit-select-row-detail{color:#3d4450}
+.DialogButton.gpfocus .steam-ui-kit-select-row-detail.error,.DialogButton:focus-visible .steam-ui-kit-select-row-detail.error{color:#b3261e}
+.steam-ui-kit-chips .DialogButton.steam-ui-kit-selected{box-shadow:inset 0 -3px 0 #1a9fff}
+.steam-ui-kit-tags{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}
+.steam-ui-kit-tag{display:inline-flex;align-items:center;height:22px;max-width:100%;padding:0 8px;border-radius:2px;box-sizing:border-box;background:#2a3039;color:#b8bcbf;font-size:11px;line-height:22px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.steam-ui-kit-tag.info{color:#dcdedf}
+.steam-ui-kit-tag.success{background:#1e3324;color:#b9f0c6}
+.steam-ui-kit-tag.update{background:#3b3020;color:#ffd28c}
+.steam-ui-kit-tag.danger{background:#3b2326;color:#ffd8d4}
+.steam-ui-kit-card-tags{padding:6px 10px 0}
+.steam-ui-kit-hero-band{position:relative;display:flex;align-items:flex-end;min-height:168px;min-width:0;padding:24px 40px 22px;box-sizing:border-box;background:#1b232d;border-bottom:1px solid #23262e;overflow:hidden;flex-shrink:0}
+.steam-ui-kit-hero-band.compact{min-height:132px;padding-bottom:18px}
+.steam-ui-kit-hero-band-art{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center 30%;display:block}
+.steam-ui-kit-hero-band-scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(14,20,27,.1) 0%,rgba(14,20,27,.55) 55%,rgba(14,20,27,.92) 100%)}
+.steam-ui-kit-hero-band-text{position:relative;width:100%;min-width:0;max-width:var(--steam-ui-kit-page-width,100%);margin-inline:auto}
+.steam-ui-kit-hero-band-eyebrow{font-size:11px;line-height:1.4;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#b8bcbf;margin-bottom:2px}
+.steam-ui-kit-hero-band-title{margin:0;font-size:34px;line-height:1.15;font-weight:700;color:#fff;overflow-wrap:anywhere;text-shadow:0 1px 6px rgba(0,0,0,.45)}
+.steam-ui-kit-hero-band-detail{margin-top:4px;max-width:760px;font-size:14px;line-height:1.5;color:#b8bcbf;overflow-wrap:anywhere}
+.steam-ui-kit-item-heading{display:flex;flex-direction:column;gap:8px;min-width:0}
+.steam-ui-kit-item-heading-line{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;min-width:0}
+.steam-ui-kit-item-heading-title{margin:0;font-size:24px;line-height:1.2;font-weight:700;color:#fff;overflow-wrap:anywhere}
+.steam-ui-kit-item-heading-fact{font-size:14px;color:#8b929a;overflow-wrap:anywhere}
+.steam-ui-kit-item-heading-summary{font-size:14px;line-height:1.5;color:#b8bcbf;overflow-wrap:anywhere}
+.steam-ui-kit-side{display:flex;flex-direction:column;gap:14px;width:340px;flex:0 0 340px;max-width:100%;min-width:0;padding:18px;border-radius:4px;box-sizing:border-box;background:#171d25}
+.steam-ui-kit-side-label{font-size:11px;line-height:1.4;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#8b929a}
+.steam-ui-kit-side-section{display:flex;flex-direction:column;gap:4px;min-width:0}
+.steam-ui-kit-side-value{font-size:15px;line-height:1.35;font-weight:600;color:#dcdedf;overflow-wrap:anywhere}
+.steam-ui-kit-side-detail{font-size:12px;line-height:16px;color:#b8bcbf;overflow-wrap:anywhere}
+.steam-ui-kit-side-detail.error{color:#ff6d6d}
+.steam-ui-kit-side-section>.steam-ui-kit-tags{margin-top:2px}
+.steam-ui-kit-side-rule{height:1px;flex:0 0 auto;background:#23262e}
+.steam-ui-kit-side-note{font-size:12px;line-height:1.4;color:#8b929a;overflow-wrap:anywhere}
+.steam-ui-kit-side .DialogButton{align-self:flex-start;width:auto;min-width:0;max-width:100%;min-height:36px;margin-top:8px;padding:8px 18px;box-sizing:border-box;font-size:13px;line-height:1.4;white-space:normal;overflow-wrap:anywhere}
+@media(max-width:760px){.steam-ui-kit-side{width:100%;flex-basis:auto}}
+.steam-ui-kit-banner-text{display:flex;align-items:flex-start;gap:8px;min-width:0;line-height:1.45;overflow-wrap:anywhere}
+.steam-ui-kit-banner-text svg{flex:0 0 auto;width:16px;height:16px;margin-top:2px}
+.steam-ui-kit-banner-title{display:block;font-weight:700;color:#fff}
+.steam-ui-kit-banner.success{background:#1e3324;color:#b9f0c6}
+.steam-ui-kit-banner.success .steam-ui-kit-banner-title{color:#b9f0c6}
+.steam-ui-kit-progress-steps{display:flex;flex-wrap:wrap;gap:6px 22px;min-width:0;margin:0 0 4px;padding:0;list-style:none}
+.steam-ui-kit-progress-step{display:inline-flex;align-items:center;gap:8px;font-size:14px;color:#8b929a}
+.steam-ui-kit-progress-step.done{color:#dcdedf}
+.steam-ui-kit-progress-step.current{color:#fff;font-weight:600}
+.steam-ui-kit-progress-dot{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;flex:0 0 auto;border-radius:50%;box-sizing:border-box;background:#2a3039;color:#b8bcbf;font-size:12px;font-weight:700}
+.steam-ui-kit-progress-step.done .steam-ui-kit-progress-dot{background:#1e3324;color:#b9f0c6}
+.steam-ui-kit-progress-step.current .steam-ui-kit-progress-dot{background:#1a9fff;color:#0e141b}
+.steam-ui-kit-progress-dot svg{width:14px;height:14px}
+.steam-ui-kit-progress-note{font-size:13px;line-height:1.45;color:#b8bcbf;overflow-wrap:anywhere}
 `;
 
 // One stylesheet element and one icon renderer per React, so a root re-rendering on every host
@@ -274,9 +330,14 @@ const renderSteamUiChoice = (
 
 /**
  * Arranges a selectable item as a title, trailing status and separate supporting line.
+ *
+ * A selected row carries Steam's inset accent bar, which stays when focus leaves. The detail turns
+ * dark while the row has focus, because Steam draws a focused button white. A status that has its
+ * own colour belongs in `renderSteamUiTag`, whose fill keeps it legible on either ground.
  * @param ui Resolved native Steam button.
  * @param props Stable key, label/detail/status, whether the detail is why the item cannot be used,
- * selected state and one activation callback.
+ * selected state, an optional leading picture (such as `renderSteamUiArt`), whether the row can be
+ * used and one activation callback.
  * @returns One native focus target with structured content instead of concatenated button text.
  */
 const renderSteamUiSelectRow = (
@@ -288,16 +349,38 @@ const renderSteamUiSelectRow = (
         error?: boolean;
         status?: any;
         selected?: boolean;
+        media?: any;
+        disabled?: boolean;
+        description?: string;
         onClick: () => void;
     },
 ) => {
     const h = ui.react.createElement;
     return h(
         ui.dialogButton,
-        { key: props.key, "aria-pressed": !!props.selected, onClick: props.onClick },
+        {
+            key: props.key,
+            className: props.selected ? "steam-ui-kit-selected" : undefined,
+            "aria-pressed": !!props.selected,
+            disabled: props.disabled ? true : undefined,
+            "aria-disabled": props.disabled ? true : undefined,
+            onOKActionDescription: props.description,
+            onClick: () => {
+                if (!props.disabled) props.onClick();
+            },
+        },
         h(
             "div",
-            { className: "steam-ui-kit-select-row" },
+            { className: `steam-ui-kit-select-row${props.media ? " media" : ""}` },
+            ...(props.media
+                ? [
+                      h(
+                          "span",
+                          { key: "media", className: "steam-ui-kit-select-row-media" },
+                          props.media,
+                      ),
+                  ]
+                : []),
             h("span", { className: "steam-ui-kit-select-row-title" }, props.title),
             props.status ?? null,
             props.detail
@@ -705,7 +788,7 @@ const renderSteamUiMeter = (
 /**
  * Creates one activatable gallery card using Steam controller focus.
  * @param ui Steam's resolved React and native control components.
- * @param props Optional image/stats/badge, title, metadata and activation callback.
+ * @param props Optional image/stats/badge, title, status tags, metadata and activation callback.
  * @returns A single focus target containing the card content.
  */
 const renderSteamUiCard = (
@@ -718,6 +801,7 @@ const renderSteamUiCard = (
         stats?: { glyph?: any; text: string }[];
         badge?: { text: string; warn?: boolean } | null;
         title: string;
+        tags?: readonly SteamUiTagProps[];
         meta?: string[];
         onActivate: () => void;
     },
@@ -758,6 +842,9 @@ const renderSteamUiCard = (
                 : null,
         ),
         h("div", { className: "steam-ui-kit-card-title" }, props.title),
+        ...(props.tags?.length
+            ? [renderSteamUiTags(ui.react, props.tags, "steam-ui-kit-card-tags")]
+            : []),
         ...(props.meta ?? []).map((line, index) =>
             h("div", { key: index, className: "steam-ui-kit-card-meta" }, line),
         ),
@@ -887,9 +974,14 @@ const renderSteamUiStatus = (ui, messages: readonly SteamUiStatusLine[]) => {
 /**
  * Creates the progress of one long operation: its phase, how far it got, a cancel while it runs and
  * its outcome once it ended.
+ *
+ * An operation made of named steps lists them first: the ones done are checked, the current one is
+ * marked, and a `step` past the last means every step is done. `count` replaces the "3 of 4" text
+ * where the amount is not a count, such as bytes. `note` says what cancelling does, or why it can't.
  * @param ui Steam's resolved React and button.
- * @param props The phase, counts (a bar without a total moves without measuring), detail, cancel
- * and the outcome that replaces the bar once the operation ended.
+ * @param props The phase, counts (a bar without a total moves without measuring), the count's own
+ * text, the steps and the current one, detail, the explanatory note, cancel and the outcome that
+ * replaces the bar once the operation ended.
  * @returns The progress element.
  */
 const renderSteamUiProgress = (
@@ -898,7 +990,11 @@ const renderSteamUiProgress = (
         phase: string;
         done?: number | null;
         total?: number | null;
+        count?: string | null;
+        steps?: readonly string[] | null;
+        step?: number | null;
         detail?: string | null;
+        note?: string | null;
         onCancel?: (() => void) | null;
         cancelLabel?: string;
         cancelling?: boolean;
@@ -906,24 +1002,67 @@ const renderSteamUiProgress = (
     },
 ) => {
     const h = ui.react.createElement;
-    const total = Number.isFinite(props.total) && (props.total as number) > 0 ? (props.total as number) : 0;
+    const total =
+        Number.isFinite(props.total) && (props.total as number) > 0 ? (props.total as number) : 0;
     const done = Number.isFinite(props.done)
         ? Math.max(0, Math.min(props.done as number, total || Number.MAX_SAFE_INTEGER))
         : 0;
     const ended = !!props.outcome?.text;
+    const steps = (props.steps ?? []).filter((step) => typeof step === "string" && step.length > 0);
+    const current = Number.isInteger(props.step) ? (props.step as number) : -1;
+    const count =
+        typeof props.count === "string" ? props.count : total ? `${done} of ${total}` : "";
     return h(
         "div",
-        { className: "steam-ui-kit-progress", role: "status", "aria-busy": ended ? undefined : true },
+        {
+            className: "steam-ui-kit-progress",
+            role: "status",
+            "aria-busy": ended ? undefined : true,
+        },
+        ...(steps.length
+            ? [
+                  h(
+                      "ol",
+                      {
+                          key: "steps",
+                          className: "steam-ui-kit-progress-steps",
+                          "aria-label": "Steps",
+                      },
+                      ...steps.map((label, index) => {
+                          const state =
+                              index < current ? "done" : index === current ? "current" : "";
+                          return h(
+                              "li",
+                              {
+                                  key: label,
+                                  className: `steam-ui-kit-progress-step${state ? ` ${state}` : ""}`,
+                                  "aria-current": state === "current" ? "step" : undefined,
+                              },
+                              h(
+                                  "span",
+                                  { className: "steam-ui-kit-progress-dot", "aria-hidden": "true" },
+                                  state === "done"
+                                      ? renderSteamUiIcon(ui.react, "check", 14)
+                                      : String(index + 1),
+                              ),
+                              label,
+                          );
+                      }),
+                  ),
+              ]
+            : []),
         h(
             "div",
             { className: "steam-ui-kit-progress-head" },
             h("span", { className: "steam-ui-kit-progress-phase" }, props.phase),
-            total ? h("span", { className: "steam-ui-kit-progress-count" }, `${done} of ${total}`) : null,
+            count ? h("span", { className: "steam-ui-kit-progress-count" }, count) : null,
         ),
         ended
             ? h(
                   "div",
-                  { className: `steam-ui-kit-progress-outcome${props.outcome?.error ? " error" : ""}` },
+                  {
+                      className: `steam-ui-kit-progress-outcome${props.outcome?.error ? " error" : ""}`,
+                  },
                   props.outcome?.text,
               )
             : h(
@@ -953,6 +1092,9 @@ const renderSteamUiProgress = (
                   props.cancelling ? "Cancelling…" : (props.cancelLabel ?? "Cancel"),
               )
             : null,
+        ...(!ended && props.note
+            ? [h("div", { key: "note", className: "steam-ui-kit-progress-note" }, props.note)]
+            : []),
     );
 };
 
@@ -1004,20 +1146,49 @@ const renderSteamUiFields = (
 ) => ui.react.createElement(SteamUiFields, { ...props, key: props.key, ui });
 
 /**
- * Creates a dismissible notice or error.
+ * Creates a dismissible notice, success or error.
+ *
+ * A notice is information, a success says a change was saved and what follows from it (with the
+ * check glyph), and an error is an alert. An optional title leads the message in bold.
  * @param ui Steam's resolved React and native control components.
- * @param props Message, error flag and callback that clears the owning state.
+ * @param props Message, optional title, the tone (error wins over success) and callback that clears
+ * the owning state.
  * @returns The banner; dismissal is delegated to the caller.
  */
 const renderSteamUiBanner = (
     ui,
-    props: { text: string; error?: boolean; onDismiss?: () => void },
+    props: {
+        text: string;
+        title?: string;
+        error?: boolean;
+        success?: boolean;
+        onDismiss?: () => void;
+    },
 ) => {
     const h = ui.react.createElement;
+    const tone = props.error ? " error" : props.success ? " success" : "";
+    const rich = !!props.title || (!props.error && !!props.success);
     return h(
         "div",
-        { className: `steam-ui-kit-banner${props.error ? " error" : ""}` },
-        h("span", null, props.text),
+        {
+            className: `steam-ui-kit-banner${tone}`,
+            role: props.error ? "alert" : "status",
+        },
+        rich
+            ? h(
+                  "span",
+                  { className: "steam-ui-kit-banner-text" },
+                  !props.error && props.success ? renderSteamUiIcon(ui.react, "check", 16) : null,
+                  h(
+                      "span",
+                      null,
+                      props.title
+                          ? h("span", { className: "steam-ui-kit-banner-title" }, props.title)
+                          : null,
+                      props.text,
+                  ),
+              )
+            : h("span", { className: "steam-ui-kit-banner-text" }, props.text),
         props.onDismiss
             ? h(ui.smallButton ?? ui.dialogButton, { onClick: props.onDismiss }, "Dismiss")
             : null,
@@ -1057,12 +1228,13 @@ const renderSteamUiTool = (ui, label: string | null, control, grow = false) => {
 /**
  * Creates a wrapping row of native buttons.
  * @param ui Steam's resolved React and native control components.
- * @param chips Labels, click handlers and optional controller action descriptions.
+ * @param chips Labels, click handlers, optional controller action descriptions and, for a chip row
+ * that is a filter, which chip is the current one (marked with Steam's accent bar and `aria-pressed`).
  * @returns The controller-navigable chip row.
  */
 const renderSteamUiChips = (
     ui,
-    chips: { label: string; onClick: () => void; description?: string }[],
+    chips: { label: string; onClick: () => void; description?: string; selected?: boolean }[],
 ) => {
     const h = ui.react.createElement;
     return h(
@@ -1073,6 +1245,8 @@ const renderSteamUiChips = (
                 ui.dialogButton,
                 {
                     key: `${index}:${chip.label}`,
+                    className: chip.selected ? "steam-ui-kit-selected" : undefined,
+                    "aria-pressed": chip.selected === undefined ? undefined : !!chip.selected,
                     onClick: chip.onClick,
                     onOKActionDescription: chip.description,
                 },
@@ -1096,6 +1270,252 @@ const renderSteamUiBox = (react, title, ...children) =>
         title ? react.createElement("div", { className: "steam-ui-kit-box-title" }, title) : null,
         ...children,
     );
+
+/** The tones a tag can take; anything else is neutral. */
+const SteamUiTagTones = Object.freeze(["neutral", "info", "success", "update", "danger"] as const);
+
+/**
+ * Creates a status tag: a short uppercase label on its own fill, legible on a dark page and inside a
+ * focused (white) row alike.
+ * @param react Steam's React instance used by the consuming root.
+ * @param props The words and the tone: neutral (the default), info, success, update or danger.
+ * @returns The tag; it is text, never a focus target.
+ */
+const renderSteamUiTag = (react, props: SteamUiTagProps) => {
+    const tone =
+        SteamUiTagTones.includes(props.tone as any) && props.tone !== "neutral" ? props.tone : "";
+    return react.createElement(
+        "span",
+        { key: props.key, className: `steam-ui-kit-tag${tone ? ` ${tone}` : ""}` },
+        props.text,
+    );
+};
+
+/**
+ * Creates a wrapping row of tags, skipping empty ones.
+ * @param react Steam's React instance used by the consuming root.
+ * @param tags The tags in display order.
+ * @param className An extra class for where the row sits, such as a card's.
+ * @returns The row, or null when no tag has words.
+ */
+const renderSteamUiTags = (
+    react,
+    tags: readonly (SteamUiTagProps | null | undefined | false)[],
+    className?: string,
+) => {
+    const shown = (tags ?? []).filter(
+        (tag): tag is SteamUiTagProps =>
+            !!tag && typeof tag.text === "string" && tag.text.length > 0,
+    );
+    if (!shown.length) return null;
+    return react.createElement(
+        "span",
+        { key: "tags", className: ["steam-ui-kit-tags", className].filter(Boolean).join(" ") },
+        ...shown.map((tag, index) =>
+            renderSteamUiTag(react, { ...tag, key: tag.key ?? `${index}:${tag.text}` }),
+        ),
+    );
+};
+
+// A picture that tries each source in turn, the way Steam's own artwork does: a custom image first,
+// then the cached copy, then the CDN. A changed list starts again from its first source.
+function SteamUiArt(props: any) {
+    const react = props.react;
+    const images: string[] = (props.images ?? []).filter(
+        (image) => typeof image === "string" && image.length > 0,
+    );
+    const list = images.join("\n");
+    const [failed, setFailed] = react.useState({ list: "", count: 0 });
+    const index = failed.list === list ? failed.count : 0;
+    const source = images[index];
+    if (!source) return props.fallback ?? null;
+    return react.createElement("img", {
+        key: source,
+        src: source,
+        alt: "",
+        className: props.className,
+        loading: props.lazy ? "lazy" : undefined,
+        draggable: false,
+        onError: () => setFailed({ list, count: index + 1 }),
+    });
+}
+
+/**
+ * Creates a decorative picture from a list of sources tried in order, such as the hero or header
+ * lists `steamAppHeroImages` and `steamAppHeaderImages` return.
+ * @param react Steam's React instance used by the consuming root.
+ * @param props The sources, the image's class, what to draw once every source failed (nothing by
+ * default) and whether it loads only near the viewport.
+ * @returns The picture element.
+ */
+const renderSteamUiArt = (
+    react,
+    props: { images: readonly string[]; className?: string; fallback?: any; lazy?: boolean },
+) => react.createElement(SteamUiArt, { ...props, react });
+
+/**
+ * Creates a page's hero band under Steam's header: the library art over the hero ground, a scrim that
+ * keeps the words legible, an optional eyebrow naming the page, the title and an optional purpose
+ * line. Without a purpose line the band is the compact height. It takes no focus.
+ * @param ui Steam's resolved React.
+ * @param props The title, the eyebrow, the purpose line and the art's sources.
+ * @returns The band.
+ */
+const renderSteamUiHero = (
+    ui,
+    props: {
+        key?: string;
+        title: string;
+        eyebrow?: string;
+        detail?: string;
+        images?: readonly string[];
+    },
+) => {
+    const h = ui.react.createElement;
+    const images = props.images ?? [];
+    return h(
+        "header",
+        { key: props.key, className: `steam-ui-kit-hero-band${props.detail ? "" : " compact"}` },
+        images.length
+            ? renderSteamUiArt(ui.react, { images, className: "steam-ui-kit-hero-band-art" })
+            : null,
+        images.length ? h("div", { className: "steam-ui-kit-hero-band-scrim" }) : null,
+        h(
+            "div",
+            { className: "steam-ui-kit-hero-band-text" },
+            props.eyebrow
+                ? h("div", { className: "steam-ui-kit-hero-band-eyebrow" }, props.eyebrow)
+                : null,
+            h("h1", { className: "steam-ui-kit-hero-band-title" }, props.title),
+            props.detail
+                ? h("div", { className: "steam-ui-kit-hero-band-detail" }, props.detail)
+                : null,
+        ),
+    );
+};
+
+/**
+ * Creates an item's heading in a page's main column: its name, its status tags and a short fact on
+ * one wrapping line, then a summary of what it is or what is installed.
+ * @param ui Steam's resolved React.
+ * @param props The name, tags, the fact (such as the latest version) and the summary.
+ * @returns The heading; it takes no focus.
+ */
+const renderSteamUiItemHeading = (
+    ui,
+    props: {
+        key?: string;
+        title: string;
+        tags?: readonly (SteamUiTagProps | null | undefined | false)[];
+        fact?: string;
+        summary?: string;
+    },
+) => {
+    const h = ui.react.createElement;
+    return h(
+        "div",
+        { key: props.key, className: "steam-ui-kit-item-heading" },
+        h(
+            "div",
+            { className: "steam-ui-kit-item-heading-line" },
+            h("h2", { className: "steam-ui-kit-item-heading-title" }, props.title),
+            renderSteamUiTags(ui.react, props.tags ?? []),
+            props.fact
+                ? h("span", { className: "steam-ui-kit-item-heading-fact" }, props.fact)
+                : null,
+        ),
+        props.summary
+            ? h("div", { className: "steam-ui-kit-item-heading-summary" }, props.summary)
+            : null,
+    );
+};
+
+/**
+ * Creates a side panel beside a page's main column: an eyebrow naming it, then sections of an
+ * eyebrow label, a value, a supporting line or tags, with a hairline between sections that ask for
+ * one, and a closing note. A panel carries at most one action, on the section it changes. It stacks
+ * below the main column on a narrow page.
+ * @param ui Steam's resolved React, Focusable and button.
+ * @param props The panel's label, its sections and the note.
+ * @returns The panel, a column for controller navigation.
+ */
+const renderSteamUiSidePanel = (
+    ui,
+    props: {
+        key?: string;
+        label: string;
+        sections: readonly (SteamUiSideSection | null | undefined | false)[];
+        note?: string;
+    },
+) => {
+    const h = ui.react.createElement;
+    const sections = (props.sections ?? []).filter(
+        (section): section is SteamUiSideSection => !!section,
+    );
+    const children: any[] = [
+        h("div", { key: "label", className: "steam-ui-kit-side-label" }, props.label),
+    ];
+    for (const section of sections) {
+        if (section.rule)
+            children.push(
+                h("div", { key: `${section.key}-rule`, className: "steam-ui-kit-side-rule" }),
+            );
+        const action = section.action && ui.dialogButton ? section.action : null;
+        // Only a section with an action is a navigation node; the rest are text.
+        children.push(
+            h(
+                action ? (ui.focusable ?? "div") : "div",
+                action
+                    ? {
+                          key: section.key,
+                          className: "steam-ui-kit-side-section",
+                          "flow-children": "column",
+                      }
+                    : { key: section.key, className: "steam-ui-kit-side-section" },
+                section.label
+                    ? h("div", { className: "steam-ui-kit-side-label" }, section.label)
+                    : null,
+                section.value
+                    ? h("div", { className: "steam-ui-kit-side-value" }, section.value)
+                    : null,
+                renderSteamUiTags(ui.react, section.tags ?? []),
+                section.detail
+                    ? h(
+                          "div",
+                          { className: `steam-ui-kit-side-detail${section.error ? " error" : ""}` },
+                          section.detail,
+                      )
+                    : null,
+                action
+                    ? h(
+                          ui.dialogButton,
+                          {
+                              disabled: !!action.disabled,
+                              "aria-disabled": !!action.disabled,
+                              onClick: () => {
+                                  if (!action.disabled) action.onClick();
+                              },
+                          },
+                          action.label,
+                      )
+                    : null,
+            ),
+        );
+    }
+    if (props.note)
+        children.push(h("div", { key: "note", className: "steam-ui-kit-side-note" }, props.note));
+    return h(
+        ui.focusable ?? "div",
+        {
+            key: props.key,
+            className: "steam-ui-kit-side",
+            "flow-children": "column",
+            role: "complementary",
+            "aria-label": props.label,
+        },
+        ...children,
+    );
+};
 
 /**
  * Creates a selected image with controller-selectable thumbnails.
@@ -1264,8 +1684,14 @@ const renderSteamUiDetail = (
  * Opens a confirmation; Cancel and Back invoke no action. It is Steam's own confirm modal where the
  * client has one, and the kit's modal with the same title, words and buttons where it does not.
  * @param ui Steam's resolved React and native control components.
+ *
+ * Text separated by a blank line is drawn as paragraphs, the way Steam's own notices keep their line
+ * breaks. `focusCancel` puts the controller on Cancel when the dialog opens, for a question whose safe
+ * answer is no, such as installing into a game with anti-cheat.
+ * @param ui Steam's resolved React and native control components.
  * @param props Title, explanation, confirm label, whether the action destroys something (the
- * default, which Steam draws as a warning) and the callback invoked on confirmation.
+ * default, which Steam draws as a warning), whether Cancel takes the initial focus and the callback
+ * invoked on confirmation.
  * @returns Whether the modal could be shown; a thrown confirmation callback is not swallowed.
  */
 const showSteamUiConfirm = (
@@ -1275,17 +1701,23 @@ const showSteamUiConfirm = (
         text: string;
         confirmLabel: string;
         destructive?: boolean;
+        focusCancel?: boolean;
         onConfirm: () => void;
     },
 ) => {
     const h = ui.react.createElement;
+    const multiline = props.text.includes("\n");
     if (ui.confirmModal && ui.showModal) {
         ui.showModal(
             h(ui.confirmModal, {
                 strTitle: props.title,
-                strDescription: props.text,
+                strDescription: multiline
+                    ? h("span", { style: { whiteSpace: "pre-line" } }, props.text)
+                    : props.text,
                 strOKButtonText: props.confirmLabel,
                 bDestructiveWarning: props.destructive !== false,
+                // Steam's own dialog row focuses its secondary (Cancel) button when asked to.
+                focusButton: props.focusCancel ? "secondary" : undefined,
                 onOK: props.onConfirm,
                 onCancel: () => {},
             }),
@@ -1301,11 +1733,18 @@ const showSteamUiConfirm = (
             h(
                 "div",
                 { className: "steam-ui-kit-modal-body" },
-                h("p", null, props.text),
+                ...props.text
+                    .split(/\n{2,}/u)
+                    .filter((paragraph) => paragraph.length > 0)
+                    .map((paragraph, index) => h("p", { key: index }, paragraph)),
                 h(
                     ui.focusable,
                     { "flow-children": "row", className: "steam-ui-kit-modal-actions" },
-                    h(ui.dialogButton, { onClick: close }, "Cancel"),
+                    h(
+                        ui.dialogButton,
+                        { onClick: close, autoFocus: props.focusCancel ? true : undefined },
+                        "Cancel",
+                    ),
                     h(
                         ui.dialogButtonPrimary ?? ui.dialogButton,
                         {
@@ -1388,6 +1827,25 @@ type SteamUiAction = {
     /** Opens Steam's file picker; the chosen path goes to `onPick`, a cancellation nowhere. */
     pick?: { title: string; mode?: "file" | "folder"; extensions?: readonly string[] };
     onPick?: (path: string) => void;
+};
+
+/** One status tag: its words and tone. */
+type SteamUiTagProps = {
+    key?: string;
+    text: string;
+    tone?: "neutral" | "info" | "success" | "update" | "danger";
+};
+
+/** One section of a side panel. `rule` draws the hairline above it; `error` colours its detail. */
+type SteamUiSideSection = {
+    key: string;
+    label?: string;
+    value?: string;
+    detail?: string;
+    error?: boolean;
+    tags?: readonly (SteamUiTagProps | null | undefined | false)[];
+    rule?: boolean;
+    action?: { label: string; onClick: () => void; disabled?: boolean } | null;
 };
 
 /** One line of a status stack: a notice as plain words, or a line with its tone and Dismiss. */

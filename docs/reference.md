@@ -1647,6 +1647,10 @@ fragment reorganization or new registration mechanism is required.
 | `renderSteamUiChips`, `renderSteamUiBox`                                  | Retain      | Draw selectable chips and a titled box.                                                                                                                                                         |
 | `renderSteamUiGallery`, `renderSteamUiVideo`                              | Retain      | Draw image alternatives and a video preview.                                                                                                                                                    |
 | `renderSteamUiIcon`, `renderSteamGlyph`                                   | Retain      | Draw a named glyph from `icons.ts` or a supplied vector glyph.                                                                                                                                  |
+| `renderSteamUiTag`, `renderSteamUiTags`, `renderSteamUiArt`               | Retain      | Draw a status tag, a row of them, or a picture tried source by source.                                                                                                                          |
+| `renderSteamUiHero`, `renderSteamUiItemHeading`, `renderSteamUiSidePanel` | Retain      | Draw a page's hero band, an item's heading with tags, or the side panel beside a main column.                                                                                                   |
+| `steamAppOverview`, `steamAppHeroImages`, `steamAppHeaderImages`          | Retain      | Read one app's overview and its hero or header art from Steam's stores, best source first.                                                                                                      |
+| `readSteamLibraryGames`                                                   | Retain      | List the library's games and non-Steam shortcuts by name, as `SteamLibraryData.ReadGamesAsync` does; null without Steam's store.                                                                |
 | `renderSteamUiDetail`                                                     | Retain      | Draw an item's detail layout.                                                                                                                                                                   |
 | `showSteamUiConfirm`, `showSteamUiPrompt`                                 | Retain      | Open the one confirmation (Steam's own where resolved) and the text-entry modal.                                                                                                                |
 | `showSteamModal`, `showSteamFilePicker`, `showSteamColorEditor`           | Retain      | Open a Steam modal, a host-backed file picker or a color editor.                                                                                                                                |
@@ -1689,9 +1693,14 @@ disabled button without setting the HTML `disabled` attribute.
 contains Steam's bare dropdown in narrow columns, with a below-layout full-field fallback. Use
 `showLabel:false` when a table already names the row; the accessible label remains. The shared
 styles contain Steam's fixed-width dropdown wrappers without changing the separately owned popup.
-`renderSteamUiSelectRow(ui, {key, title, detail, status, selected, onClick})` keeps a native button
-as one focus target and lays out title/status on one row and supporting text on its own line. Plain
-adjacent spans are not a multi-column button layout.
+`renderSteamUiSelectRow(ui, {key, title, detail, status, selected, media, disabled, description,
+onClick})` keeps a native button as one focus target and lays out title/status on one row and
+supporting text on its own line, keeping the detail's line breaks; `media` puts a picture before
+both. A selected row carries Steam's inset accent bar, which stays when focus leaves; while a row has
+focus (Steam draws it white) its detail turns dark, so a coloured status belongs in a tag, whose fill
+keeps it legible on either ground. Plain adjacent spans are not a multi-column button layout. A list
+of them is a `steam-ui-kit-list` (full-width rows), or `steam-ui-kit-list columns` for a grid of
+rows that shrinks to one column.
 
 File pickers size against their modal parent, never a viewport-derived minimum width. Their rail and
 file list scroll independently; actions remain outside the scroll region. A file picker with no
@@ -1715,15 +1724,20 @@ in that root's document.
 | `renderSteamUiActions`                      | Steam's buttons in a two-column grid; a label over eighteen characters, or `wide`, takes a row; an action with `pick` opens Steam's file picker and hands the path to `onPick`       |
 | `renderSteamUiSwatch`                       | a colour square; with a label, a named image for assistive technology                                                                                                                 |
 | `renderSteamUiMeter`                        | a thin fill meter: `value` of `max`, rounded and clamped; `max` of zero or less is the indeterminate track; with a `label`, a progress bar, or a meter when `usage`, else decorative  |
-| `renderSteamUiCard`, `renderSteamUiGrid`    | a focusable card (16:10 image or supplied media, stats strip, badge, title, meta) and its grid                                                                                        |
+| `renderSteamUiCard`, `renderSteamUiGrid`    | a focusable card (16:10 image or supplied media, stats strip, badge, title, tags, meta) and its grid                                                                                  |
+| `renderSteamUiTag`, `renderSteamUiTags`     | a status tag, 22px uppercase words on an opaque fill in the neutral, info, success, update or danger tone, and a wrapping row of them that skips empty ones                          |
+| `renderSteamUiArt`                          | a decorative picture that tries each source in turn (custom, cached, published), with a fallback once every source failed                                                            |
+| `renderSteamUiHero`                         | a page's hero band under Steam's header: art under a scrim, an eyebrow, the title and a purpose line (compact without one); its text aligns with `--steam-ui-kit-page-width`         |
+| `renderSteamUiItemHeading`                  | an item's name, status tags and a short fact on one wrapping line, then its summary                                                                                                  |
+| `renderSteamUiSidePanel`                    | a 340px panel beside a main column: a label, sections of label, value, detail or tags with optional hairlines, at most one action, a note; it stacks below 760px                      |
 | `renderSteamUiImagePreview`                 | a display-shaped still preview with Fit/Fill sizing and a placeholder when no cover is available                                                                                      |
 | `renderSteamUiEmpty`                        | an empty state of a kind: `loading` and `unavailable` (a status), `empty` and `noMatch`, `error` (an alert); a title makes it the large first-run panel, with one optional action  |
 | `renderSteamUiStatus`                       | a stack of notices and errors, one line each, with an optional Dismiss per line                                                                                                       |
-| `renderSteamUiProgress`                     | one operation's phase, `done of total` over a measured bar (a moving one without a total), its detail, a cancel while it runs and its outcome once it ended                         |
+| `renderSteamUiProgress`                     | one operation's named steps (done, current, to come), its phase, `done of total` or the caller's `count` over a measured bar (a moving one without a total), its detail, a cancel while it runs, a note on what cancelling does and its outcome once it ended |
 | `renderSteamUiFields`                       | a settings section of host `SteamSettingsRow`s over `useSteamSettingDrafts`: a rejected `onChange`/`onAction` is drawn on the row that asked; `nested` rows are indented              |
-| `renderSteamUiBanner`                       | a notice or error with an optional Dismiss button                                                                                                                                     |
+| `renderSteamUiBanner`                       | a notice, a success (with the check glyph) or an error (an alert), with an optional bold title and Dismiss button                                                                    |
 | `renderSteamUiToolbar`, `renderSteamUiTool` | a focusable row of labelled controls; a `grow` tool takes what is left                                                                                                                |
-| `renderSteamUiChips`                        | small buttons in a wrapping row                                                                                                                                                       |
+| `renderSteamUiChips`                        | small buttons in a wrapping row; as a filter, the current chip carries the accent bar and `aria-pressed`                                                                             |
 | `renderSteamUiBox`                          | a titled box, for a detail view's action column                                                                                                                                       |
 | `renderSteamUiGallery`                      | one large image, thumbnails that pick it, and a counter                                                                                                                               |
 | `renderSteamUiVideo`                        | a movie preview on the gallery's frame, muted on a loop over its still                                                                                                                |
@@ -1732,7 +1746,7 @@ in that root's document.
 | `renderSteamUiPane`, `renderSteamUiLevel`   | a page's pane and a level over it, each taking the controller's focus when it appears, so B goes back a level instead of leaving the page from focus left on nothing                  |
 | `renderSteamUiIcon`                         | a glyph by name from the one glyph table in `icons.ts` (download, star, heart, check, chevron and the row glyphs), cached per React and size                                         |
 | `SteamUiPageRequired`                       | the components a host page requires unless it names its own list                                                                                                                      |
-| `showSteamUiConfirm`, `showSteamUiPrompt`   | the one confirmation (Steam's own confirm modal where the client has one, the kit's modal otherwise; destructive unless told not), and a request for one line of text              |
+| `showSteamUiConfirm`, `showSteamUiPrompt`   | the one confirmation (Steam's own confirm modal where the client has one, the kit's modal otherwise; destructive unless told not; paragraphs split on a blank line; `focusCancel` puts the controller on Cancel through Steam's `focusButton: "secondary"`), and a request for one line of text |
 
 `ui-flows.ts` builds the flows a page is made of from those elements:
 
