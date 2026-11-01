@@ -586,6 +586,9 @@ function createNativeComponentHost() {
                   })
                 : note("frameLimitSwitch", "Steam ToggleField was not resolved");
             const slider = controlRuntime.react.createElement(controlRuntime.slider, {
+                // A notch list of another length is another slider: Steam's keeps its notch in its own
+                // state, and reading it against a shorter list indexes past the end.
+                key: refreshMode ? `refresh:${state.refreshRates.join(",")}` : "cap",
                 // Live-verified 2026-08-30: these are tokens the client actually carries.
                 // "#QuickAccess_Tab_Perf_FramerateLimit" appears nowhere in the bundle, so the row it was
                 // written against fell back to English on every localized client.
@@ -1220,11 +1223,17 @@ function createNativeComponentHost() {
         const drawn = new Set<string>();
         for (const [kind, key, tab, component, publication, ownRows] of bespoke) {
             if (tab !== placement || !component || !acceptedStates.get(publication)) continue;
+            // Valve's refresh slider keeps its notch index in its own state and reads it against the
+            // notch list of the next render, so a list that changed length (48-120 Hz down to 120 Hz
+            // after a resume, 2026-11-01) indexed past its end and threw inside Quick Settings. Keyed on
+            // its bounds, a new range mounts a new slider instead.
+            const rowKey =
+                kind === "valveRefreshRate" ? `${key}:${acceptedStates.get(publication)}` : key;
             rows.push([
                 kind,
                 ownRows
-                    ? h(component, { key })
-                    : h(controlRuntime.row, { key }, h(component)),
+                    ? h(component, { key: rowKey })
+                    : h(controlRuntime.row, { key: rowKey }, h(component)),
             ]);
             // Valve's components report nothing and count as drawn while they are mounted.
             if (kind.startsWith("valve") || drawnKinds.has(kind)) drawn.add(kind);
@@ -1587,13 +1596,30 @@ function createNativeComponentHost() {
         };
     };
 
+    // The refresh bounds of a performance state, as a key that changes whenever the notch list does.
+    const refreshBounds = (value) => {
+        const limits = value.limits ?? {};
+        return [
+            "refresh",
+            limits.display_refresh_manual_hz_min,
+            limits.display_refresh_manual_hz_max,
+            limits.display_external_refresh_manual_hz_min,
+            limits.display_external_refresh_manual_hz_max,
+        ].join(":");
+    };
+
     // The publications the host draws from, under the names the controls read them by.
     const Publications = [
         ["rows", RowsPatchId, normalizeRowsState],
         ["layout", LayoutPatchId, normalizeQuickAccessLayout],
         ["folds", SteamFoldsPatchId, (value) => panelFolds.normalize(value)],
-        // Valve's components read the performance store; only whether a state arrived matters here.
-        ["performance", PerformancePatchId, (value) => (value && typeof value === "object" ? true : null)],
+        // Valve's components read the performance store. What matters here is whether a state arrived,
+        // and the refresh bounds Valve's refresh row is keyed on.
+        [
+            "performance",
+            PerformancePatchId,
+            (value) => (value && typeof value === "object" ? refreshBounds(value) : null),
+        ],
         ["frameLimit", FrameLimitPatchId, normalizeFrameLimitState],
         ["lightingZones", LightingZonesPatchId, normalizeLightingZonesState],
     ] as const;

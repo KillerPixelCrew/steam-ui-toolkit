@@ -754,12 +754,14 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
                 bridgeApplied = AppliesStarted(bridge!) != appliesBefore;
             }
 
-            var bridgeHolds = !bridgeWanted || Holds(bridge!);
             foreach (var entry in entries.Where(entry => entry != bridge && Wanted(entry)))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var insideBridge = bridgeWanted && entry.Patch.TargetRole == SteamUiTargetRole.SharedJsContext;
-                if (insideBridge && !bridgeHolds)
+                // Asked for every gate, not once per pass: a retraction or a page reload can take the
+                // bridge away while the pass runs, and every gate after that failed against nothing
+                // ("bridge unavailable", RemoveFailed and Degraded across a Game Mode switch, 2026-11-01).
+                if (insideBridge && !Holds(bridge!))
                 {
                     // Every gate and row lives in the bridge: one applied without it fails against
                     // nothing and is torn down again (2026-10-13, every Quick Access row "bridge
