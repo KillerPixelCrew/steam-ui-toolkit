@@ -258,6 +258,20 @@ documentFixture.getElementById = (id) => (id === "root" ? { __reactContainer$fix
 probe = gate.probe();
 assert.equal(probe.outcome, "incompatible", "a route that does not draw Home must be incompatible");
 assert.match(probe.reason, /does not draw Home/u);
+// The desktop library routes /library/home to a plain function component of its own. With only that
+// list mounted (desktop mode, Big Picture closed) the gate waits rather than calling the client
+// incompatible, as the stable client of 2026-10-20 did in a tester's log.
+const desktopRoot = {
+  memoizedProps: {
+    children: [route("/library/home", element(function DesktopHome() { return null; }, {})), route("/a", null), route("/b", null)],
+  },
+  child: null,
+  sibling: null,
+};
+documentFixture.getElementById = (id) => (id === "root" ? { __reactContainer$fixture: desktopRoot } : null);
+probe = gate.probe();
+assert.equal(probe.outcome, "notReady", `the desktop library's Home route must be not ready: ${probe.reason}`);
+assert.deepEqual({ homeRoutes: probe.facts.homeRoutes, desktopRoutes: probe.facts.desktopRoutes }, { homeRoutes: 0, desktopRoutes: 1 });
 documentFixture.getElementById = mountedRoot;
 probe = gate.probe();
 assert.equal(probe.outcome, "ready", `the mounted Home must probe ready: ${probe.reason}`);

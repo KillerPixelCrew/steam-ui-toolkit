@@ -264,7 +264,7 @@ function componentFixture() {
         performance(_module, exports) {
             // #QuickAccess_Tab_Perf_Common_Settings #QuickAccess_Tab_Perf_BatteryTimeRemaining
             exports.root = function () {
-                // TS.ON_FRAME
+                // (0,hook)(!0).ON_FRAME?
                 return null;
             };
         },

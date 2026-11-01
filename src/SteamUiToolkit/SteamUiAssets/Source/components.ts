@@ -1356,11 +1356,14 @@ function createNativeComponentHost() {
         );
     };
 
-    // The performance panel's factory, by tokens only it carries.
+    // The performance panel's factory, by tokens only it carries. Its root branches on the platform's
+    // ON_FRAME flag, which Stable reads from a constant (`<module>.TS.ON_FRAME?`) and the Beta of
+    // 2026-10-29 from a hook's result (`(0,<module>.<hook>)(!0).ON_FRAME?`); the member access and its
+    // conditional are what both spell the same, checked offline against both channels.
     const PerformanceRootTokens = [
         "#QuickAccess_Tab_Perf_Common_Settings",
         "#QuickAccess_Tab_Perf_BatteryTimeRemaining",
-        "TS.ON_FRAME",
+        ".ON_FRAME?",
     ];
     // Valve's own components, from the perf-components module, selected by the localization token each
     // draws, never by a minified export name. Live-probed 2026-08-30 that each token matches exactly
@@ -1382,7 +1385,7 @@ function createNativeComponentHost() {
                 "React, fields, layout or localization runtime was not a unique match",
             );
         const performanceRoot = uniqueFunction(runtime(performanceFactory[0]), [
-            "TS.ON_FRAME",
+            ".ON_FRAME?",
             "return",
         ]);
         if (!performanceRoot) return gateIncompatible("performance panel root was not a unique match");

@@ -34,7 +34,7 @@ function createHomeCarousel() {
 
     let lastOutcome = "never rendered";
     let lastReport = "";
-    let lastSearch = { roots: 0, visited: 0, homeRoutes: 0, page: "", mounted: 0 };
+    let lastSearch = { roots: 0, visited: 0, homeRoutes: 0, desktopRoutes: 0, page: "", mounted: 0 };
     let cached: {
         key: unknown[];
         list: number[];
@@ -350,7 +350,7 @@ function createHomeCarousel() {
     const findHome = (react) => {
         let found = null;
         const roots = reactRootFibers();
-        const search = { roots: roots.length, visited: 0, homeRoutes: 0, page: "", mounted: 0 };
+        const search = { roots: roots.length, visited: 0, homeRoutes: 0, desktopRoutes: 0, page: "", mounted: 0 };
         const walk = walkFibers(roots, MaximumNodesVisited, (node) => {
             // A Fragment's fiber holds its children array as the props themselves.
             const props = node.memoizedProps;
@@ -360,9 +360,17 @@ function createHomeCarousel() {
                 (child) => react.isValidElement(child) && child.props?.path === KnownRoute,
             );
             if (!route) return;
-            search.homeRoutes++;
             const type = route.props?.children?.type;
-            search.page = !type ? "none" : typeof type === "function" ? "function" : String(type.$$typeof);
+            // The desktop library routes /library/home too, to a plain function component that wraps
+            // its own Home; Big Picture's route draws the Home memo. The desktop route says nothing
+            // about Big Picture's Home, so it is reported but not counted (stable 1792618285 and the
+            // 2026-10-29 beta both have the two lists, read offline).
+            if (typeof type === "function") {
+                search.desktopRoutes++;
+                return;
+            }
+            search.homeRoutes++;
+            search.page = !type ? "none" : String(type.$$typeof);
             if (isHome(type)) found = type;
             return !!found;
         });
@@ -404,9 +412,9 @@ function createHomeCarousel() {
         if (!home) {
             const where =
                 `roots=${search.roots} visited=${search.visited} homeRoutes=${search.homeRoutes} ` +
-                `page=${search.page || "-"}`;
+                `desktopRoutes=${search.desktopRoutes} page=${search.page || "-"}`;
             return search.homeRoutes === 0
-                ? gateNotReady(`the router is not mounted (${where})`, facts)
+                ? gateNotReady(`Big Picture's router is not mounted (${where})`, facts)
                 : gateIncompatible(`the /library/home route does not draw Home (${where})`, facts);
         }
         const descriptor = Object.getOwnPropertyDescriptor(home, "type");
