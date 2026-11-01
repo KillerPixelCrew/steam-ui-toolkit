@@ -261,6 +261,22 @@ const SteamUiKitStyles = `
 .steam-ui-kit-progress-step.current .steam-ui-kit-progress-dot{background:#1a9fff;color:#0e141b}
 .steam-ui-kit-progress-dot svg{width:14px;height:14px}
 .steam-ui-kit-progress-note{font-size:13px;line-height:1.45;color:#b8bcbf;overflow-wrap:anywhere}
+.steam-ui-kit-icon-tile{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;border-radius:2px;overflow:hidden;box-sizing:border-box;background:#10151c;border:1px solid #23262e;color:#8b929a}
+.steam-ui-kit-icon-tile-art{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block}
+.steam-ui-kit-card.icon{gap:10px;padding:14px;min-width:0}
+.steam-ui-kit-card-head{display:flex;align-items:center;gap:12px;min-width:0}
+.steam-ui-kit-card-head-text{display:flex;flex-direction:column;gap:2px;min-width:0}
+.steam-ui-kit-card.icon .steam-ui-kit-card-title{padding:0}
+.steam-ui-kit-card-subtitle{font-size:13px;line-height:1.4;color:#8b929a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.steam-ui-kit-card.icon .steam-ui-kit-card-meta{padding:0;font-size:13px;line-height:1.4;color:#8b929a;overflow-wrap:anywhere}
+.steam-ui-kit-card.icon .steam-ui-kit-card-tags{padding:0}
+.steam-ui-kit-banner>.steam-ui-kit-actions{flex:0 0 auto;justify-content:flex-end}
+.steam-ui-kit-hero-band-text.with-icon{display:flex;align-items:center;gap:20px}
+.steam-ui-kit-hero-band-words{flex:1 1 auto;min-width:0}
+.steam-ui-kit-hero-band-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;min-width:0}
+.steam-ui-kit-state{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex:0 0 auto;border-radius:50%;background:#2a3039;color:#b8bcbf}
+.steam-ui-kit-state.ready{background:#1e3324;color:#b9f0c6}
+.steam-ui-kit-state.missing{background:#3b2326;color:#ff6d6d}
 `;
 
 // One stylesheet element and one icon renderer per React, so a root re-rendering on every host
@@ -337,7 +353,8 @@ const renderSteamUiChoice = (
  * @param ui Resolved native Steam button.
  * @param props Stable key, label/detail/status, whether the detail is why the item cannot be used,
  * selected state, an optional leading picture (such as `renderSteamUiArt`), whether the row can be
- * used and one activation callback.
+ * used, a second command on Steam's secondary (X) button, whether the row takes focus when it
+ * mounts and one activation callback.
  * @returns One native focus target with structured content instead of concatenated button text.
  */
 const renderSteamUiSelectRow = (
@@ -352,6 +369,8 @@ const renderSteamUiSelectRow = (
         media?: any;
         disabled?: boolean;
         description?: string;
+        secondary?: SteamUiSecondaryAction | null;
+        autoFocus?: boolean;
         onClick: () => void;
     },
 ) => {
@@ -364,7 +383,9 @@ const renderSteamUiSelectRow = (
             "aria-pressed": !!props.selected,
             disabled: props.disabled ? true : undefined,
             "aria-disabled": props.disabled ? true : undefined,
+            autoFocus: props.autoFocus ? true : undefined,
             onOKActionDescription: props.description,
+            ...steamUiSecondaryProps(props.secondary),
             onClick: () => {
                 if (!props.disabled) props.onClick();
             },
@@ -786,9 +807,26 @@ const renderSteamUiMeter = (
 };
 
 /**
+ * The focus props that put a second command on Steam's secondary (X) button, which the footer
+ * names; a disabled or absent command binds nothing, so the footer does not offer it.
+ * @param action The command, or null.
+ * @returns Props to spread onto the Focusable or button.
+ */
+const steamUiSecondaryProps = (action: SteamUiSecondaryAction | null | undefined) =>
+    action && !action.disabled && typeof action.onActivate === "function"
+        ? { onSecondaryButton: action.onActivate, onSecondaryActionDescription: action.label }
+        : {};
+
+/**
  * Creates one activatable gallery card using Steam controller focus.
+ *
+ * With `icon` the card is the compact kind a list of programs uses: a square icon (such as
+ * `renderSteamUiIconTile`) beside the title and a subtitle, then the meta lines and the tags, in
+ * place of the 16:10 shot.
  * @param ui Steam's resolved React and native control components.
- * @param props Optional image/stats/badge, title, status tags, metadata and activation callback.
+ * @param props Optional image/stats/badge, or an icon and subtitle; the title, status tags,
+ * metadata, the A action's name, a second command on the secondary (X) button, whether the card
+ * takes focus when it mounts and the activation callback.
  * @returns A single focus target containing the card content.
  */
 const renderSteamUiCard = (
@@ -800,21 +838,52 @@ const renderSteamUiCard = (
         placeholder?: string;
         stats?: { glyph?: any; text: string }[];
         badge?: { text: string; warn?: boolean } | null;
+        icon?: any;
+        subtitle?: string;
         title: string;
-        tags?: readonly SteamUiTagProps[];
+        tags?: readonly (SteamUiTagProps | null | undefined | false)[];
         meta?: string[];
+        description?: string;
+        secondary?: SteamUiSecondaryAction | null;
+        autoFocus?: boolean;
         onActivate: () => void;
     },
 ) => {
     const h = ui.react.createElement;
+    const focus = {
+        key: props.key,
+        className: `steam-ui-kit-card${props.icon ? " icon" : ""}`,
+        autoFocus: props.autoFocus ? true : undefined,
+        onActivate: props.onActivate,
+        onOKActionDescription: props.description ?? "Open",
+        ...steamUiSecondaryProps(props.secondary),
+    };
+    if (props.icon) {
+        return h(
+            ui.focusable,
+            focus,
+            h(
+                "div",
+                { className: "steam-ui-kit-card-head" },
+                props.icon,
+                h(
+                    "div",
+                    { className: "steam-ui-kit-card-head-text" },
+                    h("div", { className: "steam-ui-kit-card-title" }, props.title),
+                    props.subtitle
+                        ? h("div", { className: "steam-ui-kit-card-subtitle" }, props.subtitle)
+                        : null,
+                ),
+            ),
+            ...(props.meta ?? []).map((line, index) =>
+                h("div", { key: index, className: "steam-ui-kit-card-meta" }, line),
+            ),
+            renderSteamUiTags(ui.react, props.tags ?? [], "steam-ui-kit-card-tags"),
+        );
+    }
     return h(
         ui.focusable,
-        {
-            key: props.key,
-            className: "steam-ui-kit-card",
-            onActivate: props.onActivate,
-            onOKActionDescription: "Open",
-        },
+        focus,
         h(
             "div",
             { className: "steam-ui-kit-card-shot" },
@@ -1149,19 +1218,23 @@ const renderSteamUiFields = (
  * Creates a dismissible notice, success or error.
  *
  * A notice is information, a success says a change was saved and what follows from it (with the
- * check glyph), and an error is an alert. An optional title leads the message in bold.
+ * check glyph), and an error is an alert. An optional title leads the message in bold. A banner
+ * that offers what to do about it, such as installing waiting updates, carries those commands at
+ * its end as compact actions.
  * @param ui Steam's resolved React and native control components.
- * @param props Message, optional title, the tone (error wins over success) and callback that clears
- * the owning state.
+ * @param props Message, optional title, the tone (error wins over success), the commands and
+ * callback that clears the owning state.
  * @returns The banner; dismissal is delegated to the caller.
  */
 const renderSteamUiBanner = (
     ui,
     props: {
+        key?: string;
         text: string;
         title?: string;
         error?: boolean;
         success?: boolean;
+        actions?: SteamUiAction[] | null;
         onDismiss?: () => void;
     },
 ) => {
@@ -1171,6 +1244,7 @@ const renderSteamUiBanner = (
     return h(
         "div",
         {
+            key: props.key,
             className: `steam-ui-kit-banner${tone}`,
             role: props.error ? "alert" : "status",
         },
@@ -1189,6 +1263,7 @@ const renderSteamUiBanner = (
                   ),
               )
             : h("span", { className: "steam-ui-kit-banner-text" }, props.text),
+        ...(props.actions?.length ? [renderSteamUiActions(ui, props.actions, { compact: true })] : []),
         props.onDismiss
             ? h(ui.smallButton ?? ui.dialogButton, { onClick: props.onDismiss }, "Dismiss")
             : null,
@@ -1356,9 +1431,10 @@ const renderSteamUiArt = (
 /**
  * Creates a page's hero band under Steam's header: the library art over the hero ground, a scrim that
  * keeps the words legible, an optional eyebrow naming the page, the title and an optional purpose
- * line. Without a purpose line the band is the compact height. It takes no focus.
+ * line. Without a purpose line the band is the compact height. An item's band can lead with its
+ * icon (such as `renderSteamUiIconTile`) and carry status tags after the title. It takes no focus.
  * @param ui Steam's resolved React.
- * @param props The title, the eyebrow, the purpose line and the art's sources.
+ * @param props The title, the eyebrow, the purpose line, the art's sources, the icon and the tags.
  * @returns The band.
  */
 const renderSteamUiHero = (
@@ -1369,10 +1445,35 @@ const renderSteamUiHero = (
         eyebrow?: string;
         detail?: string;
         images?: readonly string[];
+        icon?: any;
+        tags?: readonly (SteamUiTagProps | null | undefined | false)[];
     },
 ) => {
     const h = ui.react.createElement;
     const images = props.images ?? [];
+    const eyebrow = props.eyebrow
+        ? h("div", { className: "steam-ui-kit-hero-band-eyebrow" }, props.eyebrow)
+        : null;
+    const title = h("h1", { className: "steam-ui-kit-hero-band-title" }, props.title);
+    const detail = props.detail
+        ? h("div", { className: "steam-ui-kit-hero-band-detail" }, props.detail)
+        : null;
+    const tags = renderSteamUiTags(ui.react, props.tags ?? []);
+    const text =
+        props.icon || tags
+            ? h(
+                  "div",
+                  { className: `steam-ui-kit-hero-band-text${props.icon ? " with-icon" : ""}` },
+                  props.icon ?? null,
+                  h(
+                      "div",
+                      { className: "steam-ui-kit-hero-band-words" },
+                      eyebrow,
+                      h("div", { className: "steam-ui-kit-hero-band-line" }, title, tags),
+                      detail,
+                  ),
+              )
+            : h("div", { className: "steam-ui-kit-hero-band-text" }, eyebrow, title, detail);
     return h(
         "header",
         { key: props.key, className: `steam-ui-kit-hero-band${props.detail ? "" : " compact"}` },
@@ -1380,17 +1481,69 @@ const renderSteamUiHero = (
             ? renderSteamUiArt(ui.react, { images, className: "steam-ui-kit-hero-band-art" })
             : null,
         images.length ? h("div", { className: "steam-ui-kit-hero-band-scrim" }) : null,
-        h(
-            "div",
-            { className: "steam-ui-kit-hero-band-text" },
-            props.eyebrow
-                ? h("div", { className: "steam-ui-kit-hero-band-eyebrow" }, props.eyebrow)
-                : null,
-            h("h1", { className: "steam-ui-kit-hero-band-title" }, props.title),
-            props.detail
-                ? h("div", { className: "steam-ui-kit-hero-band-detail" }, props.detail)
-                : null,
-        ),
+        text,
+    );
+};
+
+/**
+ * Creates a square icon tile: the app's icon tried source by source, and the glyph on the media
+ * ground where it has none, such as a program Steam has no icon for yet.
+ * @param react Steam's React instance used by the consuming root.
+ * @param props The icon's sources, the glyph from `icons.ts` (`controller` by default), the edge in
+ * pixels and an accessible name; without a name the tile is decorative.
+ * @returns The tile; it takes no focus.
+ */
+const renderSteamUiIconTile = (
+    react,
+    props: { key?: string; images?: readonly string[]; glyph?: string; size?: number; label?: string },
+) => {
+    const size = props.size ?? 56;
+    const glyph = renderSteamUiIcon(react, props.glyph ?? "controller", Math.round(size * 0.42));
+    return react.createElement(
+        "span",
+        {
+            key: props.key,
+            className: "steam-ui-kit-icon-tile",
+            style: { width: `${size}px`, height: `${size}px` },
+            role: props.label ? "img" : undefined,
+            "aria-label": props.label || undefined,
+            "aria-hidden": props.label ? undefined : "true",
+        },
+        renderSteamUiArt(react, {
+            images: props.images ?? [],
+            className: "steam-ui-kit-icon-tile-art",
+            fallback: glyph,
+            lazy: true,
+        }),
+    );
+};
+
+/** The states a checklist line can be in, and the glyph each one shows. */
+const SteamUiStateGlyphs: Readonly<Record<string, string>> = Object.freeze({
+    ready: "check",
+    missing: "cross",
+    optional: "dash",
+});
+
+/**
+ * Creates a checklist line's state mark: a small round mark, checked when the item is ready, crossed
+ * when it is missing and a dash when it is optional and absent. It goes in a field's icon slot,
+ * beside the words that say the same thing.
+ * @param react Steam's React instance used by the consuming root.
+ * @param props The state (`ready`, `missing` or `optional`) and its accessible name.
+ * @returns The mark; it takes no focus.
+ */
+const renderSteamUiStateMark = (react, props: { state: string; label?: string }) => {
+    const state = Object.hasOwn(SteamUiStateGlyphs, props.state) ? props.state : "optional";
+    return react.createElement(
+        "span",
+        {
+            className: `steam-ui-kit-state ${state}`,
+            role: props.label ? "img" : undefined,
+            "aria-label": props.label || undefined,
+            "aria-hidden": props.label ? undefined : "true",
+        },
+        renderSteamUiIcon(react, SteamUiStateGlyphs[state], 12),
     );
 };
 
@@ -1827,6 +1980,13 @@ type SteamUiAction = {
     /** Opens Steam's file picker; the chosen path goes to `onPick`, a cancellation nowhere. */
     pick?: { title: string; mode?: "file" | "folder"; extensions?: readonly string[] };
     onPick?: (path: string) => void;
+};
+
+/** A second command on an element's secondary (X) button: the footer's label and the callback. */
+type SteamUiSecondaryAction = {
+    label: string;
+    onActivate: () => void;
+    disabled?: boolean;
 };
 
 /** One status tag: its words and tone. */

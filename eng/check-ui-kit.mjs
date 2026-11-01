@@ -59,7 +59,7 @@ const kit = instantiate(
         " renderSteamUiDetail, SteamUiPageRequired, renderSteamUiStatus, renderSteamUiProgress, renderSteamUiFields," +
         " renderSteamUiIcon, renderSteamUiChoice, renderSteamUiSelectRow, showSteamUiConfirm, showSteamUiPrompt," +
         " showSteamModal, SteamUiKitStyles, renderSteamUiTag, renderSteamUiTags, renderSteamUiArt, renderSteamUiHero," +
-        " renderSteamUiItemHeading, renderSteamUiSidePanel})",
+        " renderSteamUiItemHeading, renderSteamUiSidePanel, renderSteamUiIconTile, renderSteamUiStateMark})",
 );
 
 // The stylesheet is one element a root renders, and every class an element uses has a rule.
@@ -139,6 +139,14 @@ for (const cls of [
     "progress-step",
     "progress-dot",
     "progress-note",
+    "icon-tile",
+    "icon-tile-art",
+    "card-head",
+    "card-head-text",
+    "card-subtitle",
+    "hero-band-words",
+    "hero-band-line",
+    "state",
 ]) {
     assert.ok(
         kit.SteamUiKitStyles.includes(`.steam-ui-kit-${cls}`),
@@ -538,6 +546,18 @@ assert.equal(
     kit.renderSteamUiBanner(ui, { text: "x", error: true, onDismiss: () => {} }).props.className,
     "steam-ui-kit-banner error",
 );
+// A banner can carry what to do about it as compact actions, before Dismiss.
+let bannerUpdates = 0;
+const actionBanner = kit.renderSteamUiBanner(ui, {
+    text: "2 updates ready",
+    actions: [{ id: "all", label: "Update both", primary: true, onClick: () => bannerUpdates++ }],
+    onDismiss: () => {},
+});
+assert.equal(actionBanner.props.children[1].props.className, "steam-ui-kit-actions compact");
+assert.equal(actionBanner.props.children[1].type, Focusable);
+actionBanner.props.children[1].props.children[0].props.onClick();
+assert.equal(bannerUpdates, 1);
+assert.equal(actionBanner.props.children[2].type, Small, "Dismiss stays last");
 const toolbar = kit.renderSteamUiToolbar(
     ui,
     kit.renderSteamUiTool(ui, "Sort", "dropdown"),
@@ -1196,7 +1216,10 @@ assert.equal(carefulBody.props.children[2].props.children[0].props.autoFocus, tr
 // Steam's artwork and game list come from its own stores, best source first, and an absent store
 // is nothing rather than a guess.
 const steamWindow = {
-    appStore: { GetAppOverviewByAppID: (appId) => (appId === 70 ? { appid: 70 } : null) },
+    appStore: {
+        GetAppOverviewByAppID: (appId) => (appId === 70 ? { appid: 70 } : null),
+        GetIconURLForApp: (overview) => `icons/${overview.appid}.png`,
+    },
     appDetailsStore: {
         GetHeroImages: (overview) => ({
             rgHeroImages: [`custom/${overview.appid}_hero.png`, "", 7, "cache/hero.jpg"],
@@ -1220,10 +1243,12 @@ const steamWindow = {
 const library = instantiate(
     { window: steamWindow },
     helperFragments(asset),
-    "({steamAppHeroImages, steamAppHeaderImages, readSteamLibraryGames})",
+    "({steamAppHeroImages, steamAppHeaderImages, steamAppIconImages, readSteamLibraryGames})",
 );
 assert.deepEqual(library.steamAppHeroImages(70), ["custom/70_hero.png", "cache/hero.jpg"]);
 assert.deepEqual(library.steamAppHeaderImages(70), ["cache/header.jpg"]);
+assert.deepEqual(library.steamAppIconImages(70), ["icons/70.png"], "a shortcut's icon as Steam draws it");
+assert.deepEqual(library.steamAppIconImages(71), [], "an app Steam doesn't know has no icon");
 assert.deepEqual(library.steamAppHeroImages(71), [], "an app Steam doesn't know has no art");
 assert.deepEqual(
     library.readSteamLibraryGames(),
@@ -1237,10 +1262,101 @@ assert.deepEqual(
 const bare = instantiate(
     { window: {} },
     helperFragments(asset),
-    "({steamAppHeroImages, readSteamLibraryGames})",
+    "({steamAppHeroImages, steamAppIconImages, readSteamLibraryGames})",
 );
 assert.deepEqual(bare.steamAppHeroImages(70), []);
+assert.deepEqual(bare.steamAppIconImages(70), []);
 assert.equal(bare.readSteamLibraryGames(), null, "no collection store is not an empty library");
+
+// An icon card: the icon beside the title and subtitle, then meta and tags, one focus target whose
+// secondary (X) button runs a second command and names it, and nothing bound once that is disabled.
+let installs = 0;
+const iconCard = kit.renderSteamUiCard(ui, {
+    icon: "icon",
+    title: "RetroArch",
+    subtitle: "1.21.0 · Stable",
+    meta: ["24 cores · 31 systems"],
+    tags: [{ text: "Update to 1.22.0", tone: "update" }, null],
+    description: "Details",
+    secondary: { label: "Install", onActivate: () => installs++ },
+    autoFocus: true,
+    onActivate: () => {},
+});
+assert.equal(iconCard.type, Focusable);
+assert.equal(iconCard.props.className, "steam-ui-kit-card icon");
+assert.equal(iconCard.props.autoFocus, true);
+assert.equal(iconCard.props.onOKActionDescription, "Details");
+assert.equal(iconCard.props.onSecondaryActionDescription, "Install");
+iconCard.props.onSecondaryButton();
+assert.equal(installs, 1);
+const iconHead = iconCard.props.children[0];
+assert.equal(iconHead.props.className, "steam-ui-kit-card-head");
+assert.equal(iconHead.props.children[0], "icon");
+assert.deepEqual(iconHead.props.children[1].props.children[1].props.children, ["1.21.0 · Stable"]);
+assert.equal(iconCard.props.children[1].props.className, "steam-ui-kit-card-meta");
+assert.equal(iconCard.props.children[2].props.className, "steam-ui-kit-tags steam-ui-kit-card-tags");
+const idleCard = kit.renderSteamUiCard(ui, {
+    icon: "icon",
+    title: "Dolphin",
+    secondary: { label: "Install", onActivate: () => installs++, disabled: true },
+    onActivate: () => {},
+});
+assert.equal(idleCard.props.onSecondaryButton, undefined, "a disabled second command binds nothing");
+assert.equal(idleCard.props.onOKActionDescription, "Open");
+const secondRow = kit.renderSteamUiSelectRow(ui, {
+    key: "core",
+    title: "Beetle PSX",
+    secondary: { label: "BIOS and firmware", onActivate: () => installs++ },
+    onClick: () => {},
+});
+assert.equal(secondRow.props.onSecondaryActionDescription, "BIOS and firmware");
+secondRow.props.onSecondaryButton();
+assert.equal(installs, 2);
+
+// An icon tile tries the icon's sources and draws the glyph where there are none.
+const tile = kit.renderSteamUiIconTile(react, { images: [], size: 56 });
+assert.equal(tile.props.className, "steam-ui-kit-icon-tile");
+assert.equal(tile.props.style.width, "56px");
+assert.equal(tile.props["aria-hidden"], "true", "an unnamed tile is decorative");
+hooks.states = [];
+hooks.index = 0;
+const tileArt = tile.props.children[0];
+assert.equal(tileArt.type(tileArt.props)?.type, "svg", "no icon draws the glyph");
+const namedTile = kit.renderSteamUiIconTile(react, { images: ["icon.png"], label: "PCSX2" });
+assert.equal(namedTile.props.role, "img");
+assert.equal(namedTile.props["aria-label"], "PCSX2");
+
+// A state mark is checked, crossed or a dash, and an unknown state is the optional dash.
+for (const [state, glyph] of [
+    ["ready", "check"],
+    ["missing", "cross"],
+    ["optional", "dash"],
+]) {
+    const mark = kit.renderSteamUiStateMark(react, { state, label: state });
+    assert.equal(mark.props.className, `steam-ui-kit-state ${state}`);
+    assert.ok(mark.props.children[0], `the ${glyph} glyph exists`);
+    assert.equal(mark.props.children[0], kit.renderSteamUiIcon(react, glyph, 12));
+}
+assert.equal(
+    kit.renderSteamUiStateMark(react, { state: "loud" }).props.className,
+    "steam-ui-kit-state optional",
+);
+
+// A hero band can lead with an item's icon and carry its tags after the title; without them it
+// keeps the plain shape.
+const iconHero = kit.renderSteamUiHero(ui, {
+    title: "PCSX2",
+    detail: "2.2.0 · Nightly",
+    icon: "icon",
+    tags: [{ text: "2.3.0 available", tone: "update" }],
+});
+const iconHeroText = iconHero.props.children[2];
+assert.equal(iconHeroText.props.className, "steam-ui-kit-hero-band-text with-icon");
+assert.equal(iconHeroText.props.children[0], "icon");
+const heroLine = iconHeroText.props.children[1].props.children[1];
+assert.equal(heroLine.props.className, "steam-ui-kit-hero-band-line");
+assert.equal(heroLine.props.children[0].type, "h1");
+assert.equal(heroLine.props.children[1].props.className, "steam-ui-kit-tags");
 
 // Glyphs come from the one table: a known name draws, an unknown one draws nothing.
 assert.equal(kit.renderSteamUiIcon(react, "star", 13)?.type, "svg");
@@ -1251,5 +1367,6 @@ console.log(
     "UI kit: stylesheet, header, actions and file-pick actions, card, empty kinds, status, progress, fields, banner," +
         " toolbar, chips, gallery, glyphs, native and kit confirm, prompt, the wide dialog, list rows, selected and" +
         " focused rows, filter chips, tags, art, the hero band, the item heading, the side panel, the success" +
-        " banner, progress steps and Steam's artwork and game list passed.",
+        " banner, banner actions, icon cards and tiles, state marks, second commands, progress steps and Steam's" +
+        " artwork, icons and game list passed.",
 );

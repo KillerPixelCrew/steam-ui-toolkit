@@ -202,6 +202,23 @@ const steamAppHeroImages = (appId: number) => steamAppImages(appId, "hero");
 const steamAppHeaderImages = (appId: number) => steamAppImages(appId, "header");
 
 /**
+ * Lists one app's icon the way Steam's library draws it, including the icon a non-Steam shortcut
+ * was given.
+ * @param appId The Steam AppID or shortcut id.
+ * @returns The icon's URL in a list, or an empty list when Steam has none or its store is unavailable.
+ */
+const steamAppIconImages = (appId: number): string[] => {
+    const overview = steamAppOverview(appId);
+    if (!overview) return [];
+    try {
+        const url = (window as any).appStore?.GetIconURLForApp?.(overview);
+        return typeof url === "string" && url.length > 0 ? [url] : [];
+    } catch {
+        return [];
+    }
+};
+
+/**
  * Reads the games in the Steam library, with the non-Steam shortcuts, by name: the same list the
  * toolkit's `SteamLibraryData.ReadGamesAsync` answers the host with.
  * @returns The games, or null when Steam's collection store is unavailable (not an empty library).

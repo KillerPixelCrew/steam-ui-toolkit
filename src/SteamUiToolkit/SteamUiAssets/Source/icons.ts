@@ -92,6 +92,9 @@ const SteamUiIconShapes: Readonly<Record<string, readonly SteamUiIconShape[]>> =
 
     // The profile actually in effect right now, above the two assignments that choose it.
     check: [["path", {d: "M8.2 15.4 3.6 10.8 1.5 12.9 8.2 19.6 20.9 6.9 18.8 4.8 8.2 15.4Z"}]],
+    // A checklist line's missing and optional marks, beside `check` for a ready one.
+    cross: [["path", {d: "M5.6 3.5 12 9.9l6.4-6.4 2.1 2.1-6.4 6.4 6.4 6.4-2.1 2.1-6.4-6.4-6.4 6.4-2.1-2.1 6.4-6.4-6.4-6.4z"}]],
+    dash: [["rect", {x: 4, y: 10.5, width: 16, height: 3, rx: 1.5}]],
 
     // -- Charging -------------------------------------------------------------------------------
 
