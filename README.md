@@ -288,6 +288,10 @@ to another window. The `Keyboard` action shows the native keyboard through that 
 keyboard manager and game-overlay route, and an already visible keyboard stays open. Snapshots
 include nullable keyboard visibility.
 
+**`SteamPowerCommands`** opens Big Picture's power menu, runs Steam's own suspend flow without the
+real PC suspend and reports how it ended, and tells Steam the PC has resumed. Suspend the PC
+yourself only on `Completed`. The members were mapped offline and still need a live check.
+
 **`SteamSideMenuObserver.ReadAsync`** reads main-window and overlay-window menu state through the
 host's subscribed transport. Register `SteamOverlayActivationPatch` with the patch manager to
 observe overlay activation too. Unknown activation stays unknown after attachment or reconnect, and
