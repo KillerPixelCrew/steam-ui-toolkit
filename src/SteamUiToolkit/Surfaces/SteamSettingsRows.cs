@@ -88,6 +88,39 @@ public sealed record SteamSettingsConfirmation(
     string ConfirmLabel,
     bool Destructive = true);
 
+/// <summary>A line of text the user is asked for before an action is sent, in Steam's modal.</summary>
+/// <param name="Title">The modal's title.</param>
+/// <param name="Label">The text field's label.</param>
+/// <param name="ConfirmLabel">The sending button's label.</param>
+/// <param name="Text">A sentence above the field, or null.</param>
+/// <param name="Initial">What the field starts with, such as a suggested name, or null for empty.</param>
+/// <remarks>
+///     Only a trimmed, non-empty answer is sent, as the action's string value; Cancel and B send nothing.
+///     On a client without a modal, the action sends <paramref name="Initial" /> when it has one.
+/// </remarks>
+public sealed record SteamSettingsPrompt(
+    string Title,
+    string Label,
+    string ConfirmLabel,
+    string? Text = null,
+    string? Initial = null);
+
+/// <summary>
+///     One of an action row's buttons. It sends under its own <paramref name="Key" />, so one row can name an item
+///     and carry the item's contextual commands, such as Rename and Delete.
+/// </summary>
+/// <param name="Key">Stable identity the button sends under, distinct from every row key.</param>
+/// <param name="Label">The button's label.</param>
+/// <param name="Prompt">A line of text to ask for first; the answer is sent as a string instead of <c>true</c>.</param>
+/// <param name="Confirm">A question to ask first; its <c>When</c> is ignored, since a button has one value.</param>
+/// <param name="Disabled">Whether the button is shown but cannot be pressed.</param>
+public sealed record SteamSettingsAction(
+    string Key,
+    string Label,
+    SteamSettingsPrompt? Prompt = null,
+    SteamSettingsConfirmation? Confirm = null,
+    bool Disabled = false);
+
 /// <summary>One setting, described by kind rather than by component.</summary>
 /// <param name="Key">Stable identity, sent back with every change.</param>
 /// <param name="Kind">One of <see cref="SteamSettingsRowKind" />.</param>
@@ -131,6 +164,11 @@ public sealed record SteamSettingsConfirmation(
 ///     What the row says on its Quick Access section's heading while the section is folded, such as
 ///     the selected choice, or null for nothing. A section joins its rows' summaries in order.
 /// </param>
+/// <param name="Actions">
+///     An action row's buttons, in order, each sending under its own key; null for the one button labelled
+///     <paramref name="ButtonLabel" /> that sends under the row's key. A refusal of any of them is shown on
+///     the row.
+/// </param>
 public sealed record SteamSettingsRow(
     string Key,
     string Kind,
@@ -157,7 +195,8 @@ public sealed record SteamSettingsRow(
     SteamSettingsResolutionEditor? ResolutionEditor = null,
     string? Icon = null,
     string? LabelToken = null,
-    string? Summary = null);
+    string? Summary = null,
+    IReadOnlyList<SteamSettingsAction>? Actions = null);
 
 /// <summary>A titled group of rows: one of Steam's settings sections.</summary>
 /// <param name="Title">The section heading, or null for an untitled section.</param>

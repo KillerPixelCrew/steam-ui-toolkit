@@ -216,6 +216,24 @@ const pages = [
                         choices: [{ value: "a", label: "First" }],
                     },
                     { key: "run", kind: "action", label: "Run", buttonLabel: "Go" },
+                    {
+                        key: "item",
+                        kind: "action",
+                        label: "Item",
+                        actions: [
+                            {
+                                key: "item.rename",
+                                label: "Rename",
+                                prompt: { title: "Rename", label: "Name", confirmLabel: "Save", initial: "Old" },
+                            },
+                            {
+                                key: "item.delete",
+                                label: "Delete",
+                                confirm: { when: true, title: "Delete?", description: "Gone.", confirmLabel: "Delete" },
+                            },
+                            { key: "item.touch", label: "Touch" },
+                        ],
+                    },
                     { key: "state", kind: "note", label: "State", text: "Active" },
                     { key: "future", kind: "hologram", label: "Future" },
                     {
@@ -449,6 +467,45 @@ assert.deepEqual(changes, [["order", ["b", "a"]]]);
 // An action asks the host.
 row(tree, "run").props.value.props.onClick();
 assert.deepEqual(actions, ["run"]);
+
+// An action row's own buttons send under their own keys: a prompt sends its trimmed answer only
+// on its confirming button, a confirmation sends only on OK, and a plain button sends at once.
+{
+    const [rename, remove, touch] = row(tree, "item").props.value.props.children;
+    assert.equal(rename.type, SmallButton, "several commands on one row are Steam's small buttons");
+    assert.deepEqual(rename.props.children, ["Rename"]);
+    changes.length = 0;
+    shown.length = 0;
+    rename.props.onClick();
+    assert.equal(shown.length, 1, "Rename opens one prompt");
+    assert.deepEqual(changes, [], "opening the prompt sends nothing");
+    const renderPrompt = () => {
+        hooks.index = 200;
+        const frame = shown[0].type(shown[0].props);
+        const [body] = find(react, frame, (node) => node.type?.name === "SteamUiPromptBody");
+        return body.type(body.props);
+    };
+    let prompt = renderPrompt();
+    const field = prompt.props.children.find((child) => child?.props?.label === "Name");
+    assert.equal(field.props.value, "Old", "the prompt starts from its suggestion");
+    field.props.onChange({ target: { value: "  New name  " } });
+    prompt = renderPrompt();
+    prompt.props.children.at(-1).props.children[1].props.onClick();
+    assert.deepEqual(changes, [["item.rename", "New name"]], "the answer is sent trimmed under the button's key");
+    changes.length = 0;
+    shown.length = 0;
+    remove.props.onClick();
+    assert.equal(shown[0].type, Confirm, "a destructive command asks in Steam's confirm modal");
+    shown[0].props.onCancel();
+    assert.deepEqual(changes, [], "a cancelled confirmation sends nothing");
+    shown[0].props.onOK();
+    assert.deepEqual(changes, [["item.delete", true]]);
+    changes.length = 0;
+    touch.props.onClick();
+    assert.deepEqual(changes, [["item.touch", true]], "a plain button sends true under its key");
+    changes.length = 0;
+    shown.length = 0;
+}
 
 // A range with labels is one of them by index: Steam's slider names each notch and sends the index.
 const size = row(tree, "size");

@@ -1835,7 +1835,13 @@ The toggle, dropdown, slider, text field, dialog button and `showModal` are the 
   the secret.
 - `order` is the value field per value with Steam's small buttons to move one up or down, and sends
   the whole list.
-- `action` is a dialog button that sends the row to `onAction`, and `note` is a read-only value.
+- `action` is a dialog button that sends the row to `onAction`, and `note` is a read-only value. An
+  action row with `actions` draws those buttons instead (Steam's small buttons when there are several),
+  so one row can name an item and carry its contextual commands. Each `SteamSettingsAction` sends
+  under its own `key` through `onChange`: `true`, or, with a `prompt`, the trimmed non-empty line
+  typed into the kit's prompt modal (Cancel and B send nothing; on a client without a modal the
+  prompt's `initial` text is sent). With a `confirm` it asks first in Steam's confirm modal, Cancel
+  focused when destructive. A refusal of any of the row's buttons is shown on the row.
 - `resolution-list` uses Steam's native inline list-builder with a width × height input. `Choices`
   supplies list entries; `ResolutionEditor` supplies removable values, the native size and restore
   availability. Selection stays local. Add/remove send `{operation, width, height}`, 5% steps send
@@ -1900,7 +1906,7 @@ carries exactly `{key, value}`: a non-blank key of at most `MaximumKeyLength` (2
 boolean, a number, a string of at most `MaximumTextLength` (4096) characters or, for a curve row, an
 array of at most `MaximumArrayLength` (64) points. Anything else is refused with "The Quick Access
 row payload is invalid." before `ISteamQuickAccessRowsBackend.SetAsync` runs. An action row sends
-`true`. The host validates the key and value against its current rows and answers truthfully; a
+`true`; one of its `Actions` sends under its own key, `true` or its prompt's answer as a string. The host validates the key and value against its current rows and answers truthfully; a
 refusal's reason is shown on the row until the next write.
 
 Each row is drawn by `renderSteamSettingRow` with Steam's own field for its kind, inside one of
