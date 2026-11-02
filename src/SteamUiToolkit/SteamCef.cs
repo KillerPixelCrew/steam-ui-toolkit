@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 
 namespace SteamUiToolkit;
@@ -117,9 +118,15 @@ public static class SteamCef
     /// <param name="value">The non-null string to embed.</param>
     /// <returns>A JSON-escaped JavaScript string literal, including its surrounding quotes.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="value" /> is null.</exception>
+    /// <remarks>
+    ///     The relaxed encoder still escapes quotes, backslashes and control characters, which is all a
+    ///     double-quoted JavaScript literal needs. The default HTML-safe encoder wrote every quote and
+    ///     non-ASCII character as a six-character escape, which the CDP request then escaped again: a
+    ///     large state envelope grew several times over on each publication.
+    /// </remarks>
     public static string JsString(string value)
     {
-        return "\"" + JsonEncodedText.Encode(value) + "\"";
+        return "\"" + JsonEncodedText.Encode(value, JavaScriptEncoder.UnsafeRelaxedJsonEscaping) + "\"";
     }
 
     /// <summary>

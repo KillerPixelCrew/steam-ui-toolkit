@@ -5,6 +5,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Net.WebSockets;
 using System.Runtime.InteropServices;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Channels;
@@ -746,7 +747,9 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
         int id, string method, Action<Utf8JsonWriter>? writeParameters)
     {
         var writerBuffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(writerBuffer))
+        // CDP reads plain JSON; HTML-safe escaping only inflated large evaluated expressions.
+        using (var writer = new Utf8JsonWriter(writerBuffer,
+                   new JsonWriterOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
         {
             writer.WriteStartObject();
             writer.WriteNumber("id", id);

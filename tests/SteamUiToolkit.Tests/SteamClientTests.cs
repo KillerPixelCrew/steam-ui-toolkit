@@ -575,7 +575,7 @@ public sealed class SteamClientTests
         Assert.Contains("const existing=\"uc-1\";", script, StringComparison.Ordinal);
         Assert.Contains("find(c=>c.id===existing)", script, StringComparison.Ordinal);
         Assert.Contains("const want=[3000000001,440],drop=new Set([3000000002])", script, StringComparison.Ordinal);
-        Assert.Contains("NewUnsavedCollection(\"Epic \\u0022Games\\u0022\"", script, StringComparison.Ordinal);
+        Assert.Contains("NewUnsavedCollection(\"Epic \\\"Games\\\"\"", script, StringComparison.Ordinal);
         Assert.Contains("a.appid>>>0", script, StringComparison.Ordinal);
         Assert.DoesNotContain("displayName===", script, StringComparison.Ordinal);
         Assert.Contains("if(true&&apps().length===0)", script, StringComparison.Ordinal);
