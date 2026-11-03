@@ -725,7 +725,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            SteamUiLog.Warn($"Steam UI Runtime binding removal was incomplete: {ex.Message}");
+            SteamUiLog.Change("steam.ui.bridge.binding-removal", $"Steam UI Runtime binding removal was incomplete: {ex.Message}");
         }
 
         try
@@ -740,7 +740,8 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             // Reported, not retried: the patch's own removal check reads the namespace next.
             if (removed.Value is null || !SteamUiPatchEvaluation.IsSuccessful(removed.Value))
             {
-                SteamUiLog.Warn(
+                SteamUiLog.Change(
+                    "steam.ui.bridge.namespace-removal",
                     "Steam UI bridge namespace removal was not confirmed: "
                     + SteamUiShared.Bound(removed.Value ?? removed.Error ?? "no answer",
                         SteamUiShared.MaximumDiagnosticLength));
@@ -748,7 +749,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            SteamUiLog.Warn($"Steam UI bridge namespace removal was incomplete: {ex.Message}");
+            SteamUiLog.Change("steam.ui.bridge.namespace-removal", $"Steam UI bridge namespace removal was incomplete: {ex.Message}");
         }
     }
 

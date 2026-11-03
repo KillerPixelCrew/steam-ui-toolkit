@@ -95,7 +95,7 @@ internal sealed class SteamUiCefDiagnostics : IAsyncDisposable
                 {
                     SteamUiLog.Console($"steam.ui.console.{_role}.overflow",
                         $"Steam CEF {_role}: dropped {dropped} console messages because the diagnostic queue was full or the payload was oversized.",
-                        SteamUiConsoleLevel.Warning);
+                        SteamUiConsoleLevel.Debug);
                 }
 
                 try
@@ -133,9 +133,12 @@ internal sealed class SteamUiCefDiagnostics : IAsyncDisposable
         }
 
         var type = exception ? "exception" : Text(data, method == "Log.entryAdded" ? "level" : "type");
-        var level = exception || type is "error" or "assert"
+        // An exception may be ours. Steam's own console.error, such as a resource it failed to load, is
+        // not something wrong for the user, and neither its warnings nor its chatter need a call stack.
+        var network = method == "Log.entryAdded" && Text(data, "source") == "network";
+        var level = exception
             ? SteamUiConsoleLevel.Error
-            : type is "warning" or "warn"
+            : !network && type is "error" or "assert" or "warning" or "warn"
                 ? SteamUiConsoleLevel.Warning
                 : SteamUiConsoleLevel.Debug;
         if (level == SteamUiConsoleLevel.Debug && !SteamUiLog.ConsoleVerboseEnabled)
@@ -188,7 +191,7 @@ internal sealed class SteamUiCefDiagnostics : IAsyncDisposable
             }
         }
 
-        if (data.TryGetProperty("stackTrace", out var stack))
+        if ((exception || type is "error" or "assert") && data.TryGetProperty("stackTrace", out var stack))
         {
             AppendStack(text, stack, 0);
         }

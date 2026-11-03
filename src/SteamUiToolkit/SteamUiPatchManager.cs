@@ -1753,22 +1753,24 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
         return new StateLine(
             "steam.ui.patch." + entry.Patch.Id,
             $"Steam UI patch {entry.Patch.Id}: {state}{detail}",
-            // A transport the host closed on purpose is expected, not a fault worth a warning. The
-            // manager always holds a subscription, so its role reads Idle only while closed.
-            state is not (SteamUiPatchState.Applied or SteamUiPatchState.Verified
-                    or SteamUiPatchState.Applying or SteamUiPatchState.Disabled)
-                && entry.TransportSnapshot?.Health != SteamUiTransportHealth.Idle);
+            // Only a patch this Steam client cannot hold is a fault. Waiting for Steam's target or the
+            // bridge, and removal from a target that has gone, are what every Steam start and exit does.
+            state is SteamUiPatchState.Incompatible or SteamUiPatchState.Degraded,
+            // Always followed by the state it ends in, so a line each would only multiply the log. Waiting
+            // for the bridge follows AbsentTarget on every Steam start, and is covered by the exhaustion line.
+            state is SteamUiPatchState.Applying or SteamUiPatchState.Applied
+                || (state is SteamUiPatchState.Retrying && failure == WaitingForBridge));
     }
 
     private static void Write(StateLine? line)
     {
-        if (line is { } value)
+        if (line is { Transitional: false } value)
         {
             SteamUiLog.Change(value.Key, value.Text, value.Warning);
         }
     }
 
-    private readonly record struct StateLine(string Key, string Text, bool Warning);
+    private readonly record struct StateLine(string Key, string Text, bool Warning, bool Transitional);
 
     /// <summary>What a queued pass redoes, weakest first, so a stronger request absorbs a weaker one.</summary>
     private enum PassKind

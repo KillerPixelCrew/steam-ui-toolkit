@@ -89,8 +89,9 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDis
         {
             SteamUiLog.Change(
                 "steam.ui.discovery",
-                $"Steam UI discovery for {role} refused: {ownership}.",
-                true);
+                // Two roles ask in turn, so naming the role would alternate past the key. Steam being
+                // closed or still starting is a normal absence.
+                $"Steam UI discovery refused: {ownership}.");
             return null;
         }
 
@@ -116,7 +117,7 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery, IDis
         {
             SteamUiLog.Change(
                 "steam.ui.discovery",
-                $"Steam UI discovery for {role} waiting for a validated main window and target.");
+                "Steam UI discovery waiting for a validated main window and target.");
         }
 
         return match;
