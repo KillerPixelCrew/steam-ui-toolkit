@@ -206,6 +206,15 @@ const pages = [
                         maximum: 2900,
                         step: 1,
                     },
+                    {
+                        key: "unknown-offset",
+                        kind: "range",
+                        label: "CPU undervolt",
+                        number: null,
+                        minimum: -50,
+                        maximum: 50,
+                        step: 1,
+                    },
                     { key: "name", kind: "text", label: "Name", text: "old" },
                     { key: "key", kind: "secret", label: "Key", text: "Set" },
                     {
@@ -346,6 +355,12 @@ assert.equal(
     "an unknown clock must not claim to be 100 MHz",
 );
 assert.match(JSON.stringify(row(tree, "unknown-clock").props.description), /Unknown/);
+assert.equal(
+    row(tree, "unknown-offset").props.value,
+    0,
+    "an unknown offset must rest at 0, not at its strongest setting",
+);
+assert.equal(row(tree, "unknown-offset").props.showValue, false);
 assert.equal(
     row(tree, "unknown-clock").props.disabled,
     false,
