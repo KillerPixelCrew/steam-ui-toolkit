@@ -203,14 +203,10 @@ public sealed class SteamSurfaceModuleTests
         var applied = await DispatchAsync(set, SteamFrameLimitRow.PatchId, "setFrameLimit", """{"value":60}""");
         var extra = await DispatchAsync(
             set, SteamFrameLimitRow.PatchId, "setFrameLimit", """{"value":60,"persistence":"automatic"}""");
-        var refresh = await DispatchAsync(set, SteamFrameLimitRow.PatchId, "setRefreshRate", """{"value":75}""");
 
         Assert.True(applied.Succeeded);
         Assert.Equal("The frame-limit payload is invalid.", extra.Error);
-        Assert.True(refresh.Succeeded);
-        Assert.Equal(
-            ["frame 60 steam-ui:3:4:1:2", "refresh 75"],
-            backend.Calls);
+        Assert.Equal(["frame 60 steam-ui:3:4:1:2"], backend.Calls);
     }
 
     [Fact]

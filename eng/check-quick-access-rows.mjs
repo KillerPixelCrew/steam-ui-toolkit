@@ -693,7 +693,7 @@ const accentHelpers = instantiate(
     assert.deepEqual(accentHelpers.accentDescription(runtime, true, "Ready").children, ["Ready"]);
 }
 
-// The frame-limit row: one slider that is the cap while a limit is set and the refresh rate once it
+// The frame-limit row: a cap slider and a switch for off. It moves no display state, so it carries
 // is switched off, writing to its own publication's commands.
 {
     const hooks = createHooks();
@@ -722,7 +722,6 @@ const accentHelpers = instantiate(
             "normalizeFrameLimitState",
             "isBusy",
             "useEchoedValue",
-            "currentRefreshNotch",
             "createFrameLimitControl",
         ),
         "{ normalizeFrameLimitState, createFrameLimitControl }",
@@ -742,11 +741,6 @@ const accentHelpers = instantiate(
         desiredFps: 60,
         observedFps: 60,
         limitEnabled: true,
-        refreshForCap: { 60: 60 },
-        refreshMinHz: 60,
-        refreshMaxHz: 120,
-        currentRefreshHz: 120,
-        refreshRates: [60, 120],
     };
     acceptedStates.set("frameLimit", frameApi.normalizeFrameLimitState(base));
     const draw = () => {
@@ -756,24 +750,24 @@ const accentHelpers = instantiate(
     let [slider, toggle] = draw().children;
     assert.equal(slider.type, "slider");
     assert.equal(slider.props.label, "Frame rate limit");
-    assert.equal(slider.props.valueSuffix, " FPS (60 Hz)");
+    assert.equal(slider.props.valueSuffix, " FPS");
     assert.equal(slider.props.value, 60);
     assert.equal(summaries.frameLimit, "60 fps cap");
     slider.props.onChangeComplete(72);
     assert.deepEqual(requests.pop(), ["steam-ui.frame-limit", "setFrameLimit", { value: 72 }]);
     toggle.props.onChange(true);
     assert.deepEqual(requests.pop(), ["steam-ui.frame-limit", "setFrameLimit", { value: 0 }]);
-    // Off, the slider is the refresh rate, notched to the modes the display accepted.
+    // Off, the slider keeps its cap and cannot be moved; the switch brings it back.
     acceptedStates.set("frameLimit", frameApi.normalizeFrameLimitState({ ...base, limitEnabled: false }));
-    [slider] = draw().children;
-    assert.equal(slider.props.label, "Refresh rate");
-    assert.equal(slider.props.notchCount, 2);
-    slider.props.onChangeComplete(0);
-    assert.deepEqual(requests.pop(), ["steam-ui.frame-limit", "setRefreshRate", { value: 60 }]);
+    [slider, toggle] = draw().children;
+    assert.equal(slider.props.label, "Frame rate limit");
+    assert.equal(slider.props.disabled, true);
+    assert.equal(slider.props.showValue, false);
+    assert.equal(summaries.frameLimit, "No frame limit");
     assert.equal(frameApi.normalizeFrameLimitState({ ...base, progress: "bogus" }), null);
     acceptedStates.clear();
 }
-console.log("Quick Access rows: the frame-limit row writes its cap and refresh rate.");
+console.log("Quick Access rows: the frame-limit row writes its cap.");
 
 // The inline lighting editor: closed it is one switch; open, the zone, a preview and three colour
 // sliders whose release queues one colour for the zone.

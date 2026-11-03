@@ -45,7 +45,7 @@ public sealed class SteamUiCefDiagnosticsTests
     }
 
     [Fact]
-    public async Task ConsoleWarningsKeepStacksAndInformationalMessagesRequireVerbose()
+    public async Task OnlyConsoleErrorsKeepStacksAndInformationalMessagesRequireVerbose()
     {
         var log = new RecordingLog();
         SteamUiLog.Use(log);
@@ -65,9 +65,19 @@ public sealed class SteamUiCefDiagnosticsTests
             var message = await log.Message.Task.WaitAsync(TimeSpan.FromSeconds(2));
             Assert.Equal(SteamUiConsoleLevel.Warning, message.Level);
             Assert.Contains("layout warning", message.Text);
-            Assert.Contains("library.js:11:3", message.Text);
+            Assert.DoesNotContain("library.js:11:3", message.Text);
             Assert.DoesNotContain(log.Messages,
                 entry => entry.Text.Contains("development only", StringComparison.Ordinal));
+            var error = new TaskCompletionSource<(string Text, SteamUiConsoleLevel Level)>(TaskCreationOptions
+                .RunContinuationsAsynchronously);
+            log.Message = error;
+            wire.Notify("Runtime.consoleAPICalled", """
+                                                    {"type":"error","args":[{"type":"string","value":"layout error"}],
+                                                     "stackTrace":{"callFrames":[{"functionName":"render","url":"https://steamloopback.host/library.js","lineNumber":10,"columnNumber":2}]}}
+                                                    """);
+            var errored = await error.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.Equal(SteamUiConsoleLevel.Warning, errored.Level);
+            Assert.Contains("library.js:11:3", errored.Text);
             log.Verbose = true;
             var next = new TaskCompletionSource<(string Text, SteamUiConsoleLevel Level)>(TaskCreationOptions
                 .RunContinuationsAsynchronously);
@@ -76,6 +86,13 @@ public sealed class SteamUiCefDiagnosticsTests
                                           {"entry":{"level":"info","text":"browser development message","url":"https://steamloopback.host/library.js"}}
                                           """);
             Assert.Equal(SteamUiConsoleLevel.Debug, (await next.Task.WaitAsync(TimeSpan.FromSeconds(2))).Level);
+            var network = new TaskCompletionSource<(string Text, SteamUiConsoleLevel Level)>(TaskCreationOptions
+                .RunContinuationsAsynchronously);
+            log.Message = network;
+            wire.Notify("Log.entryAdded", """
+                                          {"entry":{"level":"error","source":"network","text":"Failed to load resource","url":"https://steamloopback.host/missing.png"}}
+                                          """);
+            Assert.Equal(SteamUiConsoleLevel.Debug, (await network.Task.WaitAsync(TimeSpan.FromSeconds(2))).Level);
         }
         finally
         {
