@@ -39,9 +39,16 @@ public static class SteamUpdateNotifications
             + "]?.gate('updateNotifications');if(!gate?.status?.().held)return false;return gate.show({id:"
             + SteamCef.JsString(id) + ",title:" + SteamCef.JsString(title) + ",body:" + SteamCef.JsString(body)
             + ",route:" + SteamCef.JsString(route) + "});}catch{return false;}})()";
-        var result = await transport.EvaluateAsync(SteamUiTargetRole.SharedJsContext, expression,
-            TimeSpan.FromSeconds(2), token).ConfigureAwait(false);
-        return result.Answered && result.Value == "true" && result.Generations == before.Generations
-            && SteamSharedContext.IsReadyAt(transport, before.Generations);
+        try
+        {
+            var result = await transport.EvaluateAsync(SteamUiTargetRole.SharedJsContext, expression,
+                TimeSpan.FromSeconds(2), token).ConfigureAwait(false);
+            return result.Answered && result.Value == "true" && result.Generations == before.Generations
+                && SteamSharedContext.IsReadyAt(transport, before.Generations);
+        }
+        catch (Exception error) when (error is not OutOfMemoryException)
+        {
+            return false;
+        }
     }
 }
