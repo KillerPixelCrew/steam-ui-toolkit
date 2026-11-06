@@ -387,7 +387,9 @@ are enabled; a connection that completes after its owner left logs
 
 `NotificationReceived` fires only for `Runtime.bindingCalled`, the one notification the bridge
 consumes; the generation notifications above only advance generations, and other domain chatter is
-dropped before it takes the channel lock. Bindings go through a 256-slot channel that refuses and
+dropped before it takes the channel lock. A context whose `auxData.isDefault` is false (the
+isolated world another inspector client or an extension creates) advances nothing when it is
+created or destroyed; only the page's own world is a new execution context. Bindings go through a 256-slot channel that refuses and
 logs a call when full. `GenerationChanged` fires only when a generation changed, latest wins per
 role: each role keeps only its newest undelivered snapshot, so a burst on one role skips that role's
 intermediate snapshots but can never evict another role's. Handler exceptions are logged. A Steam
@@ -604,8 +606,10 @@ the next (`steam.ui.publication.<id>`). `CancelAllInflight` is the generation-re
 ### Webpack modules
 
 All webpack access goes through `SteamUiModuleResolver` and its shared `module-resolver.ts`
-implementation. `getWebpackRuntime(scope)` captures that resolver lazily by pushing an empty chunk;
-capture itself executes no unknown factory. A caller supplies authored source tokens to `resolve` or
+implementation. `getWebpackRuntime(scope)` captures that resolver lazily by pushing an empty chunk and
+then taking the entry back out of Steam's chunk array, because webpack keeps every pushed entry and
+ours would pin the evaluated script for the life of the document; capture itself executes no unknown
+factory. A caller supplies authored source tokens to `resolve` or
 `exported`, and only a unique match may load. `rpc.ts` uses that same resolver to find the query
 client by source and export shape. No feature names a client-build module id or minified export.
 
