@@ -147,7 +147,7 @@ function createPluginFrontends() {
       pending: [],
       verifiers: [],
       contributionIds: new Set(),
-      styles: new Set(),
+      styles: new Map(),
       ready: false,
     };
     pluginFrontendEntries.set(spec.id, entry);
@@ -159,18 +159,25 @@ function createPluginFrontends() {
       event.preventDefault?.();
       report(entry, spec.module, event.error ?? event.reason ?? event.message);
     };
+    // The documents of the last pass. Steam's popup list rarely changes between ticks, so an
+    // unchanged list costs one comparison and allocates nothing.
+    let lastDocuments: Document[] = [];
     const refreshDocuments = () => {
       if (entry.closed || entry.failed) return;
       const current = documents();
+      if (current.length === lastDocuments.length && current.every((doc, index) => doc === lastDocuments[index]))
+        return;
+      lastDocuments = current;
       // A closed popup keeps its Window, its Document and its whole DOM alive for as long as this
       // entry refers to it, so a window or style no longer among Steam's documents is let go here.
       // A session opens and closes hundreds of popups (toasts, menus, the keyboard).
+      const docs = new Set(current);
       const views = new Set(current.map((doc) => doc.defaultView));
       for (const target of knownWindows) {
         if (!views.has(target)) knownWindows.delete(target);
       }
-      for (const style of entry.styles) {
-        if (!current.includes(style.ownerDocument)) entry.styles.delete(style);
+      for (const doc of entry.styles.keys()) {
+        if (!docs.has(doc)) entry.styles.delete(doc);
       }
       for (const doc of current) {
         const target = doc.defaultView;
@@ -179,12 +186,12 @@ function createPluginFrontends() {
           target.addEventListener("error", asyncError);
           target.addEventListener("unhandledrejection", asyncError);
         }
-        if (entry.style && ![...entry.styles].some((style: any) => style.ownerDocument === doc)) {
+        if (entry.style && !entry.styles.has(doc)) {
           const style = doc.createElement("style");
           style.dataset.steamUiPlugin = spec.id;
           style.textContent = entry.style;
           (doc.head ?? doc.documentElement).appendChild(style);
-          entry.styles.add(style);
+          entry.styles.set(doc, style);
         }
       }
     };
@@ -196,7 +203,7 @@ function createPluginFrontends() {
         target.removeEventListener("error", asyncError);
         target.removeEventListener("unhandledrejection", asyncError);
       }
-      for (const style of entry.styles) style.remove();
+      for (const style of entry.styles.values()) style.remove();
       entry.styles.clear();
     };
     const register = (
@@ -400,7 +407,9 @@ function createPluginFrontends() {
        */
       addStyle: (css: string) => {
         entry.style = `${entry.style ?? ""}\n${css}`;
-        for (const style of entry.styles) style.textContent = entry.style;
+        for (const style of entry.styles.values()) style.textContent = entry.style;
+        // The documents are the same, but the first style still has to reach every one of them.
+        lastDocuments = [];
         refreshDocuments();
       },
       /**
