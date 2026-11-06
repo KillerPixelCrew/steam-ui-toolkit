@@ -6,13 +6,25 @@
  */
 function createSteamUiModuleResolver(scope) {
     let runtime;
-    window.webpackChunksteamui?.push([
+    const chunks = window.webpackChunksteamui;
+    const capture = [
         [`steam_ui_${scope}_${Date.now()}`],
         {},
         (value) => {
             runtime = value;
         },
-    ]);
+    ];
+    chunks?.push(capture);
+    // Webpack's push runs the callback at once and then keeps the entry in the array for good. The
+    // callback is a closure of the evaluated script, so the entry pinned that whole script: every
+    // probe, and every replaced bridge with its 2.2 MB source and the state of all its gates. The
+    // runtime never reads an entry again after it has run, so ours is taken back out.
+    try {
+        const index = Array.prototype.lastIndexOf.call(chunks ?? [], capture);
+        if (index >= 0) Array.prototype.splice.call(chunks, index, 1);
+    } catch {
+        // An array that refuses the splice keeps the entry, as before.
+    }
     if (!runtime?.m) throw new Error("Steam modules unavailable");
     // Standalone probes and the bridge inspect the same runtime. Repeating every fingerprint's
     // text search in each probe stalls Steam's UI thread during a synchronization pass.
