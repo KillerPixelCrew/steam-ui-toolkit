@@ -161,7 +161,18 @@ function createPluginFrontends() {
     };
     const refreshDocuments = () => {
       if (entry.closed || entry.failed) return;
-      for (const doc of documents()) {
+      const current = documents();
+      // A closed popup keeps its Window, its Document and its whole DOM alive for as long as this
+      // entry refers to it, so a window or style no longer among Steam's documents is let go here.
+      // A session opens and closes hundreds of popups (toasts, menus, the keyboard).
+      const views = new Set(current.map((doc) => doc.defaultView));
+      for (const target of knownWindows) {
+        if (!views.has(target)) knownWindows.delete(target);
+      }
+      for (const style of entry.styles) {
+        if (!current.includes(style.ownerDocument)) entry.styles.delete(style);
+      }
+      for (const doc of current) {
         const target = doc.defaultView;
         if (target && !knownWindows.has(target)) {
           knownWindows.add(target);
