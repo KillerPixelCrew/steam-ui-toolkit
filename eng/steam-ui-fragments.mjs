@@ -168,5 +168,17 @@ export const compileSteamUiAsset = async ({ extraDirectories = [], typescript })
         "runtime code: TypeScript drops the comments that lead a type declaration.",
     );
   }
-  return asset;
+  return asciiOnly(asset);
 };
+
+/**
+ * Writes every non-ASCII UTF-16 unit as a `\uXXXX` escape. V8 keeps an evaluated script's source
+ * for as long as any function in it is alive, and stores it two bytes per character as soon as one
+ * character needs it: a single ellipsis in a label doubled the resident source of the whole asset.
+ * The escape means the same in strings, templates, regular expressions and comments, and the asset
+ * has no non-ASCII identifiers.
+ * @param {string} text Compiled JavaScript.
+ * @returns {string} The same program in ASCII only.
+ */
+export const asciiOnly = (text) =>
+  text.replace(/[^\x00-\x7f]/g, (unit) => `\\u${unit.charCodeAt(0).toString(16).padStart(4, "0")}`);
