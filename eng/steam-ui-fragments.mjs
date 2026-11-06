@@ -176,9 +176,13 @@ export const compileSteamUiAsset = async ({ extraDirectories = [], typescript })
  * for as long as any function in it is alive, and stores it two bytes per character as soon as one
  * character needs it: a single ellipsis in a label doubled the resident source of the whole asset.
  * The escape means the same in strings, templates, regular expressions and comments, and the asset
- * has no non-ASCII identifiers.
+ * has no non-ASCII identifiers. A character already escaped (`\—`, an identity escape) keeps its one
+ * backslash, which becomes the escape's own; `\\—` is an escaped backslash and gets a new one.
  * @param {string} text Compiled JavaScript.
  * @returns {string} The same program in ASCII only.
  */
 export const asciiOnly = (text) =>
-  text.replace(/[^\x00-\x7f]/g, (unit) => `\\u${unit.charCodeAt(0).toString(16).padStart(4, "0")}`);
+  text.replace(/(\\*)([^\x00-\x7f])/g, (_match, backslashes, unit) => {
+    const code = unit.charCodeAt(0).toString(16).padStart(4, "0");
+    return backslashes.length % 2 === 1 ? `${backslashes}u${code}` : `${backslashes}\\u${code}`;
+  });
