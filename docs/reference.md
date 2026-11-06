@@ -2347,20 +2347,31 @@ has an error. It preserves shortcut identities and validates entries before pars
 `ReadCollectionsAsync` and `ReadStoreTagsAsync` are typed the same way, so a caller keeps its last
 good answer instead of caching a failure as an empty library.
 
-## Native update notifications
+## Native notices
 
-`SteamUpdateNotifications.Module()` declares the lifecycle-owned native notification capability.
-Enable its patch beside the host surfaces, then use `TryShowAsync` over the existing transport with
-a stable notice ID, title, body and Steam route. It returns false when the notifier is unavailable
-or delivery is uncertain, so the host can show its own notice. No delivery is retried automatically.
+`SteamNotices.Module()` declares the lifecycle-owned native notice capability: a title, a body and a
+Steam route drawn with Valve's notification template in the toast and the notification tray, and
+opened by mouse, touch or controller activation. Enable its patch beside the host surfaces, then
+call `TryShowAsync` over the existing transport with a stable notice id, a title of at most 160 and
+a body of at most 800 characters, and a navigable route. It returns false when the capability is
+unavailable, Steam did not take the notice into its tray or delivery is uncertain, so the host can
+show its own notice. No delivery is retried automatically, and a notice already in the tray is not
+shown twice. Steam's tray is the only record: once the user opens or clears a notice, its id can be
+shown again.
 
-The gate admits literal store module `7474`, renderer `25666` (Stable) or `3285` (Beta), and style
-module `21728` only after unique source fingerprints and export shape checks. The store's
-`ProcessNotification` and `RemoveGroupFromTray` methods own the toast/tray lifetime. The native
-template provides controller activation. A shared JSX transform renders only notices carrying the
-capability's private marker; unrelated Valve notifications remain untouched. Removing the gate
-removes its own tray groups and queued toasts, then releases its shared claim.
+The call is a host-initiated gate call on the same lifecycle path as probe and status, not a page
+request, so it carries no command vocabulary. It is bound to the generation the caller observed:
+the page refuses it unless the bridge was installed for exactly that execution context and
+document, and the host discards an answer from any later generation.
 
+The gate finds the notification store, the renderer module and the template styles each by a unique
+source fingerprint and takes their exports by shape: the store by its `ProcessNotification`,
+`RemoveGroupFromTray`, tray and id members, and the renderer and template in one pass over their
+module. The store owns the toast and tray lifetime; the native template provides controller
+activation, and activation opens the route through the shared Steam navigation, in the overlay
+window of a running game when the notice was drawn there. A shared JSX transform renders only
+notices carrying the capability's private marker; Valve's own notifications stay untouched. Removing
+the gate removes its own tray groups and queued toasts, then releases its shared claim.
 ## Unknown numeric settings
 
 A `SteamSettingsRow` of kind `range` may have `Number = null` when its value is unreadable. The

@@ -153,11 +153,11 @@ banners, toolbars, chips, galleries, empty states of a kind (loading, empty, no 
 error), a status stack, an operation's progress, settings rows over drafts (`renderSteamUiFields`),
 glyphs from the one table in `icons.ts`, status tags, a page's hero band, an item heading, a side
 panel beside a main column, one confirm (Steam's own where the client has it, with Cancel focused on
-request) and a prompt, styled once in the vocabulary of Steam's panels. `ui-flows.ts` builds the flows a page is
-made of from them: a collection to browse, an item's detail with the box that acquires it, a
-managed list, and `registerSteamSettingsSection`, which adds a section to one of Steam's own
-Settings pages through one shared useMemo transform. A host page uses Steam's
-field where one fits and the kit for the rest, and adds to the kit rather than drawing its own. Use
+request) and a prompt, styled once in the vocabulary of Steam's panels. `ui-flows.ts` builds the
+flows a page is made of from them: a collection to browse, an item's detail with the box that
+acquires it, a managed list, and `registerSteamSettingsSection`, which adds a section to one of
+Steam's own Settings pages through one shared useMemo transform. A host page uses Steam's field
+where one fits and the kit for the rest, and adds to the kit rather than drawing its own. Use
 `renderSteamUiChoice` for dropdowns in narrow boxes or table cells, and `renderSteamUiSelectRow` for
 separate title/status/detail slots inside a native button. The shared picker fits its modal parent
 and keeps its places rail and file list independently scrollable. The Quick Access row host draws
@@ -171,12 +171,12 @@ translates and orders the themes; the toolkit appends, keeps in step and removes
 
 **`registerSteamPage`** declares a host's own page inside Steam: its gate, its state subscription
 and the whole frame it is drawn in (the kit stylesheet and the page's own, the header offset, the
-loading or refusal state, the banner with its dismiss command, and Steam's tabs, host-owned or local,
-with a footer action per tab), with **`SteamPagePatch.Create`** as its patch. The page draws only its
-content; its context's `act` shows a refused command in the banner, `send` hands the refusal back
-for a row to show, and `useState` lets a modal follow the page's state. A page's browse steps share
-one vocabulary with the host, declared with **`SteamUiModuleBuilder.BrowseCommands`**. Large
-state reaches a page in parts and is reassembled before the page sees it; a state too large to
+loading or refusal state, the banner with its dismiss command, and Steam's tabs, host-owned or
+local, with a footer action per tab), with **`SteamPagePatch.Create`** as its patch. The page draws
+only its content; its context's `act` shows a refused command in the banner, `send` hands the
+refusal back for a row to show, and `useState` lets a modal follow the page's state. A page's browse
+steps share one vocabulary with the host, declared with **`SteamUiModuleBuilder.BrowseCommands`**.
+Large state reaches a page in parts and is reassembled before the page sees it; a state too large to
 deliver at all reaches the page as a refusal it can show.
 
 **`SteamStorageSurface.Module`** revives Steam's own SteamOS storage management on Windows. The
@@ -192,17 +192,25 @@ Settings. Publish `SteamQuickAccessRowsState`: groups of `SteamSettingsRow`s, ea
 layout places it by, and implement `ISteamQuickAccessRowsBackend.SetAsync(key, value)` to validate
 and apply a change against the rows you published. A row can name a toolkit glyph (`Icon`), a Steam
 localization token for its label (`LabelToken`) and what it says on its folded section's heading
-(`Summary`); a choice with `Selectable = false` is shown only while it is current and never sent. The
-module also registers the one component host patch every Quick Access row draws through, including
-the frame-limit row (`SteamFrameLimitRow`), the inline lighting editor (`SteamLightingZonesRow`) and
-Valve's own performance components, which draw while `SteamPerformanceSurface` publishes. The
-toolkit does not change OS settings itself.
+(`Summary`); a choice with `Selectable = false` is shown only while it is current and never sent.
+The module also registers the one component host patch every Quick Access row draws through,
+including the frame-limit row (`SteamFrameLimitRow`), the inline lighting editor
+(`SteamLightingZonesRow`) and Valve's own performance components, which draw while
+`SteamPerformanceSurface` publishes. The toolkit does not change OS settings itself.
 
 The host lays the rows out: `SteamQuickAccessLayoutSurface` publishes the sections of each Quick
 Access tab, their titles, glyphs and folds, which row groups and bespoke kinds each holds, whether
 Steam's own FPS rows are hidden and the label a marked row's description leads with. A titled row
 group no section names gets a section of its own on Performance. Without a layout each tab's rows
 draw in one untitled group.
+
+**`SteamNotices.Module`** shows a host's notice as one of Steam's own: Valve's notification template
+in the toast and the notification tray, opened by mouse, touch or controller, which takes the user
+to a Steam route (in a running game's overlay window when the notice was drawn there).
+`SteamNotices.TryShowAsync(transport, id, title, body, route)` answers whether Steam took the notice
+into its tray in the generation the call was made in, so a host shows its own notice when it is
+false. A notice already in the tray is not shown twice, nothing is retried, and Steam's toast
+preferences stay in force. Removal takes every owned notice out of the tray and the toast queue.
 
 ## Reading and driving the client
 
@@ -376,16 +384,17 @@ list-builder. Hosts supply the entries, removable values, native dimensions and 
 list can be restored; the host retains write policy. See
 [Settings pages](docs/reference.md#settings-pages).
 
-Consumer-owned native pages declare the components they draw with in `registerSteamPage`, whose
-gate probes exactly those (its `components` and `required`), and use the composed asset's shared
+Consumer-owned native pages declare the components they draw with in `registerSteamPage`, whose gate
+probes exactly those (its `components` and `required`), and use the composed asset's shared
 `resolveSteamUiComponents` helper, the one resolver, for Steam's focusable, tabs, dialog buttons,
 fields, checkbox, settings sections, routed sidebar, confirm modal and modal manager, with
-`SteamUiPageRequired` as the default `required` list. A consumer's own gate is a `defineGate` gate whose `find` is its probe; the host side
-declares it as `new SteamGatePatch(id, gateName, fingerprint, subject)`. Missing or ambiguous controls are capabilities to
-refuse, not a reason to draw lookalike controls. Two elements Steam has no component for are built
-from its own classes and components instead: `createSteamCapsule` draws a library capsule for a
-title Steam does not have yet, and `showSteamFilePicker` opens a folder or file picker as a Steam
-modal, answered by `SteamFilePickerSurface`.
+`SteamUiPageRequired` as the default `required` list. A consumer's own gate is a `defineGate` gate
+whose `find` is its probe; the host side declares it as
+`new SteamGatePatch(id, gateName, fingerprint, subject)`. Missing or ambiguous controls are
+capabilities to refuse, not a reason to draw lookalike controls. Two elements Steam has no component
+for are built from its own classes and components instead: `createSteamCapsule` draws a library
+capsule for a title Steam does not have yet, and `showSteamFilePicker` opens a folder or file picker
+as a Steam modal, answered by `SteamFilePickerSurface`.
 
 The library is the machinery and the surfaces, and the data behind them is yours. You supply:
 
