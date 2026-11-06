@@ -84,6 +84,106 @@ public sealed class PersistentSteamUiTransportTests
         Assert.True(snapshot.Generations.Document > 1);
     }
 
+    // What Chrome 126 sends when a second inspector client creates its utility world and when the
+    // page's own world is replaced, in the shape CEF reports them.
+    private const string IsolatedWorldCreated =
+        """{"context":{"id":7,"origin":"https://steamloopback.host","name":"__puppeteer_utility_world__","uniqueId":"-1.7","auxData":{"isDefault":false,"type":"isolated","frameId":"F1"}}}""";
+
+    private const string IsolatedWorldDestroyed = """{"executionContextId":7,"executionContextUniqueId":"-1.7"}""";
+
+    private const string PageWorldCreated =
+        """{"context":{"id":8,"origin":"https://steamloopback.host","name":"","uniqueId":"-1.8","auxData":{"isDefault":true,"type":"default","frameId":"F1"}}}""";
+
+    private const string PageWorldDestroyed = """{"executionContextId":1,"executionContextUniqueId":"-1.1"}""";
+
+    [Fact]
+    public void OnlyThePageWorldCountsAsAContextReplacement()
+    {
+        HashSet<long> otherWorlds = [];
+
+        Assert.True(PersistentSteamUiTransport.IsOtherWorld(
+            otherWorlds, "Runtime.executionContextCreated", IsolatedWorldCreated));
+        Assert.True(PersistentSteamUiTransport.IsOtherWorld(
+            otherWorlds, "Runtime.executionContextDestroyed", IsolatedWorldDestroyed));
+        Assert.Empty(otherWorlds);
+
+        Assert.False(PersistentSteamUiTransport.IsOtherWorld(
+            otherWorlds, "Runtime.executionContextDestroyed", PageWorldDestroyed));
+        Assert.False(PersistentSteamUiTransport.IsOtherWorld(
+            otherWorlds, "Runtime.executionContextCreated", PageWorldCreated));
+        Assert.False(PersistentSteamUiTransport.IsOtherWorld(
+            otherWorlds, "Runtime.executionContextsCleared", "{}"));
+        Assert.False(PersistentSteamUiTransport.IsOtherWorld(
+            otherWorlds, "Runtime.executionContextCreated", "not json"));
+    }
+
+    [Fact]
+    public async Task AnotherClientsIsolatedWorldLeavesTheGenerationsButAPageWorldReplacementAdvancesThem()
+    {
+        var factory = new ResponsiveWireFactory();
+        await using var transport = new PersistentSteamUiTransport(
+            new FixtureDiscovery(), factory);
+        await using var subscription = await transport.SubscribeAsync(
+            SteamUiTargetRole.SharedJsContext);
+        _ = await transport.EvaluateAsync(
+            SteamUiTargetRole.SharedJsContext,
+            "'ready'",
+            TimeSpan.FromSeconds(2));
+        var initial = Shared(transport.GetSnapshots()).Generations;
+        var observed = new System.Collections.Concurrent.ConcurrentQueue<SteamUiGenerations>();
+        transport.GenerationChanged += (_, snapshot) =>
+        {
+            if (snapshot.Role == SteamUiTargetRole.SharedJsContext)
+            {
+                observed.Enqueue(snapshot.Generations);
+            }
+        };
+        var wire = factory.Wires.Single();
+
+        wire.Notify("Runtime.executionContextCreated", IsolatedWorldCreated);
+        wire.Notify("Runtime.executionContextDestroyed", IsolatedWorldDestroyed);
+        // A document notification after them, so its arrival proves the two before it were handled.
+        wire.Notify("DOM.documentUpdated", "{}");
+        var afterIsolated = await WaitForAsync(
+            observed, generations => generations.Document > initial.Document);
+
+        Assert.Equal(initial.ExecutionContext, afterIsolated.ExecutionContext);
+        Assert.Equal(initial.Document + 1, afterIsolated.Document);
+
+        wire.Notify("Runtime.executionContextDestroyed", PageWorldDestroyed);
+        wire.Notify("Runtime.executionContextCreated", PageWorldCreated);
+        var afterReplacement = await WaitForAsync(
+            observed, generations => generations.ExecutionContext == initial.ExecutionContext + 2);
+
+        Assert.True(afterReplacement.Document > afterIsolated.Document);
+    }
+
+    private static SteamUiTransportSnapshot Shared(IEnumerable<SteamUiTransportSnapshot> snapshots)
+    {
+        return snapshots.Single(snapshot => snapshot.Role == SteamUiTargetRole.SharedJsContext);
+    }
+
+    private static async Task<SteamUiGenerations> WaitForAsync(
+        System.Collections.Concurrent.ConcurrentQueue<SteamUiGenerations> observed,
+        Func<SteamUiGenerations, bool> predicate)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+        while (DateTime.UtcNow < deadline)
+        {
+            foreach (var generations in observed)
+            {
+                if (predicate(generations))
+                {
+                    return generations;
+                }
+            }
+
+            await Task.Delay(millisecondsDelay: 10);
+        }
+
+        throw new TimeoutException("The expected generation change was not raised.");
+    }
+
     [Fact]
     public async Task OneShotEvaluationReconnectsAfterItsPreviousLeaseWasReleased()
     {

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -667,6 +668,7 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
                     }
 
                     channel.TargetId = endpoint.TargetId;
+                    channel.OtherWorlds.Clear();
                     channel.Generations = generations with
                     {
                         Session = generations.Session + 1
@@ -761,6 +763,11 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
                 return;
             }
 
+            if (IsOtherWorld(channel.OtherWorlds, method, parameters))
+            {
+                return;
+            }
+
             generations = channel.Generations;
             channel.Generations = method switch
             {
@@ -800,6 +807,72 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         }
 
         RaiseGenerationChanged(channel);
+    }
+
+    /// <summary>
+    ///     Whether a context notification is about a world other than the target's own page world:
+    ///     an isolated world that another inspector client or an extension creates.
+    /// </summary>
+    /// <param name="otherWorlds">The channel's ignored context ids, under the caller's channel lock.</param>
+    /// <param name="method">The CDP notification.</param>
+    /// <param name="parameters">Its raw parameters.</param>
+    /// <returns>True when the notification must not advance the generations.</returns>
+    /// <remarks>
+    ///     Every patch and the bridge live in the main frame's default world, so only that world's
+    ///     replacement is a new generation. Counting every world made any second debugger client
+    ///     (attaching creates a utility world) tear down and reinstall every patch and evaluate the
+    ///     whole asset again. A world ignored when it was created is ignored when it is destroyed; a
+    ///     destroyed context this connection never saw created is still counted, as before.
+    /// </remarks>
+    internal static bool IsOtherWorld(
+        HashSet<long> otherWorlds, string method, string parameters)
+    {
+        switch (method)
+        {
+            case "Runtime.executionContextsCleared":
+                otherWorlds.Clear();
+                return false;
+            case "Runtime.executionContextCreated":
+            case "Runtime.executionContextDestroyed":
+                break;
+            default:
+                return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(parameters);
+            var root = document.RootElement;
+            if (method == "Runtime.executionContextDestroyed")
+            {
+                return root.TryGetProperty("executionContextId", out var destroyed)
+                       && destroyed.TryGetInt64(out var destroyedId)
+                       && otherWorlds.Remove(destroyedId);
+            }
+
+            if (!root.TryGetProperty("context", out var context)
+                || !context.TryGetProperty("id", out var idElement)
+                || !idElement.TryGetInt64(out var id)
+                || !context.TryGetProperty("auxData", out var auxData)
+                || auxData.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            if (!auxData.TryGetProperty("isDefault", out var isDefault)
+                || isDefault.ValueKind != JsonValueKind.False)
+            {
+                return false;
+            }
+
+            otherWorlds.Add(id);
+            return true;
+        }
+        catch (JsonException)
+        {
+            // An unreadable notification is counted, as every one was before.
+            return false;
+        }
     }
 
     private void OnConnectionClosed(
@@ -1075,6 +1148,9 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         internal string? BrowserId { get; set; }
 
         internal string? TargetId { get; set; }
+
+        /// <summary>Context ids of worlds that are not the page world; see <see cref="IsOtherWorld" />.</summary>
+        internal HashSet<long> OtherWorlds { get; } = [];
 
         internal string? LastFailure { get; set; }
 
