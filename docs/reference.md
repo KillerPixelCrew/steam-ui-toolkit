@@ -2347,6 +2347,20 @@ has an error. It preserves shortcut identities and validates entries before pars
 `ReadCollectionsAsync` and `ReadStoreTagsAsync` are typed the same way, so a caller keeps its last
 good answer instead of caching a failure as an empty library.
 
+## Native update notifications
+
+`SteamUpdateNotifications.Module()` declares the lifecycle-owned native notification capability.
+Enable its patch beside the host surfaces, then use `TryShowAsync` over the existing transport with
+a stable notice ID, title, body and Steam route. It returns false when the notifier is unavailable
+or delivery is uncertain, so the host can show its own notice. No delivery is retried automatically.
+
+The gate admits literal store module `7474`, renderer `25666` (Stable) or `3285` (Beta), and style
+module `21728` only after unique source fingerprints and export shape checks. The store's
+`ProcessNotification` and `RemoveGroupFromTray` methods own the toast/tray lifetime. The native
+template provides controller activation. A shared JSX transform renders only notices carrying the
+capability's private marker; unrelated Valve notifications remain untouched. Removing the gate
+removes its own tray groups and queued toasts, then releases its shared claim.
+
 ## Unknown numeric settings
 
 A `SteamSettingsRow` of kind `range` may have `Number = null` when its value is unreadable. The
