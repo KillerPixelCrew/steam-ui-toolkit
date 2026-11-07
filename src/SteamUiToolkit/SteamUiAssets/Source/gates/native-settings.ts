@@ -47,8 +47,7 @@ function createNativeSettings() {
     // could not read: it is drawn as unknown, with the thumb resting at its minimum and nothing sent
     // until the user moves it (settings.ts).
     const rowProblem = (row, rowIds) => {
-        if (typeof row?.key !== "string" || !row.key.trim() || row.key.length > 1024)
-            return "no usable key";
+        if (typeof row?.key !== "string" || !row.key.trim() || row.key.length > 1024) return "no usable key";
         if (rowIds.has(row.key)) return "duplicate key";
         if (typeof row.label !== "string") return "no label";
         if (!RowKinds.has(row.kind)) return `unsupported kind ${String(row.kind)}`;
@@ -67,7 +66,6 @@ function createNativeSettings() {
                 Number.isSafeInteger(value) && value >= 100 && value <= 15999;
             if (
                 !editor ||
-                row.choices.length > 512 ||
                 !Array.isArray(editor.removable) ||
                 (editor.restoreAvailable != null && typeof editor.restoreAvailable !== "boolean") ||
                 editor.removable.some(
@@ -98,12 +96,7 @@ function createNativeSettings() {
     // of Settings away for two GPU rows whose values could not be read.
     const normalize = (value) => {
         if (value === null) return { pages: [], revision: 0, rejected: [] };
-        if (
-            !Array.isArray(value?.pages) ||
-            value.pages.length > 4 ||
-            !Number.isSafeInteger(value.revision)
-        )
-            return null;
+        if (!Array.isArray(value?.pages) || !Number.isSafeInteger(value.revision)) return null;
         const pageIds = new Set();
         const rowIds = new Set();
         const rejected: { key: string; reason: string }[] = [];
@@ -112,14 +105,13 @@ function createNativeSettings() {
             if (
                 !Object.hasOwn(NativePages, page?.id) ||
                 pageIds.has(page.id) ||
-                !Array.isArray(page.sections) ||
-                page.sections.length > 64
+                !Array.isArray(page.sections)
             )
                 return null;
             pageIds.add(page.id);
             const sections: any[] = [];
             for (const section of page.sections) {
-                if (!Array.isArray(section?.rows) || section.rows.length > 256) return null;
+                if (!Array.isArray(section?.rows)) return null;
                 const rows = section.rows.filter((row) => {
                     const problem = rowProblem(row, rowIds);
                     if (!problem) {
@@ -372,6 +364,14 @@ function createNativeSettings() {
                 const next = normalize(published);
                 if (!next) {
                     publicationError = "native Settings publication is invalid";
+                    // Reported like a dropped row, so the host log and the patch health check see it:
+                    // the patch itself stays Verified, since the gate is installed and working.
+                    reportRejected([
+                        {
+                            key: "(publication)",
+                            reason: "its pages, sections or revision are malformed",
+                        },
+                    ]);
                     const hadPower = state.pages.some((page) => page.id === "power");
                     state = { pages: [], revision: state.revision };
                     rendered.clear();
