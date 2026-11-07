@@ -67,6 +67,7 @@ const SteamUiKitStyles = `
 .steam-ui-kit-group-body > div > :first-child,.steam-ui-kit-blocks > div > div > :first-child,.steam-ui-kit-valve > div > div > :first-child{--field-negative-horizontal-margin:0px}
 .steam-ui-kit-group-body,.steam-ui-kit-blocks,.steam-ui-kit-valve,.steam-ui-kit-battery{min-width:0}
 .steam-ui-kit-group-body button.DialogButton,.steam-ui-kit-blocks button.DialogButton,.steam-ui-kit-valve button.DialogButton{min-width:0!important;box-sizing:border-box!important}
+.steam-ui-kit-valve-profile > *{padding:8px 12px!important;border-radius:4px;box-sizing:border-box}
 .steam-ui-kit-battery{width:calc(100% - 32px);box-sizing:border-box;margin:0 16px 6px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.08);--field-negative-horizontal-margin:0px}
 .steam-ui-kit-battery > *{margin-inline:0!important;padding-inline:0!important;width:100%!important}
 .steam-ui-kit-battery div:has(> :nth-child(2):nth-last-child(2):not(:empty)){display:flex;flex-wrap:nowrap;align-items:center;gap:8px;height:24px!important}
@@ -554,7 +555,9 @@ const runSteamUiAction = (ui, action: SteamUiAction) => {
 const renderSteamUiActions = (
     ui,
     actions: SteamUiAction[],
-    options: { compact?: boolean } = {},
+    // wideAt: the label length from which an action takes the whole row; a narrow column such as Quick
+    // Access lowers it so no label is cut.
+    options: { compact?: boolean; wideAt?: number } = {},
 ) => {
     const h = ui.react.createElement;
     return h(
@@ -569,7 +572,7 @@ const renderSteamUiActions = (
                 {
                     key: action.id,
                     className:
-                        !options.compact && action.label.length > 18
+                        !options.compact && action.label.length >= (options.wideAt ?? 19)
                             ? "steam-ui-kit-wide"
                             : undefined,
                     onClick: () => {

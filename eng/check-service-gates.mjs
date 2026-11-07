@@ -361,10 +361,23 @@ const assertRemoved = (gate, name) => {
     publish({
         available: true,
         enabled: true,
-        devices: [{ id: "logical", operationInProgress: true }],
+        devices: [
+            { id: "logical", operationInProgress: true, kind: "Headset" },
+            { id: "pad", kind: "Gamepad" },
+            { id: "phone", kind: "Phone" },
+            { id: "unnamed", kind: "Unknown" },
+            { id: "older" },
+        ],
     });
     assert.ok(queryClient.invalidated > 0, "a publication invalidates Steam's cached answer");
-    assert.equal((await rf.GetState()).Body().toObject().devices[0].operation_in_progress, true);
+    const published = (await rf.GetState()).Body().toObject().devices;
+    assert.equal(published[0].operation_in_progress, true);
+    // Steam's EBluetoothDeviceType: headset 4 and gamepad 10 are listed by default, a phone (2) and
+    // the unknown type (1) only with "Show all devices".
+    assert.deepEqual(
+        published.map((device) => device.etype),
+        [4, 10, 2, 1, 1],
+    );
     assert.equal(
         (await rf.GetDeviceDetails({ device: "logical" })).Body().toObject().device.id,
         "logical",

@@ -1112,11 +1112,15 @@ function createNativeComponentHost() {
             // its bounds, a new range mounts a new slider instead.
             const rowKey =
                 kind === "valveRefreshRate" ? `${key}:${acceptedStates.get(publication)}` : key;
+            // Valve's profile header is a focusable tile whose highlight Steam insets in its own panel;
+            // inside a kit section the inset is gone, so the kit class restores it.
+            const body =
+                key === "steam-ui-valve-profile-header"
+                    ? h("div", { className: "steam-ui-kit-valve-profile" }, h(component))
+                    : h(component);
             rows.push([
                 kind,
-                ownRows
-                    ? h(component, { key: rowKey })
-                    : h(controlRuntime.row, { key: rowKey }, h(component)),
+                ownRows ? h(component, { key: rowKey }) : h(controlRuntime.row, { key: rowKey }, body),
             ]);
             // Valve's components report nothing and count as drawn while they are mounted.
             if (kind.startsWith("valve") || drawnKinds.has(kind)) drawn.add(kind);

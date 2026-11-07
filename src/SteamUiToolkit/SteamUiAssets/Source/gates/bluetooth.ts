@@ -58,6 +58,23 @@ function createBluetoothService() {
 
     const invalidate = () => invalidateQuery(req, queryKey);
 
+    // Steam's EBluetoothDeviceType. Its device list hides every type but headset through keyboard
+    // (4 to 11) unless "Show all devices" is on, and picks each row's icon by it; a kind the host
+    // does not name is Steam's own unknown type, which stays behind that switch.
+    const DeviceTypes = {
+        Phone: 2,
+        Computer: 3,
+        Headset: 4,
+        Headphones: 5,
+        Speakers: 6,
+        OtherAudio: 7,
+        Mouse: 8,
+        Joystick: 9,
+        Gamepad: 10,
+        Keyboard: 11,
+    } as const;
+    const UnknownDeviceType = 1;
+
     // The host sends its own field names and the mapping into Steam's lives here, so the client's
     // schema stays in the half that has to change when the client is rebuilt.
     const onState = (state) => {
@@ -83,7 +100,7 @@ function createBluetoothService() {
                 id: device.id,
                 mac: device.mac ?? "",
                 name: device.name ?? device.id,
-                etype: device.eType ?? 0,
+                etype: DeviceTypes[device.kind] ?? UnknownDeviceType,
                 is_paired: device.isPaired === true,
                 is_connected: device.isConnected === true,
                 operation_in_progress: device.operationInProgress === true,

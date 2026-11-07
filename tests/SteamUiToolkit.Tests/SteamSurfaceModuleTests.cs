@@ -161,6 +161,19 @@ public sealed class SteamSurfaceModuleTests
     }
 
     [Fact]
+    public void BluetoothDevicesPublishTheirKindByName()
+    {
+        var state = SteamBluetoothSurface.Serialize(new SteamBluetoothState(true, true, false,
+        [
+            new SteamBluetoothDevice("headset", "WH-1000XM6", "", SteamBluetoothDeviceKind.Headset, true, true),
+            new SteamBluetoothDevice("pad", "Steam Controller", "", SteamBluetoothDeviceKind.Gamepad, true, false)
+        ]));
+        var devices = state.GetProperty("devices");
+        Assert.Equal("Headset", devices[0].GetProperty("kind").GetString());
+        Assert.Equal("Gamepad", devices[1].GetProperty("kind").GetString());
+    }
+
+    [Fact]
     public async Task BluetoothDeviceOperationsCarryTheDeviceIdAndTheBlueZFlagsAreAcceptedByDefault()
     {
         RecordingBackend backend = new();

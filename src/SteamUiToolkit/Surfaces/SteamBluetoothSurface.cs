@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -15,19 +16,64 @@ namespace SteamUiToolkit;
 /// <param name="Id">Stable device identifier.</param>
 /// <param name="Name">Device name, or its address when it reports none.</param>
 /// <param name="Mac">Hardware address.</param>
-/// <param name="EType">Steam's device-type enumeration value; 0 is the generic device.</param>
+/// <param name="Kind">
+///     What the device is. The injected side maps it to Steam's device type, which picks the icon and
+///     decides whether the device is listed without "Show all devices".
+/// </param>
 /// <param name="IsPaired">Whether the device is paired.</param>
 /// <param name="IsConnected">Whether it has a live connection.</param>
 public readonly record struct SteamBluetoothDevice(
     string Id,
     string Name,
     string Mac,
-    int EType,
+    SteamBluetoothDeviceKind Kind,
     bool IsPaired,
     bool IsConnected)
 {
     /// <summary>Whether a pairing or connection operation is still in progress.</summary>
     public bool OperationInProgress { get; init; }
+}
+
+/// <summary>What a Bluetooth device is, as Steam's panel distinguishes devices.</summary>
+/// <remarks>
+///     Steam lists headsets through keyboards by default and keeps phones, computers and unknown devices
+///     behind "Show all devices", as it does on its own platform.
+/// </remarks>
+[JsonConverter(typeof(JsonStringEnumConverter<SteamBluetoothDeviceKind>))]
+public enum SteamBluetoothDeviceKind
+{
+    /// <summary>The device reports no kind Steam distinguishes.</summary>
+    Unknown,
+
+    /// <summary>A phone.</summary>
+    Phone,
+
+    /// <summary>A computer.</summary>
+    Computer,
+
+    /// <summary>A headset with a microphone.</summary>
+    Headset,
+
+    /// <summary>Headphones or earbuds.</summary>
+    Headphones,
+
+    /// <summary>Loudspeakers.</summary>
+    Speakers,
+
+    /// <summary>Another audio device.</summary>
+    OtherAudio,
+
+    /// <summary>A mouse or other pointing device.</summary>
+    Mouse,
+
+    /// <summary>A joystick.</summary>
+    Joystick,
+
+    /// <summary>A gamepad.</summary>
+    Gamepad,
+
+    /// <summary>A keyboard.</summary>
+    Keyboard
 }
 
 /// <summary>Bluetooth as Steam's own pairing panel expects to receive it.</summary>

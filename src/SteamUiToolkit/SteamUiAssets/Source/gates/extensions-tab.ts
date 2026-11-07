@@ -154,17 +154,21 @@ function createExtensionsTab() {
         if (existing.length === 0) {
             // Valve's tabs carry both: the element the header draws and the string it is named by. The
             // element is Valve's own title element with our text in it, so the tab's heading is drawn
-            // the size and colour Valve's are, under a class this code never names; a client whose
-            // title is not a plain element gets a plain div.
-            const sample = tabs.find(
-                (tab) =>
-                    tab && react.isValidElement(tab.title) && typeof tab.title.type === "string",
-            );
+            // the size and colour Valve's are, under a class this code never names. Valve's title is
+            // a component taking a localization id (2026-11 clients); its localizer hands back a string
+            // that is not a #token unchanged, so our title goes in as that id. A plain element takes the
+            // text as its child, and a client with neither gets a plain div.
+            const sample = tabs.find((tab) => tab && react.isValidElement(tab.title));
+            const title = !sample
+                ? null
+                : typeof sample.title.type === "string"
+                  ? react.cloneElement(sample.title, { key: undefined }, ExtensionsTabTitle)
+                  : typeof sample.title.props?.locId === "string"
+                    ? react.cloneElement(sample.title, { key: undefined, locId: ExtensionsTabTitle })
+                    : null;
             tabs.push({
                 key: ExtensionsTabId,
-                title: sample
-                    ? react.cloneElement(sample.title, { key: undefined }, ExtensionsTabTitle)
-                    : react.createElement("div", null, ExtensionsTabTitle),
+                title: title ?? react.createElement("div", null, ExtensionsTabTitle),
                 strTitle: ExtensionsTabTitle,
                 tab: icon("extensions", 22),
                 steamUiExtensionsTab: true,
@@ -377,7 +381,8 @@ function createExtensionsTab() {
                 foldHeading(`extensions:${item.id}`, { title: item.name, detail: detailOf(item) }),
             );
         // Actions in the kit's grid: two short labels side by side, a long one across the row, rather
-        // than every action being a full-width bar of its own.
+        // than every action being a full-width bar of its own. Half of the Quick Access column holds
+        // about eleven characters at Steam's button size; "Browse themes…" was cut at the default.
         const actionsRow = (item) =>
             (item.actions ?? []).length
                 ? h(
@@ -390,6 +395,7 @@ function createExtensionsTab() {
                               label: action.label,
                               onClick: () => activate(action.id),
                           })),
+                          { wideAt: 12 },
                       ),
                   )
                 : null;
