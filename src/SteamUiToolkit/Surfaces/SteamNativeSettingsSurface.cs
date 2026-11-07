@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -56,7 +57,11 @@ public static class SteamNativeSettingsSurface
     public const string PatchId = "steam-ui.native-settings";
 
     /// <summary>The exact command vocabulary.</summary>
-    public static IReadOnlyList<string> Commands { get; } = ["set"];
+    /// <remarks>
+    ///     <c>rejected</c> is the page reporting rows it could not draw; the rest of the publication
+    ///     still renders, and the host logs the keys once per distinct set.
+    /// </remarks>
+    public static IReadOnlyList<string> Commands { get; } = ["set", "rejected"];
 
     /// <summary>The patch that augments native Settings without replacing native fields.</summary>
     /// <remarks>
@@ -96,8 +101,47 @@ public static class SteamNativeSettingsSurface
             [
                 SteamUiModuleBuilder.Command<SetRequest>(PatchId, "set", TryReadSet,
                     (request, token) => backend.SetAsync(request.Key, request.Value, token),
-                    "The native Settings payload is invalid.")
+                    "The native Settings payload is invalid."),
+                SteamUiModuleBuilder.Command<string>(PatchId, "rejected", TryReadRejected,
+                    (rows, _) =>
+                    {
+                        SteamUiLog.Warn($"Steam Settings could not draw {rows}; the other rows are shown.");
+                        return Task.FromResult(SteamUiCommandResult.Applied);
+                    },
+                    "The native Settings rejection report is invalid.")
             ]);
+    }
+
+    /// <summary>Reads the page's report of rows it dropped, as "key (reason)" text for the log.</summary>
+    /// <param name="payload">The page's payload: <c>{rows: [{key, reason}]}</c>.</param>
+    /// <param name="value">The rows, joined for the log.</param>
+    /// <returns>Whether the report was well formed.</returns>
+    internal static bool TryReadRejected(JsonElement payload, out string value)
+    {
+        value = "";
+        if (!SteamUiPayload.HasExactly(payload, 1)
+            || !payload.TryGetProperty("rows", out var rows)
+            || rows.ValueKind != JsonValueKind.Array
+            || rows.GetArrayLength() == 0)
+        {
+            return false;
+        }
+
+        List<string> described = [];
+        foreach (var row in rows.EnumerateArray())
+        {
+            if (row.ValueKind != JsonValueKind.Object
+                || !row.TryGetProperty("key", out var key) || key.ValueKind != JsonValueKind.String
+                || !row.TryGetProperty("reason", out var reason) || reason.ValueKind != JsonValueKind.String)
+            {
+                return false;
+            }
+
+            described.Add($"{key.GetString()} ({reason.GetString()})");
+        }
+
+        value = string.Join(", ", described);
+        return true;
     }
 
     private static bool TryReadSet(JsonElement payload, out SetRequest value)
@@ -108,7 +152,7 @@ public static class SteamNativeSettingsSurface
             || key.Length > 1024
             || !payload.TryGetProperty("value", out var setting)
             || (setting.ValueKind is not (JsonValueKind.True or JsonValueKind.False or JsonValueKind.Number
-                or JsonValueKind.String) && !IsResolutionEdit(setting))
+                or JsonValueKind.String) && !IsResolutionEdit(setting) && !IsCurve(setting))
             || (setting.ValueKind == JsonValueKind.String && setting.GetString()!.Length > 4096))
         {
             return false;
@@ -119,6 +163,20 @@ public static class SteamNativeSettingsSurface
     }
 
     private readonly record struct SetRequest(string Key, JsonElement Value);
+
+    /// <summary>A curve row's edit: its breakpoints as <c>{input, output}</c> integer pairs.</summary>
+    /// <param name="value">The proposed value.</param>
+    /// <returns>Whether it has a curve's shape; the host checks it against the row it offered.</returns>
+    private static bool IsCurve(JsonElement value)
+    {
+        return value.ValueKind == JsonValueKind.Array
+               && value.GetArrayLength() > 0
+               && value.EnumerateArray().All(point => SteamUiPayload.HasExactly(point, 2)
+                                                      && point.TryGetProperty("input", out var input)
+                                                      && input.ValueKind == JsonValueKind.Number && input.TryGetInt32(out _)
+                                                      && point.TryGetProperty("output", out var output)
+                                                      && output.ValueKind == JsonValueKind.Number && output.TryGetInt32(out _));
+    }
 
     private static bool IsResolutionEdit(JsonElement value)
     {

@@ -4,25 +4,25 @@
 // root drawing the claim, including one Steam mounted after install through the JSX transform.
 import assert from "node:assert/strict";
 import {
-  assertRemoveRetries,
-  createReact,
-  element,
-  failingHost,
-  gateSource,
-  instantiate,
-  loadAsset,
-  sharedFragments,
-  substitute,
-  withSource,
+    assertRemoveRetries,
+    createReact,
+    element,
+    failingHost,
+    gateSource,
+    instantiate,
+    loadAsset,
+    sharedFragments,
+    substitute,
+    withSource,
 } from "./check-harness.mjs";
 
 const asset = loadAsset();
 const { host: react, failNext } = failingHost(
-  createReact({
-    useMemo: (factory) => factory(),
-    useSyncExternalStore: (_subscribe, revision) => revision(),
-    useEffect: () => {},
-  }),
+    createReact({
+        useMemo: (factory) => factory(),
+        useSyncExternalStore: (_subscribe, revision) => revision(),
+        useEffect: () => {},
+    }),
 );
 const jsxRuntime = { jsx: element, jsxs: element };
 const originalMemo = react.useMemo;
@@ -31,20 +31,20 @@ const Section = () => null;
 const NativeBody = () => null;
 const nativeContent = element(NativeBody, {});
 const descriptor = (id, visible = true) => ({
-  route: `/settings/${id}`,
-  visible,
-  title: id,
-  content: nativeContent,
+    route: `/settings/${id}`,
+    visible,
+    title: id,
+    content: nativeContent,
 });
 const map = {
-  Display: descriptor("display"),
-  Power: descriptor("power", false),
-  Audio: descriptor("audio"),
-  Controller: descriptor("controller"),
-  Internet: descriptor("internet"),
+    Display: descriptor("display"),
+    Power: descriptor("power", false),
+    Audio: descriptor("audio"),
+    Controller: descriptor("controller"),
+    Internet: descriptor("internet"),
 };
 const NativeRoot = withSource(function NativeRoot(props) {
-  return react.useMemo(() => props?.descriptors ?? map);
+    return react.useMemo(() => props?.descriptors ?? map);
 }, '#Settings_Title show-icon "Settings"');
 let renderRequests = 0;
 const parent = { stateNode: { isReactComponent: true, forceUpdate: () => renderRequests++ } };
@@ -56,19 +56,19 @@ const popup = { m_popup: { document: popupDocument } };
 const popups = [popup, popup];
 const sharedRootHost = { __reactContainer$fixture: { type: () => null } };
 const ui = Object.fromEntries(
-  [
-    "settingsSection",
-    "toggleField",
-    "dropdown",
-    "sliderField",
-    "textField",
-    "valueField",
-    "dialogButton",
-    "smallButton",
-    "showModal",
-    "modalRoot",
-    "confirmModal",
-  ].map((key) => [key, Section]),
+    [
+        "settingsSection",
+        "toggleField",
+        "dropdown",
+        "sliderField",
+        "textField",
+        "valueField",
+        "dialogButton",
+        "smallButton",
+        "showModal",
+        "modalRoot",
+        "confirmModal",
+    ].map((key) => [key, Section]),
 );
 ui.react = react;
 let publication;
@@ -77,40 +77,40 @@ const requests = [];
 const counts = {};
 let modulesLoaded = true;
 const runtime = {
-  count: (tokens) => counts[tokens[0]] ?? 1,
-  findUnique: () => ["fixture", ""],
-  exported: () => NativeRoot,
-  resolve: () => jsxRuntime,
+    count: (tokens) => counts[tokens[0]] ?? 1,
+    findUnique: () => ["fixture", ""],
+    exported: () => NativeRoot,
+    resolve: () => jsxRuntime,
 };
 const exposed = instantiate(
-  {
-    window: { g_PopupManager: { GetPopups: () => popups } },
-    document: { getElementById: () => sharedRootHost, body: { children: [] } },
-    getWebpackRuntime: () => {
-      if (!modulesLoaded) throw new Error("Steam modules unavailable");
-      return runtime;
+    {
+        window: { g_PopupManager: { GetPopups: () => popups } },
+        document: { getElementById: () => sharedRootHost, body: { children: [] } },
+        getWebpackRuntime: () => {
+            if (!modulesLoaded) throw new Error("Steam modules unavailable");
+            return runtime;
+        },
+        fixtureComponents: () => ui,
+        useSteamSettingDrafts: () => ({
+            change: (send) => send,
+            row: (row) => row,
+            draft: () => undefined,
+        }),
+        renderSteamSettingRow: (_ui, row, _draft, change, action) =>
+            element("row", { row, change, action }),
+        steamUiKitStyle: () => element("style", {}),
+        subscribe: (_id, callback) => {
+            publication = callback;
+            return () => {};
+        },
+        request: (...args) => {
+            requests.push(args);
+            return Promise.resolve();
+        },
     },
-    fixtureComponents: () => ui,
-    useSteamSettingDrafts: () => ({
-      change: (send) => send,
-      row: (row) => row,
-      draft: () => undefined,
-    }),
-    renderSteamSettingRow: (_ui, row, _draft, change, action) =>
-      element("row", { row, change, action }),
-    steamUiKitStyle: () => element("style", {}),
-    subscribe: (_id, callback) => {
-      publication = callback;
-      return () => {};
-    },
-    request: (...args) => {
-      requests.push(args);
-      return Promise.resolve();
-    },
-  },
-  substitute(sharedFragments(asset), "resolveSteamUiComponents", "fixtureComponents") +
-    gateSource(asset, "gates/native-settings.ts"),
-  "({gate:createNativeSettings(), interceptMemo, releaseMemo})",
+    substitute(sharedFragments(asset), "resolveSteamUiComponents", "fixtureComponents") +
+        gateSource(asset, "gates/native-settings.ts"),
+    "({gate:createNativeSettings(), interceptMemo, releaseMemo})",
 );
 const gate = exposed.gate;
 const row = { key: "device/charge", kind: "boolean", label: "Charge limit", checked: true };
@@ -121,14 +121,21 @@ modulesLoaded = false;
 assert.equal(gate.probe().outcome, "notReady", "a webpack runtime not yet capturable is not ready");
 modulesLoaded = true;
 for (const token of ["#Settings_Page_Display", "#Settings_Title", "react.transitional.element"]) {
-  counts[token] = 2;
-  const probe = gate.probe();
-  assert.equal(probe.outcome, "incompatible", `an ambiguous ${token} module is incompatible`);
-  delete counts[token];
+    counts[token] = 2;
+    const probe = gate.probe();
+    assert.equal(probe.outcome, "incompatible", `an ambiguous ${token} module is incompatible`);
+    delete counts[token];
 }
 let probe = gate.probe();
 assert.equal(probe.outcome, "ready", probe.reason);
-assert.deepEqual(probe.facts, { descriptors: 1, root: 1, react: 1, jsx: 1, fields: 1, focusable: 1 });
+assert.deepEqual(probe.facts, {
+    descriptors: 1,
+    root: 1,
+    react: 1,
+    jsx: 1,
+    fields: 1,
+    focusable: 1,
+});
 assert.equal(fiber.type, NativeRoot, "a probe adopts nothing");
 assert.equal(jsxRuntime.jsx, originalJsx, "a probe claims nothing");
 
@@ -139,9 +146,9 @@ counts["#Settings_Title"] = 2;
 assert.equal(gate.probe().outcome, "ready", "an installed gate answers from what it holds");
 delete counts["#Settings_Title"];
 assert.equal(
-  renderRequests,
-  1,
-  "duplicate popup documents produce only one native ancestor render",
+    renderRequests,
+    1,
+    "duplicate popup documents produce only one native ancestor render",
 );
 publication(state([page("power")]));
 let result = fiber.type({});
@@ -149,64 +156,64 @@ assert.equal(result.Power.visible, true, "only the native Power descriptor is re
 assert.equal(map.Power.visible, false, "Steam's original descriptor is untouched");
 const waiting = { ...map, Display: { ...map.Display, visible: false } };
 assert.equal(
-  fiber.type({ descriptors: waiting }).Power.visible,
-  false,
-  "host rows cannot reveal Power before Steam's native services are ready",
+    fiber.type({ descriptors: waiting }).Power.visible,
+    false,
+    "host rows cannot reveal Power before Steam's native services are ready",
 );
 assert.equal(
-  result.Display.route,
-  map.Display.route,
-  "an empty slot retains the native page route",
+    result.Display.route,
+    map.Display.route,
+    "an empty slot retains the native page route",
 );
 assert.equal(
-  result.Display.content.props.children[0],
-  nativeContent,
-  "an empty slot retains native content",
+    result.Display.content.props.children[0],
+    nativeContent,
+    "an empty slot retains native content",
 );
 assert.equal(
-  result.Display.content.type,
-  "div",
-  "native content and host sections share one wrapper instead of sitting side by side",
+    result.Display.content.type,
+    "div",
+    "native content and host sections share one wrapper instead of sitting side by side",
 );
 assert.equal(
-  result.Display.content.props.className,
-  "DialogBody steam-ui-kit-settings-body",
-  "the wrapper is the page's scrolling body, so Steam's own body inside it keeps its height",
+    result.Display.content.props.className,
+    "DialogBody steam-ui-kit-settings-body",
+    "the wrapper is the page's scrolling body, so Steam's own body inside it keeps its height",
 );
 assert.equal(
-  result.Display.content.props.children.at(-1).type,
-  "style",
-  "the wrapper carries the kit stylesheet even while its page has no host rows",
+    result.Display.content.props.children.at(-1).type,
+    "style",
+    "the wrapper carries the kit stylesheet even while its page has no host rows",
 );
 assert.equal(result.Internet, map.Internet);
 assert.equal(result.Power.route, map.Power.route, "Steam retains route and navigation ownership");
 assert.equal(
-  result.Power.content.props.children[0],
-  nativeContent,
-  "native fields are retained before host sections",
+    result.Power.content.props.children[0],
+    nativeContent,
+    "native fields are retained before host sections",
 );
 const host = result.Power.content.props.children[1];
 const controllerSlot = result.Controller.content.props.children[1];
 assert.equal(
-  controllerSlot.type(controllerSlot.props),
-  null,
-  "the Controller slot mounts while it has no rows",
+    controllerSlot.type(controllerSlot.props),
+    null,
+    "the Controller slot mounts while it has no rows",
 );
 const beforeControllerPublication = renderRequests;
 publication(state([page("power"), page("controller", [{ ...row, key: "device/controller" }])], 2));
 assert.equal(
-  renderRequests,
-  beforeControllerPublication,
-  "Controller capability arrival requires no outer root render",
+    renderRequests,
+    beforeControllerPublication,
+    "Controller capability arrival requires no outer root render",
 );
 assert.equal(
-  fiber.type({}).Controller.content.props.children[1],
-  controllerSlot,
-  "Controller retains its already mounted slot",
+    fiber.type({}).Controller.content.props.children[1],
+    controllerSlot,
+    "Controller retains its already mounted slot",
 );
 assert.ok(
-  controllerSlot.type(controllerSlot.props),
-  "Controller's existing empty slot renders the new capability rows",
+    controllerSlot.type(controllerSlot.props),
+    "Controller's existing empty slot renders the new capability rows",
 );
 const sectionTree = host.type(host.props);
 const field = sectionTree.props.children.find((child) => child?.type === Section).props.children[0];
@@ -221,49 +228,112 @@ const beforePowerRetraction = renderRequests;
 publication(state([page("controller", [{ ...row, key: "device/controller" }])], 3));
 result = fiber.type({});
 assert.ok(
-  renderRequests > beforePowerRetraction,
-  "Power retraction refreshes the popup-native root",
+    renderRequests > beforePowerRetraction,
+    "Power retraction refreshes the popup-native root",
 );
 assert.equal(
-  result.Power.visible,
-  map.Power.visible,
-  "retracting host Power sections restores native visibility",
+    result.Power.visible,
+    map.Power.visible,
+    "retracting host Power sections restores native visibility",
 );
 assert.equal(host.type(host.props), null, "a mounted section retracts after capability loss");
 const beforePowerReturn = renderRequests;
 publication(state([page("power")], 4));
 assert.ok(renderRequests > beforePowerReturn, "Power reappearance refreshes the popup-native root");
 assert.equal(
-  fiber.type({}).Power.visible,
-  true,
-  "Power reappears without navigating or remounting the native root",
+    fiber.type({}).Power.visible,
+    true,
+    "Power reappears without navigating or remounting the native root",
 );
 publication(state([page("controller"), page("controller")], 5));
 assert.match(
-  gate.status().publicationError,
-  /publication is invalid/u,
-  "duplicate pages are refused whole",
+    gate.status().publicationError,
+    /publication is invalid/u,
+    "duplicate pages are refused whole",
 );
 assert.equal(
-  fiber.type({}).Power.visible,
-  map.Power.visible,
-  "an invalid publication restores native Power visibility",
+    fiber.type({}).Power.visible,
+    map.Power.visible,
+    "an invalid publication restores native Power visibility",
 );
 assert.equal(
-  controllerSlot.type(controllerSlot.props),
-  null,
-  "an invalid publication retracts stale actionable rows",
+    controllerSlot.type(controllerSlot.props),
+    null,
+    "an invalid publication retracts stale actionable rows",
 );
+// A value the host could not read is a row like any other, and one row the gate cannot draw is
+// dropped on its own: it once took every page away for two GPU colour ranges.
+const unknown = {
+    key: "gpu/hue",
+    kind: "range",
+    label: "Hue",
+    number: null,
+    minimum: 0,
+    maximum: 359,
+    step: 1,
+};
+const curve = {
+    key: "device/fan",
+    kind: "curve",
+    label: "Fan curve",
+    minimum: 0,
+    maximum: 100,
+    step: 1,
+    curve: [],
+};
+const bad = { key: "bad/row", kind: "unsupported", label: "Bad" };
+const reportsBefore = requests.length;
+publication(
+    state([page("controller", [{ ...row, key: "device/controller" }, unknown, curve, bad])], 6),
+);
+assert.equal(
+    gate.status().publicationError,
+    "1 native Settings row(s) could not be drawn: bad/row",
+    "only the undrawable row is reported",
+);
+const drawnKeys = controllerSlot
+    .type(controllerSlot.props)
+    .props.children.filter((child) => child?.type === Section)
+    .flatMap((section) => section.props.children.map((field) => field.props.row.key));
+assert.deepEqual(
+    drawnKeys,
+    ["device/controller", "gpu/hue", "device/fan"],
+    "every other row still draws",
+);
+assert.deepEqual(
+    requests.slice(reportsBefore),
+    [
+        [
+            "steam-ui.native-settings",
+            "rejected",
+            { rows: [{ key: "bad/row", reason: "unsupported kind unsupported" }] },
+        ],
+    ],
+    "the dropped row is reported to the host once, by key",
+);
+publication(
+    state([page("controller", [{ ...row, key: "device/controller" }, unknown, curve, bad])], 7),
+);
+assert.equal(requests.length, reportsBefore + 1, "an unchanged rejection is not reported again");
 publication(null);
 assert.equal(host.type(host.props), null, "null state empties every mounted host slot");
 
 // A Settings root Steam mounts after install is created through the JSX transform, so it carries the
 // claim's wrapper on both of its fibers; the list adopted at install never saw it.
 const created = jsxRuntime.jsx(NativeRoot, {});
-assert.notEqual(created.type, NativeRoot, "a later Settings root is created with the claim's wrapper");
+assert.notEqual(
+    created.type,
+    NativeRoot,
+    "a later Settings root is created with the claim's wrapper",
+);
 let laterRenders = 0;
 const laterParent = { stateNode: { isReactComponent: true, forceUpdate: () => laterRenders++ } };
-const laterRoot = { type: created.type, elementType: created.type, memoizedProps: {}, return: laterParent };
+const laterRoot = {
+    type: created.type,
+    elementType: created.type,
+    memoizedProps: {},
+    return: laterParent,
+};
 laterRoot.alternate = { ...laterRoot, alternate: laterRoot };
 const laterHost = { __reactContainer$later: laterRoot };
 const laterDocument = { getElementById: () => laterHost, body: { children: [] } };
@@ -285,9 +355,9 @@ assert.notEqual(react.useMemo, originalMemo);
 exposed.releaseMemo(react, "fixture-other");
 assert.equal(react.useMemo, originalMemo);
 assert.equal(
-  fiber.type({}),
-  map,
-  "removal restores the exact native descriptor map without host slots",
+    fiber.type({}),
+    map,
+    "removal restores the exact native descriptor map without host slots",
 );
 
 assert.equal(gate.install().ok, true);
@@ -295,5 +365,5 @@ assertRemoveRetries(gate, failNext, "native Settings");
 assert.equal(fiber.type, NativeRoot);
 assert.equal(gate.status().claimsRemaining, false);
 console.log(
-  "Native Settings: mounted adoption, native fields, dynamic omission, Power visibility and claim restoration passed.",
+    "Native Settings: mounted adoption, native fields, dynamic omission, Power visibility, unknown values, per-row refusal with one report and claim restoration passed.",
 );

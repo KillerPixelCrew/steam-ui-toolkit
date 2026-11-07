@@ -2391,3 +2391,12 @@ A `SteamSettingsRow` of kind `range` may have `Number = null` when its value is 
 renderer keeps the control writable, suppresses the numeric value and explains that the value is
 unknown. The minimum positions the editing thumb only; it is never sent during publication or
 mounting. A staged user edit displays its chosen number and reaches the backend on completion.
+Steam's native Settings pages accept such a row like any other.
+
+The native Settings gate accepts every row kind the shared renderer draws (`SteamSettingsRowKind`).
+A publication whose shape is wrong (pages, sections or the revision) is refused whole. A row the
+gate cannot draw (no usable or a duplicate key, an unknown kind, invalid choices, range bounds or
+resolution editor) is dropped on its own, and the rest of its section and page still render. The
+page reports each distinct set of dropped rows once through the `rejected` command, as
+`{rows: [{key, reason}]}`; the host logs the keys and reasons, and `status().publicationError` names
+them.

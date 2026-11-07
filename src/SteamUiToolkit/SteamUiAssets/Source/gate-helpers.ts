@@ -41,6 +41,24 @@ const LocalizationTokens = [
     "LocalizeString",
 ] as const;
 
+/**
+ * Every row kind settings.ts's renderSteamSettingRow draws; the same vocabulary as C#'s SteamSettingsRowKind. A
+ * surface that validates rows accepts exactly these, so a kind the renderer can draw is never refused.
+ */
+const SteamSettingRowKinds: ReadonlySet<string> = new Set([
+    "boolean",
+    "choice",
+    "range",
+    "text",
+    "secret",
+    "order",
+    "action",
+    "note",
+    "color",
+    "curve",
+    "resolution-list",
+]);
+
 // Steam's React exports, or null when the module is not a unique match.
 const resolveReact = (runtime) => {
     const factory = runtime.findUnique(ReactTokens);
