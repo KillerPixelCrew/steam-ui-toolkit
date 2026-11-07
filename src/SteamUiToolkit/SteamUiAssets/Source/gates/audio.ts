@@ -39,6 +39,25 @@ function createAudioNamespace() {
     // stable small number for Steam's side of the wire, translated back on every command.
     const NO_DEVICE = 4294967295;
 
+    // What Steam's native audio setters resolve to. The client chains
+    // `SetDeviceVolume(...)?.then(rA)` and `SetAppVolume(...)?.then(rA)` on Stable and Beta, and
+    // rA reads `.result` against EResult OK, so a setter resolving null (the host's empty command
+    // answer) or undefined threw "Cannot read properties of null (reading 'result')" on every
+    // Quick Access volume change, and a refused command was an unhandled rejection. Every setter
+    // now resolves to that shape, a refusal included, which rA logs as Steam logs its own.
+    const ResultOk = 1;
+    const ResultFail = 2;
+    const audioResult = (work: () => unknown) => {
+        try {
+            return Promise.resolve(work()).then(
+                () => ({result: ResultOk, message: ""}),
+                (error) => ({result: ResultFail, message: String(error?.message ?? error)}),
+            );
+        } catch (error) {
+            return Promise.resolve({result: ResultFail, message: String((error as any)?.message ?? error)});
+        }
+    };
+
     // The key m_mapVolumes is keyed by, and the second argument of both SetDeviceVolume and
     // OnAudioDeviceVolumeChanged. INPUT IS ZERO — read out of the client's own enum (Input=0,
     // Output=1) on 2026-08-30, after assuming the opposite: with the values swapped the
@@ -275,31 +294,33 @@ function createAudioNamespace() {
         // Empty until a session mixer exists. Steam then lists no per-application entries, which is
         // the honest outcome rather than inventing volumes it cannot move.
         GetApps: () => Promise.resolve({rgApps: []}),
-        SetDefaultDeviceOverride: (id, direction) => {
-            // Steam hands back the number this side minted; the host only knows the GUID.
-            const guid = guidFor(id);
-            if (!guid) return Promise.resolve();
-            return request(patchId, "setDefaultDevice", {
-                id: guid,
-                input: direction === AudioDirection.Input,
-            });
-        },
+        SetDefaultDeviceOverride: (id, direction) =>
+            audioResult(() => {
+                // Steam hands back the number this side minted; the host only knows the GUID.
+                const guid = guidFor(id);
+                if (!guid) return undefined;
+                return request(patchId, "setDefaultDevice", {
+                    id: guid,
+                    input: direction === AudioDirection.Input,
+                });
+            }),
         // (deviceId, DIRECTION, volume) — three arguments. Read off the store's own device class
         // 2026-08-30: setDeviceVolume(e,t) calls SetDeviceVolume(this.m_id, e, t). The host declared
         // two parameters and so read the DIRECTION as the volume: dragging the slider sent
         // Math.round(1 * 100) or Math.round(0 * 100), which is why every drag set 100% or 0% and
         // the log showed "Taskbar volume set to 100%" the moment the slider was touched.
-        SetDeviceVolume: (id, direction, volume) => {
-            if (direction !== AudioDirection.Output && direction !== AudioDirection.Input) {
-                return Promise.resolve();
-            }
-            return request(patchId, "setVolume", {
-                percent: Math.round(Math.min(1, Math.max(0, Number(volume) || 0)) * 100),
-                input: direction === AudioDirection.Input,
-            });
-        },
-        SetAppVolume: () => Promise.resolve(),
-        ClearDefaultDeviceOverride: () => Promise.resolve(),
+        SetDeviceVolume: (id, direction, volume) =>
+            audioResult(() => {
+                if (direction !== AudioDirection.Output && direction !== AudioDirection.Input) {
+                    return undefined;
+                }
+                return request(patchId, "setVolume", {
+                    percent: Math.round(Math.min(1, Math.max(0, Number(volume) || 0)) * 100),
+                    input: direction === AudioDirection.Input,
+                });
+            }),
+        SetAppVolume: () => audioResult(() => undefined),
+        ClearDefaultDeviceOverride: () => audioResult(() => undefined),
         RegisterForServiceConnectionStateChanges: register("serviceConnection"),
         RegisterForDeviceAdded: register("deviceAdded"),
         RegisterForDeviceRemoved: register("deviceRemoved"),

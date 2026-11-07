@@ -63,7 +63,15 @@ const unrelated = { source: "unrelated module", exports: { danger: forbidden } }
 // One probe per mode: the service module is unique, already ours, absent, matched by two modules,
 // exported twice under different values, or missing something the gate needs.
 const probeModes = (service, label, create, setup) => {
-    const modes = ["unique", "owned", "absent", "ambiguous", "ambiguous-export", "incomplete", ...setup.extra];
+    const modes = [
+        "unique",
+        "owned",
+        "absent",
+        "ambiguous",
+        "ambiguous-export",
+        "incomplete",
+        ...setup.extra,
+    ];
     for (const mode of modes) {
         const window = { SteamClient: { System: {} } };
         let calls = 0;
@@ -74,33 +82,54 @@ const probeModes = (service, label, create, setup) => {
             const exports = { first: value, alias: value };
             if (mode === "ambiguous-export") exports.second = make();
             modules.service = { source: setup.source, exports };
-            if (mode === "ambiguous") modules.twin = { source: setup.source, exports: { first: make() } };
+            if (mode === "ambiguous")
+                modules.twin = { source: setup.source, exports: { first: make() } };
         }
         setup.window?.(mode, window);
         const { gate, loaded } = overModules(label, create, window, modules);
         const probe = gate.probe();
-        const expected = setup.expect?.(mode) ?? (mode === "unique" || mode === "owned" ? "ready" : "incompatible");
+        const expected =
+            setup.expect?.(mode) ??
+            (mode === "unique" || mode === "owned" ? "ready" : "incompatible");
         assert.equal(probe.outcome, expected, `${service} ${mode}: ${probe.reason ?? ""}`);
-        assert.equal(loaded.includes("unrelated"), false, `${service} ${mode} must not load an unrelated module`);
+        assert.equal(
+            loaded.includes("unrelated"),
+            false,
+            `${service} ${mode} must not load an unrelated module`,
+        );
         if (mode === "absent" || mode === "ambiguous") {
-            assert.equal(loaded.includes("service"), false, `${service} ${mode} must not load a non-unique module`);
+            assert.equal(
+                loaded.includes("service"),
+                false,
+                `${service} ${mode} must not load a non-unique module`,
+            );
         }
-        if (setup.calls) assert.equal(calls, setup.calls(mode), `${service} ${mode} singleton reads`);
-        assert.equal(gate.status().installed, false, `${service} ${mode}: a probe must install nothing`);
+        if (setup.calls)
+            assert.equal(calls, setup.calls(mode), `${service} ${mode} singleton reads`);
+        assert.equal(
+            gate.status().installed,
+            false,
+            `${service} ${mode}: a probe must install nothing`,
+        );
     }
 };
 
 probeModes("audio", "gates/audio.ts", "createAudioNamespace", {
     source: "SteamClient.System.Audio RegisterForDeviceAdded m_bAvailable",
     extra: ["native", "no-system"],
-    make: (mode) => (mode === "incomplete" ? {} : { m_bAvailable: false, RegisterOrUpdateDevice: forbidden }),
+    make: (mode) =>
+        mode === "incomplete" ? {} : { m_bAvailable: false, RegisterOrUpdateDevice: forbidden },
     window: (mode, window) => {
         if (mode === "owned") window.SteamClient.System.Audio = { [OwnedMarker]: true };
         if (mode === "native") window.SteamClient.System.Audio = {};
         if (mode === "no-system") delete window.SteamClient.System;
     },
     expect: (mode) =>
-        mode === "no-system" ? "notReady" : mode === "unique" || mode === "owned" ? "ready" : "incompatible",
+        mode === "no-system"
+            ? "notReady"
+            : mode === "unique" || mode === "owned"
+              ? "ready"
+              : "incompatible",
 });
 
 probeModes("performance", "gates/performance.ts", "createPerfNamespace", {
@@ -156,7 +185,8 @@ probeModes("brightness", "gates/brightness.ts", "createBrightnessGate", {
     },
     window: (mode, window) => {
         window.SteamClient.System.Display = { SetBrightness: forbidden };
-        if (mode !== "incomplete") window.SteamClient.System.Display.RegisterForBrightnessChanges = forbidden;
+        if (mode !== "incomplete")
+            window.SteamClient.System.Display.RegisterForBrightnessChanges = forbidden;
     },
     expect: (mode) =>
         mode === "unmounted" || mode === "no-flag"
@@ -197,14 +227,17 @@ probeModes("bluetooth", "gates/bluetooth.ts", "createBluetoothService", {
             };
         }
         if (mode === "incomplete") delete service.Forget;
-        if (mode === "locked") Object.defineProperty(service, "GetState", { writable: false, configurable: false });
+        if (mode === "locked")
+            Object.defineProperty(service, "GetState", { writable: false, configurable: false });
         return service;
     },
     modules: (mode) => {
         const cache = { invalidateQueries: forbidden, getQueryState: forbidden };
         const modules = {};
-        if (mode !== "missing-cache") modules.cache = { source: "ReactQueryDevtools offlineFirst", exports: { cache } };
-        if (mode === "ambiguous-cache") modules.cacheTwin = { source: "ReactQueryDevtools offlineFirst", exports: {} };
+        if (mode !== "missing-cache")
+            modules.cache = { source: "ReactQueryDevtools offlineFirst", exports: { cache } };
+        if (mode === "ambiguous-cache")
+            modules.cacheTwin = { source: "ReactQueryDevtools offlineFirst", exports: {} };
         return modules;
     },
 });
@@ -215,7 +248,10 @@ for (const mode of ["hidden", "owned", "native", "locked", "unpublished"]) {
     const get = () => mode === "owned" || mode === "native";
     get.__steamUiOwnedGetter = mode === "owned";
     const proto = {};
-    Object.defineProperty(proto, "networkManagementAvailable", { get, configurable: mode !== "locked" });
+    Object.defineProperty(proto, "networkManagementAvailable", {
+        get,
+        configurable: mode !== "locked",
+    });
     const window = mode === "unpublished" ? {} : { SystemNetworkStore: Object.create(proto) };
     const noModules = () => {
         throw new Error("modules loaded");
@@ -223,19 +259,32 @@ for (const mode of ["hidden", "owned", "native", "locked", "unpublished"]) {
     const gate = instantiate(
         {
             window,
-            getWebpackRuntime: () => Object.assign(noModules, { count: noModules, findUnique: noModules, exported: noModules }),
+            getWebpackRuntime: () =>
+                Object.assign(noModules, {
+                    count: noModules,
+                    findUnique: noModules,
+                    exported: noModules,
+                }),
             request: async () => {},
             subscribe: () => () => {},
         },
         `${shared}\n${gateSource(asset, "gates/network.ts")}`,
         "createNetworkGate()",
     );
-    const expected = { hidden: "ready", owned: "ready", native: "incompatible", locked: "incompatible", unpublished: "notReady" };
+    const expected = {
+        hidden: "ready",
+        owned: "ready",
+        native: "incompatible",
+        locked: "incompatible",
+        unpublished: "notReady",
+    };
     const probe = gate.probe();
     assert.equal(probe.outcome, expected[mode], `network ${mode}: ${probe.reason ?? ""}`);
     if (mode !== "unpublished") assert.equal(typeof probe.facts.hasWirelessDevice, "boolean");
 }
-console.log("Service probes: unique and owned are ready, unconstructed is not ready, the rest are incompatible.");
+console.log(
+    "Service probes: unique and owned are ready, unconstructed is not ready, the rest are incompatible.",
+);
 
 // Every standard status field the host verifies with one predicate.
 const assertHolds = (gate, name) => {
@@ -243,7 +292,11 @@ const assertHolds = (gate, name) => {
     assert.equal(status.installed, true, `${name}: installed`);
     assert.equal(status.held, true, `${name}: held`);
     assert.ok(status.claims > 0, `${name}: claims on the ledger`);
-    assert.equal(gate.probe().outcome, "ready", `${name}: an installed gate answers its probe from its handles`);
+    assert.equal(
+        gate.probe().outcome,
+        "ready",
+        `${name}: an installed gate answers its probe from its handles`,
+    );
     assert.equal(gate.probe().installed, true);
 };
 const assertRemoved = (gate, name) => {
@@ -258,7 +311,13 @@ const assertRemoved = (gate, name) => {
     for (const name of BluetoothOperations) operations[name] = () => {};
     // GetAdapterDetails is replaced too, but the stub need not have it.
     const { host: rf, failNext } = failingHost(operations);
-    const queryClient = { invalidated: 0, invalidateQueries() { this.invalidated++; }, getQueryState() {} };
+    const queryClient = {
+        invalidated: 0,
+        invalidateQueries() {
+            this.invalidated++;
+        },
+        getQueryState() {},
+    };
     // The stub as the gate finds it: by its service method name and its shape, never by module id or
     // export name.
     const runtime = () => {
@@ -268,7 +327,11 @@ const assertRemoved = (gate, name) => {
         require.exported = (tokens, predicate) => {
             if (tokens.includes("ReactQueryDevtools")) return queryClient;
             assert.deepEqual(tokens, ["BluetoothManager.GetState#1"]);
-            assert.equal(predicate({ GetState() {} }), false, "an object without Pair is not the stub");
+            assert.equal(
+                predicate({ GetState() {} }),
+                false,
+                "an object without Pair is not the stub",
+            );
             assert.equal(predicate(rf), true);
             return rf;
         };
@@ -302,7 +365,10 @@ const assertRemoved = (gate, name) => {
     });
     assert.ok(queryClient.invalidated > 0, "a publication invalidates Steam's cached answer");
     assert.equal((await rf.GetState()).Body().toObject().devices[0].operation_in_progress, true);
-    assert.equal((await rf.GetDeviceDetails({ device: "logical" })).Body().toObject().device.id, "logical");
+    assert.equal(
+        (await rf.GetDeviceDetails({ device: "logical" })).Body().toObject().device.id,
+        "logical",
+    );
     assert.equal((await rf.Pair({ device: "logical" })).BSuccess(), true);
     assert.deepEqual(calls, [["pair", { device: "logical" }]]);
     failure = true;
@@ -313,8 +379,14 @@ const assertRemoved = (gate, name) => {
     assertRemoveRetries(gate, failNext, "Bluetooth");
     assertRemoved(gate, "Bluetooth");
     assert.equal(rf.Connect, operations.Connect, "the stub's own method is handed back");
-    assert.equal(Object.hasOwn(rf, "GetAdapterDetails"), false, "a method the stub never had is gone again");
-    console.log("Bluetooth actions preserve identity, progress, backend failures and removal retry.");
+    assert.equal(
+        Object.hasOwn(rf, "GetAdapterDetails"),
+        false,
+        "a method the stub never had is gone again",
+    );
+    console.log(
+        "Bluetooth actions preserve identity, progress, backend failures and removal retry.",
+    );
 }
 
 // --- Brightness: confirmed readback against an inert Steam observable ---------------------------
@@ -346,14 +418,21 @@ const assertRemoved = (gate, name) => {
         // module id or export name.
         const DisplayStore = function DisplayStore() {};
         DisplayStore.Get = () => store;
-        withSource(DisplayStore, "class Au{static Get(){}m_msgSettings={};m_flDisplayBrightness=(0,a.Jc)(1)}");
+        withSource(
+            DisplayStore,
+            "class Au{static Get(){}m_msgSettings={};m_flDisplayBrightness=(0,a.Jc)(1)}",
+        );
         const runtime = () => {
             const require = () => {
                 throw new Error("the gate must not name a module id");
             };
             require.exported = (tokens, predicate) => {
                 assert.ok(tokens.includes("m_flDisplayBrightness"));
-                assert.equal(predicate({ Get: () => store }), false, "a plain object is not the store class");
+                assert.equal(
+                    predicate({ Get: () => store }),
+                    false,
+                    "a plain object is not the store class",
+                );
                 assert.equal(predicate(DisplayStore), true);
                 return DisplayStore;
             };
@@ -369,7 +448,8 @@ const assertRemoved = (gate, name) => {
                         publish = null;
                     };
                 },
-                request: (...args) => new Promise((resolve, reject) => requests.push({ args, resolve, reject })),
+                request: (...args) =>
+                    new Promise((resolve, reject) => requests.push({ args, resolve, reject })),
             },
             `${shared}\n${gateSource(asset, "gates/brightness.ts")}`,
             "createBrightnessGate",
@@ -397,8 +477,16 @@ const assertRemoved = (gate, name) => {
     f.requests[0].resolve({ percent: 31, revision: 2 });
     await down;
     await tick();
-    assert.equal(f.observable.m_currentValue, 0.31, "matching readback must update Steam's initial 100% observable");
-    assert.equal(f.requests.length, 1, "neither synchronous nor deferred projection echoes write hardware");
+    assert.equal(
+        f.observable.m_currentValue,
+        0.31,
+        "matching readback must update Steam's initial 100% observable",
+    );
+    assert.equal(
+        f.requests.length,
+        1,
+        "neither synchronous nor deferred projection echoes write hardware",
+    );
     f.publish({ percent: 100, revision: 1 });
     assert.equal(f.observable.m_currentValue, 0.31, "older readback cannot restore 100%");
     f.publish({ percent: 45, revision: 3 });
@@ -413,7 +501,11 @@ const assertRemoved = (gate, name) => {
     f.requests[1].resolve({ percent: 60, revision: 4 });
     await up;
     await tick();
-    assert.equal(f.observable.m_currentValue, 0.25, "late command completion cannot override the latest request");
+    assert.equal(
+        f.observable.m_currentValue,
+        0.25,
+        "late command completion cannot override the latest request",
+    );
     const failed = f.display.SetBrightness(0.8);
     f.requests[3].reject(new Error("readback failed"));
     await failed;
@@ -427,7 +519,11 @@ const assertRemoved = (gate, name) => {
     const removed = f.display.SetBrightness(0.7);
     assert.equal(f.gate.remove().ok, true);
     assertRemoved(f.gate, "brightness");
-    assert.equal(f.store.m_msgSettings.is_display_brightness_available, false, "removal hides the row again");
+    assert.equal(
+        f.store.m_msgSettings.is_display_brightness_available,
+        false,
+        "removal hides the row again",
+    );
     f.requests[4].resolve({ percent: 70, revision: 6 });
     await removed;
     assert.equal(f.display.SetBrightness, f.nativeSetter);
@@ -435,9 +531,17 @@ const assertRemoved = (gate, name) => {
     assert.equal(f.gate.install().ok, true);
     f.publish({ percent: 20, revision: 1 });
     await tick();
-    assert.equal(f.observable.m_currentValue, 0.2, "reinstall accepts a fresh host revision sequence");
+    assert.equal(
+        f.observable.m_currentValue,
+        0.2,
+        "reinstall accepts a fresh host revision sequence",
+    );
     assertRemoveRetries(f.gate, f.failNext, "brightness");
-    assert.equal(f.display.SetBrightness, f.nativeSetter, "a retried removal hands the setter back");
+    assert.equal(
+        f.display.SetBrightness,
+        f.nativeSetter,
+        "a retried removal hands the setter back",
+    );
     assertRemoved(f.gate, "brightness");
     console.log(
         "Brightness: confirmed readback, focused echoes, stale revisions, overlapping writes, failure, reinstall and removal retry pass.",
@@ -469,7 +573,11 @@ const assertRemoved = (gate, name) => {
         require.count = (tokens) => (tokens.includes("SteamClient.System.Perf") ? 1 : 0);
         require.exported = (tokens, predicate) => {
             assert.ok(tokens.includes("m_msgState"));
-            assert.equal(predicate({ Get: () => store }), false, "a plain object is not the store class");
+            assert.equal(
+                predicate({ Get: () => store }),
+                false,
+                "a plain object is not the store class",
+            );
             assert.equal(predicate(PerfStore), true);
             return PerfStore;
         };
@@ -503,7 +611,11 @@ const assertRemoved = (gate, name) => {
     await assert.rejects(system.Perf.UpdateSettings("not base64!"), /could not be decoded/u);
     await assert.rejects(system.Perf.UpdateSettings(null), /could not be decoded/u);
     await assert.rejects(system.Perf.UpdateSettings([]), /could not be decoded/u);
-    assert.equal(requests.length, 1, "an undecodable update is refused, never sent as an empty delta");
+    assert.equal(
+        requests.length,
+        1,
+        "an undecodable update is refused, never sent as an empty delta",
+    );
 
     failNext();
     assert.equal(gate.remove().ok, false, "namespace withdrawal failure is reported");
@@ -512,13 +624,23 @@ const assertRemoved = (gate, name) => {
     store.m_msgState = { current_game_id: "replacement" };
     assertRemoveRetries(gate, displacedState.failNext, "performance state restoration");
     assertRemoved(gate, "performance");
-    assert.equal(originalState.current_game_id, "seeded", "restore the displaced store, even after it was replaced");
-    assert.equal(store.m_msgState.current_game_id, "replacement", "a replacement store is untouched");
+    assert.equal(
+        originalState.current_game_id,
+        "seeded",
+        "restore the displaced store, even after it was replaced",
+    );
+    assert.equal(
+        store.m_msgState.current_game_id,
+        "replacement",
+        "a replacement store is untouched",
+    );
     assert.equal(Object.hasOwn(system, "Perf"), false);
     for (const field of ["limits", "settings", "active_profile_game_id"]) {
         assert.equal(Object.hasOwn(originalState, field), false, `removal deletes ${field} again`);
     }
-    console.log("Performance: decoded updates, refused undecodable ones, displaced state and removal retry pass.");
+    console.log(
+        "Performance: decoded updates, refused undecodable ones, displaced state and removal retry pass.",
+    );
 }
 
 // --- Audio: volume direction reaches the host the right way round, the store is handed back ------
@@ -532,7 +654,10 @@ const assertRemoved = (gate, name) => {
         m_activeInputDeviceId: 4294967295,
         m_mapAudioDevices: new Map(),
         RegisterOrUpdateDevice(device) {
-            this.m_mapAudioDevices.set(device.id, { getDeviceVolume: () => 0.5, m_mapVolumes: new Map() });
+            this.m_mapAudioDevices.set(device.id, {
+                getDeviceVolume: () => 0.5,
+                m_mapVolumes: new Map(),
+            });
         },
     };
     const runtime = () => {
@@ -542,7 +667,11 @@ const assertRemoved = (gate, name) => {
         require.count = (tokens) => (tokens.includes("SteamClient.System.Audio") ? 1 : 0);
         require.exported = (tokens, predicate) => {
             assert.ok(tokens.includes("m_bAvailable"));
-            assert.equal(predicate({ m_bAvailable: false }), false, "a store needs its ingestion method");
+            assert.equal(
+                predicate({ m_bAvailable: false }),
+                false,
+                "a store needs its ingestion method",
+            );
             assert.equal(predicate(audioStore), true);
             return audioStore;
         };
@@ -553,8 +682,11 @@ const assertRemoved = (gate, name) => {
             window: { SteamClient: { System: system } },
             ownedMarker: OwnedMarker,
             getWebpackRuntime: runtime,
+            // The host answers a command without a payload, which the bridge resolves as null.
             request: async (_, command, payload) => {
                 requests.push([command, payload]);
+                if (payload?.percent === 13) throw new Error("refused by the host");
+                return null;
             },
             subscribe: (_, callback) => {
                 publish = callback;
@@ -574,6 +706,24 @@ const assertRemoved = (gate, name) => {
         ["setVolume", { percent: 42, input: false }],
         ["setVolume", { percent: 30, input: true }],
     ]);
+    // Steam chains `?.then(rA)` on these setters, and rA reads `.result` (sp.js, Stable and Beta).
+    const rA = (answer) => answer.result;
+    const answers = await Promise.all([
+        system.Audio.SetDeviceVolume(1, 1, 0.5).then(rA),
+        system.Audio.SetDeviceVolume(1, 5, 0.5).then(rA),
+        system.Audio.SetAppVolume(7, 0.5).then(rA),
+        system.Audio.SetDefaultDeviceOverride(999, 1).then(rA),
+        system.Audio.ClearDefaultDeviceOverride(1).then(rA),
+    ]);
+    assert.deepEqual(answers, [1, 1, 1, 1, 1], "every setter resolves to Steam's {result} shape");
+    const refused = await system.Audio.SetDeviceVolume(1, 1, 0.13);
+    assert.equal(
+        refused.result,
+        2,
+        "a refused write resolves as a failed EResult, not a rejection",
+    );
+    assert.match(refused.message, /refused by the host/u);
+    requests.length = 0;
     publish({
         devices: [{ id: "{speaker}", name: "Speakers", hasOutput: true }],
         activeOutputDeviceId: "{speaker}",
@@ -584,10 +734,20 @@ const assertRemoved = (gate, name) => {
     assertRemoveRetries(gate, failNext, "audio");
     assertRemoved(gate, "audio");
     assert.equal(Object.hasOwn(system, "Audio"), false);
-    assert.equal(audioStore.m_bAvailable, false, "removal hands the store back its own availability");
+    assert.equal(
+        audioStore.m_bAvailable,
+        false,
+        "removal hands the store back its own availability",
+    );
     assert.equal(audioStore.m_activeOutputDeviceId, 4294967295);
-    assert.equal(audioStore.m_mapAudioDevices.size, 0, "devices this gate registered leave the store");
-    console.log("Audio: volume directions, store restoration and removal retry pass.");
+    assert.equal(
+        audioStore.m_mapAudioDevices.size,
+        0,
+        "devices this gate registered leave the store",
+    );
+    console.log(
+        "Audio: volume directions, native {result} answers for every setter including refusals, store restoration and removal retry pass.",
+    );
 }
 
 // --- Network: scan observation and a removal that survives a store without its own methods -------
@@ -632,7 +792,10 @@ const assertRemoved = (gate, name) => {
     assertRemoveRetries(gate, failNext, "network");
     assertRemoved(gate, "network");
     assert.equal(gate.status().scanWrapped, false);
-    assert.equal(Object.getOwnPropertyDescriptor(proto, "networkManagementAvailable").get, originalGetter);
+    assert.equal(
+        Object.getOwnPropertyDescriptor(proto, "networkManagementAvailable").get,
+        originalGetter,
+    );
     assert.equal(store.networkManagementAvailable, false);
     console.log("Network: scan observation, store without refresh methods and removal retry pass.");
 }
