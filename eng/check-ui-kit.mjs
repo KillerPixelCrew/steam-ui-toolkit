@@ -361,7 +361,8 @@ assert.deepEqual([moreButton.props.children].flat(), ["Load More"]);
 moreButton.props.onClick();
 assert.equal(more, 1);
 
-// Actions are Steam's buttons in the kit's grid; a long label spans the row.
+// Actions are Steam's buttons in the kit's grid; a long label spans the row, and so does a short one
+// with no short neighbour to share its row, so no half-width button is left on a row of its own.
 const ran = [];
 const actions = kit.renderSteamUiActions(ui, [
     { id: "a", label: "Browse…", onClick: () => ran.push("a") },
@@ -370,8 +371,21 @@ const actions = kit.renderSteamUiActions(ui, [
 assert.equal(actions.type, Focusable);
 assert.equal(actions.props.className, "steam-ui-kit-actions");
 assert.equal(actions.props.children[0].type, Button);
-assert.equal(actions.props.children[0].props.className, undefined);
+assert.equal(actions.props.children[0].props.className, "steam-ui-kit-wide");
 assert.equal(actions.props.children[1].props.className, "steam-ui-kit-wide");
+const widths = (labels, options) =>
+    kit
+        .renderSteamUiActions(
+            ui,
+            labels.map((label) => ({ id: label, label, onClick: () => {} })),
+            options,
+        )
+        .props.children.map((button) => button.props.className === "steam-ui-kit-wide");
+// The Quick Access Themes card: the long label alone, then the two short ones side by side.
+assert.deepEqual(widths(["Browse themes…", "Manage…", "Refresh"], { wideAt: 12 }), [true, false, false]);
+assert.deepEqual(widths(["Manage…", "Browse themes…", "Refresh"], { wideAt: 12 }), [true, true, true]);
+assert.deepEqual(widths(["One", "Two", "Three"]), [false, false, true]);
+assert.deepEqual(widths(["One", "Two", "Three", "Four"]), [false, false, false, false]);
 actions.props.children[0].props.onClick();
 assert.deepEqual(ran, ["a"]);
 const disabledAction = kit.renderSteamUiActions(ui, [

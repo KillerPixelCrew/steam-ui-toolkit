@@ -330,7 +330,25 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
             // Steam's slider always draws a thumb. Without a value it rests at 0 where the range has one,
             // so an offset slider does not read as its strongest setting.
             const resting = Math.min(Math.max(0, row.minimum ?? 0), row.maximum ?? 100);
-            return h(ui.sliderField, {
+            const unknown = draft === undefined && row.number == null && !labels;
+            // Steam's slider always draws a thumb and announces a number, so a range without a value
+            // would read as wherever the thumb rests. While it is unknown the kit hides the thumb and the
+            // fill and the slider announces "Unknown"; the first move shows the value the user chose.
+            // React sets Steam's accessible value only when it changes, so the mark is applied by the
+            // wrapper's ref, which runs again on each render, and the first real value replaces it.
+            const markUnknown = (node) => {
+                const slider = node?.querySelector?.("[role=slider]");
+                if (!slider) return;
+                slider.removeAttribute("aria-valuenow");
+                slider.setAttribute("aria-valuetext", "Unknown");
+            };
+            // The wrapper stays for every range so the slider is never remounted, and keeps its focus,
+            // when the first move makes the value known.
+            return h("div", {
+                key,
+                className: unknown ? "steam-ui-kit-range steam-ui-kit-range-unknown" : "steam-ui-kit-range",
+                ref: unknown ? markUnknown : undefined,
+            }, h(ui.sliderField, {
                 key,
                 ...common,
                 // A labelled slider keeps its glyph with the label, so every row of a section lines its
@@ -355,7 +373,7 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
                 // settles, so a sweep across the range is one write rather than dozens.
                 onChange: (value) => change(row, value, false),
                 onChangeComplete: (value) => send(value),
-            });
+            }));
         }
         case "color": {
             // A colour is shown as its swatch alone, which carries the value as its accessible name

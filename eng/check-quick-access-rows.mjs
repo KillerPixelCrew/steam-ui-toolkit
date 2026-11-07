@@ -341,9 +341,15 @@ const qamUi = {
         change,
         () => {},
     );
-    assert.equal(slider.props.iconLocation, "front");
-    assert.equal(slider.props.valueSuffix, " W");
-    // No reading: the slider sits at its minimum with no number until it is moved.
+    // A range is drawn inside the kit's layout-neutral wrapper, which stays while the value becomes
+    // known so the slider keeps its focus.
+    assert.equal(slider.type, "div");
+    assert.equal(slider.props.className, "steam-ui-kit-range");
+    const knownField = slider.children[0];
+    assert.equal(knownField.props.iconLocation, "front");
+    assert.equal(knownField.props.valueSuffix, " W");
+    // No reading: no number, and the wrapper marks it unknown, which hides the thumb and the fill and
+    // makes the slider announce "Unknown" rather than where its thumb rests.
     const unread = render.renderSteamSettingRow(
         qamUi,
         { key: "power.boost", kind: "range", label: "Boost", minimum: 5, maximum: 30, step: 1 },
@@ -351,8 +357,27 @@ const qamUi = {
         change,
         () => {},
     );
-    assert.equal(unread.props.value, 5);
-    assert.equal(unread.props.showValue, false);
+    assert.equal(unread.props.className, "steam-ui-kit-range steam-ui-kit-range-unknown");
+    assert.equal(unread.children[0].props.value, 5);
+    assert.equal(unread.children[0].props.showValue, false);
+    const attributes = new Map([["aria-valuenow", "5"], ["aria-valuetext", "5"]]);
+    const sliderNode = {
+        removeAttribute: (name) => attributes.delete(name),
+        setAttribute: (name, value) => attributes.set(name, value),
+    };
+    unread.props.ref({ querySelector: (selector) => (selector === "[role=slider]" ? sliderNode : null) });
+    assert.deepEqual([...attributes], [["aria-valuetext", "Unknown"]]);
+    // The first move makes it known: the same wrapper, without the mark.
+    const moved = render.renderSteamSettingRow(
+        qamUi,
+        { key: "power.boost", kind: "range", label: "Boost", minimum: 5, maximum: 30, step: 1 },
+        12,
+        change,
+        () => {},
+    );
+    assert.equal(moved.props.className, "steam-ui-kit-range");
+    assert.equal(moved.props.key, unread.props.key);
+    assert.equal(moved.children[0].props.value, 12);
 }
 console.log("Quick Access rows: fields carry glyphs, label tokens and unselectable choices.");
 

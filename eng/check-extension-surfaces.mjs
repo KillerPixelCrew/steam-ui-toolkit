@@ -640,7 +640,8 @@ assert.deepEqual(
     ],
     "a choice is sent back by its value and shown by its label",
 );
-const blur = bodyRows[4].props.children[0].props.children[0];
+// The slider sits inside the kit's layout-neutral range wrapper.
+const blur = [bodyRows[4].props.children[0].props.children[0].props.children].flat()[0];
 assert.equal(blur.type, Slider, "a number with choices is a slider");
 assert.equal(blur.props.max, 2);
 assert.equal(blur.props.showValue, false);

@@ -67,6 +67,9 @@ const SteamUiKitStyles = `
 .steam-ui-kit-group-body > div > :first-child,.steam-ui-kit-blocks > div > div > :first-child,.steam-ui-kit-valve > div > div > :first-child{--field-negative-horizontal-margin:0px}
 .steam-ui-kit-group-body,.steam-ui-kit-blocks,.steam-ui-kit-valve,.steam-ui-kit-battery{min-width:0}
 .steam-ui-kit-group-body button.DialogButton,.steam-ui-kit-blocks button.DialogButton,.steam-ui-kit-valve button.DialogButton{min-width:0!important;box-sizing:border-box!important}
+.steam-ui-kit-range{display:contents}
+.steam-ui-kit-range-unknown .SliderHandle{opacity:0}
+.steam-ui-kit-range-unknown [style*="--normalized-slider-value"]{--normalized-slider-value:0!important}
 .steam-ui-kit-valve-profile > *{padding:8px 12px!important;border-radius:4px;box-sizing:border-box}
 .steam-ui-kit-battery{width:calc(100% - 32px);box-sizing:border-box;margin:0 16px 6px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.08);--field-negative-horizontal-margin:0px}
 .steam-ui-kit-battery > *{margin-inline:0!important;padding-inline:0!important;width:100%!important}
@@ -79,7 +82,6 @@ const SteamUiKitStyles = `
 .steam-ui-kit-battery div:has(> :nth-child(2):nth-last-child(2):not(:empty)) > :nth-child(3) > :last-child{font-size:10px!important;height:auto!important}
 .steam-ui-kit-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .steam-ui-kit-actions button.DialogButton{display:block!important;width:auto!important;min-width:0!important;height:36px!important;line-height:36px!important;padding:0 10px!important;box-sizing:border-box!important;font-size:13px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.steam-ui-kit-actions button.DialogButton:last-child:nth-child(odd){grid-column:1 / -1}
 .steam-ui-kit-actions .DialogButton.steam-ui-kit-wide{grid-column:1 / -1}
 .steam-ui-kit-actions.compact{display:flex;flex-wrap:wrap;gap:8px}
 .steam-ui-kit-actions.compact button.DialogButton{flex:0 1 auto;max-width:100%;min-height:36px;height:auto!important;line-height:1.4!important;padding:8px 18px!important;white-space:normal;overflow-wrap:anywhere}
@@ -552,6 +554,21 @@ const runSteamUiAction = (ui, action: SteamUiAction) => {
  * @param options Compact selects a wrapping toolbar of content-sized buttons instead of a grid.
  * @returns A two-column grid or compact toolbar of native buttons.
  */
+// Which actions of a grid take the whole row: a long label does, and so does a short one with no short
+// neighbour to share its row, so the grid never leaves a half-width button on a row of its own.
+const steamUiActionWidths = (actions: { label: string }[], wideAt: number) => {
+    const wide = actions.map((action) => action.label.length >= wideAt);
+    for (let index = 0; index < wide.length; index++) {
+        if (wide[index]) continue;
+        if (index + 1 < wide.length && !wide[index + 1]) {
+            index++;
+            continue;
+        }
+        wide[index] = true;
+    }
+    return wide;
+};
+
 const renderSteamUiActions = (
     ui,
     actions: SteamUiAction[],
@@ -560,21 +577,19 @@ const renderSteamUiActions = (
     options: { compact?: boolean; wideAt?: number } = {},
 ) => {
     const h = ui.react.createElement;
+    const wide = steamUiActionWidths(actions, options.wideAt ?? 19);
     return h(
         ui.focusable,
         {
             "flow-children": "row",
             className: `steam-ui-kit-actions${options.compact ? " compact" : ""}`,
         },
-        ...actions.map((action) =>
+        ...actions.map((action, index) =>
             h(
                 action.primary ? (ui.dialogButtonPrimary ?? ui.dialogButton) : ui.dialogButton,
                 {
                     key: action.id,
-                    className:
-                        !options.compact && action.label.length >= (options.wideAt ?? 19)
-                            ? "steam-ui-kit-wide"
-                            : undefined,
+                    className: !options.compact && wide[index] ? "steam-ui-kit-wide" : undefined,
                     onClick: () => {
                         if (!action.disabled) runSteamUiAction(ui, action);
                     },

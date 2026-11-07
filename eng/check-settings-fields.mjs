@@ -307,8 +307,14 @@ const render = () => {
     return view.type(view.props);
 };
 const rowsOf = (tree) => tree.props.pages[0].content.props.children[0].props.children;
+// A range is drawn inside the kit's layout-neutral wrapper (unknown values are marked on it); the row's
+// field is the slider inside.
+const unwrapRange = (node) =>
+    node?.type === "div" && String(node.props?.className ?? "").startsWith("steam-ui-kit-range")
+        ? [node.props.children].flat()[0]
+        : node;
 const row = (tree, key) =>
-    rowsOf(tree).find((node) => node.key === `steam-setting-${key}`) ??
+    unwrapRange(rowsOf(tree).find((node) => node.key === `steam-setting-${key}`)) ??
     assert.fail(`no row ${key}`);
 
 let tree = render();
