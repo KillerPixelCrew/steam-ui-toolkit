@@ -189,6 +189,13 @@ function registerSteamPage(definition: SteamPageDefinition): SteamPageContext {
         });
     };
 
+    // Declared once, so a redraw does not detach and reattach the page's touch scrolling.
+    let detachTouchScroll: (() => void) | null = null;
+    const touchScrollRoot = (node: HTMLElement | null) => {
+        detachTouchScroll?.();
+        detachTouchScroll = node ? attachSteamPageTouchScroll(node) : null;
+    };
+
     // One component for the life of the asset. The page host draws it on every router render, and a
     // component declared inside the renderer would be a new type each time: React would remount the
     // page and drop its state and the controller's focus.
@@ -215,6 +222,7 @@ function registerSteamPage(definition: SteamPageDefinition): SteamPageContext {
             "div",
             {
                 id,
+                ref: touchScrollRoot,
                 className: `steam-ui-kit-page${definition.header === false ? " flush" : ""}${tabs ? " tabbed" : ""}`,
                 "aria-label": title,
             },
@@ -239,6 +247,95 @@ function registerSteamPage(definition: SteamPageDefinition): SteamPageContext {
     registerGate(definition.gate, gate);
     return context;
 }
+
+// Drags a page's scroller with one finger and lets it glide on release. Steam's gamepad root declares
+// `touch-action: none`, so a drag on a host page may not pan at all. Touch events still arrive, and once
+// the browser does start panning its moves stop being cancelable, so the two can never both scroll.
+// Anything that declares `touch-action: none` between the finger and the scroller, such as a slider or
+// an ink surface, keeps the drag for itself.
+const attachSteamPageTouchScroll = (root: HTMLElement) => {
+    const view = root.ownerDocument.defaultView as Window;
+    const StartDistance = 10;
+    const Friction = 0.95;
+    const StopSpeed = 0.02;
+    let gesture: any = null;
+    let glide = 0;
+
+    const stopGlide = () => {
+        if (glide) view.cancelAnimationFrame(glide);
+        glide = 0;
+    };
+    const scrollerFor = (target: EventTarget | null) => {
+        for (let element = target as HTMLElement | null; element && root.contains(element); element = element.parentElement) {
+            const style = view.getComputedStyle(element);
+            if (style.touchAction === "none") return null;
+            if (/auto|scroll/u.test(style.overflowY) && element.scrollHeight > element.clientHeight + 1) return element;
+        }
+        return null;
+    };
+    const start = (event: TouchEvent) => {
+        stopGlide();
+        const scroller = event.touches.length === 1 ? scrollerFor(event.target) : null;
+        const touch = event.touches[0];
+        gesture = scroller
+            ? { scroller, x: touch.clientX, y: touch.clientY, top: scroller.scrollTop, lastY: touch.clientY, lastTime: event.timeStamp, speed: 0, dragging: false }
+            : null;
+    };
+    const move = (event: TouchEvent) => {
+        if (!gesture) return;
+        if (!event.cancelable || event.touches.length !== 1) {
+            gesture = null;
+            return;
+        }
+        const touch = event.touches[0];
+        if (!gesture.dragging) {
+            const across = Math.abs(touch.clientX - gesture.x);
+            const along = Math.abs(touch.clientY - gesture.y);
+            if (across < StartDistance && along < StartDistance) return;
+            if (across > along) {
+                gesture = null;
+                return;
+            }
+            gesture.dragging = true;
+        }
+        event.preventDefault();
+        gesture.scroller.scrollTop = gesture.top - (touch.clientY - gesture.y);
+        const elapsed = event.timeStamp - gesture.lastTime;
+        if (elapsed > 0) gesture.speed = (gesture.lastY - touch.clientY) / elapsed;
+        gesture.lastY = touch.clientY;
+        gesture.lastTime = event.timeStamp;
+    };
+    const end = () => {
+        const released = gesture;
+        gesture = null;
+        if (!released?.dragging || Math.abs(released.speed) < StopSpeed) return;
+        let speed = released.speed;
+        let previous = view.performance.now();
+        const step = (now: number) => {
+            const elapsed = now - previous;
+            previous = now;
+            released.scroller.scrollTop += speed * elapsed;
+            speed *= Math.pow(Friction, elapsed / 16);
+            glide = Math.abs(speed) < StopSpeed ? 0 : view.requestAnimationFrame(step);
+        };
+        glide = view.requestAnimationFrame(step);
+    };
+    const cancel = () => {
+        gesture = null;
+    };
+
+    root.addEventListener("touchstart", start, { passive: true });
+    root.addEventListener("touchmove", move, { passive: false });
+    root.addEventListener("touchend", end, { passive: true });
+    root.addEventListener("touchcancel", cancel, { passive: true });
+    return () => {
+        stopGlide();
+        root.removeEventListener("touchstart", start);
+        root.removeEventListener("touchmove", move);
+        root.removeEventListener("touchend", end);
+        root.removeEventListener("touchcancel", cancel);
+    };
+};
 
 // The host's message on a page that publishes `error` and `notice`: the error first.
 const steamPageMessage = (state: any): SteamPageBanner | null =>
