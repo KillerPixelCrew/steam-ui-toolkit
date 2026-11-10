@@ -268,3 +268,8 @@ build.
 
 Respect `.editorconfig` and the established local TypeScript style. Avoid unrelated formatting. Do
 not commit `bin/`, `obj/`, `node_modules/`, or `dist/`.
+
+## Contributor skill
+
+Use `.agents/skills/steam-ui-toolkit/SKILL.md` for implementation and review here, including code
+conventions, dispatch outcomes and lifecycle checks. Read nearer family/domain guidance as well.
