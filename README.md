@@ -1,5 +1,9 @@
 # SteamUiToolkit
 
+`SteamShortcutRunningStatePatch` keeps a live non-Steam shortcut's overview consistent with Steam's
+lifetime notifications when the native shortcut reload clears its running bit after resume. Hosts
+register it with the patch manager; game exit and patch removal retire its owned projections.
+
 Connected CEF targets log console warnings, errors, uncaught exceptions and available stacks through
 `ISteamUiLog.Console`. Plain rejected objects include bounded own-property details instead of only
 `#<Object>`. Set `ConsoleVerboseEnabled` on the sink to include informational console messages.

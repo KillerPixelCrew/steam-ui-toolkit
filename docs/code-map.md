@@ -91,6 +91,10 @@ failure.
 
 ## Surface implementations
 
+`SteamShortcutRunningStatePatch` reconciles local Ready shortcut overviews with the retained
+`SteamRunningAppsProbe` lifetime before Steam scopes running apps. Its owned projections retire on
+native exit and removal; `SteamShortcutRunningStatePatchTests` covers the resume reset and cleanup.
+
 Each linked file in [Surfaces](../src/SteamUiToolkit/Surfaces) contains the named contract, its
 state and backend where applicable. The [surface reference](reference.md#15-surfaces) explains
 command payloads, compatibility and placement. Quick Access rows render through `components.ts`;

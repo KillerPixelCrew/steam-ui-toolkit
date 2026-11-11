@@ -1,5 +1,18 @@
 # SteamUiToolkit reference
 
+`SteamShortcutRunningStatePatch` repairs Steam's post-resume shortcut overview reset. Register it
+with the patch manager alongside the running-app observer. It reconciles only installed local
+shortcuts whose native lifetime remains positive and whose overview was reset to Ready. The shared
+observer notifies the repair on lifetime transitions; the repair runs before `ScopeRunningApps`,
+preserving Steam's game/window ownership and overlay composition. Native exit restores the latest
+owned ready record. Removal restores only owned projections and the exact displaced scope member.
+Missing lifetime evidence never creates a running game. The observer and repair are document-scoped;
+a new document cannot recover a lost lifetime from an already-reset overview alone.
+
+`SteamShortcutRunningStatePatchTests` exercises the native reload shape, unknown/ordinary apps,
+real exit, newer native records, replacement ownership and removal. These checks do not establish
+visible overlay or controller recovery, which require attended resume tests.
+
 The [sound override contract](sound-overrides.md) covers exact resource mapping, decoding gates and
 audio-manager ownership.
 

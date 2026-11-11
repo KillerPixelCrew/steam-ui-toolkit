@@ -61,19 +61,21 @@ public sealed class SteamRunningAppsProbe
 
     // Registers first and publishes the observer only once Steam returned a handle that can be
     // released, so a throwing registration never leaves a frozen set that later reads trust.
-    private const string InstallObserver =
+    internal const string InstallObserver =
         "if(!window." + ObserverProperty + "){" +
         "const ids=new Set((window.appStore&&appStore.allApps||[])" +
         ".filter(a=>Number(a.display_status)===4).map(a=>Number(a.appid)>>>0)" +
         ".filter(a=>a>0));" +
-        "const R={ids:ids,gen:1,dispose:()=>{}};" +
+        "const R={version:2,ids:ids,gen:1,live:true,listeners:new Set(),dispose:()=>{}};" +
         "const h=SteamClient.GameSessions.RegisterForAppLifetimeNotifications(e=>{" +
         "const id=Number(e&&e.unAppID);if(!Number.isInteger(id)||id<=0||id>4294967295)return;" +
+        "if(typeof e.bRunning!=='boolean')return;" +
         "const before=ids.size;if(e.bRunning)ids.add(id);else ids.delete(id);" +
-        "if(ids.size!==before)R.gen++;});" +
+        "if(ids.size!==before){R.gen++;for(const listener of R.listeners)listener();}});" +
         "if(!h||typeof h.unregister!=='function')" +
         "throw new Error('Steam returned no lifetime registration handle.');" +
-        "R.dispose=()=>{try{h.unregister();}catch(_){}};" +
+        "R.dispose=()=>{R.live=false;try{h.unregister();}catch(_){}" +
+        "ids.clear();for(const listener of R.listeners)listener();R.listeners.clear();};" +
         "window." + ObserverProperty + "=R;}";
 
     /// <summary>Reads the running set, installing the observer first when it is missing.</summary>
