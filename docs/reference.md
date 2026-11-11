@@ -9,9 +9,9 @@ owned ready record. Removal restores only owned projections and the exact displa
 Missing lifetime evidence never creates a running game. The observer and repair are document-scoped;
 a new document cannot recover a lost lifetime from an already-reset overview alone.
 
-`SteamShortcutRunningStatePatchTests` exercises the native reload shape, unknown/ordinary apps,
-real exit, newer native records, replacement ownership and removal. These checks do not establish
-visible overlay or controller recovery, which require attended resume tests.
+`SteamShortcutRunningStatePatchTests` exercises the native reload shape, unknown/ordinary apps, real
+exit, newer native records, replacement ownership and removal. These checks do not establish visible
+overlay or controller recovery, which require attended resume tests.
 
 The [sound override contract](sound-overrides.md) covers exact resource mapping, decoding gates and
 audio-manager ownership.
@@ -1035,6 +1035,11 @@ for fixtures and diagnostics.
 | `SteamScreensaverSurface`     | host rows in the Screensaver settings section          | a transform on the shared `useMemo` claim wraps the customization page and its Screensaver section | `SteamScreensaverState`     | hears Steam's screensaver timeouts; applies a row's choice                                 |
 | `SteamFilePickerSurface`      | the folder and file picker a host page opens           | none: `showSteamFilePicker` draws a Steam modal on the page that asks                              | none                        | lists the drives and user folders; lists one folder's subfolders and matching files        |
 | `SteamThemeStyleSurface`      | CSSLoader-compatible stylesheets in every Steam window | appends one `<style>` per block to each popup document its targets name, through `g_PopupManager`  | `SteamThemeState`           | none: the blocks are declared, not commanded                                               |
+
+The Home carousel reads `local-install` and `deck-desktop-apps` separately: Big Picture omits
+shortcuts from the former. Never-played shortcuts are included through the Non-Steam collection,
+deduplicated against Steam's recent list and sorted with other installed games. A changed shortcut
+collection rebuilds the carousel and its background without requiring a recent-game change.
 
 The other built-in surface contracts use the same runtime and lifetime rules:
 

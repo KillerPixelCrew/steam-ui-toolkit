@@ -15,6 +15,7 @@ function createHomeCarousel() {
     const KnownRoute = "/library/home";
     // Valve's collection ids, the string values of its own enum.
     const InstalledCollection = "local-install";
+    const ShortcutsCollection = "deck-desktop-apps";
     const PurchasedCollection = "recent-purchased";
     const OwnedCollection = "my-games";
 
@@ -99,6 +100,7 @@ function createHomeCarousel() {
     // was until Steam's own recent list happened to change.
     const readInputs = () => ({
         installed: appsOf(collection(InstalledCollection)),
+        shortcuts: appsOf(collection(ShortcutsCollection)),
         purchased: appsOf(collection(PurchasedCollection)),
         owned: policy.includeUninstalled ? appsOf(collection(OwnedCollection)) : NoApps,
     });
@@ -114,7 +116,7 @@ function createHomeCarousel() {
     //   5. With the host's permission, owned games that are not installed.
     // Ties fall back to app id, so the order is deterministic.
     const listFor = (steamGames: number[], inputs) => {
-        const key = [local.revision(), steamGames, inputs.installed, inputs.purchased, inputs.owned];
+        const key = [local.revision(), steamGames, inputs.installed, inputs.shortcuts, inputs.purchased, inputs.owned];
         if (cached && cached.key.length === key.length && cached.key.every((value, index) => value === key[index])) {
             return cached;
         }
@@ -126,7 +128,12 @@ function createHomeCarousel() {
         for (const overview of inputs.installed) {
             if (eligible(overview) && isInstalled(overview)) pool.set(overview.appid, overview);
         }
-        // Steam's own list carries played shortcuts, which its installed collection leaves out.
+        // Big Picture's installed collection omits shortcuts. Its Non-Steam collection includes
+        // unplayed shortcuts too, which Steam's own recent list cannot supply.
+        for (const overview of inputs.shortcuts) {
+            if (eligible(overview) && call(overview, "BIsShortcut")) pool.set(overview.appid, overview);
+        }
+        // Keep Steam's own entries when a collection has not caught up yet.
         for (const appid of steamGames) {
             if (!appid || placed.has(appid) || pool.has(appid)) continue;
             const overview = overviewOf(appid);

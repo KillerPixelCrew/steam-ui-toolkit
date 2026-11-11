@@ -127,13 +127,14 @@ when the gate resolves it and whenever a tile render sees it change.
 **`SteamHomeCarouselSurface.Module`** makes Big Picture Home's carousel list the games on the
 libraries attached right now: the most recently played first, installed games by last played merged
 with unplayed recent purchases by purchase time, never-played installed games after those, and owned
-uninstalled games greyed out when `SteamHomeCarouselState.IncludeUninstalled` asks for them. Games
-in `DisconnectedAppIds` leave the list. The gate replaces the one app-id array Home hands its
-carousel and background, so Steam's own components draw it, and puts the virtualized carousel's
-overscan back to the component's default, since Home otherwise mounts every tile. A Home already on
-screen when the gate installs is adopted and re-rendered at once rather than waiting for the next
-navigation. Implement `ISteamHomeCarouselBackend` to hear what the carousel holds after each
-rebuild.
+uninstalled games greyed out when `SteamHomeCarouselState.IncludeUninstalled` asks for them.
+Non-Steam shortcuts come from Steam's Non-Steam collection, including shortcuts that have never been
+played, and join the same ordering. Games in `DisconnectedAppIds` leave the list. The gate replaces
+the one app-id array Home hands its carousel and background, so Steam's own components draw it, and
+puts the virtualized carousel's overscan back to the component's default, since Home otherwise
+mounts every tile. A Home already on screen when the gate installs is adopted and re-rendered at
+once rather than waiting for the next navigation. Implement `ISteamHomeCarouselBackend` to hear what
+the carousel holds after each rebuild.
 
 **`SteamExtensionsTabSurface.Module`** adds one shared Quick Access tab whose plugin sections,
 actions and primitive settings are supplied by `SteamExtensionsTabState`; implement

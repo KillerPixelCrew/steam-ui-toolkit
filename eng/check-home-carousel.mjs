@@ -70,6 +70,7 @@ overview(60, { installed: false, shortcut: true, locally: 300 }); // a played sh
 const appsOf = (...ids) => ids.map((id) => overviews.get(id));
 const collections = {
   "local-install": { visibleApps: appsOf(1, 10, 11, 12, 13, 21, 40, 50, 51) },
+  "deck-desktop-apps": { visibleApps: appsOf(60) },
   "recent-purchased": { visibleApps: appsOf(20, 21) },
   "my-games": { visibleApps: appsOf(1, 10, 11, 12, 13, 20, 21, 30, 31, 40) },
 };
@@ -147,15 +148,26 @@ const homeFiber = {
 };
 const homeAlternate = { ...homeFiber, alternate: homeFiber };
 homeFiber.alternate = homeAlternate;
-const providerFiber = { memoizedProps: { value: 1, children: homeElement }, child: homeFiber, sibling: null, return: null };
+const providerFiber = {
+  memoizedProps: { value: 1, children: homeElement },
+  child: homeFiber,
+  sibling: null,
+  return: null,
+};
 homeFiber.return = providerFiber;
 homeAlternate.return = providerFiber;
 const switchFiber = {
   memoizedProps: {
     children: [
-      route("/settings", element(() => null, {})),
+      route(
+        "/settings",
+        element(() => null, {}),
+      ),
       route("/library/home", homeElement),
-      route("/library", element(() => null, {})),
+      route(
+        "/library",
+        element(() => null, {}),
+      ),
     ],
   },
   stateNode: switchInstance,
@@ -165,7 +177,16 @@ const switchFiber = {
 };
 providerFiber.return = switchFiber;
 const rootFiber = {
-  memoizedProps: { children: [route("/desktop", element(() => null, {})), route("/a", null), route("/b", null)] },
+  memoizedProps: {
+    children: [
+      route(
+        "/desktop",
+        element(() => null, {}),
+      ),
+      route("/a", null),
+      route("/b", null),
+    ],
+  },
   child: { memoizedProps: {}, child: switchFiber, sibling: null },
   sibling: null,
 };
@@ -179,13 +200,10 @@ const documentFixture = {
 
 // mobx-react-lite's useObserver: runs the function and returns what it returned.
 const observed = [];
-const useObserver = withSource(
-  function (fn, name) {
-    observed.push(name);
-    return fn();
-  },
-  'function _e(X,ge){return ge===void 0&&(ge="observed"),Oe(X,ge)}',
-);
+const useObserver = withSource(function (fn, name) {
+  observed.push(name);
+  return fn();
+}, 'function _e(X,ge){return ge===void 0&&(ge="observed"),Oe(X,ge)}');
 const observerExports = { q3: useObserver, PA: () => null };
 
 const requests = [];
@@ -249,7 +267,17 @@ assert.equal(gate.status().installed, false, "a probe must not install anything"
 // A route list whose /library/home draws something that is not Home is a client that moved.
 const otherRoot = {
   memoizedProps: {
-    children: [route("/library/home", element(react.memo(() => null), {})), route("/a", null), route("/b", null)],
+    children: [
+      route(
+        "/library/home",
+        element(
+          react.memo(() => null),
+          {},
+        ),
+      ),
+      route("/a", null),
+      route("/b", null),
+    ],
   },
   child: null,
   sibling: null,
@@ -263,7 +291,16 @@ assert.match(probe.reason, /does not draw Home/u);
 // incompatible, as the stable client of 2026-10-20 did in a tester's log.
 const desktopRoot = {
   memoizedProps: {
-    children: [route("/library/home", element(function DesktopHome() { return null; }, {})), route("/a", null), route("/b", null)],
+    children: [
+      route(
+        "/library/home",
+        element(function DesktopHome() {
+          return null;
+        }, {}),
+      ),
+      route("/a", null),
+      route("/b", null),
+    ],
   },
   child: null,
   sibling: null,
@@ -271,7 +308,10 @@ const desktopRoot = {
 documentFixture.getElementById = (id) => (id === "root" ? { __reactContainer$fixture: desktopRoot } : null);
 probe = gate.probe();
 assert.equal(probe.outcome, "notReady", `the desktop library's Home route must be not ready: ${probe.reason}`);
-assert.deepEqual({ homeRoutes: probe.facts.homeRoutes, desktopRoutes: probe.facts.desktopRoutes }, { homeRoutes: 0, desktopRoutes: 1 });
+assert.deepEqual(
+  { homeRoutes: probe.facts.homeRoutes, desktopRoutes: probe.facts.desktopRoutes },
+  { homeRoutes: 0, desktopRoutes: 1 },
+);
 documentFixture.getElementById = mountedRoot;
 probe = gate.probe();
 assert.equal(probe.outcome, "ready", `the mounted Home must probe ready: ${probe.reason}`);
@@ -349,6 +389,27 @@ const again = renderCarousel();
 assert.equal(again.box.props.games, view.box.props.games, "an unchanged render must not rebuild the list");
 assert.equal(requests.length, 1, "an unchanged list must not be reported again");
 
+// New shortcuts are absent from both local-install and Steam's recent list. Read the Non-Steam
+// collection reactively: adding/removing one changes the list even when every other input stays put.
+const shortcutId = 3000000001;
+overview(shortcutId, { shortcut: true, playtime: 0, installedAt: 675 });
+collections["deck-desktop-apps"].visibleApps = appsOf(60, shortcutId);
+view = renderCarousel();
+assert.deepEqual(view.box.props.games, [1, 0, 40, 20, 10, 21, 11, 60, shortcutId, 13, 12]);
+assert.equal(view.box.props.games.filter((id) => id === 60).length, 1, "a recent shortcut must not be duplicated");
+assert.equal(view.background.props.games, view.box.props.games, "shortcut additions must update the background too");
+assert.doesNotMatch(view.css, /data-id="3000000001"/, "an unplayed shortcut is installed, never greyed");
+assert.equal(renderCarousel().box.props.games, view.box.props.games, "unchanged shortcut inputs retain the cache");
+globals.publish({ includeUninstalled: false, disconnectedAppIds: [shortcutId] });
+assert.ok(!renderCarousel().box.props.games.includes(shortcutId), "host exclusions also apply to shortcuts");
+globals.publish({ includeUninstalled: false, disconnectedAppIds: [] });
+assert.ok(renderCarousel().box.props.games.includes(shortcutId), "a reconnected shortcut returns");
+collections["deck-desktop-apps"].visibleApps = appsOf(60);
+assert.ok(
+  !renderCarousel().box.props.games.includes(shortcutId),
+  "a removed shortcut leaves without a recent-list change",
+);
+
 // The card is pulled and uninstalled games are wanted. The newest played game left with the card,
 // so the pin moves to the newest played game still attached, ahead of the newer purchase.
 let heard = 0;
@@ -384,7 +445,13 @@ assert.equal(gate.status().disconnected, 1);
 
 // A Home React mounted after install, from the claimed memo: it caches the wrapper as its `type` on
 // both fibers, and the list kept at install never saw it. Release must find it all the same.
-const laterInstance = { isReactComponent: {}, renders: 0, forceUpdate() { laterInstance.renders++; } };
+const laterInstance = {
+  isReactComponent: {},
+  renders: 0,
+  forceUpdate() {
+    laterInstance.renders++;
+  },
+};
 const laterHome = {
   elementType: HomeMemo,
   type: HomeMemo.type,
