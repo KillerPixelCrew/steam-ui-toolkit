@@ -12,8 +12,9 @@ namespace SteamUiToolkit;
 ///     ones.
 /// </param>
 /// <param name="DisconnectedAppIds">
-///     Games that live on a library that is not attached right now. They leave the carousel even while
-///     Steam still reports them installed, which it does for a moment after a card is pulled.
+///     Games the host reports unavailable, including games on an absent library and shortcuts whose
+///     content cannot be used. They leave the carousel even while Steam reports them installed,
+///     including its recent-list fallback and running-game prefix.
 /// </param>
 /// <param name="Revision">Monotonic host observation revision.</param>
 public sealed record SteamHomeCarouselState(

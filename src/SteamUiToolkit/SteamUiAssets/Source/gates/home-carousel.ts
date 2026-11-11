@@ -121,7 +121,9 @@ function createHomeCarousel() {
             return cached;
         }
 
-        const prefix = steamGames.length > 1 && steamGames[1] === 0 ? [steamGames[0], 0] : [];
+        const prefix = steamGames.length > 1 && steamGames[1] === 0 && !policy.disconnected.has(steamGames[0])
+            ? [steamGames[0], 0]
+            : [];
         const placed = new Set<number>(prefix);
 
         const pool = new Map<number, any>();
@@ -186,11 +188,16 @@ function createHomeCarousel() {
             ...unplayed.map((entry) => entry.appid),
             ...uninstalled.map((entry) => entry.appid),
         ];
-        // Nothing on the attached libraries is still an answer, but an empty carousel is not one the
-        // page can draw: Steam's box carousel renders nothing for an empty list. Steam's own list stands
-        // in rather than leaving Home blank.
-        const fellBack = list.length === prefix.length && steamGames.length > prefix.length;
-        if (fellBack) list = steamGames.slice();
+        // Keep Steam's own entries when collection data is not ready, but never reintroduce a
+        // host-excluded game. If every candidate is unavailable, the carousel stays empty.
+        let fellBack = false;
+        if (list.length === prefix.length) {
+            const fallback = steamGames.filter((appid, index) =>
+                index < prefix.length || (appid > 0 && !policy.disconnected.has(appid)),
+            );
+            fellBack = fallback.length > prefix.length;
+            if (fellBack) list = fallback;
+        }
 
         // Grey means not installed, whichever section put the game there: an unplayed purchase that is
         // still downloading reads the same as an owned game that was never installed.

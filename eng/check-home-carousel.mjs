@@ -431,12 +431,25 @@ view = renderCarousel();
 assert.deepEqual(view.box.props.games, [1, 0, 10, 20, 21, 60, 13, 12, 11, 30, 31]);
 assert.match(view.css, /data-id="11"/, "an uninstalled game must move to the greyed section");
 
-// Nothing on the attached libraries: Steam's own list stands in rather than a blank Home.
+// An empty result must not fall back to games the host explicitly excluded.
 globals.publish({ includeUninstalled: false, disconnectedAppIds: [10, 12, 13, 20, 21, 40, 60] });
 view = renderCarousel();
-assert.deepEqual(view.box.props.games, steamGames);
+assert.deepEqual(view.box.props.games, [1, 0], "only the still-available running prefix remains");
+assert.equal(requests.at(-1).payload.fallback, false);
+
+// Unknown Steam entries may still stand in while their collections load, with excluded entries gone.
+const previousSteamGames = steamGames;
+steamGames = [1, 0, 40, 99, 60];
+view = renderCarousel();
+assert.deepEqual(view.box.props.games, [1, 0, 99]);
 assert.equal(view.css, "", "the fallback must not grey Steam's own list");
 assert.equal(requests.at(-1).payload.fallback, true);
+steamGames = previousSteamGames;
+
+globals.publish({ includeUninstalled: false, disconnectedAppIds: [1, 10, 12, 13, 20, 21, 40, 60] });
+view = renderCarousel();
+assert.deepEqual(view.box.props.games, [], "all excluded means empty, including the running prefix and its separator");
+assert.equal(requests.at(-1).payload.fallback, false);
 
 // A malformed publication is bounded and filtered rather than trusted.
 globals.publish({ includeUninstalled: "yes", disconnectedAppIds: [-1, 2.5, "40", 40] });

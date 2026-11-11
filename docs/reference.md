@@ -1039,7 +1039,9 @@ for fixtures and diagnostics.
 The Home carousel reads `local-install` and `deck-desktop-apps` separately: Big Picture omits
 shortcuts from the former. Never-played shortcuts are included through the Non-Steam collection,
 deduplicated against Steam's recent list and sorted with other installed games. A changed shortcut
-collection rebuilds the carousel and its background without requiring a recent-game change.
+collection rebuilds the carousel and its background without requiring a recent-game change. Host
+exclusions also apply to the recent-list fallback and running prefix; an entirely excluded list
+stays empty rather than showing games on disconnected drives.
 
 The other built-in surface contracts use the same runtime and lifetime rules:
 
