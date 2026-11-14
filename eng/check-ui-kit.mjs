@@ -58,12 +58,15 @@ const kit = instantiate(
         " renderSteamUiToolbar, renderSteamUiTool, renderSteamUiChips, renderSteamUiBox, renderSteamUiGallery, renderSteamUiVideo," +
         " renderSteamUiDetail, SteamUiPageRequired, renderSteamUiStatus, renderSteamUiProgress, renderSteamUiFields," +
         " renderSteamUiIcon, renderSteamUiChoice, renderSteamUiSelectRow, showSteamUiConfirm, showSteamUiPrompt," +
-        " showSteamModal, SteamUiKitStyles, renderSteamUiTag, renderSteamUiTags, renderSteamUiArt, renderSteamUiHero," +
+        " showSteamModal, SteamUiKitStyles, SteamUiVerticalPaneNavigation, renderSteamUiTag, renderSteamUiTags, renderSteamUiArt, renderSteamUiHero," +
         " renderSteamUiItemHeading, renderSteamUiSidePanel, renderSteamUiIconTile, renderSteamUiStateMark})",
 );
 
 // The stylesheet is one element a root renders, and every class an element uses has a rule.
 const style = kit.steamUiKitStyle(react);
+assert.equal(kit.SteamUiVerticalPaneNavigation["flow-children"], "column");
+assert.equal(kit.SteamUiVerticalPaneNavigation.navEntryPreferPosition, 3);
+assert.equal(kit.SteamUiVerticalPaneNavigation.focusable, false);
 assert.equal(style.type, "style");
 for (const cls of [
     "page",
@@ -382,8 +385,16 @@ const widths = (labels, options) =>
         )
         .props.children.map((button) => button.props.className === "steam-ui-kit-wide");
 // The Quick Access Themes card: the long label alone, then the two short ones side by side.
-assert.deepEqual(widths(["Browse themes…", "Manage…", "Refresh"], { wideAt: 12 }), [true, false, false]);
-assert.deepEqual(widths(["Manage…", "Browse themes…", "Refresh"], { wideAt: 12 }), [true, true, true]);
+assert.deepEqual(widths(["Browse themes…", "Manage…", "Refresh"], { wideAt: 12 }), [
+    true,
+    false,
+    false,
+]);
+assert.deepEqual(widths(["Manage…", "Browse themes…", "Refresh"], { wideAt: 12 }), [
+    true,
+    true,
+    true,
+]);
 assert.deepEqual(widths(["One", "Two", "Three"]), [false, false, true]);
 assert.deepEqual(widths(["One", "Two", "Three", "Four"]), [false, false, false, false]);
 actions.props.children[0].props.onClick();
@@ -512,7 +523,8 @@ assert.equal(emptyAction.type, Primary, "the action is Steam's primary button");
 emptyAction.props.onClick();
 assert.equal(browsed, 1);
 assert.equal(
-    kit.renderSteamUiEmpty({ react }, { kind: "noMatch", text: "Nothing matched." }).props.children.length,
+    kit.renderSteamUiEmpty({ react }, { kind: "noMatch", text: "Nothing matched." }).props.children
+        .length,
     3,
     "React alone draws an empty state without its action",
 );
@@ -839,8 +851,15 @@ assert.equal(running.props.children[2].props.className, "steam-ui-kit-progress-d
 running.props.children[3].props.onClick();
 assert.equal(cancelled, 1);
 const unmeasured = kit.renderSteamUiProgress(ui, { phase: "Scanning" });
-assert.equal(unmeasured.props.children[1].props.children[0].props.className, "steam-ui-kit-progress-bar indeterminate");
-const stopping = kit.renderSteamUiProgress(ui, { phase: "Installing", onCancel: () => cancelled++, cancelling: true });
+assert.equal(
+    unmeasured.props.children[1].props.children[0].props.className,
+    "steam-ui-kit-progress-bar indeterminate",
+);
+const stopping = kit.renderSteamUiProgress(ui, {
+    phase: "Installing",
+    onCancel: () => cancelled++,
+    cancelling: true,
+});
 stopping.props.children.at(-1).props.onClick();
 assert.equal(cancelled, 1, "a cancel already asked for is not sent again");
 const ended = kit.renderSteamUiProgress(ui, {
@@ -1261,7 +1280,11 @@ const library = instantiate(
 );
 assert.deepEqual(library.steamAppHeroImages(70), ["custom/70_hero.png", "cache/hero.jpg"]);
 assert.deepEqual(library.steamAppHeaderImages(70), ["cache/header.jpg"]);
-assert.deepEqual(library.steamAppIconImages(70), ["icons/70.png"], "a shortcut's icon as Steam draws it");
+assert.deepEqual(
+    library.steamAppIconImages(70),
+    ["icons/70.png"],
+    "a shortcut's icon as Steam draws it",
+);
 assert.deepEqual(library.steamAppIconImages(71), [], "an app Steam doesn't know has no icon");
 assert.deepEqual(library.steamAppHeroImages(71), [], "an app Steam doesn't know has no art");
 assert.deepEqual(
@@ -1308,14 +1331,21 @@ assert.equal(iconHead.props.className, "steam-ui-kit-card-head");
 assert.equal(iconHead.props.children[0], "icon");
 assert.deepEqual(iconHead.props.children[1].props.children[1].props.children, ["1.21.0 · Stable"]);
 assert.equal(iconCard.props.children[1].props.className, "steam-ui-kit-card-meta");
-assert.equal(iconCard.props.children[2].props.className, "steam-ui-kit-tags steam-ui-kit-card-tags");
+assert.equal(
+    iconCard.props.children[2].props.className,
+    "steam-ui-kit-tags steam-ui-kit-card-tags",
+);
 const idleCard = kit.renderSteamUiCard(ui, {
     icon: "icon",
     title: "Dolphin",
     secondary: { label: "Install", onActivate: () => installs++, disabled: true },
     onActivate: () => {},
 });
-assert.equal(idleCard.props.onSecondaryButton, undefined, "a disabled second command binds nothing");
+assert.equal(
+    idleCard.props.onSecondaryButton,
+    undefined,
+    "a disabled second command binds nothing",
+);
 assert.equal(idleCard.props.onOKActionDescription, "Open");
 const secondRow = kit.renderSteamUiSelectRow(ui, {
     key: "core",
@@ -1374,7 +1404,11 @@ assert.equal(heroLine.props.children[1].props.className, "steam-ui-kit-tags");
 
 // Glyphs come from the one table: a known name draws, an unknown one draws nothing.
 assert.equal(kit.renderSteamUiIcon(react, "star", 13)?.type, "svg");
-assert.equal(kit.renderSteamUiIcon(react, "star", 13), kit.renderSteamUiIcon(react, "star", 13), "one element per size");
+assert.equal(
+    kit.renderSteamUiIcon(react, "star", 13),
+    kit.renderSteamUiIcon(react, "star", 13),
+    "one element per size",
+);
 assert.equal(kit.renderSteamUiIcon(react, "no-such-glyph"), null);
 
 console.log(

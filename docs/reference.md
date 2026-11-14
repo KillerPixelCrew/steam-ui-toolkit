@@ -1735,6 +1735,9 @@ Full-page manager workflows opt into `renderSteamUiHeader(ui, {title, detail, pa
 readable page title and wrapping description. Section and QAM headers keep their existing
 appearance. `renderSteamUiPane` and `renderSteamUiLevel` accept `bounded:true` for a centered 960px
 content column with responsive side padding; focus acquisition and nested Back are unchanged.
+Sibling native Focusable columns under a `flow-children: row` owner can spread
+`SteamUiVerticalPaneNavigation`: a nonfocusable column container using Steam's `MAINTAIN_Y` entry
+position (3), so horizontal entry retains the current row.
 `renderSteamUiActions(ui, actions, {compact:true})` draws content-sized buttons in a wrapping
 toolbar rather than expanding long labels into full-width rows. The default action grid remains
 unchanged. `showSteamModal(ui, {wide:true, ...})` marks only that dialog with

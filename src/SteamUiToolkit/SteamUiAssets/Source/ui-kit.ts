@@ -1,6 +1,14 @@
 // Shared elements around Steam's native fields. Use Steam React/Focusable and render the kit
 // stylesheet in each consuming document. CSS selectors preserve Valve layout and focus behavior.
 
+// Steam's MAINTAIN_Y entry position is 3. A column beside another column enters at the
+// current row rather than its first child. Keep the container itself out of the focus stops.
+const SteamUiVerticalPaneNavigation = Object.freeze({
+    "flow-children": "column",
+    navEntryPreferPosition: 3,
+    focusable: false,
+});
+
 const SteamUiKitStyles = `
 .steam-ui-kit-resolution-editor{display:flex;flex-direction:column;gap:10px;padding:12px 0;min-width:0;max-width:100%;box-sizing:border-box}
 .steam-ui-kit-resolution-actions .DialogButton{width:auto;min-width:80px;flex:0 0 auto}
@@ -966,7 +974,13 @@ const renderSteamUiImagePreview = (ui, image: string | null, fill = false, empty
     );
 
 /** What an empty state says it is: still loading, nothing there, nothing matched, out of reach or failed. */
-const SteamUiEmptyKinds = Object.freeze(["loading", "empty", "noMatch", "unavailable", "error"] as const);
+const SteamUiEmptyKinds = Object.freeze([
+    "loading",
+    "empty",
+    "noMatch",
+    "unavailable",
+    "error",
+] as const);
 
 /**
  * Creates an empty state: why a list or a page has nothing to show, and what to do about it.
@@ -1197,7 +1211,13 @@ function SteamUiFields(props: any) {
     const action = (row) => run(row, true);
     const rows = (props.rows ?? []).filter(Boolean);
     const drawn = rows.map((row) => {
-        const control = renderSteamSettingRow(ui, drafts.row(row), drafts.draft(row), change, action);
+        const control = renderSteamSettingRow(
+            ui,
+            drafts.row(row),
+            drafts.draft(row),
+            change,
+            action,
+        );
         return row.nested
             ? h("div", { key: `nested-${row.key}`, className: "steam-ui-kit-nested" }, control)
             : control;
@@ -1281,7 +1301,9 @@ const renderSteamUiBanner = (
                   ),
               )
             : h("span", { className: "steam-ui-kit-banner-text" }, props.text),
-        ...(props.actions?.length ? [renderSteamUiActions(ui, props.actions, { compact: true })] : []),
+        ...(props.actions?.length
+            ? [renderSteamUiActions(ui, props.actions, { compact: true })]
+            : []),
         props.onDismiss
             ? h(ui.smallButton ?? ui.dialogButton, { onClick: props.onDismiss }, "Dismiss")
             : null,
@@ -1513,7 +1535,13 @@ const renderSteamUiHero = (
  */
 const renderSteamUiIconTile = (
     react,
-    props: { key?: string; images?: readonly string[]; glyph?: string; size?: number; label?: string },
+    props: {
+        key?: string;
+        images?: readonly string[];
+        glyph?: string;
+        size?: number;
+        label?: string;
+    },
 ) => {
     const size = props.size ?? 56;
     const glyph = renderSteamUiIcon(react, props.glyph ?? "controller", Math.round(size * 0.42));
