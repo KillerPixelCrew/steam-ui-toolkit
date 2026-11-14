@@ -1693,6 +1693,7 @@ fragment reorganization or new registration mechanism is required.
 | `renderSteamUiHeader`, `renderSteamUiGroup`                               | Retain      | Draw section headings and folding groups.                                                                                                                                                       |
 | `renderSteamUiActions`, `renderSteamUiMore`                               | Retain      | Draw an action grid or a navigation row.                                                                                                                                                        |
 | `renderSteamUiPane`, `renderSteamUiLevel`                                 | Retain      | Draw a page pane or a nested level with Back.                                                                                                                                                   |
+| `renderSteamUiNavRow`, `renderSteamUiSubpageHeader`                       | Retain      | Draw a settings subpage's row and its open heading.                                                                                                                                             |
 | `renderSteamUiSwatch`, `renderSteamUiMeter`, `renderSteamUiEmpty`         | Retain      | Draw a color swatch, a progress or capacity meter, or an empty state of a kind (loading, empty, no match, unavailable, error).                                                                  |
 | `renderSteamUiStatus`, `renderSteamUiProgress`, `renderSteamUiFields`     | Retain      | Draw a notice/error stack, an operation's progress, or settings rows over drafts.                                                                                                               |
 | `renderSteamUiCollection`, `renderSteamUiItem`, `renderSteamUiManage`     | Retain      | Draw a browsable collection, an item's detail with its acquire box, or a managed list.                                                                                                          |
@@ -1786,6 +1787,8 @@ in that root's document.
 | `renderSteamUiMeter`                        | a thin fill meter: `value` of `max`, rounded and clamped; `max` of zero or less is the indeterminate track; with a `label`, a progress bar, or a meter when `usage`, else decorative                                                                                                            |
 | `renderSteamUiCard`, `renderSteamUiGrid`    | a focusable card (16:10 image or supplied media, stats strip, badge, title, tags, meta; with `icon`, the compact card of an icon beside the title and a subtitle) and its grid; `description` names A and `secondary` puts a second command on X                                                |
 | `renderSteamUiIconTile`                     | an app's square icon from `steamAppIconImages`, tried source by source, with a glyph (`controller` by default) where it has none                                                                                                                                                                |
+| `renderSteamUiNavRow`                       | a row that opens a subpage, drawn like a field: an optional glyph tile, the title, a summary of what the subpage holds, an optional tag and a chevron; A opens it, and the row a subpage returns to takes focus again |
+| `renderSteamUiSubpageHeader`                | an open subpage's heading: a Back button over the page-sized title and an optional line under it |
 | `renderSteamUiStateMark`                    | a checklist line's 20px mark for a field's icon slot: `ready` (check), `missing` (cross) or `optional` (dash)                                                                                                                                                                                   |
 | `renderSteamUiTag`, `renderSteamUiTags`     | a status tag, 22px uppercase words on an opaque fill in the neutral, info, success, update or danger tone, and a wrapping row of them that skips empty ones                                                                                                                                     |
 | `renderSteamUiArt`                          | a decorative picture that tries each source in turn (custom, cached, published), with a fallback once every source failed                                                                                                                                                                       |
@@ -1841,6 +1844,15 @@ the shared UI kit for the surrounding elements such as color swatches. A host pu
 that asks first does so through `showSteamUiConfirm`, which is Steam's confirm modal where resolved.
 `onChange(row, value)` and `onAction(row)` answer the request they made, so a refusal is shown on
 its row.
+
+A section may name a `SteamSettingsLevel`: a subpage. Every section naming the same level id forms
+one subpage, which the page shows as one `renderSteamUiNavRow` (title, summary, glyph and tag from
+the level) where the first of those sections would be; adjacent subpage rows share one section under
+the first level's `group` heading. Opening a row draws the subpage's sections alone, under
+`renderSteamUiSubpageHeader`, inside a `renderSteamUiLevel` whose B and Back button close it and
+return focus to its row. `renderSteamSettingSections` is the one renderer both host settings pages
+and the native Settings additions draw sections with. A level without an id or title is ignored and
+its section stays on the page.
 
 Mapped against the live client on 2026-09-24:
 
@@ -2326,7 +2338,10 @@ scrollbar or end padding. Big Picture's `GamepadDialogContent` sets every `Dialo
 so Controller capability arrival or removal updates the existing slot without navigating or
 remounting the page. Only the Power descriptor's battery condition is revealed, and only while it
 has host rows and the Display, Audio and Controller descriptors confirm Steam's services are ready.
-No platform or battery value is changed.
+No platform or battery value is changed. Steam's own content of a page is drawn inside
+`SteamUiNativeSettingsValve`, which draws nothing while one of the host's subpages on that page is
+open, so the subpage takes the page's place until Back. Leaving the page closes it, and a subpage
+the host stops publishing no longer hides Steam's content.
 
 The shared JSX transform reaches future Settings mounts. Mounted root fibers are adopted without
 adding hooks and retain a durable original marker for bridge replacement. Discovery includes

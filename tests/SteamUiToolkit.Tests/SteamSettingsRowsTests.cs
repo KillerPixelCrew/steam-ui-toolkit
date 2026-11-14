@@ -55,4 +55,24 @@ public sealed class SteamSettingsRowsTests
         Assert.Equal(64, rows[4].GetProperty("maximumLength").GetInt32());
         Assert.Equal("Go", rows[5].GetProperty("buttonLabel").GetString());
     }
+
+    [Fact]
+    public void ASectionNamesItsSubpageUnderTheNamesTheRendererReads()
+    {
+        SteamSettingsPage page = new("display", "Display",
+        [
+            new SteamSettingsSection("Refresh", [new SteamSettingsRow("vrr", SteamSettingsRowKind.Boolean, "VRR")],
+                "refresh", new SteamSettingsLevel("gpu", "Graphics", "Refresh · Picture", "layers",
+                    "2 set for this game", "More display settings"))
+        ]);
+
+        var level = SteamSettingsRows.Serialize([page])[0].GetProperty("sections")[0].GetProperty("level");
+
+        Assert.Equal("gpu", level.GetProperty("id").GetString());
+        Assert.Equal("Graphics", level.GetProperty("title").GetString());
+        Assert.Equal("Refresh · Picture", level.GetProperty("summary").GetString());
+        Assert.Equal("layers", level.GetProperty("icon").GetString());
+        Assert.Equal("2 set for this game", level.GetProperty("badge").GetString());
+        Assert.Equal("More display settings", level.GetProperty("group").GetString());
+    }
 }

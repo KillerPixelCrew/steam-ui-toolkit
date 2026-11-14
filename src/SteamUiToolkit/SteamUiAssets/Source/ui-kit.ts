@@ -288,6 +288,18 @@ const SteamUiKitStyles = `
 .steam-ui-kit-state{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex:0 0 auto;border-radius:50%;background:#2a3039;color:#b8bcbf}
 .steam-ui-kit-state.ready{background:#1e3324;color:#b9f0c6}
 .steam-ui-kit-state.missing{background:#3b2326;color:#ff6d6d}
+.steam-ui-kit-nav-row{display:flex;align-items:center;gap:14px;min-height:56px;min-width:0;padding:10px 16px;margin:0 0 6px;border-radius:2px;box-sizing:border-box;background:#23262e;color:#dcdedf;cursor:pointer;transition:background .2s}
+.steam-ui-kit-nav-row.gpfocus,.steam-ui-kit-nav-row:hover{background:#3d4450}
+.steam-ui-kit-nav-row-icon{display:flex;align-items:center;justify-content:center;width:40px;height:40px;flex:0 0 auto;border-radius:4px;background:rgba(255,255,255,.06);color:#dcdedf}
+.steam-ui-kit-nav-row-text{display:flex;flex-direction:column;gap:3px;flex:1 1 auto;min-width:0}
+.steam-ui-kit-nav-row-title{font-size:16px;line-height:20px;color:#dcdedf;overflow-wrap:anywhere}
+.steam-ui-kit-nav-row.gpfocus .steam-ui-kit-nav-row-title{color:#fff}
+.steam-ui-kit-nav-row-summary{font-size:13px;line-height:18px;color:#8b929a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.steam-ui-kit-nav-row.gpfocus .steam-ui-kit-nav-row-summary{color:#b8bcbf}
+.steam-ui-kit-nav-row>.steam-ui-kit-tag{flex:0 1 auto}
+.steam-ui-kit-nav-row-chevron{display:flex;flex:0 0 auto;color:rgba(255,255,255,.55)}
+.steam-ui-kit-subpage-header{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:4px 0 12px}
+.steam-ui-kit-subpage-back .DialogButton{width:auto;min-width:0}
 `;
 
 // One stylesheet element and one icon renderer per React, so a root re-rendering on every host
@@ -783,6 +795,82 @@ const renderSteamUiLevel = (
         },
         ...children,
     );
+
+/**
+ * Creates a row that opens a subpage, drawn like one of Steam's fields: an optional glyph tile, the
+ * title, a summary of what the subpage holds or is set to, an optional status tag and a chevron.
+ * Steam's Focusable carries focus and A; the row lifts the way a focused field does.
+ * @param ui Steam's resolved React and Focusable.
+ * @param props Key, title, summary, a glyph name from `icons.ts`, a tag, whether it takes focus when
+ * it mounts (the row a subpage returns to), the A-button description and the opening callback.
+ * @returns The focusable row.
+ */
+const renderSteamUiNavRow = (
+    ui,
+    props: {
+        key?: string;
+        title: string;
+        summary?: string | null;
+        icon?: string | null;
+        badge?: SteamUiTagProps | null;
+        autoFocus?: boolean;
+        description?: string;
+        onActivate: () => void;
+    },
+) => {
+    const h = ui.react.createElement;
+    const icon = steamUiKitIcon(ui.react);
+    const glyph = props.icon ? icon(props.icon, 22) : null;
+    return h(
+        ui.focusable ?? "div",
+        {
+            key: props.key,
+            className: "steam-ui-kit-nav-row",
+            role: "button",
+            "aria-label": props.summary ? `${props.title}, ${props.summary}` : props.title,
+            autoFocus: props.autoFocus ? true : undefined,
+            onActivate: props.onActivate,
+            onOKActionDescription: props.description ?? "Open",
+        },
+        glyph ? h("span", { className: "steam-ui-kit-nav-row-icon" }, glyph) : null,
+        h(
+            "span",
+            { className: "steam-ui-kit-nav-row-text" },
+            h("span", { className: "steam-ui-kit-nav-row-title" }, props.title),
+            props.summary
+                ? h("span", { className: "steam-ui-kit-nav-row-summary" }, props.summary)
+                : null,
+        ),
+        props.badge?.text ? renderSteamUiTag(ui.react, props.badge) : null,
+        h("span", { className: "steam-ui-kit-nav-row-chevron" }, icon("chevron", 18)),
+    );
+};
+
+/**
+ * Creates the heading of an open subpage: a Back button that returns to the page, the subpage's
+ * title and an optional line under it. B returns as well, through the level that holds it.
+ * @param ui Steam's resolved React and small button.
+ * @param props The title, the line under it, the Back button's words (`Back` by default) and the
+ * callback that closes the subpage.
+ * @returns The heading.
+ */
+const renderSteamUiSubpageHeader = (
+    ui,
+    props: { key?: string; title: string; detail?: string | null; backLabel?: string; onBack: () => void },
+) => {
+    const h = ui.react.createElement;
+    const Button = ui.smallButton ?? ui.dialogButton;
+    return h(
+        "div",
+        { key: props.key, className: "steam-ui-kit-subpage-header" },
+        h(
+            ui.focusable ?? "div",
+            { className: "steam-ui-kit-subpage-back", "flow-children": "row" },
+            h(Button, { onClick: props.onBack }, props.backLabel ?? "Back"),
+        ),
+        renderSteamUiHeader(ui, { title: props.title, detail: props.detail ?? undefined, page: true }),
+    );
+};
 
 /**
  * Creates a noninteractive color preview.

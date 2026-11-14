@@ -202,7 +202,36 @@ public sealed record SteamSettingsRow(
 /// <param name="Title">The section heading, or null for an untitled section.</param>
 /// <param name="Rows">Its rows, in order.</param>
 /// <param name="Id">Optional stable group identity for Quick Access expansion state.</param>
-public sealed record SteamSettingsSection(string? Title, IReadOnlyList<SteamSettingsRow> Rows, string? Id = null);
+/// <param name="Level">
+///     The subpage the section belongs to, or null to draw it on the page itself. Every section naming
+///     the same level id forms one subpage, opened from one row drawn where the first of them would be.
+/// </param>
+public sealed record SteamSettingsSection(
+    string? Title,
+    IReadOnlyList<SteamSettingsRow> Rows,
+    string? Id = null,
+    SteamSettingsLevel? Level = null);
+
+/// <summary>
+///     A subpage of a settings page: the page shows one row naming it, and opening that row shows the
+///     subpage's sections in place of the page until Back.
+/// </summary>
+/// <param name="Id">The subpage's identity, unique on its page and stable across publications.</param>
+/// <param name="Title">The row's title and the subpage's heading.</param>
+/// <param name="Summary">What the row says under its title, such as the subpage's current values, or null.</param>
+/// <param name="Icon">The toolkit glyph drawn on the row, such as <c>display</c>, or null for none.</param>
+/// <param name="Badge">A short status tag on the row, such as <c>2 set for this game</c>, or null.</param>
+/// <param name="Group">
+///     The heading over the rows of adjacent subpages, which share one section; the first row's group
+///     names it, and null leaves it untitled.
+/// </param>
+public sealed record SteamSettingsLevel(
+    string Id,
+    string Title,
+    string? Summary = null,
+    string? Icon = null,
+    string? Badge = null,
+    string? Group = null);
 
 /// <summary>One page of the settings sidebar.</summary>
 /// <param name="Id">The page's path segment below the settings route; stable and URL-safe.</param>

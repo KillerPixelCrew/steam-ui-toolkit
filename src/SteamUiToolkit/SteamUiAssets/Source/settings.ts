@@ -602,6 +602,102 @@ const useSteamSettingDrafts = (react, revision: unknown) => {
     return {change, draft, row: shown};
 };
 
+// A section's subpage, or null for one drawn on the page. A level without a usable id or title is
+// ignored, so its section stays reachable on the page rather than behind a row that cannot be named.
+const steamSettingLevel = (section) => {
+    const level = section?.level;
+    return level && typeof level.id === "string" && level.id && typeof level.title === "string" && level.title
+        ? level
+        : null;
+};
+
+/**
+ * Draws one settings page's sections with Steam's sections and fields. A section naming a level is
+ * not drawn on the page: the page shows one row per level, where the level's first section would be,
+ * and adjacent level rows share one section under the first one's group heading. While a level is
+ * open, the page draws that level alone, under a heading whose Back (and B) closes it.
+ * @param ui Steam's resolved React and native control components.
+ * @param props The page id, its published sections, the draft keeper (`row`, `draft`), the change and
+ * action handlers, the open level's id, the level last opened (whose row takes focus again) and the
+ * callback that opens a level or, with null, closes it.
+ * @returns The page's elements, or the open level.
+ */
+const renderSteamSettingSections = (
+    ui,
+    props: {
+        id: string;
+        sections: readonly any[];
+        drafts: {row: (row) => any; draft: (row) => any};
+        change: (row, value, commit?: boolean) => void;
+        action: (row) => void;
+        open?: string | null;
+        last?: string | null;
+        onOpen: (level: string | null) => void;
+    },
+) => {
+    const h = ui.react.createElement;
+    const sections = (props.sections ?? []).filter((section) => section?.rows?.length);
+    const levels = new Map<string, {level: any; sections: any[]}>();
+    for (const section of sections) {
+        const level = steamSettingLevel(section);
+        if (!level) continue;
+        const entry = levels.get(level.id) ?? {level, sections: []};
+        entry.sections.push(section);
+        levels.set(level.id, entry);
+    }
+    const draw = (section, index) =>
+        h(
+            ui.settingsSection,
+            {key: `${props.id}-${section.id ?? index}`, label: section.title ?? undefined},
+            ...section.rows.map((row) =>
+                renderSteamSettingRow(ui, props.drafts.row(row), props.drafts.draft(row), props.change, props.action),
+            ),
+        );
+    const open = props.open ? levels.get(props.open) : null;
+    if (open) {
+        const back = () => props.onOpen(null);
+        return [
+            renderSteamUiLevel(
+                ui,
+                {className: "steam-ui-kit-subpage", onBack: back},
+                renderSteamUiSubpageHeader(ui, {title: open.level.title, detail: open.level.summary, onBack: back}),
+                ...open.sections.map(draw),
+            ),
+        ];
+    }
+    const items: any[] = [];
+    const placed = new Set<string>();
+    let run: {key: string; label?: string; rows: any[]} | null = null;
+    sections.forEach((section, index) => {
+        const level = steamSettingLevel(section);
+        if (!level) {
+            run = null;
+            items.push(draw(section, index));
+            return;
+        }
+        if (placed.has(level.id)) return;
+        placed.add(level.id);
+        if (!run) {
+            run = {key: `${props.id}-levels-${level.id}`, label: level.group ?? undefined, rows: []};
+            items.push(run);
+        }
+        run.rows.push(
+            renderSteamUiNavRow(ui, {
+                key: `level-${level.id}`,
+                title: level.title,
+                summary: level.summary,
+                icon: level.icon,
+                badge: level.badge ? {text: level.badge, tone: "info"} : null,
+                autoFocus: props.last === level.id,
+                onActivate: () => props.onOpen(level.id),
+            }),
+        );
+    });
+    return items.map((item) =>
+        item.rows ? h(ui.settingsSection, {key: item.key, label: item.label}, ...item.rows) : item,
+    );
+};
+
 // The whole page: Steam's routed sidebar, one page per host page, each a list of Steam sections.
 // `route` is the page's own registered route; each page sits below it, so Steam's router keeps
 // the sidebar's selection in the address and the page's registration covers all of them.
@@ -614,6 +710,10 @@ function SteamSettingsView(props) {
     const change = drafts.change((row, value) => onChange(row, value));
     const run = drafts.change((row) => onAction(row));
     const action = (row) => run(row, true);
+    // Each page's open subpage and the one last opened, by page id.
+    const [levels, setLevels] = react.useState({});
+    const opener = (id) => (level) =>
+        setLevels((previous) => ({...previous, [id]: {open: level, last: level ?? previous[id]?.open ?? null}}));
 
     return h(ui.routedPages, {
         pages: (pages ?? []).map((page) => ({
@@ -623,15 +723,16 @@ function SteamSettingsView(props) {
             content: h(
                 react.Fragment,
                 null,
-                ...(page.sections ?? []).map((section, index) =>
-                    h(
-                        ui.settingsSection,
-                        {key: `${page.id}-${index}`, label: section.title ?? undefined},
-                        ...(section.rows ?? []).map((row) =>
-                            renderSteamSettingRow(ui, drafts.row(row), drafts.draft(row), change, action),
-                        ),
-                    ),
-                ),
+                ...renderSteamSettingSections(ui, {
+                    id: page.id,
+                    sections: page.sections ?? [],
+                    drafts,
+                    change,
+                    action,
+                    open: levels[page.id]?.open ?? null,
+                    last: levels[page.id]?.last ?? null,
+                    onOpen: opener(page.id),
+                }),
             ),
         })),
     });

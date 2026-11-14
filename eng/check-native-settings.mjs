@@ -8,6 +8,7 @@ import {
     createReact,
     element,
     failingHost,
+    fragments,
     gateSource,
     instantiate,
     loadAsset,
@@ -91,14 +92,13 @@ const exposed = instantiate(
             return runtime;
         },
         fixtureComponents: () => ui,
-        useSteamSettingDrafts: () => ({
+        fixtureDrafts: () => ({
             change: (send) => send,
             row: (row) => row,
             draft: () => undefined,
         }),
-        renderSteamSettingRow: (_ui, row, _draft, change, action) =>
-            element("row", { row, change, action }),
-        steamUiKitStyle: () => element("style", {}),
+        fixtureRow: (_ui, row, _draft, change, action) => element("row", { row, change, action }),
+        fixtureStyle: () => element("style", {}),
         subscribe: (_id, callback) => {
             publication = callback;
             return () => {};
@@ -109,6 +109,17 @@ const exposed = instantiate(
         },
     },
     substitute(sharedFragments(asset), "resolveSteamUiComponents", "fixtureComponents") +
+        // The real section renderer and kit, which lay out pages and subpages; each row stays a
+        // fixture element, and the stylesheet one plain element.
+        substitute(
+            substitute(
+                substitute(fragments(asset, ["icons.ts", "ui-kit.ts", "settings.ts"]), "useSteamSettingDrafts", "fixtureDrafts"),
+                "renderSteamSettingRow",
+                "fixtureRow",
+            ),
+            "steamUiKitStyle",
+            "fixtureStyle",
+        ) +
         gateSource(asset, "gates/native-settings.ts"),
     "({gate:createNativeSettings(), interceptMemo, releaseMemo})",
 );
@@ -166,7 +177,7 @@ assert.equal(
     "an empty slot retains the native page route",
 );
 assert.equal(
-    result.Display.content.props.children[0],
+    result.Display.content.props.children[0].props.content,
     nativeContent,
     "an empty slot retains native content",
 );
@@ -188,10 +199,12 @@ assert.equal(
 assert.equal(result.Internet, map.Internet);
 assert.equal(result.Power.route, map.Power.route, "Steam retains route and navigation ownership");
 assert.equal(
-    result.Power.content.props.children[0],
+    result.Power.content.props.children[0].props.content,
     nativeContent,
     "native fields are retained before host sections",
 );
+const valveSlot = result.Power.content.props.children[0];
+assert.equal(valveSlot.type(valveSlot.props), nativeContent, "Steam's content draws while no subpage is open");
 const host = result.Power.content.props.children[1];
 const controllerSlot = result.Controller.content.props.children[1];
 assert.equal(
@@ -261,6 +274,58 @@ assert.equal(
     null,
     "an invalid publication retracts stale actionable rows",
 );
+// A section naming a level is drawn as one row on the page; opening it shows the level's sections in
+// place of the page and of Steam's own content, and Back returns to the page.
+const levelRow = { ...row, key: "gpu/vrr", label: "VRR" };
+const leveled = {
+    id: "controller",
+    sections: [
+        { id: "device", title: "Device", rows: [{ ...row, key: "device/controller" }] },
+        { id: "refresh", title: "Refresh", rows: [levelRow], level: { id: "gpu", title: "Graphics", summary: "Refresh", group: "More" } },
+        { id: "picture", title: "Picture", rows: [{ ...row, key: "gpu/picture" }], level: { id: "gpu", title: "Graphics" } },
+        { id: "bad", title: "Untitled level", rows: [{ ...row, key: "x/untitled" }], level: { id: "x" } },
+    ],
+};
+publication(state([page("power"), leveled], 8));
+const controllerValve = fiber.type({}).Controller.content.props.children[0];
+let pageTree = controllerSlot.type(controllerSlot.props).props.children;
+const levelSection = pageTree.find((child) => child?.props?.label === "More");
+assert.ok(levelSection, "the level rows share one section under the first level's group");
+const levelRows = levelSection.props.children;
+assert.equal(levelRows.length, 1, "a level's later sections add no second row");
+assert.equal(levelRows[0].props.className, "steam-ui-kit-nav-row");
+assert.equal(
+    pageTree.filter((child) => child?.props?.label === "Untitled level").length,
+    1,
+    "a level without a title leaves its section on the page",
+);
+levelRows[0].props.onActivate();
+pageTree = controllerSlot.type(controllerSlot.props).props.children;
+assert.equal(pageTree.length, 1, "an open level replaces the page's sections");
+const openLevel = pageTree[0];
+const openSections = openLevel.props.children.filter((child) => child?.type === Section);
+assert.deepEqual(
+    openSections.map((section) => section.props.label),
+    ["Refresh", "Picture"],
+    "the level draws every section that names it",
+);
+assert.equal(controllerValve.type(controllerValve.props), null, "Steam's own content gives way to the open level");
+openLevel.props.onCancelButton();
+pageTree = controllerSlot.type(controllerSlot.props).props.children;
+assert.equal(
+    pageTree.find((child) => child?.props?.label === "More").props.children[0].props.autoFocus,
+    true,
+    "the row of the level just closed takes focus again",
+);
+assert.equal(controllerValve.type(controllerValve.props), nativeContent, "Back restores Steam's content");
+levelRows[0].props.onActivate();
+publication(state([page("power"), page("controller", [{ ...row, key: "device/controller" }])], 9));
+assert.equal(
+    controllerValve.type(controllerValve.props),
+    nativeContent,
+    "a level the host stops publishing no longer hides Steam's content",
+);
+
 // A value the host could not read is a row like any other, and one row the gate cannot draw is
 // dropped on its own: it once took every page away for two GPU colour ranges.
 const unknown = {
@@ -365,5 +430,5 @@ assertRemoveRetries(gate, failNext, "native Settings");
 assert.equal(fiber.type, NativeRoot);
 assert.equal(gate.status().claimsRemaining, false);
 console.log(
-    "Native Settings: mounted adoption, native fields, dynamic omission, Power visibility, unknown values, per-row refusal with one report and claim restoration passed.",
+    "Native Settings: mounted adoption, native fields, dynamic omission, Power visibility, subpages, unknown values, per-row refusal with one report and claim restoration passed.",
 );

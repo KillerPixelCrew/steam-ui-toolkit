@@ -8,6 +8,7 @@
 import assert from "node:assert/strict";
 import {
     createReact,
+    find,
     helperFragments,
     instantiate,
     loadAsset,
@@ -59,7 +60,7 @@ const kit = instantiate(
         " renderSteamUiDetail, SteamUiPageRequired, renderSteamUiStatus, renderSteamUiProgress, renderSteamUiFields," +
         " renderSteamUiIcon, renderSteamUiChoice, renderSteamUiSelectRow, showSteamUiConfirm, showSteamUiPrompt," +
         " showSteamModal, SteamUiKitStyles, SteamUiVerticalPaneNavigation, renderSteamUiTag, renderSteamUiTags, renderSteamUiArt, renderSteamUiHero," +
-        " renderSteamUiItemHeading, renderSteamUiSidePanel, renderSteamUiIconTile, renderSteamUiStateMark})",
+        " renderSteamUiItemHeading, renderSteamUiSidePanel, renderSteamUiIconTile, renderSteamUiStateMark, renderSteamUiNavRow, renderSteamUiSubpageHeader})",
 );
 
 // The stylesheet is one element a root renders, and every class an element uses has a rule.
@@ -150,6 +151,14 @@ for (const cls of [
     "hero-band-words",
     "hero-band-line",
     "state",
+    "nav-row",
+    "nav-row-icon",
+    "nav-row-text",
+    "nav-row-title",
+    "nav-row-summary",
+    "nav-row-chevron",
+    "subpage-header",
+    "subpage-back",
 ]) {
     assert.ok(
         kit.SteamUiKitStyles.includes(`.steam-ui-kit-${cls}`),
@@ -354,6 +363,42 @@ const boundedLevel = kit.renderSteamUiLevel(ui, { bounded: true, onBack: () => l
 assert.equal(boundedLevel.props.className, "steam-ui-kit-content");
 boundedLevel.props.onCancelButton();
 assert.equal(levelBack, 2, "bounded content preserves nested Back");
+
+// A subpage row is one Focusable that opens on A and names itself with its summary; its tag, glyph
+// and chevron are decoration inside it. The subpage heading's Back button closes it.
+let navOpened = 0;
+const navRow = kit.renderSteamUiNavRow(ui, {
+    key: "gpu",
+    title: "Graphics",
+    summary: "Refresh · Picture",
+    icon: "display",
+    badge: { text: "2 set for this game", tone: "info" },
+    autoFocus: true,
+    onActivate: () => navOpened++,
+});
+assert.equal(navRow.type, Focusable);
+assert.equal(navRow.props.className, "steam-ui-kit-nav-row");
+assert.equal(navRow.props["aria-label"], "Graphics, Refresh · Picture");
+assert.equal(navRow.props.autoFocus, true);
+assert.equal(navRow.props.onOKActionDescription, "Open");
+navRow.props.onActivate();
+assert.equal(navOpened, 1);
+assert.equal(find(react, navRow, (node) => node.props?.className === "steam-ui-kit-tag info").length, 1);
+assert.equal(find(react, navRow, (node) => node.type === "svg").length, 2, "glyph and chevron");
+const plainNav = kit.renderSteamUiNavRow(ui, { title: "Plain", onActivate: () => {} });
+assert.equal(plainNav.props.autoFocus, undefined);
+assert.equal(find(react, plainNav, (node) => node.props?.className === "steam-ui-kit-nav-row-summary").length, 0);
+let subpageBack = 0;
+const subpageHeader = kit.renderSteamUiSubpageHeader(ui, {
+    title: "Graphics",
+    detail: "Refresh · Picture",
+    onBack: () => subpageBack++,
+});
+const backButton = find(react, subpageHeader, (node) => node.type === Small)[0];
+assert.deepEqual([backButton.props.children].flat(), ["Back"]);
+backButton.props.onClick();
+assert.equal(subpageBack, 1);
+assert.deepEqual([find(react, subpageHeader, (node) => node.type === "h1")[0].props.children].flat(), ["Graphics"]);
 
 // A paged list's foot is one button asking for the next page.
 let more = 0;
@@ -1415,6 +1460,6 @@ console.log(
     "UI kit: stylesheet, header, actions and file-pick actions, card, empty kinds, status, progress, fields, banner," +
         " toolbar, chips, gallery, glyphs, native and kit confirm, prompt, the wide dialog, list rows, selected and" +
         " focused rows, filter chips, tags, art, the hero band, the item heading, the side panel, the success" +
-        " banner, banner actions, icon cards and tiles, state marks, second commands, progress steps and Steam's" +
+        " banner, banner actions, icon cards and tiles, state marks, subpage rows and headings, second commands, progress steps and Steam's" +
         " artwork, icons and game list passed.",
 );

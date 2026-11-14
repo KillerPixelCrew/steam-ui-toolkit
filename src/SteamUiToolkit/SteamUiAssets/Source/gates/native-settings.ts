@@ -37,6 +37,19 @@ function createNativeSettings() {
     let mapCache = new WeakMap<object, any>();
     const local = createLocalStore();
     const rendered = new Set<string>();
+    // Each native page's open host subpage and the one last opened, so its row takes focus again on
+    // return. A page's entry goes when its sections unmount, so leaving the page closes the subpage.
+    let levels: Record<string, {open: string | null; last: string | null}> = {};
+    const openLevel = (id) => {
+        const open = levels[id]?.open;
+        if (!open || !installed()) return null;
+        const page = state.pages.find((candidate) => candidate.id === id);
+        return page?.sections.some((section) => section.level?.id === open && section.rows.length) ? open : null;
+    };
+    const setLevel = (id) => (level: string | null) => {
+        levels = {...levels, [id]: {open: level, last: level ?? levels[id]?.open ?? null}};
+        local.changed();
+    };
     // The adopted Settings roots: every root mounted at install, and every one Steam mounts later
     // through the JSX transform, carries this claim's marked wrapper.
     let component: ClaimedComponent | null = null;
@@ -166,37 +179,46 @@ function createNativeSettings() {
                 void request(patchId, "set", { key: "rumble.stop", value: true }).catch(() => {});
             };
         }, [id]);
+        react.useEffect(
+            () => () => {
+                if (!levels[id]) return;
+                const {[id]: _closed, ...rest} = levels;
+                levels = rest;
+                local.changed();
+            },
+            [id],
+        );
         const drafts = useSteamSettingDrafts(react, state.revision);
         const change = drafts.change(send);
         const action = (row) => change(row, true);
         const page = installed() ? state.pages.find((candidate) => candidate.id === id) : null;
         if (!page) return null;
         rendered.add(id);
-        lastOutcome = `rendered ${id}: ${page.sections.length} section(s)`;
+        const open = openLevel(id);
+        lastOutcome = open
+            ? `rendered ${id} subpage ${open}`
+            : `rendered ${id}: ${page.sections.length} section(s)`;
         return react.createElement(
             react.Fragment,
             null,
-            ...page.sections
-                .filter((section) => section.rows.length)
-                .map((section, index) =>
-                    react.createElement(
-                        ui.settingsSection,
-                        {
-                            key: `steam-ui-native-${id}-${section.id ?? index}`,
-                            label: section.title ?? undefined,
-                        },
-                        ...section.rows.map((row) =>
-                            renderSteamSettingRow(
-                                ui,
-                                drafts.row(row),
-                                drafts.draft(row),
-                                change,
-                                action,
-                            ),
-                        ),
-                    ),
-                ),
+            ...renderSteamSettingSections(ui, {
+                id: `steam-ui-native-${id}`,
+                sections: page.sections,
+                drafts,
+                change,
+                action,
+                open,
+                last: levels[id]?.last ?? null,
+                onOpen: setLevel(id),
+            }),
         );
+    }
+
+    // Steam's own content of a page, drawn as it is except while one of the host's subpages is open,
+    // which takes the page's place until Back.
+    function SteamUiNativeSettingsValve({ id, content }) {
+        react.useSyncExternalStore(local.subscribe, local.revision);
+        return openLevel(id) ? null : content;
     }
 
     // Match Steam's semantic descriptor keys and the native element handles already in its map.
@@ -240,7 +262,11 @@ function createNativeSettings() {
                 content: react.createElement(
                     "div",
                     { className: "DialogBody steam-ui-kit-settings-body" },
-                    original.content,
+                    react.createElement(SteamUiNativeSettingsValve, {
+                        id,
+                        key: `steam-ui-native-valve-${id}`,
+                        content: original.content,
+                    }),
                     react.createElement(SteamUiNativeSettingsSections, {
                         id,
                         key: `steam-ui-native-${id}`,
@@ -408,6 +434,7 @@ function createNativeSettings() {
         },
         unbind: () => {
             component = null;
+            levels = {};
             state = { pages: [], revision: 0 };
             local.changed();
             mapCache = new WeakMap<object, any>();
