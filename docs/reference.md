@@ -1664,7 +1664,7 @@ A page's browse steps use one vocabulary on both sides: `SteamUiBrowse` in the k
 `more`, `closeDetail` and `dismiss` nothing the backend reads. A null binding declares no command; a
 tab command without tabs is a declaration error.
 
-`registerSteamSettingsSection({page, key, before?, into?, render})` declares a section a gate adds
+`registerSteamSettingsSection({page, key, before?, into?, fold?, render})` declares a section a gate adds
 to one of Steam's own Settings pages, the page named as in the route table's `Settings`
 ("Customization"). It goes in front of the Valve section whose component source carries every
 `before` token, inside the one Valve section carrying every `into` token, or last; a section whose
@@ -1673,7 +1673,7 @@ the shared useMemo claim (`steam-ui.settings-sections`), so two gates on one pag
 other's wrapper. A gate calls `find(runtime)` from its pure `find` for the page's route and
 `attach(ledger, react, route)` from its bind, which puts the detach on the gate's ledger. The first
 section attached takes the claim and the last detached releases it. `render` is a component, drawn
-with its key and no props.
+with its key and no props. A `fold` stands in for the Valve section its tokens name: `render` gets `open`, the Valve `section` element and `onOpen`/`onClose`, draws its own row while folded, and while open is the whole page, drawing the section under its own heading. Sections placed `into` the folded section stay in it, a section placed `before` it still finds it, and leaving the page closes it.
 
 ### Script API for consumer fragments
 

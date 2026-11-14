@@ -395,6 +395,8 @@ const steamSettingsSectionHost = {
     pages: new Map<any, any>(),
     wrapped: new WeakMap<any, any>(),
     sections: new Map<string, any>(),
+    // The folded Valve section each Settings page has open, by route: its section's key.
+    open: new Map<string, string>(),
 };
 
 const steamSettingsChildren = (element) => {
@@ -447,12 +449,57 @@ const steamSettingsPageFor = (react, original, route: string) => {
             steamSettingsSectionHost.changed.revision,
             steamSettingsSectionHost.changed.revision,
         );
+        // Leaving the page closes a folded section it had open.
+        react.useEffect(
+            () => () => {
+                if (steamSettingsSectionHost.open.delete(route)) steamSettingsSectionHost.changed.changed();
+            },
+            [],
+        );
         const tree = original(props);
-        const sections = steamSettingsSectionHost.attached.filter((section) => section.route === route);
-        if (!sections.length || !react.isValidElement(tree)) return tree;
+        const attached = steamSettingsSectionHost.attached.filter((section) => section.route === route);
+        if (!attached.length || !react.isValidElement(tree)) return tree;
+        // Sections inside a Valve section first, so a fold carries them; folds last, so a section
+        // placed in front of a Valve section still finds it.
+        const sections = [
+            ...attached.filter((section) => section.definition.into),
+            ...attached.filter((section) => !section.definition.into && !section.definition.fold),
+            ...attached.filter((section) => section.definition.fold),
+        ];
         let children = steamSettingsChildren(tree);
         for (const section of sections) {
             const definition = section.definition;
+            if (definition.fold) {
+                const at = children
+                    .map((child, index) => (steamSettingsSectionMatches(react, child, definition.fold ?? []) ? index : -1))
+                    .filter((index) => index >= 0);
+                if (at.length !== 1) {
+                    section.outcome = at.length
+                        ? "the section it folds was not unique on the page"
+                        : "the section it folds was not found on the page";
+                    continue;
+                }
+                const valve = children[at[0]];
+                const open = steamSettingsSectionHost.open.get(route) === definition.key;
+                const setOpen = (value: boolean) => {
+                    if (value) steamSettingsSectionHost.open.set(route, definition.key);
+                    else steamSettingsSectionHost.open.delete(route);
+                    steamSettingsSectionHost.changed.changed();
+                };
+                const slot = react.createElement(definition.render, {
+                    key: definition.key,
+                    open,
+                    section: valve,
+                    onOpen: () => setOpen(true),
+                    onClose: () => setOpen(false),
+                });
+                section.outcome = open ? "rendered open" : "rendered folded";
+                // An open fold is the page: the Valve section alone, under the host's heading.
+                if (open) return react.cloneElement(tree, undefined, slot);
+                children = children.slice();
+                children[at[0]] = slot;
+                continue;
+            }
             if (definition.into) {
                 const at = children
                     .map((child, index) => (steamSettingsSectionMatches(react, child, definition.into ?? []) ? index : -1))
@@ -547,7 +594,14 @@ const findSteamSettingsRoute = (runtime, page: string): { route: string } | { in
 
 /**
  * Declares a section a gate adds to one of Steam's own Settings pages: drawn in front of the Valve
- * section `before` names, appended inside the Valve section `into` names, or last on the page.
+ * section `before` names, appended inside the Valve section `into` names, in place of the Valve
+ * section `fold` names, or last on the page.
+ *
+ * A fold puts one of Steam's own sections behind a row of the host's: `render` is drawn where the
+ * Valve section was, with `open`, the Valve `section` element and `onOpen`/`onClose`. Folded, it
+ * draws its row (such as `renderSteamUiNavRow`); open, it is the whole page and draws the section
+ * under its own heading (such as `renderSteamUiSubpageHeader` in a `renderSteamUiLevel`). Leaving the
+ * page closes it, and sections placed inside the Valve section stay in it.
  *
  * Every section shares one transform on the shared useMemo claim. A gate finds the page's route in
  * its pure `find` with `find(runtime)` and attaches the section in its bind with
@@ -563,6 +617,7 @@ const registerSteamSettingsSection = (definition: {
     key: string;
     before?: readonly string[];
     into?: readonly string[];
+    fold?: readonly string[];
     render: (props: any) => any;
 }) => {
     const section: SteamSettingsSection = { definition, route: "", outcome: "not attached" };

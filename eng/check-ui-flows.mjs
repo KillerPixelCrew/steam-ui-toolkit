@@ -427,6 +427,44 @@ const card = (item) => element(Focusable, { className: "card", title: item.name 
     assert.match(lost.status().lastOutcome, /not found; it is last/u);
     lostLedger.unwind();
     assert.equal(react.useMemo, originalUseMemo);
+
+    // A fold stands in for its Valve section, carries the rows placed inside it, and while open is the
+    // whole page; a section placed in front of the folded one still finds it.
+    const Fold = (props) => props;
+    const folds = kit.registerSteamSettingsSection({
+        page: "Customization",
+        key: "fold",
+        fold: ['"#Settings_Customization_Screensaver"', "ForceScreensaver"],
+        render: Fold,
+    });
+    const front = kit.registerSteamSettingsSection({
+        page: "Customization",
+        key: "front",
+        before: ['"#Settings_Customization_Screensaver"', "ForceScreensaver"],
+        render: Hub,
+    });
+    const foldLedger = ledger();
+    assert.equal(rows.attach(foldLedger, react, "/settings/customization"), undefined);
+    assert.equal(folds.attach(foldLedger, react, "/settings/customization"), undefined);
+    assert.equal(front.attach(foldLedger, react, "/settings/customization"), undefined);
+    const page = () => {
+        const current = pageList()[1].content;
+        return children(current.type(current.props));
+    };
+    kids = page();
+    assert.deepEqual(kids.map((kid) => kid.key), ["startup", "front", "fold"], "the fold takes the section's place");
+    const folded = kids[2];
+    assert.equal(folded.props.open, false);
+    assert.equal(folded.props.section.type.name, "SteamUiSettingsSectionHost", "the folded section keeps its rows");
+    assert.equal(folds.status().lastOutcome, "rendered folded");
+    folded.props.onOpen();
+    kids = page();
+    assert.equal(kids.length, 1, "an open fold is the whole page");
+    assert.equal(kids[0].props.open, true);
+    kids[0].props.onClose();
+    assert.equal(page().length, 3, "closing it brings the page back");
+    foldLedger.unwind();
+    assert.equal(react.useMemo, originalUseMemo);
 }
 
 console.log(
