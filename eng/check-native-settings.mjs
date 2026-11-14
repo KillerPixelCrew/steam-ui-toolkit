@@ -376,6 +376,24 @@ leadTree[1].props.children[0].props.change(columnsRow.columns[0], "600");
 assert.deepEqual(requests.at(-1), ["steam-ui.native-settings", "set", { key: "display.timeout-battery", value: "600" }]);
 assert.equal(requests.length, sentBefore + 1, "a column's entry is offered under its own key");
 
+// An action row's buttons send under their own keys, and a disabled button sends nothing.
+const actionRow = {
+    key: "presets/one",
+    kind: "action",
+    label: "One",
+    actions: [
+        { key: "presets/one:rename", label: "Rename…" },
+        { key: "presets/one:delete", label: "Delete…", disabled: true },
+    ],
+};
+publication(state([page("power"), page("controller", [actionRow])], 11));
+const actionField = controllerSlot.type(controllerSlot.props).props.children[0].props.children[0];
+await actionField.props.change({ ...actionRow, key: "presets/one:rename" }, "Two");
+assert.deepEqual(requests.at(-1), ["steam-ui.native-settings", "set", { key: "presets/one:rename", value: "Two" }]);
+const beforeDisabled = requests.length;
+await assert.rejects(actionField.props.change({ ...actionRow, key: "presets/one:delete" }, true), /unavailable/u);
+assert.equal(requests.length, beforeDisabled, "a disabled button sends nothing");
+
 // A value the host could not read is a row like any other, and one row the gate cannot draw is
 // dropped on its own: it once took every page away for two GPU colour ranges.
 const unknown = {
