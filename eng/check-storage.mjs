@@ -89,7 +89,10 @@ const runtimeFor = (exports, services = 1, transports = 1) => {
     for (let i = 0; i < transports; i++) {
         require.m[`transport${i}`] = new Function("// GetDefaultTransport m_transport");
     }
-    const window = { webpackChunksteamui: { push: (chunk) => chunk[2](require) } };
+    const window = {
+        App: { GetServicesInitialized: () => true },
+        webpackChunksteamui: { push: (chunk) => chunk[2](require) },
+    };
     return instantiate(
         { window },
         fragment(asset, "module-resolver.ts"),

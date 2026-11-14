@@ -65,6 +65,32 @@ public sealed class SteamGatePatchContractTests
     }
 
     [Fact]
+    public async Task AStandaloneProbeOfASteamStillStartingIsNotReadyNotIncompatible()
+    {
+        // Opening Big Picture replaces the document, and the bridge's own probe ran while the new one was
+        // still starting: reading that as incompatible held the bridge back, and every gate with it.
+        await using var starting = new FakeSteamUiTransport();
+        starting.OnEvaluate = _ => Task.FromResult(FakeSteamUiTransport.Answer(
+            """{"error":"Error: Steam modules unavailable: Steam is still starting"}""", null));
+        await using var moved = new FakeSteamUiTransport();
+        moved.OnEvaluate = _ => Task.FromResult(FakeSteamUiTransport.Answer("""{"react":0}""", null));
+        await using var host = new SteamUiBridgeHost(starting,
+            new SteamUiInjectedAsset("(()=>{return __STEAM_UI_CONFIGURATION_JSON__;})()", "TESTASSETHASH"),
+            new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal));
+        var bridge = new SteamUiBridgePatch(host);
+
+        var notReady = await bridge.ProbeAsync(new SteamUiPatchContext(starting, TimeSpan.FromSeconds(1)),
+            CancellationToken.None);
+        var incompatible = await bridge.ProbeAsync(new SteamUiPatchContext(moved, TimeSpan.FromSeconds(1)),
+            CancellationToken.None);
+
+        Assert.False(notReady.TargetPresent);
+        Assert.StartsWith("Steam has not finished loading", notReady.Diagnostic, StringComparison.Ordinal);
+        Assert.True(incompatible.TargetPresent);
+        Assert.False(incompatible.Compatible);
+    }
+
+    [Fact]
     public async Task AProbeTheTargetCouldNotAnswerIsAbsentAndOneThatThrewIsIncompatible()
     {
         var gate = new SteamGatePatch("example.gate", "exampleGate", "example-v1", "Example gate");

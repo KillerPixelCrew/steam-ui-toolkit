@@ -82,7 +82,7 @@ public sealed class SteamWindowSurfaceTests
                                 const routes={P:{GamepadUI:{Keyboard:()=>'/keyboard'}},r:()=>'/routes'};
                                 const require=id=>{assert.equal(id,'80344');return routes;};
                                 require.m={'80344':function(){/* GameAPIOSK:()=>"/gameapiosk" */},'61236':function(){/* unrelated */}};
-                                const context=vm.createContext({window:{SteamUIStore:ui,webpackChunksteamui:{push(a){a[2](require);}}}});
+                                const context=vm.createContext({window:{App:{GetServicesInitialized:()=>true},SteamUIStore:ui,webpackChunksteamui:{push(a){a[2](require);}}}});
                                 const run=key=>vm.runInContext(expressions[key],context);
                                 assert.equal(run('main'),true);assert.equal(run('home'),true);assert.equal(run('qam'),true);
                                 assert.deepEqual(calls,['main-qam','overlay-home','overlay-qam']);

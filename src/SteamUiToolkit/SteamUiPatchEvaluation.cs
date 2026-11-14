@@ -100,6 +100,9 @@ public static class SteamUiPatchEvaluation
         }
     }
 
+    /// <summary>What the module resolver throws before Steam's modules can be read.</summary>
+    internal const string ModulesUnavailable = "Steam modules unavailable";
+
     /// <summary>Evaluates a probe expression and turns its answer into a probe result.</summary>
     /// <param name="context">The patch context to evaluate through.</param>
     /// <param name="role">Which Steam target to evaluate in.</param>
@@ -116,7 +119,8 @@ public static class SteamUiPatchEvaluation
     ///     present, the second reports a present but incompatible one and keeps the page's own answer
     ///     as the diagnostic, which is what a remote log needs in order to tell a closed window from a
     ///     Steam build that moved. A probe the page answered with an error is incompatible with that
-    ///     error as its diagnostic; it is not an absent target to be probed again.
+    ///     error as its diagnostic; it is not an absent target to be probed again. The one exception is the
+    ///     module resolver's refusal while Steam is still starting, which is a target not ready yet.
     /// </remarks>
     public static async Task<SteamUiPatchProbeResult> EvaluateProbeAsync(
         SteamUiPatchContext context,
@@ -146,6 +150,17 @@ public static class SteamUiPatchEvaluation
         try
         {
             using var document = JsonDocument.Parse(result.Value);
+            // The module resolver refuses while Steam is still starting or before its modules exist; that
+            // is a target not ready yet, probed again, never an incompatible client for the generation.
+            if (document.RootElement.ValueKind == JsonValueKind.Object
+                && document.RootElement.TryGetProperty("error", out var error)
+                && error.ValueKind == JsonValueKind.String
+                && error.GetString()!.Contains(ModulesUnavailable, StringComparison.Ordinal))
+            {
+                return new SteamUiPatchProbeResult(false, false, null,
+                    "Steam has not finished loading: " + result.Value);
+            }
+
             var matched = compatible(document.RootElement);
             return new SteamUiPatchProbeResult(
                 true,

@@ -26,8 +26,38 @@ function fixture() {
         factories,
         cache,
         calls: () => calls,
-        window: { webpackChunksteamui: { push: (chunk) => chunk[2](runtime) } },
+        window: {
+            App: { GetServicesInitialized: () => true },
+            webpackChunksteamui: { push: (chunk) => chunk[2](runtime) },
+        },
     };
+}
+
+// Nothing is read while Steam's UI is still starting: an app that has not initialized its services,
+// or a client that reports only an earlier stage not reached yet, refuses as modules unavailable,
+// which every probe reads as not ready. Older clients' stages still count, and a finished one reads.
+{
+    const f = fixture();
+    let pushed = 0;
+    f.window.webpackChunksteamui.push = (chunk) => {
+        pushed++;
+        chunk[2](f.runtime);
+    };
+    const resolve = (app) => {
+        f.window.App = app;
+        const context = createContext({ window: f.window, runtime: f.runtime });
+        return runInContext(
+            `(() => { try { ${emittedResolver} createSteamUiModuleResolver("startup"); return "read"; }
+                catch (error) { return String(error); } })()`,
+            context,
+        );
+    };
+    assert.match(resolve(undefined), /Steam modules unavailable: Steam is still starting/u);
+    assert.match(resolve({ GetServicesInitialized: () => false }), /still starting/u);
+    assert.match(resolve({ BFinishedInitBeforeLogin: () => false }), /still starting/u);
+    assert.equal(pushed, 0, "a starting Steam is not touched");
+    assert.equal(resolve({ BFinishedInitStageOne: () => true }), "read");
+    assert.equal(resolve({ GetServicesInitialized: () => true }), "read");
 }
 
 // Separate evaluations share fingerprint work, but each lookup still checks the live registry.

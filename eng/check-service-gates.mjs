@@ -41,6 +41,7 @@ const overModules = (label, create, window, modules) => {
         runtime.m[id] = new Function(`// ${source}\nthrow Error("factory executed")`);
     }
     window.webpackChunksteamui = { push: (chunk) => chunk[2](runtime) };
+    window.App = { GetServicesInitialized: () => true };
     const gate = instantiate(
         {
             window,
