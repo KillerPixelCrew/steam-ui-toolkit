@@ -388,6 +388,7 @@ console.log("Quick Access rows: fields carry glyphs, label tokens and unselectab
     const requests = [];
     let refusal = null;
     const groupFixture = (_ui, props, ...children) => ({ type: "group", props, children });
+    const foldRequests = [];
     const createRowSectionControl = instantiate(
         {
             normalizeText,
@@ -402,6 +403,8 @@ console.log("Quick Access rows: fields carry glyphs, label tokens and unselectab
             renderSteamSettingRow: render.renderSteamSettingRow,
             useSteamSettingDrafts: render.useSteamSettingDrafts,
             renderSteamUiGroup: groupFixture,
+            isFolded: (open, id) => !(open?.has?.(id) ?? false),
+            setFolded: (id, folded) => foldRequests.push([id, folded]),
         },
         host(
             "rowsOf",
@@ -478,6 +481,30 @@ console.log("Quick Access rows: fields carry glyphs, label tokens and unselectab
     assert.equal(tree.children[0].type, "group");
     assert.equal(tree.children[0].props.title, "CPU");
     assert.equal(tree.children[0].children[0].children[0].type, "toggle");
+    // A titled sub-group folds on its own, closed until opened, under the section's id and its own, and
+    // its heading says what its rows report.
+    assert.equal(tree.children[0].props.sub, true);
+    assert.equal(tree.children[0].props.collapsed, true);
+    assert.equal(tree.children[0].props.key, "powerProfile.cpu");
+    tree.children[0].props.onToggle();
+    assert.deepEqual(foldRequests.pop(), ["powerProfile.cpu", false]);
+    publish(31, [
+        {
+            id: "powerProfile",
+            rows: [],
+            groups: [
+                {
+                    id: "cpu",
+                    title: "CPU",
+                    rows: [{ key: "boost", kind: "boolean", label: "Boost", summary: "Boost on" }],
+                },
+                { id: "plain", title: "", rows: [{ key: "x", kind: "boolean", label: "X" }] },
+            ],
+        },
+    ]);
+    tree = draw();
+    assert.equal(tree.children[0].props.detail, "Boost on");
+    assert.equal(tree.children[1].props.onToggle, undefined, "an untitled group does not fold");
     // An action row sends true.
     publish(4, [{ id: "powerProfile", rows: [{ key: "reset", kind: "action", label: "Reset", buttonLabel: "Reset" }] }]);
     draw().children[0].children[0].props.value.props.onClick();

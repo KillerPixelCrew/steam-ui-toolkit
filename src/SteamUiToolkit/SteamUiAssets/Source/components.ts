@@ -811,13 +811,30 @@ function createNativeComponentHost() {
                 );
             };
             const rows = section.rows.map(draw);
-            const groups = section.groups.map((group) =>
-                renderSteamUiGroup(
+            // A titled sub-group folds on its own, nested under the section, closed until opened and
+            // kept under the section's id and its own; folded, its heading says what its rows report.
+            const folds = acceptedStates.get("folds") ?? null;
+            const groups = section.groups.map((group) => {
+                const foldId = id + "." + group.id;
+                return renderSteamUiGroup(
                     controlRuntime,
-                    { key: id + "." + group.id, title: group.title || undefined },
+                    group.title
+                        ? {
+                              key: foldId,
+                              title: group.title,
+                              detail:
+                                  group.rows
+                                      .map((row) => normalizeText(row.summary))
+                                      .filter(Boolean)
+                                      .join(" · ") || undefined,
+                              sub: true,
+                              collapsed: isFolded(folds, foldId),
+                              onToggle: () => setFolded(foldId, !isFolded(folds, foldId)),
+                          }
+                        : { key: foldId },
                     ...group.rows.map(draw),
-                ),
-            );
+                );
+            });
             renderOutcomes[kind] = `rendered ${drawn} row(s)`;
             return react.createElement(react.Fragment, null, ...rows, ...groups);
         };
