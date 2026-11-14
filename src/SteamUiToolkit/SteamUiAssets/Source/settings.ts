@@ -234,9 +234,10 @@ const renderSteamSettingActions = (ui, row, actions, change) => {
  * @param draft Locally staged value, or undefined to use the published value.
  * @param change Handles edits and whether they should be committed.
  * @param action Handles action rows.
+ * @param draftOf A columns row's staged value for one of its entries, by entry; none sees no drafts.
  * @returns The row element, or null for an unsupported row kind.
  */
-const renderSteamSettingRow = (ui, row, draft, change, action) => {
+const renderSteamSettingRow = (ui, row, draft, change, action, draftOf?: (entry) => any) => {
     const h = ui.react.createElement;
     const key = `steam-setting-${row.key}`;
     const label = steamSettingLabel(ui, row);
@@ -506,6 +507,41 @@ const renderSteamSettingRow = (ui, row, draft, change, action) => {
         }
         case "note":
             return h(ui.valueField, {key, name: label, icon, value: row.text ?? "", description: common.description});
+        case "scope":
+            return renderSteamUiScope(ui.react, {
+                key,
+                label,
+                value: row.text ?? "",
+                detail: row.description,
+                accent: row.accent === true,
+            });
+        case "columns":
+            return renderSteamUiColumns(ui, {
+                key,
+                label,
+                description: common.description,
+                columns: (row.columns ?? []).map((entry) => {
+                    const selected = draftOf?.(entry) ?? entry.text;
+                    const choices = (entry.choices ?? []).filter(
+                        (choice) => choice.selectable !== false || choice.value === selected,
+                    );
+                    return {
+                        key: entry.key,
+                        label: entry.label,
+                        control: renderSteamUiChoice(ui, {
+                            label: `${row.label}: ${entry.label}`,
+                            showLabel: false,
+                            rgOptions: choices.map((choice) => ({data: choice.value, label: choice.label})),
+                            selectedOption: selected,
+                            disabled: !!row.disabled || !!entry.disabled,
+                            onChange: (option) => {
+                                const pick = choices.find((choice) => choice.value === option?.data);
+                                if (pick && pick.value !== selected && pick.selectable !== false) change(entry, pick.value);
+                            },
+                        }),
+                    };
+                }),
+            });
         default:
             // A kind this build does not know is shown as its label and nothing else, never as a
             // control that would send a value the host did not describe.
@@ -592,10 +628,16 @@ const useSteamSettingDrafts = (react, revision: unknown) => {
 
     // An action row's own buttons send under their own keys; their refusal is still said on the row.
     const shown = (row) => {
-        const keys = [row.key, ...(Array.isArray(row.actions) ? row.actions.map((action) => action.key) : [])];
-        const refusal = keys
-            .map((key) => state.refusals[key])
-            .find((entry) => entry && entry.base === steamSettingPublished(row));
+        // A columns row's entries send as rows of their own, so each refusal is checked against its entry.
+        const senders = [
+            ...[row.key, ...(Array.isArray(row.actions) ? row.actions.map((action) => action.key) : [])].map(
+                (key) => ({key, published: row}),
+            ),
+            ...(Array.isArray(row.columns) ? row.columns.map((entry) => ({key: entry.key, published: entry})) : []),
+        ];
+        const refusal = senders
+            .map((sender) => ({entry: state.refusals[sender.key], published: sender.published}))
+            .find(({entry, published}) => entry && entry.base === steamSettingPublished(published))?.entry;
         return refusal ? {...row, description: refusal.text} : row;
     };
 
@@ -650,7 +692,14 @@ const renderSteamSettingSections = (
             ui.settingsSection,
             {key: `${props.id}-${section.id ?? index}`, label: section.title ?? undefined},
             ...section.rows.map((row) =>
-                renderSteamSettingRow(ui, props.drafts.row(row), props.drafts.draft(row), props.change, props.action),
+                renderSteamSettingRow(
+                    ui,
+                    props.drafts.row(row),
+                    props.drafts.draft(row),
+                    props.change,
+                    props.action,
+                    props.drafts.draft,
+                ),
             ),
         );
     const open = props.open ? levels.get(props.open) : null;

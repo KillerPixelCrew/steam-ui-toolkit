@@ -57,6 +57,34 @@ public sealed class SteamSettingsRowsTests
     }
 
     [Fact]
+    public void ScopeColumnsAndThePageLeadReachTheGateUnderTheNamesItReads()
+    {
+        SteamSettingsRow columns = new("timeouts", SteamSettingsRowKind.Columns, "Turn screen off after",
+            Columns:
+            [
+                new SteamSettingsRow("battery", SteamSettingsRowKind.Choice, "On battery", Text: "300",
+                    Choices: [new SteamSettingsChoice("300", "5 min")])
+            ]);
+        SteamNativeSettingsState state = new(
+        [
+            new SteamNativeSettingsPage(SteamNativeSettingsPageId.Display,
+            [
+                new SteamSettingsSection(null,
+                    [new SteamSettingsRow("scope", SteamSettingsRowKind.Scope, "Editing", Text: "Global defaults")]),
+                new SteamSettingsSection("Screen timeout", [columns])
+            ], Lead: 2)
+        ], 3);
+
+        var page = SteamNativeSettingsSurface.Serialize(state).GetProperty("pages")[0];
+
+        Assert.Equal(2, page.GetProperty("lead").GetInt32());
+        Assert.Equal("scope", page.GetProperty("sections")[0].GetProperty("rows")[0].GetProperty("kind").GetString());
+        var entry = page.GetProperty("sections")[1].GetProperty("rows")[0].GetProperty("columns")[0];
+        Assert.Equal("battery", entry.GetProperty("key").GetString());
+        Assert.Equal("5 min", entry.GetProperty("choices")[0].GetProperty("label").GetString());
+    }
+
+    [Fact]
     public void ASectionNamesItsSubpageUnderTheNamesTheRendererReads()
     {
         SteamSettingsPage page = new("display", "Display",

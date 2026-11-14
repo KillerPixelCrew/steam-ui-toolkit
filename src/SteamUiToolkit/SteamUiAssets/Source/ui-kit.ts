@@ -300,6 +300,21 @@ const SteamUiKitStyles = `
 .steam-ui-kit-nav-row-chevron{display:flex;flex:0 0 auto;color:rgba(255,255,255,.55)}
 .steam-ui-kit-subpage-header{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:4px 0 12px}
 .steam-ui-kit-subpage-back .DialogButton{width:auto;min-width:0}
+.steam-ui-kit-scope{display:flex;flex-direction:column;gap:2px;min-width:0;padding:12px 16px;margin:0 0 6px;border-radius:4px;box-sizing:border-box;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07)}
+.steam-ui-kit-scope.accent{background:rgba(26,159,255,.08);border-color:rgba(26,159,255,.25)}
+.steam-ui-kit-scope-label{font-size:11px;line-height:1.4;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#8b929a}
+.steam-ui-kit-scope-value{font-size:16px;line-height:22px;color:#fff;overflow-wrap:anywhere}
+.steam-ui-kit-scope-detail{font-size:12px;line-height:16px;color:#b8bcbf;overflow-wrap:anywhere}
+.steam-ui-kit-columns{display:flex;align-items:center;flex-wrap:wrap;gap:12px 16px;min-width:0;padding:12px 16px;margin:0 0 6px;border-radius:2px;box-sizing:border-box;background:#23262e}
+.steam-ui-kit-columns:focus-within{background:#3d4450}
+.steam-ui-kit-columns-text{flex:1 1 220px;min-width:0}
+.steam-ui-kit-columns-label{font-size:16px;line-height:20px;color:#dcdedf;overflow-wrap:anywhere}
+.steam-ui-kit-columns:focus-within .steam-ui-kit-columns-label{color:#fff}
+.steam-ui-kit-columns-description{font-size:12px;line-height:16px;color:#b8bcbf;margin-top:3px;overflow-wrap:anywhere}
+.steam-ui-kit-columns-cells{display:flex;flex-wrap:wrap;gap:10px;flex:0 1 auto;min-width:0}
+.steam-ui-kit-columns-cell{display:flex;flex-direction:column;gap:6px;width:180px;min-width:0;max-width:100%}
+.steam-ui-kit-columns-cell-label{font-size:11px;line-height:1.4;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#8b929a}
+.steam-ui-kit-columns-cell .steam-ui-kit-choice{gap:0}
 `;
 
 // One stylesheet element and one icon renderer per React, so a root re-rendering on every host
@@ -843,6 +858,73 @@ const renderSteamUiNavRow = (
         ),
         props.badge?.text ? renderSteamUiTag(ui.react, props.badge) : null,
         h("span", { className: "steam-ui-kit-nav-row-chevron" }, icon("chevron", 18)),
+    );
+};
+
+/**
+ * Creates the card that says what a page's profile-aware controls edit: a small heading such as
+ * `Editing`, the scope in the field label's size and a line under it. It takes no focus.
+ * @param react Steam's React instance used by the consuming root.
+ * @param props The small heading, the scope, the line under it and whether the scope is a game's own
+ * profile, which marks the card with Steam's accent.
+ * @returns The card.
+ */
+const renderSteamUiScope = (
+    react,
+    props: { key?: string; label: string; value: string; detail?: string | null; accent?: boolean },
+) => {
+    const h = react.createElement;
+    return h(
+        "div",
+        { key: props.key, className: `steam-ui-kit-scope${props.accent ? " accent" : ""}` },
+        h("span", { className: "steam-ui-kit-scope-label" }, props.label),
+        h("span", { className: "steam-ui-kit-scope-value" }, props.value),
+        props.detail ? h("span", { className: "steam-ui-kit-scope-detail" }, props.detail) : null,
+    );
+};
+
+/**
+ * Creates one field-shaped row holding several compact controls side by side: the row's label and
+ * description on the left, each control on the right under its own small label, such as a choice
+ * for battery and one for plugged in. The controls take focus in a row.
+ * @param ui Steam's resolved React and Focusable.
+ * @param props Key, label, description (any element) and the columns, each a key, a small label and
+ * its control (such as `renderSteamUiChoice` with `showLabel: false`).
+ * @returns The row.
+ */
+const renderSteamUiColumns = (
+    ui,
+    props: {
+        key?: string;
+        label: any;
+        description?: any;
+        columns: readonly { key: string; label: string; control: any }[];
+    },
+) => {
+    const h = ui.react.createElement;
+    return h(
+        "div",
+        { key: props.key, className: "steam-ui-kit-columns" },
+        h(
+            "div",
+            { className: "steam-ui-kit-columns-text" },
+            h("div", { className: "steam-ui-kit-columns-label" }, props.label),
+            props.description
+                ? h("div", { className: "steam-ui-kit-columns-description" }, props.description)
+                : null,
+        ),
+        h(
+            ui.focusable ?? "div",
+            { className: "steam-ui-kit-columns-cells", "flow-children": "row" },
+            ...props.columns.map((column) =>
+                h(
+                    "div",
+                    { key: column.key, className: "steam-ui-kit-columns-cell" },
+                    h("div", { className: "steam-ui-kit-columns-cell-label" }, column.label),
+                    column.control,
+                ),
+            ),
+        ),
     );
 };
 

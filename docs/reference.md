@@ -1854,6 +1854,14 @@ return focus to its row. `renderSteamSettingSections` is the one renderer both h
 and the native Settings additions draw sections with. A level without an id or title is ignored and
 its section stays on the page.
 
+Two row kinds shape a page rather than edit one value. A `scope` row draws `renderSteamUiScope`: a
+card naming what the page's profile-aware rows edit (`label` over it, `text` as the scope,
+`description` under it, `accent` for a game's own profile); it takes no focus and sends nothing. A
+`columns` row draws `renderSteamUiColumns`: one field-shaped row whose `columns` are choice rows,
+each drawn as a compact dropdown under its own label and sending under its own key, such as one
+timeout per power source. The columns row itself sends nothing; its entries' keys must be unique
+across the publication, and a refusal of any entry is shown on the row.
+
 Mapped against the live client on 2026-09-24:
 
 | Component        | Found by                                                                                                       | Draws                                                                                                                 |
@@ -2338,7 +2346,8 @@ scrollbar or end padding. Big Picture's `GamepadDialogContent` sets every `Dialo
 so Controller capability arrival or removal updates the existing slot without navigating or
 remounting the page. Only the Power descriptor's battery condition is revealed, and only while it
 has host rows and the Display, Audio and Controller descriptors confirm Steam's services are ready.
-No platform or battery value is changed. Steam's own content of a page is drawn inside
+No platform or battery value is changed. A page's `Lead` counts the first sections drawn above
+Steam's own content; the rest follow it. Steam's own content of a page is drawn inside
 `SteamUiNativeSettingsValve`, which draws nothing while one of the host's subpages on that page is
 open, so the subpage takes the page's place until Back. Leaving the page closes it, and a subpage
 the host stops publishing no longer hides Steam's content.

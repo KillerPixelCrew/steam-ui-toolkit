@@ -101,6 +101,16 @@ function createNativeSettings() {
                 row.minimum > row.maximum)
         )
             return "invalid range";
+        if (row.kind === "columns") {
+            if (!Array.isArray(row.columns) || !row.columns.length) return "invalid columns";
+            const entryIds = new Set(rowIds);
+            for (const entry of row.columns) {
+                const problem = entry?.kind === "choice" ? rowProblem(entry, entryIds) : "not a choice";
+                if (problem) return `invalid column ${String(entry?.key ?? "")}: ${problem}`;
+                if (entry.key === row.key) return "a column repeats its row's key";
+                entryIds.add(entry.key);
+            }
+        }
         return "";
     };
 
@@ -122,13 +132,17 @@ function createNativeSettings() {
             )
                 return null;
             pageIds.add(page.id);
+            if (page.lead != null && (!Number.isSafeInteger(page.lead) || page.lead < 0)) return null;
             const sections: any[] = [];
-            for (const section of page.sections) {
+            // How many of the kept sections come from the published lead, which a dropped section shortens.
+            let lead = 0;
+            for (const [index, section] of page.sections.entries()) {
                 if (!Array.isArray(section?.rows)) return null;
                 const rows = section.rows.filter((row) => {
                     const problem = rowProblem(row, rowIds);
                     if (!problem) {
                         rowIds.add(row.key);
+                        for (const entry of row.kind === "columns" ? row.columns : []) rowIds.add(entry.key);
                         return true;
                     }
                     rejected.push({
@@ -137,16 +151,18 @@ function createNativeSettings() {
                     });
                     return false;
                 });
-                if (rows.length)
+                if (rows.length) {
                     sections.push(
                         rows.length === section.rows.length ? section : { ...section, rows },
                     );
+                    if (index < (page.lead ?? 0)) lead++;
+                }
             }
             // The page as published only when every one of its sections came through whole.
             const whole =
                 sections.length === page.sections.length &&
                 sections.every((section, index) => section === page.sections[index]);
-            if (sections.length) pages.push(whole ? page : { ...page, sections });
+            if (sections.length) pages.push(whole ? page : { ...page, sections, lead });
         }
         return { pages, revision: value.revision, rejected };
     };
@@ -161,18 +177,23 @@ function createNativeSettings() {
     };
 
     const send = (row, value) => {
+        // A columns row's entries are rows of their own, offered under their own keys.
         const current = state.pages
             .flatMap((page) => page.sections.flatMap((section) => section.rows))
+            .flatMap((candidate) => (candidate.kind === "columns" ? [candidate, ...candidate.columns] : [candidate]))
             .find((candidate) => candidate.key === row.key);
         if (!installed() || !current || current.disabled)
             return Promise.reject(new Error("This setting is unavailable."));
         return request(patchId, "set", { key: row.key, value });
     };
 
-    function SteamUiNativeSettingsSections({ id }) {
+    // A page's sections draw in two slots: the lead above Steam's own content and the rest after it.
+    // An open subpage draws in the lead slot alone, in place of the page.
+    function SteamUiNativeSettingsSections({ id, part }) {
+        const rest = part !== "lead";
         react.useSyncExternalStore(local.subscribe, local.revision);
         react.useEffect(() => {
-            if (id !== "controller") return;
+            if (!rest || id !== "controller") return;
             return () => {
                 // Stop is an idempotent host action even after its rows retract. Reload/disconnect also
                 // stop through the host and the output owner, and every preview has a bounded timer.
@@ -181,9 +202,9 @@ function createNativeSettings() {
         }, [id]);
         react.useEffect(
             () => () => {
-                if (!levels[id]) return;
-                const {[id]: _closed, ...rest} = levels;
-                levels = rest;
+                if (!rest || !levels[id]) return;
+                const {[id]: _closed, ...others} = levels;
+                levels = others;
                 local.changed();
             },
             [id],
@@ -193,17 +214,21 @@ function createNativeSettings() {
         const action = (row) => change(row, true);
         const page = installed() ? state.pages.find((candidate) => candidate.id === id) : null;
         if (!page) return null;
-        rendered.add(id);
         const open = openLevel(id);
+        if (open && rest) return null;
+        const lead = Math.min(page.lead ?? 0, page.sections.length);
+        const sections = open ? page.sections : rest ? page.sections.slice(lead) : page.sections.slice(0, lead);
+        if (!sections.length) return null;
+        rendered.add(id);
         lastOutcome = open
             ? `rendered ${id} subpage ${open}`
-            : `rendered ${id}: ${page.sections.length} section(s)`;
+            : `rendered ${id}: ${page.sections.length} section(s), ${lead} above Steam's own`;
         return react.createElement(
             react.Fragment,
             null,
             ...renderSteamSettingSections(ui, {
-                id: `steam-ui-native-${id}`,
-                sections: page.sections,
+                id: `steam-ui-native-${id}${rest ? "" : "-lead"}`,
+                sections,
                 drafts,
                 change,
                 action,
@@ -262,6 +287,11 @@ function createNativeSettings() {
                 content: react.createElement(
                     "div",
                     { className: "DialogBody steam-ui-kit-settings-body" },
+                    react.createElement(SteamUiNativeSettingsSections, {
+                        id,
+                        part: "lead",
+                        key: `steam-ui-native-lead-${id}`,
+                    }),
                     react.createElement(SteamUiNativeSettingsValve, {
                         id,
                         key: `steam-ui-native-valve-${id}`,

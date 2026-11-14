@@ -60,7 +60,7 @@ const kit = instantiate(
         " renderSteamUiDetail, SteamUiPageRequired, renderSteamUiStatus, renderSteamUiProgress, renderSteamUiFields," +
         " renderSteamUiIcon, renderSteamUiChoice, renderSteamUiSelectRow, showSteamUiConfirm, showSteamUiPrompt," +
         " showSteamModal, SteamUiKitStyles, SteamUiVerticalPaneNavigation, renderSteamUiTag, renderSteamUiTags, renderSteamUiArt, renderSteamUiHero," +
-        " renderSteamUiItemHeading, renderSteamUiSidePanel, renderSteamUiIconTile, renderSteamUiStateMark, renderSteamUiNavRow, renderSteamUiSubpageHeader})",
+        " renderSteamUiItemHeading, renderSteamUiSidePanel, renderSteamUiIconTile, renderSteamUiStateMark, renderSteamUiNavRow, renderSteamUiSubpageHeader, renderSteamUiScope, renderSteamUiColumns})",
 );
 
 // The stylesheet is one element a root renders, and every class an element uses has a rule.
@@ -159,6 +159,17 @@ for (const cls of [
     "nav-row-chevron",
     "subpage-header",
     "subpage-back",
+    "scope",
+    "scope-label",
+    "scope-value",
+    "scope-detail",
+    "columns",
+    "columns-text",
+    "columns-label",
+    "columns-description",
+    "columns-cells",
+    "columns-cell",
+    "columns-cell-label",
 ]) {
     assert.ok(
         kit.SteamUiKitStyles.includes(`.steam-ui-kit-${cls}`),
@@ -399,6 +410,27 @@ assert.deepEqual([backButton.props.children].flat(), ["Back"]);
 backButton.props.onClick();
 assert.equal(subpageBack, 1);
 assert.deepEqual([find(react, subpageHeader, (node) => node.type === "h1")[0].props.children].flat(), ["Graphics"]);
+
+// The scope card is text only; a game's scope carries the accent. A columns row lays its controls
+// out in one Focusable row, each under its own label.
+const scope = kit.renderSteamUiScope(react, { label: "Editing", value: "Global defaults", detail: "Shared." });
+assert.equal(scope.props.className, "steam-ui-kit-scope");
+assert.equal(find(react, scope, (node) => node.type === Focusable).length, 0, "the scope card takes no focus");
+assert.equal(kit.renderSteamUiScope(react, { label: "Editing", value: "Game", accent: true }).props.className, "steam-ui-kit-scope accent");
+const columns = kit.renderSteamUiColumns(ui, {
+    label: "Turn screen off after",
+    description: "Not before the screensaver.",
+    columns: [
+        { key: "battery", label: "On battery", control: "battery-control" },
+        { key: "plugged", label: "Plugged in", control: "plugged-control" },
+    ],
+});
+const cells = find(react, columns, (node) => node.type === Focusable)[0];
+assert.equal(cells.props["flow-children"], "row");
+assert.deepEqual(
+    find(react, cells, (node) => node.props?.className === "steam-ui-kit-columns-cell-label").map((node) => [node.props.children].flat()[0]),
+    ["On battery", "Plugged in"],
+);
 
 // A paged list's foot is one button asking for the next page.
 let more = 0;
@@ -1460,6 +1492,6 @@ console.log(
     "UI kit: stylesheet, header, actions and file-pick actions, card, empty kinds, status, progress, fields, banner," +
         " toolbar, chips, gallery, glyphs, native and kit confirm, prompt, the wide dialog, list rows, selected and" +
         " focused rows, filter chips, tags, art, the hero band, the item heading, the side panel, the success" +
-        " banner, banner actions, icon cards and tiles, state marks, subpage rows and headings, second commands, progress steps and Steam's" +
+        " banner, banner actions, icon cards and tiles, state marks, subpage rows and headings, the scope card, columns rows, second commands, progress steps and Steam's" +
         " artwork, icons and game list passed.",
 );

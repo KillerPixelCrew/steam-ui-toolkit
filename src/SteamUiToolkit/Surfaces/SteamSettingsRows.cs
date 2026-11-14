@@ -45,6 +45,20 @@ public static class SteamSettingsRowKind
 
     /// <summary>A native selectable resolution list with custom-size and percentage-step actions.</summary>
     public const string ResolutionList = "resolution-list";
+
+    /// <summary>
+    ///     A card naming what the page's profile-aware rows edit: <see cref="SteamSettingsRow.Label" /> is the
+    ///     small heading over it, <see cref="SteamSettingsRow.Text" /> the scope and
+    ///     <see cref="SteamSettingsRow.Description" /> the line under it. It takes no focus and sends nothing.
+    /// </summary>
+    public const string Scope = "scope";
+
+    /// <summary>
+    ///     One labelled row holding compact dropdowns side by side, one per <see cref="SteamSettingsRow.Columns" />
+    ///     entry: a <see cref="Choice" /> row with its own key, labelled above its dropdown by its own label. The
+    ///     row itself sends nothing; each entry sends under its own key.
+    /// </summary>
+    public const string Columns = "columns";
 }
 
 /// <summary>Editing capabilities for a resolution list; entries and labels use the row's choices.</summary>
@@ -169,6 +183,7 @@ public sealed record SteamSettingsAction(
 ///     <paramref name="ButtonLabel" /> that sends under the row's key. A refusal of any of them is shown on
 ///     the row.
 /// </param>
+/// <param name="Columns">A columns row's entries, each a choice row with its own key, in order.</param>
 public sealed record SteamSettingsRow(
     string Key,
     string Kind,
@@ -196,7 +211,8 @@ public sealed record SteamSettingsRow(
     string? Icon = null,
     string? LabelToken = null,
     string? Summary = null,
-    IReadOnlyList<SteamSettingsAction>? Actions = null);
+    IReadOnlyList<SteamSettingsAction>? Actions = null,
+    IReadOnlyList<SteamSettingsRow>? Columns = null);
 
 /// <summary>A titled group of rows: one of Steam's settings sections.</summary>
 /// <param name="Title">The section heading, or null for an untitled section.</param>

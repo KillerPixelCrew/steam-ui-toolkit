@@ -23,10 +23,14 @@ public static class SteamNativeSettingsPageId
     public const string Controller = "controller";
 }
 
-/// <summary>Host-owned sections appended to one existing native Settings page.</summary>
+/// <summary>Host-owned sections added to one existing native Settings page.</summary>
 /// <param name="Id">One of <see cref="SteamNativeSettingsPageId" />.</param>
 /// <param name="Sections">The sections in display order; an empty list retracts the addition.</param>
-public sealed record SteamNativeSettingsPage(string Id, IReadOnlyList<SteamSettingsSection> Sections);
+/// <param name="Lead">
+///     How many of the first sections draw above Steam's own content of the page; the rest follow it. Zero, the
+///     default, draws every section after Steam's content.
+/// </param>
+public sealed record SteamNativeSettingsPage(string Id, IReadOnlyList<SteamSettingsSection> Sections, int Lead = 0);
 
 /// <summary>The currently available additions to Steam's native Settings pages.</summary>
 /// <param name="Pages">Unique native page identities and their host-owned sections.</param>

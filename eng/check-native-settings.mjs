@@ -177,7 +177,7 @@ assert.equal(
     "an empty slot retains the native page route",
 );
 assert.equal(
-    result.Display.content.props.children[0].props.content,
+    result.Display.content.props.children[1].props.content,
     nativeContent,
     "an empty slot retains native content",
 );
@@ -199,14 +199,14 @@ assert.equal(
 assert.equal(result.Internet, map.Internet);
 assert.equal(result.Power.route, map.Power.route, "Steam retains route and navigation ownership");
 assert.equal(
-    result.Power.content.props.children[0].props.content,
+    result.Power.content.props.children[1].props.content,
     nativeContent,
     "native fields are retained before host sections",
 );
-const valveSlot = result.Power.content.props.children[0];
+const valveSlot = result.Power.content.props.children[1];
 assert.equal(valveSlot.type(valveSlot.props), nativeContent, "Steam's content draws while no subpage is open");
-const host = result.Power.content.props.children[1];
-const controllerSlot = result.Controller.content.props.children[1];
+const host = result.Power.content.props.children[2];
+const controllerSlot = result.Controller.content.props.children[2];
 assert.equal(
     controllerSlot.type(controllerSlot.props),
     null,
@@ -220,7 +220,7 @@ assert.equal(
     "Controller capability arrival requires no outer root render",
 );
 assert.equal(
-    fiber.type({}).Controller.content.props.children[1],
+    fiber.type({}).Controller.content.props.children[2],
     controllerSlot,
     "Controller retains its already mounted slot",
 );
@@ -287,7 +287,7 @@ const leveled = {
     ],
 };
 publication(state([page("power"), leveled], 8));
-const controllerValve = fiber.type({}).Controller.content.props.children[0];
+const controllerValve = fiber.type({}).Controller.content.props.children[1];
 let pageTree = controllerSlot.type(controllerSlot.props).props.children;
 const levelSection = pageTree.find((child) => child?.props?.label === "More");
 assert.ok(levelSection, "the level rows share one section under the first level's group");
@@ -299,9 +299,12 @@ assert.equal(
     1,
     "a level without a title leaves its section on the page",
 );
+const controllerLead = fiber.type({}).Controller.content.props.children[0];
+assert.equal(controllerLead.type(controllerLead.props), null, "nothing draws above Steam's content without a lead");
 levelRows[0].props.onActivate();
-pageTree = controllerSlot.type(controllerSlot.props).props.children;
-assert.equal(pageTree.length, 1, "an open level replaces the page's sections");
+assert.equal(controllerSlot.type(controllerSlot.props), null, "an open level replaces the page's sections");
+pageTree = controllerLead.type(controllerLead.props).props.children;
+assert.equal(pageTree.length, 1, "the open level draws alone, above where Steam's content was");
 const openLevel = pageTree[0];
 const openSections = openLevel.props.children.filter((child) => child?.type === Section);
 assert.deepEqual(
@@ -325,6 +328,53 @@ assert.equal(
     nativeContent,
     "a level the host stops publishing no longer hides Steam's content",
 );
+
+// A page's lead draws above Steam's own content and the rest after it; a columns row is drawn whole,
+// and each of its entries sends under its own key.
+const scopeRow = { key: "display.scope", kind: "scope", label: "Editing", text: "Global defaults" };
+const columnsRow = {
+    key: "display.timeouts",
+    kind: "columns",
+    label: "Turn screen off after",
+    columns: [
+        { key: "display.timeout-battery", kind: "choice", label: "On battery", text: "300", choices: [{ value: "300", label: "5 min" }, { value: "600", label: "10 min" }] },
+        { key: "display.timeout-plugged-in", kind: "choice", label: "Plugged in", text: "300", choices: [{ value: "300", label: "5 min" }] },
+    ],
+};
+const badColumns = { key: "display.bad-columns", kind: "columns", label: "Bad", columns: [{ key: "x", kind: "boolean", label: "X" }] };
+publication(
+    state(
+        [
+            page("power"),
+            {
+                id: "controller",
+                lead: 2,
+                sections: [
+                    { id: "scope", rows: [scopeRow] },
+                    { id: "timeouts", title: "Screen timeout", rows: [columnsRow, badColumns] },
+                    { id: "after", title: "After", rows: [{ ...row, key: "device/after" }] },
+                ],
+            },
+        ],
+        10,
+    ),
+);
+assert.match(gate.status().publicationError, /display\.bad-columns/u, "a columns row of anything but choices is refused");
+const leadTree = controllerLead.type(controllerLead.props).props.children;
+assert.deepEqual(
+    leadTree.map((section) => section.props.children.map((field) => field.props.row.key)),
+    [["display.scope"], ["display.timeouts"]],
+    "the lead sections draw above Steam's content, in order",
+);
+assert.deepEqual(
+    controllerSlot.type(controllerSlot.props).props.children.map((section) => section.props.label),
+    ["After"],
+    "the rest follow Steam's content",
+);
+const sentBefore = requests.length;
+leadTree[1].props.children[0].props.change(columnsRow.columns[0], "600");
+assert.deepEqual(requests.at(-1), ["steam-ui.native-settings", "set", { key: "display.timeout-battery", value: "600" }]);
+assert.equal(requests.length, sentBefore + 1, "a column's entry is offered under its own key");
 
 // A value the host could not read is a row like any other, and one row the gate cannot draw is
 // dropped on its own: it once took every page away for two GPU colour ranges.

@@ -57,6 +57,8 @@ const SteamSettingRowKinds: ReadonlySet<string> = new Set([
     "color",
     "curve",
     "resolution-list",
+    "scope",
+    "columns",
 ]);
 
 // Steam's React exports, or null when the module is not a unique match.
