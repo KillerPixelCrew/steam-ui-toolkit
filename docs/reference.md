@@ -694,6 +694,10 @@ The emitted `eng/check-startup.mjs` fixtures exercise both paths across the buil
 Completing a shared Settings or Quick Access slider at its published value sends no command. An
 unknown published value still permits an explicit first write, including the resting value.
 
+The network surface routes Steam's Internet-page Wi-Fi toggle through
+`ISteamNetworkBackend.SetWifiEnabledAsync`. `SteamNetworkState.WifiEnabled` supplies the switch's
+state independently of scan results. Removal restores Steam's writer and power getter.
+
 No Quick Access range is gated on a reading. A host row's range draws from its descriptor: the value
 shown is the host's, and a range with no value sits at its minimum with its number hidden and sends
 nothing until moved. The frame-limit row draws with no observed or desired cap the same way. Steam's

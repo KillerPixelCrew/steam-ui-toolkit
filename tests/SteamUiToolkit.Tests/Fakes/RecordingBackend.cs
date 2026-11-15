@@ -138,6 +138,11 @@ internal sealed class RecordingBackend :
         return Record("scan on", cancellationToken);
     }
 
+    public Task<SteamUiCommandResult> SetWifiEnabledAsync(bool enabled, CancellationToken cancellationToken)
+    {
+        return Record($"wifi {enabled}", cancellationToken);
+    }
+
     public Task<SteamUiCommandResult> StopScanAsync(CancellationToken cancellationToken)
     {
         return Record("scan off", cancellationToken);

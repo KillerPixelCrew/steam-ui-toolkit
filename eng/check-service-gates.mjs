@@ -781,16 +781,38 @@ const assertRemoved = (gate, name) => {
         configurable: true,
     });
     // No IsAnyDeviceConnected or IsAnyDeviceConnecting: removal must still hand everything back.
-    const store = Object.assign(Object.create(proto), { m_mapNetworkAccessPoints: new Map() });
+    const originalPower = () => {
+        throw new Error("Steam's Windows power writer must not run");
+    };
+    Object.defineProperty(proto, "isWifiEnabled", {
+        get() {
+            return this.m_bWifiEnabled;
+        },
+        configurable: true,
+    });
+    const store = Object.assign(Object.create(proto), {
+        m_mapNetworkAccessPoints: new Map(),
+        m_bWifiEnabled: false,
+        SetWifiEnabled: originalPower,
+    });
     const requests = [];
+    let publish;
+    let refusePower = false;
     const gate = instantiate(
         {
             window: { SteamClient: { System: { Network: network } }, SystemNetworkStore: store },
             getWebpackRuntime: () => ({}),
-            request: async (_, command) => {
+            request: async (_, command, payload) => {
                 requests.push(command);
+                if (command === "setWifiEnabled") {
+                    assert.equal(typeof payload.enabled, "boolean");
+                    if (refusePower) throw new Error("radio access denied");
+                }
             },
-            subscribe: () => () => {},
+            subscribe: (_, callback) => {
+                publish = callback;
+                return () => {};
+            },
         },
         `${shared}\n${gateSource(asset, "gates/network.ts")}`,
         "createNetworkGate()",
@@ -803,6 +825,19 @@ const assertRemoved = (gate, name) => {
     assert.equal(network.StopScanningForNetworks(), "stopped");
     await tick();
     assert.deepEqual(requests, ["startScan", "stopScan"]);
+    assert.equal(await store.SetWifiEnabled(true), true);
+    assert.equal(requests.at(-1), "setWifiEnabled");
+    publish({ networks: [], wifiEnabled: true });
+    assert.equal(
+        store.isWifiEnabled,
+        true,
+        "host radio state drives the switch without scanned networks",
+    );
+    store.m_bWifiEnabled = false;
+    assert.equal(store.isWifiEnabled, true, "Steam's periodic report cannot undo the host state");
+    refusePower = true;
+    assert.equal(await store.SetWifiEnabled(false), false);
+    assert.match(gate.status().operationError, /radio access denied/);
     assertRemoveRetries(gate, failNext, "network");
     assertRemoved(gate, "network");
     assert.equal(gate.status().scanWrapped, false);
@@ -811,5 +846,6 @@ const assertRemoved = (gate, name) => {
         originalGetter,
     );
     assert.equal(store.networkManagementAvailable, false);
+    assert.equal(store.SetWifiEnabled, originalPower, "removal restores Steam's power writer");
     console.log("Network: scan observation, store without refresh methods and removal retry pass.");
 }

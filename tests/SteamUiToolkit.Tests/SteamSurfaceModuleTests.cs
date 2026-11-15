@@ -13,6 +13,21 @@ namespace SteamUiToolkit.Tests;
 public sealed class SteamSurfaceModuleTests
 {
     [Fact]
+    public async Task WifiPowerDispatchesTypedValuesAndRejectsMalformedPayloads()
+    {
+        var backend = new RecordingBackend();
+        var set = new SteamUiModuleSet([
+            SteamNetworkSurface.Module(Always, () => new ValueTask<SteamNetworkState?>((SteamNetworkState?)null), backend)
+        ]);
+        var applied = await DispatchAsync(set, SteamNetworkSurface.PatchId, "setWifiEnabled", """{"enabled":false}""");
+        var refused = await DispatchAsync(set, SteamNetworkSurface.PatchId, "setWifiEnabled", """{"enabled":"false"}""");
+        Assert.True(applied.Succeeded);
+        Assert.Equal("wifi False", Assert.Single(backend.Calls));
+        Assert.False(refused.Succeeded);
+        Assert.Equal("The Wi-Fi power payload is invalid.", refused.Error);
+    }
+
+    [Fact]
     public void EveryPublicSurfaceBuildsTogetherAndDeclaresItsRegisteredCommands()
     {
         var backend = new RecordingBackend();

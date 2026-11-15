@@ -36,19 +36,27 @@ public sealed record SteamNetworkJoin(
 /// <summary>The networks Steam's Internet page lists and the header indicator reads.</summary>
 /// <param name="Networks">The networks to list, in order.</param>
 /// <param name="Join">The latest join, or null before the page has asked for one.</param>
+/// <param name="WifiEnabled">The host's radio power state, or null when unknown.</param>
 public sealed record SteamNetworkState(
     IReadOnlyList<SteamNetworkAccessPoint> Networks,
-    SteamNetworkJoin? Join = null);
+    SteamNetworkJoin? Join = null,
+    bool? WifiEnabled = null);
 
 /// <summary>What answers Steam's Internet page: the scan lifetime, joining, leaving and forgetting.</summary>
 /// <remarks>
 ///     Steam's page starts and stops scanning as it opens and closes, and the gate forwards exactly
 ///     that. The networks it lists are the host's, under access point ids Steam's Windows backend has
 ///     never seen, so the gate answers the page's join, disconnect and forget for them through this
-///     backend as well. The radio toggle stays with Steam.
+///     backend as well, including the Wi-Fi radio toggle.
 /// </remarks>
 public interface ISteamNetworkBackend
 {
+    /// <summary>Changes Wi-Fi radio power through the host.</summary>
+    /// <param name="enabled">Whether to enable Wi-Fi.</param>
+    /// <param name="cancellationToken">Cancels before dispatch; cannot undo a dispatched change.</param>
+    /// <returns>Whether the host accepted the change, with a reason on refusal.</returns>
+    Task<SteamUiCommandResult> SetWifiEnabledAsync(bool enabled, CancellationToken cancellationToken);
+
     /// <summary>Steam's network page opened and wants fresh results.</summary>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The outcome.</returns>
@@ -96,7 +104,7 @@ public static class SteamNetworkSurface
 
     /// <summary>The exact command vocabulary the injected gate sends.</summary>
     public static IReadOnlyList<string> Commands { get; } =
-        ["startScan", "stopScan", "connect", "disconnect", "forget"];
+        ["setWifiEnabled", "startScan", "stopScan", "connect", "disconnect", "forget"];
 
     /// <summary>The gate that reveals Steam's Wi-Fi surface by overriding one Deck-only store getter.</summary>
     /// <remarks>
@@ -176,6 +184,11 @@ public static class SteamNetworkSurface
             SteamSurfaceJsonContext.Default.SteamNetworkState,
             [Patch],
             [
+                SteamUiModuleBuilder.Command<bool>(PatchId, "setWifiEnabled",
+                    static (payload, out enabled) =>
+                        SteamUiPayload.TryReadBoolean(payload, "enabled", out enabled)
+                        && SteamUiPayload.HasExactly(payload, 1),
+                    backend.SetWifiEnabledAsync, "The Wi-Fi power payload is invalid."),
                 SteamUiModuleBuilder.Command(PatchId, "startScan", backend.StartScanAsync),
                 SteamUiModuleBuilder.Command(PatchId, "stopScan", backend.StopScanAsync),
                 SteamUiModuleBuilder.Command<(string Ssid, string? Password)>(

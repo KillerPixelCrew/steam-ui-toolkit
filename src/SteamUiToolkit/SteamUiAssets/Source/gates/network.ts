@@ -14,6 +14,11 @@ function createNetworkGate() {
         marker: "__steamUiOwnedNetworkScan",
         original: "__steamUiOriginalNetworkScan",
     };
+    const power = {
+        marker: "__steamUiOwnedWifiPower",
+        original: "__steamUiOriginalWifiPower",
+    };
+    let wifiEnabled: boolean | null = null;
     // Why the last forwarded operation, publication or store refresh failed.
     let lastError = "";
     const connect = {
@@ -77,10 +82,12 @@ function createNetworkGate() {
     // forgetting the networks written here go to the host: their access point ids exist only in this
     // store, so Steam's own backend would answer them with nothing.
     const onState = (state) => {
+        wifiEnabled = typeof state?.wifiEnabled === "boolean" ? state.wifiEnabled : null;
         latestJoin = state?.join && typeof state.join === "object" ? state.join : null;
         for (const waiter of [...joinWaiters]) waiter();
         const instance = store();
         const networks = Array.isArray(state?.networks) ? state.networks : [];
+        if (instance && wifiEnabled !== null) instance.m_bWifiEnabled = wifiEnabled;
         if (!instance || !instance.m_WirelessDevice) {
             lastError = "network store has no wireless device";
             return;
@@ -332,6 +339,24 @@ function createNetworkGate() {
             // on the instance would shadow rather than replace, and removal would leave the shadow.
             const revealed = ledger.accessor(proto, property, availability, () => true);
             if (!revealed.ok) return revealed.error;
+            // The revealed Windows page still calls Steam's unimplemented radio writer. Route it
+            // to the host and read the host's state rather than Steam's periodic Windows report.
+            if (typeof instance.SetWifiEnabled === "function") {
+                const writer = ledger.member(instance, "SetWifiEnabled", power,
+                    () => (enabled: boolean) => forward("setWifiEnabled", {enabled}));
+                if (!writer.ok) return writer.error;
+            }
+            const enabledGetter = Object.getOwnPropertyDescriptor(proto, "isWifiEnabled")?.get;
+            if (enabledGetter) {
+                const reader = ledger.accessor(proto, "isWifiEnabled", power,
+                    function (this: unknown) {
+                        // Keep Steam's observable dependency so a host publication redraws the switch.
+                        const native = enabledGetter.call(this);
+                        return wifiEnabled ?? native;
+                    });
+                if (!reader.ok) return reader.error;
+            }
+            ledger.cleanup("Wi-Fi power state", () => { wifiEnabled = null; });
             wrapScanning(ledger);
             wrapConnect(instance, ledger);
             claimListing(proto, ledger);
