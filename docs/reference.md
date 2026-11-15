@@ -691,6 +691,9 @@ Subscriber exceptions are isolated during cached replay as well as later deliver
 callback cannot prevent `subscribe` from returning its cleanup handle or stop another subscriber.
 The emitted `eng/check-startup.mjs` fixtures exercise both paths across the built-in module IDs.
 
+Completing a shared Settings or Quick Access slider at its published value sends no command. An
+unknown published value still permits an explicit first write, including the resting value.
+
 No Quick Access range is gated on a reading. A host row's range draws from its descriptor: the value
 shown is the host's, and a range with no value sits at its minimum with its number hidden and sends
 nothing until moved. The frame-limit row draws with no observed or desired cap the same way. Steam's
@@ -1664,8 +1667,8 @@ A page's browse steps use one vocabulary on both sides: `SteamUiBrowse` in the k
 `more`, `closeDetail` and `dismiss` nothing the backend reads. A null binding declares no command; a
 tab command without tabs is a declaration error.
 
-`registerSteamSettingsSection({page, key, before?, into?, fold?, render})` declares a section a gate adds
-to one of Steam's own Settings pages, the page named as in the route table's `Settings`
+`registerSteamSettingsSection({page, key, before?, into?, fold?, render})` declares a section a gate
+adds to one of Steam's own Settings pages, the page named as in the route table's `Settings`
 ("Customization"). It goes in front of the Valve section whose component source carries every
 `before` token, inside the one Valve section carrying every `into` token, or last; a section whose
 neighbour is missing says so in its `status().lastOutcome`. Every section shares one transform on
@@ -1673,7 +1676,11 @@ the shared useMemo claim (`steam-ui.settings-sections`), so two gates on one pag
 other's wrapper. A gate calls `find(runtime)` from its pure `find` for the page's route and
 `attach(ledger, react, route)` from its bind, which puts the detach on the gate's ledger. The first
 section attached takes the claim and the last detached releases it. `render` is a component, drawn
-with its key and no props. A `fold` stands in for the Valve section its tokens name: `render` gets `open`, the Valve `section` element and `onOpen`/`onClose`, draws its own row while folded, and while open is the whole page, drawing the section under its own heading. Sections placed `into` the folded section stay in it, a section placed `before` it still finds it, and leaving the page closes it.
+with its key and no props. A `fold` stands in for the Valve section its tokens name: `render` gets
+`open`, the Valve `section` element and `onOpen`/`onClose`, draws its own row while folded, and
+while open is the whole page, drawing the section under its own heading. Sections placed `into` the
+folded section stay in it, a section placed `before` it still finds it, and leaving the page closes
+it.
 
 ### Script API for consumer fragments
 
@@ -1787,8 +1794,8 @@ in that root's document.
 | `renderSteamUiMeter`                        | a thin fill meter: `value` of `max`, rounded and clamped; `max` of zero or less is the indeterminate track; with a `label`, a progress bar, or a meter when `usage`, else decorative                                                                                                            |
 | `renderSteamUiCard`, `renderSteamUiGrid`    | a focusable card (16:10 image or supplied media, stats strip, badge, title, tags, meta; with `icon`, the compact card of an icon beside the title and a subtitle) and its grid; `description` names A and `secondary` puts a second command on X                                                |
 | `renderSteamUiIconTile`                     | an app's square icon from `steamAppIconImages`, tried source by source, with a glyph (`controller` by default) where it has none                                                                                                                                                                |
-| `renderSteamUiNavRow`                       | a row that opens a subpage, drawn like a field: an optional glyph tile, the title, a summary of what the subpage holds, an optional tag and a chevron; A opens it, and the row a subpage returns to takes focus again |
-| `renderSteamUiSubpageHeader`                | an open subpage's heading: a Back button over the page-sized title and an optional line under it |
+| `renderSteamUiNavRow`                       | a row that opens a subpage, drawn like a field: an optional glyph tile, the title, a summary of what the subpage holds, an optional tag and a chevron; A opens it, and the row a subpage returns to takes focus again                                                                           |
+| `renderSteamUiSubpageHeader`                | an open subpage's heading: a Back button over the page-sized title and an optional line under it                                                                                                                                                                                                |
 | `renderSteamUiStateMark`                    | a checklist line's 20px mark for a field's icon slot: `ready` (check), `missing` (cross) or `optional` (dash)                                                                                                                                                                                   |
 | `renderSteamUiTag`, `renderSteamUiTags`     | a status tag, 22px uppercase words on an opaque fill in the neutral, info, success, update or danger tone, and a wrapping row of them that skips empty ones                                                                                                                                     |
 | `renderSteamUiArt`                          | a decorative picture that tries each source in turn (custom, cached, published), with a fallback once every source failed                                                                                                                                                                       |

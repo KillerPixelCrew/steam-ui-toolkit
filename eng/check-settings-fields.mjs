@@ -233,12 +233,22 @@ const pages = [
                             {
                                 key: "item.rename",
                                 label: "Rename",
-                                prompt: { title: "Rename", label: "Name", confirmLabel: "Save", initial: "Old" },
+                                prompt: {
+                                    title: "Rename",
+                                    label: "Name",
+                                    confirmLabel: "Save",
+                                    initial: "Old",
+                                },
                             },
                             {
                                 key: "item.delete",
                                 label: "Delete",
-                                confirm: { when: true, title: "Delete?", description: "Gone.", confirmLabel: "Delete" },
+                                confirm: {
+                                    when: true,
+                                    title: "Delete?",
+                                    description: "Gone.",
+                                    confirmLabel: "Delete",
+                                },
                             },
                             { key: "item.touch", label: "Touch" },
                         ],
@@ -373,6 +383,9 @@ assert.equal(
     "missing readback must not block an explicit write",
 );
 assert.deepEqual(changes, [], "mounting an unknown slider must not write its placeholder");
+row(tree, "unknown-clock").props.onChangeComplete(row(tree, "unknown-clock").props.value);
+assert.deepEqual(changes, [["unknown-clock", 100]], "an explicit unknown value still dispatches");
+changes.length = 0;
 assert.equal(row(tree, "name").type, TextField);
 assert.equal(row(tree, "run").type, ValueField);
 assert.equal(row(tree, "run").props.value.type, Button, "an action is Steam's dialog button");
@@ -512,7 +525,11 @@ assert.deepEqual(actions, ["run"]);
     field.props.onChange({ target: { value: "  New name  " } });
     prompt = renderPrompt();
     prompt.props.children.at(-1).props.children[1].props.onClick();
-    assert.deepEqual(changes, [["item.rename", "New name"]], "the answer is sent trimmed under the button's key");
+    assert.deepEqual(
+        changes,
+        [["item.rename", "New name"]],
+        "the answer is sent trimmed under the button's key",
+    );
     changes.length = 0;
     shown.length = 0;
     remove.props.onClick();
@@ -540,6 +557,8 @@ assert.deepEqual(size.props.notchLabels, [
     { notchIndex: 2, label: "Large" },
 ]);
 changes.length = 0;
+size.props.onChangeComplete(size.props.value);
+assert.deepEqual(changes, [], "completing an unchanged slider must not dispatch a command");
 size.props.onChangeComplete(2);
 assert.deepEqual(changes, [["size", 2]]);
 

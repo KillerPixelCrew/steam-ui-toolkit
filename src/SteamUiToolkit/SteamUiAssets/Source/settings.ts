@@ -373,7 +373,11 @@ const renderSteamSettingRow = (ui, row, draft, change, action, draftOf?: (entry)
                 // Every step while the slider moves only redraws it; the value is sent once, when it
                 // settles, so a sweep across the range is one write rather than dozens.
                 onChange: (value) => change(row, value, false),
-                onChangeComplete: (value) => send(value),
+                // Steam can complete a slider without changing it. A published value is state,
+                // not a fresh command; an unknown value still permits an explicit first write.
+                onChangeComplete: (value) => {
+                    if (value !== row.number) send(value);
+                },
             }));
         }
         case "color": {
