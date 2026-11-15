@@ -10,7 +10,10 @@ namespace SteamUiToolkit;
 /// <summary>What one screensaver dismissal did.</summary>
 /// <param name="Delivered">Whether Steam took the dismissal in the generation the call was made in.</param>
 /// <param name="WasActive">Whether Steam reported its screensaver active beforehand; null when it did not say.</param>
-public readonly record struct SteamScreensaverDismissalResult(bool Delivered, bool? WasActive);
+/// <param name="GameRestored">Whether the pre-sleep game's existing overlay and window were activated.</param>
+/// <param name="GameError">Why game activation was skipped or failed, when requested.</param>
+public readonly record struct SteamScreensaverDismissalResult(bool Delivered, bool? WasActive,
+    bool GameRestored = false, string? GameError = null);
 
 /// <summary>
 ///     Dismisses Big Picture's screensaver through Steam's own input path,
@@ -42,9 +45,10 @@ public static class SteamScreensaverDismissal
     /// <summary>Dismisses Steam's screensaver once; never retried.</summary>
     /// <param name="transport">The existing session transport, borrowed.</param>
     /// <param name="token">Cancels before delivery.</param>
+    /// <param name="resumeAppId">The pre-sleep game to activate if its Steam lifetime remains positive, or null.</param>
     /// <returns>Whether Steam took the dismissal, and whether its saver was showing.</returns>
     public static async Task<SteamScreensaverDismissalResult> TryDismissAsync(ISteamUiTransport transport,
-        CancellationToken token = default)
+        CancellationToken token = default, uint? resumeAppId = null)
     {
         ArgumentNullException.ThrowIfNull(transport);
         var before = transport.GetSnapshots().FirstOrDefault(snapshot =>
@@ -57,7 +61,7 @@ public static class SteamScreensaverDismissal
         try
         {
             var result = await transport.EvaluateAsync(SteamUiTargetRole.SharedJsContext,
-                DismissExpression(before.Generations), TimeSpan.FromSeconds(2), token).ConfigureAwait(false);
+                DismissExpression(before.Generations, resumeAppId), TimeSpan.FromSeconds(2), token).ConfigureAwait(false);
             if (!result.Answered || result.Value is null || result.Generations != before.Generations
                 || !SteamSharedContext.IsReadyAt(transport, before.Generations))
             {
@@ -92,7 +96,10 @@ public static class SteamScreensaverDismissal
                            && state.ValueKind is JsonValueKind.True or JsonValueKind.False
                 ? state.GetBoolean()
                 : null;
-            return new SteamScreensaverDismissalResult(dismissed.GetBoolean(), active);
+            var restored = root.TryGetProperty("gameRestored", out var game) && game.ValueKind == JsonValueKind.True;
+            var error = root.TryGetProperty("gameError", out var failure) && failure.ValueKind == JsonValueKind.String
+                ? failure.GetString() : null;
+            return new SteamScreensaverDismissalResult(dismissed.GetBoolean(), active, restored, error);
         }
         catch (JsonException)
         {
@@ -102,8 +109,9 @@ public static class SteamScreensaverDismissal
 
     /// <summary>The evaluation that asks the gate installed for these generations to dismiss.</summary>
     /// <param name="generations">The generations the caller observed.</param>
+    /// <param name="resumeAppId">The pre-sleep game, or null for screensaver dismissal alone.</param>
     /// <returns>An expression answering the gate's JSON result, or a refusal.</returns>
-    internal static string DismissExpression(SteamUiGenerations generations)
+    internal static string DismissExpression(SteamUiGenerations generations, uint? resumeAppId = null)
     {
         var context = generations.ExecutionContext.ToString(CultureInfo.InvariantCulture);
         var document = generations.Document.ToString(CultureInfo.InvariantCulture);
@@ -111,7 +119,7 @@ public static class SteamScreensaverDismissal
             SteamCef.JsString(GateName),
             "if(b.contextGeneration!==" + context + "||b.documentGeneration!==" + document
             + "||!bridge.status?.().held)return JSON.stringify({dismissed:false,active:null});"
-            + "try{return JSON.stringify(await bridge.dismiss());}"
+            + "try{return JSON.stringify(await bridge.dismiss(" + (resumeAppId ?? 0).ToString(CultureInfo.InvariantCulture) + "));}"
             + "catch{return JSON.stringify({dismissed:false,active:null});}",
             "return JSON.stringify({dismissed:false,active:null});",
             asynchronous: true);

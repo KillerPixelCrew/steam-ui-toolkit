@@ -26,8 +26,23 @@ runtime.exported = (asked, predicate) => {
     );
     return predicate(service) ? service : null;
 };
+const activation = [];
+const overlays = [{ NavigateToRunningApp: () => activation.push("navigate") }];
+const window = {
+    __steamUiRunningApps: { live: true, ids: new Set([3405340, 4000000000]) },
+    SteamUIStore: {
+        SetRunningApp: (id) => activation.push(["select", id]),
+        WindowStore: { GetOverlayInstances: () => overlays },
+    },
+    appStore: {
+        GetAppOverviewByAppID: (id) => ({
+            GetGameID: () => (id === 4000000000 ? "17179869184000000000" : String(id)),
+        }),
+    },
+    SteamClient: { Apps: { RaiseWindowForGame: (id) => activation.push(["raise", id]) } },
+};
 const gate = instantiate(
-    { window: {}, getWebpackRuntime: () => runtime, registerGate() {}, subscribe: () => () => {} },
+    { window, getWebpackRuntime: () => runtime, registerGate() {}, subscribe: () => () => {} },
     `${sharedFragments(loadAsset())}\n${gateSource(loadAsset(), "gates/screensaver-dismissal.ts")}`,
     "createScreensaverDismissal()",
 );
@@ -52,6 +67,39 @@ assert.deepEqual(
     "an idle saver is left as it is",
 );
 assert.equal(gate.status().dismissals, 2);
+
+for (const id of [3405340, 4000000000]) {
+    activation.length = 0;
+    const result = await gate.dismiss(id);
+    assert.equal(result.gameRestored, true);
+    assert.deepEqual(
+        activation,
+        [
+            ["select", id],
+            "navigate",
+            ["raise", id === 4000000000 ? "17179869184000000000" : String(id)],
+        ],
+        "wake uses Continue's activation order and preserves the full shortcut game ID",
+    );
+}
+activation.length = 0;
+assert.match((await gate.dismiss(123)).gameError, /positive Steam lifetime/);
+assert.deepEqual(activation, [], "an exited or unknown game is never activated");
+overlays.length = 0;
+assert.match((await gate.dismiss(3405340)).gameError, /not ready/);
+assert.deepEqual(activation, [], "missing overlay windows must not cause partial activation");
+overlays.push({
+    NavigateToRunningApp: () => {
+        activation.push("failed navigation");
+        throw new Error("navigation failed");
+    },
+});
+assert.match((await gate.dismiss(3405340)).gameError, /navigation failed/);
+assert.deepEqual(
+    activation,
+    [["select", 3405340], "failed navigation"],
+    "partial activation is not retried or raised",
+);
 
 service.GetActiveState = async () => {
     throw new Error("no state");

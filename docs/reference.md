@@ -691,6 +691,12 @@ Subscriber exceptions are isolated during cached replay as well as later deliver
 callback cannot prevent `subscribe` from returning its cleanup handle or stop another subscriber.
 The emitted `eng/check-startup.mjs` fixtures exercise both paths across the built-in module IDs.
 
+`SteamScreensaverDismissal.TryDismissAsync` accepts an optional pre-sleep AppID. When supplied, the
+gate checks the shared positive lifetime observer and the app's existing overlay windows, then
+performs Steam's running-game Continue action after dismissing the saver. `GameRestored` and
+`GameError` report activation separately from screensaver delivery. No game is launched, and a
+partially dispatched activation is not retried.
+
 Completing a shared Settings or Quick Access slider at its published value sends no command. An
 unknown published value still permits an explicit first write, including the resting value.
 

@@ -3,6 +3,18 @@ namespace SteamUiToolkit.Tests;
 public sealed class SteamScreensaverDismissalTests
 {
     [Fact]
+    public async Task WakeGameIdentityAndActivationResultReachTheCaller()
+    {
+        var transport = new FakeSteamUiTransport
+        {
+            EvaluationValue = """{"dismissed":true,"active":false,"gameRestored":true}"""
+        };
+        var result = await SteamScreensaverDismissal.TryDismissAsync(transport, resumeAppId: 3405340);
+        Assert.True(result.GameRestored);
+        Assert.Contains("bridge.dismiss(3405340)", Assert.Single(transport.Expressions));
+    }
+
+    [Fact]
     public void ModuleDeclaresOneGatePatchAndNothingElse()
     {
         var module = SteamScreensaverDismissal.Module();
@@ -22,7 +34,7 @@ public sealed class SteamScreensaverDismissalTests
         Assert.Contains("b.gate(\"screensaverDismissal\")", expression, StringComparison.Ordinal);
         Assert.Contains("b.contextGeneration!==4", expression, StringComparison.Ordinal);
         Assert.Contains("b.documentGeneration!==6", expression, StringComparison.Ordinal);
-        Assert.Contains("await bridge.dismiss()", expression, StringComparison.Ordinal);
+        Assert.Contains("await bridge.dismiss(0)", expression, StringComparison.Ordinal);
     }
 
     [Theory]
