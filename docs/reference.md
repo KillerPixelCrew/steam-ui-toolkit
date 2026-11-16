@@ -2468,3 +2468,7 @@ them.
 Nested UI kit levels and item details consume their Back event before invoking the caller, so one
 B press returns one level without also popping the routed page. Custom page roots contain overflow;
 Steam's tab/content scrollers retain ownership of scrolling during focus and shoulder navigation.
+
+Custom tabbed pages suppress Valve's full-width horizontal content slide through the semantic
+panel wrapper. A short opacity transition remains so native transition cleanup still runs. Native
+tabs, focus restoration, per-tab scrolling and shoulder navigation keep their existing owners.

@@ -38,6 +38,9 @@ const SteamUiKitStyles = `
 .steam-ui-kit-sheet-note{font-size:14px;color:#8b929a;line-height:1.45;margin:0 0 12px}
 .steam-ui-kit-sheet-error{color:#ff6d6d;font-size:14px}
 .steam-ui-kit-sheet-actions{padding-top:18px}
+/* Native tabs translate the entire incoming content by 40% of its width. Keep custom pages
+   stationary; retain a short opacity transition so Valve's exit lifecycle still completes. */
+.steam-ui-kit-page.tabbed div:has(>div>[role=tabpanel]){transform:none!important;transition-duration:1ms!important;transition-delay:0s!important}
 .steam-ui-kit-page div[class*="gamepadtabbedpage_TabHeaderRowWrapper"]{background:#1b2838}
 .steam-ui-kit-page-banner{margin:8px 48px 0}
 .steam-ui-kit-page h3{margin:6px 0 0;font-size:15px;font-weight:700;color:#fff}
