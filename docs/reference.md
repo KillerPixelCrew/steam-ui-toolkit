@@ -2472,3 +2472,7 @@ Steam's tab/content scrollers retain ownership of scrolling during focus and sho
 Custom tabbed pages suppress Valve's full-width horizontal content slide through the semantic
 panel wrapper. A short opacity transition remains so native transition cleanup still runs. Native
 tabs, focus restoration, per-tab scrolling and shoulder navigation keep their existing owners.
+
+Filter chips override native button padding and minimum width in normal and pressed states. Their
+labels use 6px vertical and 12px horizontal padding, centred in a minimum 32px height; longer labels
+can grow the chip vertically instead of overflowing a fixed-height button.
