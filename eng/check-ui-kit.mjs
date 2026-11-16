@@ -368,7 +368,14 @@ let levelBack = 0;
 const level = kit.renderSteamUiLevel(ui, { className: "lvl", onBack: () => levelBack++ }, "body");
 assert.equal(level.type, Focusable);
 assert.equal(level.props.autoFocus, true);
-level.props.onCancelButton();
+let cancelledDefault = false;
+let cancelledBubble = false;
+level.props.onCancelButton({
+    preventDefault: () => cancelledDefault = true,
+    stopPropagation: () => cancelledBubble = true,
+});
+assert.equal(cancelledDefault, true, "nested Back prevents the router default");
+assert.equal(cancelledBubble, true, "nested Back cannot bubble to the page router");
 assert.equal(levelBack, 1);
 const boundedLevel = kit.renderSteamUiLevel(ui, { bounded: true, onBack: () => levelBack++ });
 assert.equal(boundedLevel.props.className, "steam-ui-kit-content");

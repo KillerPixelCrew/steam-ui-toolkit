@@ -2464,3 +2464,7 @@ resolution editor) is dropped on its own, and the rest of its section and page s
 page reports each distinct set of dropped rows once through the `rejected` command, as
 `{rows: [{key, reason}]}`; the host logs the keys and reasons, and `status().publicationError` names
 them.
+
+Nested UI kit levels and item details consume their Back event before invoking the caller, so one
+B press returns one level without also popping the routed page. Custom page roots contain overflow;
+Steam's tab/content scrollers retain ownership of scrolling during focus and shoulder navigation.
