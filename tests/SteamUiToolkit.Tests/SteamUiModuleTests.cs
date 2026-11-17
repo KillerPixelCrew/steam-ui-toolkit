@@ -329,6 +329,54 @@ public sealed class SteamUiModuleTests
         Assert.NotEqual(Deliveries(transport)[0], Deliveries(transport)[1]);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ScopedRoundsMergePendingSurfacesAndFullRoundsIncludeEverySurface(bool fullRound)
+    {
+        await using var transport = new FakeSteamUiTransport();
+        transport.OnEvaluate = _ => Task.FromResult(transport.Reply("{\"ok\":true}"));
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reads = new int[4];
+        async ValueTask<JsonElement?> Read(int index)
+        {
+            if (Interlocked.Increment(ref reads[index]) == 1 && index == 0)
+            {
+                entered.SetResult();
+                await release.Task;
+            }
+
+            return TestJson.Parse("{\"value\":1}");
+        }
+
+        var modules = new SteamUiModuleSet([
+            new SteamUiModule("fixture", publications: Enumerable.Range(0, 4).Select(index =>
+                new SteamUiStatePublication("fixture." + index, () => true, () => Read(index))).ToArray())
+        ]);
+        await using var bridge = new SteamUiBridgeHost(transport, Asset, modules.AllowedCommands);
+        Assert.True(await bridge.BootstrapAsync());
+        await using var patches = new SteamUiPatchManager(transport);
+        await using var runtime = new SteamUiModuleRuntime(bridge, modules, patches, () => true, () => true);
+
+        runtime.QueuePublication("fixture.0");
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        runtime.QueuePublication("fixture.1");
+        runtime.QueuePublication("fixture.1");
+        if (fullRound)
+        {
+            runtime.QueuePublication();
+        }
+
+        runtime.QueuePublication("fixture.2");
+        release.SetResult();
+        await TestJson.WaitUntilAsync(() => Deliveries(transport).Count == (fullRound ? 4 : 3));
+        Assert.Equal(fullRound ? 2 : 1, Volatile.Read(ref reads[0]));
+        Assert.Equal(1, Volatile.Read(ref reads[1]));
+        Assert.Equal(1, Volatile.Read(ref reads[2]));
+        Assert.Equal(fullRound ? 1 : 0, Volatile.Read(ref reads[3]));
+    }
+
     private static List<string> Deliveries(FakeSteamUiTransport transport)
     {
         return [.. transport.Expressions.Where(expression => expression.Contains("deliver", StringComparison.Ordinal))];

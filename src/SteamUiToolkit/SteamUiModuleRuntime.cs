@@ -44,7 +44,10 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
     private readonly CancellationTokenSource _shutdown = new();
     private int _disposed;
     private volatile SteamUiModuleSet _modules;
-    private int _publicationPending;
+    private readonly object _publicationGate = new();
+    private HashSet<string> _publicationPatches = new(StringComparer.Ordinal);
+    private bool _publicationAll;
+    private bool _publicationPending;
 
     /// <summary>Raised once when a module's callback or publication throws.</summary>
     public event EventHandler<SteamUiModuleFailure>? ModuleFailed;
@@ -153,17 +156,45 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
             + $"running and the publication round {(_publication.IsCompleted ? "finished" : "still running")}.");
     }
 
-    /// <summary>Asks for one publication round, coalescing repeats into the pending one.</summary>
+    /// <summary>Asks for one publication round of every surface, coalescing repeats.</summary>
     public void QueuePublication()
     {
-        if (Volatile.Read(ref _disposed) != 0)
-        {
-            return;
-        }
+        QueuePublicationCore(null);
+    }
 
-        if (Interlocked.Exchange(ref _publicationPending, 1) == 0)
+    /// <summary>Asks to read and publish only the named surface; other pending surfaces are retained.</summary>
+    /// <param name="patchId">The publication's patch identity.</param>
+    /// <remarks>A pending full round includes every scoped request. Unknown identities publish nothing.</remarks>
+    public void QueuePublication(string patchId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(patchId);
+        QueuePublicationCore(patchId);
+    }
+
+    private void QueuePublicationCore(string? patchId)
+    {
+        lock (_publicationGate)
         {
-            _publicationSignal.Release();
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                return;
+            }
+
+            if (patchId is null)
+            {
+                _publicationAll = true;
+                _publicationPatches.Clear();
+            }
+            else if (!_publicationAll)
+            {
+                _publicationPatches.Add(patchId);
+            }
+
+            if (!_publicationPending)
+            {
+                _publicationPending = true;
+                _publicationSignal.Release();
+            }
         }
     }
 
@@ -422,7 +453,14 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
             try
             {
                 await _publicationSignal.WaitAsync(_shutdown.Token).ConfigureAwait(false);
-                Interlocked.Exchange(ref _publicationPending, 0);
+                HashSet<string>? requested;
+                lock (_publicationGate)
+                {
+                    requested = _publicationAll ? null : _publicationPatches;
+                    _publicationPatches = new HashSet<string>(StringComparer.Ordinal);
+                    _publicationAll = false;
+                    _publicationPending = false;
+                }
                 if (!_publishEnabled() || !_bridge.IsReady)
                 {
                     continue;
@@ -436,7 +474,8 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
                 {
                     try
                     {
-                        if (IsModuleFailed(module) || !publication.Enabled())
+                        if ((requested is not null && !requested.Contains(publication.PatchId))
+                            || IsModuleFailed(module) || !publication.Enabled())
                         {
                             continue;
                         }

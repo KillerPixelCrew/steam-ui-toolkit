@@ -611,9 +611,14 @@ manager. Every failure logs
 `Change("steam.ui.request.<patch>.<command>", "Steam UI request <patch>/<command> did nothing: <error> Payload: <shape>")`,
 where the shape keeps property names, numbers, booleans and nulls and replaces every string with its
 length, because a command can carry a plugin's secret; an undelivered response logs
-`steam.ui.response.<patch>.<command>`. Publications are coalesced into one pending round, skipped
-while publishing is disabled or the bridge is not ready, and one failing publication does not block
-the next (`steam.ui.publication.<id>`). `CancelAllInflight` is the generation-replacement path.
+`steam.ui.response.<patch>.<command>`. `QueuePublication()` refreshes every registered publication.
+`QueuePublication(patchId)` reads only that surface, merging distinct scoped requests in the pending
+round. A full request includes all pending scoped requests. Use the full form after reconnection or
+a module/switch change; use the scoped form for feature events and safety polls to avoid rebuilding
+unrelated hardware/configuration projections. Publications are coalesced into one pending round,
+skipped while publishing is disabled or the bridge is not ready, and one failing publication does
+not block the next (`steam.ui.publication.<id>`). `CancelAllInflight` is the generation-replacement
+path.
 
 ### Webpack modules
 
@@ -2465,13 +2470,13 @@ page reports each distinct set of dropped rows once through the `rejected` comma
 `{rows: [{key, reason}]}`; the host logs the keys and reasons, and `status().publicationError` names
 them.
 
-Nested UI kit levels and item details consume their Back event before invoking the caller, so one
-B press returns one level without also popping the routed page. Custom page roots contain overflow;
+Nested UI kit levels and item details consume their Back event before invoking the caller, so one B
+press returns one level without also popping the routed page. Custom page roots contain overflow;
 Steam's tab/content scrollers retain ownership of scrolling during focus and shoulder navigation.
 
-Custom tabbed pages suppress Valve's full-width horizontal content slide through the semantic
-panel wrapper. A short opacity transition remains so native transition cleanup still runs. Native
-tabs, focus restoration, per-tab scrolling and shoulder navigation keep their existing owners.
+Custom tabbed pages suppress Valve's full-width horizontal content slide through the semantic panel
+wrapper. A short opacity transition remains so native transition cleanup still runs. Native tabs,
+focus restoration, per-tab scrolling and shoulder navigation keep their existing owners.
 
 Filter chips override native button padding and minimum width in normal and pressed states. Their
 labels use 6px vertical and 12px horizontal padding, centred in a minimum 32px height; longer labels

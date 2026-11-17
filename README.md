@@ -431,6 +431,9 @@ surface you do not register installs nothing, and its Valve UI stays exactly as 
 A surface of your own is a fragment that calls `registerGate(name, gate)` plus a patch that reaches
 it through `window[namespace].gate(name)`, declared in a module like any other.
 `SteamUiModuleRuntime` runs the two traffic directions between your modules and the client.
+Publication notifications can be scoped with `SteamUiModuleRuntime.QueuePublication(patchId)`. Use
+it when a feature changes only its own state; pending surfaces are merged. The parameterless
+`QueuePublication()` still refreshes everything for startup, reconnection and cross-feature changes.
 
 Which patches are on when stays yours, because that is application policy and every host's rules
 differ. `SteamUiPatchManager.SetGlobalEnabled` and `SetPatchEnabled` queue a synchronization when
