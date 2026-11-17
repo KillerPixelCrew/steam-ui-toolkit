@@ -122,19 +122,20 @@ public sealed class SteamClientScriptExecutionTests
     }
 
     [Fact]
-    public async Task ShortcutCreationWritesOnlyTheOneEntryConfirmedByTheLibrary()
+    public async Task ShortcutCreationWritesOnlyTheOneEntryConfirmedByTheLibraryAndOnlyTheFieldsItLacks()
     {
         const string script = """
             const assert=require('node:assert/strict'),vm=require('node:vm');
             let input='';process.stdin.on('data',s=>input+=s);process.stdin.on('end',async()=>{
               try{
                 const test=JSON.parse(input),results=[];
-                for(const mode of ['confirmed','no-id','foreign','ambiguous','wrong-id','unloaded','unsupported']){
+                for(const mode of ['confirmed','renamed','no-id','foreign','ambiguous','wrong-id','unloaded','unsupported']){
                   const calls=[],all=[{appid:2147483650,display_name:'Existing'}],id=2147483655;
                   const detail={strShortcutExe:test.target,strShortcutStartDir:test.directory,strShortcutLaunchOptions:test.arguments};
                   let app,unregistered=0;
                   const Apps={AddShortcut:async(...args)=>{
-                    calls.push(['add',...args]);app={appid:id|0,display_name:mode==='foreign'?'Other':test.name};all.push(app);
+                    calls.push(['add',...args]);
+                    app={appid:id|0,display_name:mode==='foreign'?'Other':mode==='renamed'?'game.exe':test.name};all.push(app);
                     if(mode==='ambiguous')all.push({appid:id+1,display_name:'Concurrent'});
                     return ['no-id','foreign'].includes(mode)?0:mode==='wrong-id'?id+1:id;
                   },RegisterForAppDetails:(value,callback)=>{
@@ -149,11 +150,13 @@ public sealed class SteamClientScriptExecutionTests
                     appStore:{m_bIsInitialized:mode!=='unloaded',allApps:all,GetAppOverviewByAppID:()=>app}};
                   const result=JSON.parse(await vm.runInNewContext(test.expression,{window,SteamClient:{Apps},queueMicrotask,
                     clearTimeout(){},setTimeout:()=>1}));
-                  if(['confirmed','no-id'].includes(mode)){
+                  if(['confirmed','renamed','no-id'].includes(mode)){
                     assert.equal(result.confirmed,true);assert.equal(result.value,String(id));assert.equal(result.mismatch,'');
-                    assert.deepEqual(calls.slice(1),[['SetShortcutName',test.name],['SetShortcutExe',test.target],
-                      ['SetShortcutStartDir',test.directory],['SetShortcutLaunchOptions',test.arguments]]);
-                    assert.equal(unregistered,mode==='no-id'?2:1);
+                    // Steam kept every field it was given, so only a name it ignored is written again, and
+                    // only that write is read back.
+                    assert.deepEqual(calls.slice(1),mode==='renamed'?[['SetShortcutName',test.name]]:[]);
+                    assert.equal(result.rewrote,mode==='renamed'?1:0);assert.equal(result.ms.length,4);
+                    assert.equal(unregistered,mode==='confirmed'?1:2);
                   }else{
                     assert.equal(calls.filter(call=>call[0]!=='add').length,0,mode);
                     if(['ambiguous','wrong-id'].includes(mode))assert.equal(result.confirmed,false);
@@ -180,7 +183,7 @@ public sealed class SteamClientScriptExecutionTests
         foreach (var result in results.RootElement.EnumerateArray())
         {
             var outcome = SteamApps.ParseAddShortcut(FakeSteamUiTransport.Answer(result.GetProperty("result").GetRawText()));
-            Assert.Equal(result.GetProperty("mode").GetString() is "confirmed" or "no-id", outcome.Confirmed);
+            Assert.Equal(result.GetProperty("mode").GetString() is "confirmed" or "renamed" or "no-id", outcome.Confirmed);
         }
     }
 

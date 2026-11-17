@@ -670,7 +670,9 @@ public sealed class SteamApps
             "const name=" + SteamCef.JsString(name) + ",exe=" + SteamCef.JsString(target) +
             ",dir=" + SteamCef.JsString(startDirectory) + ",args=" + SteamCef.JsString(launchArguments) + ";" +
             "const details=" + SteamClientScript.AppDetailsFunction(DetailsTimeoutMs) + ";" +
+            "const t0=Date.now();" +
             "const raw=await A.AddShortcut(name,exe,dir,args);" +
+            "const tAdd=Date.now();" +
             "const returned=Number(raw)>>>0;" +
             "let gained=[];" +
             "for(let waited=0;waited<=" + AddAppearMs.ToString(CultureInfo.InvariantCulture) + ";waited+=100){" +
@@ -691,13 +693,23 @@ public sealed class SteamApps
             ":'Steam returned '+returned+' but the library gained '+gained[0]+'.';" +
             "return JSON.stringify({ok:true,value:String(id),confirmed:false,err});}" +
             "const id=gained[0];" +
-            "if(typeof A.SetShortcutName==='function')await A.SetShortcutName(id,name);" +
-            "if(typeof A.SetShortcutExe==='function')await A.SetShortcutExe(id,exe);" +
-            "if(typeof A.SetShortcutStartDir==='function')await A.SetShortcutStartDir(id,dir);" +
-            "if(typeof A.SetShortcutLaunchOptions==='function')await A.SetShortcutLaunchOptions(id,args);" +
+            "const tAppear=Date.now();" +
+            // Each setter is another round trip in which Steam rewrites shortcuts.vdf, so one runs only
+            // for a field the entry does not already hold. Without readable details every one runs.
+            "const first=await details(id);" +
+            "const view=window.appStore?.GetAppOverviewByAppID?.(id);" +
+            "const all=!first;let need=0,wrote=0;" +
+            "const fix=async(differs,setter,value)=>{if(!differs)return;need++;" +
+            "if(typeof A[setter]==='function'){await A[setter](id,value);wrote++;}};" +
+            "await fix(all||typeof view?.display_name!=='string'||view.display_name!==name,'SetShortcutName',name);" +
+            "await fix(all||(first.strShortcutExe||'')!==exe,'SetShortcutExe',exe);" +
+            "await fix(all||(first.strShortcutStartDir||'')!==dir,'SetShortcutStartDir',dir);" +
+            "await fix(all||(first.strShortcutLaunchOptions||'')!==args,'SetShortcutLaunchOptions',args);" +
+            "const tSet=Date.now();" +
             "const until=Date.now()+" + ReadBackMs.ToString(CultureInfo.InvariantCulture) + ";" +
             "let wrong=[];" +
-            "for(;;){" +
+            // Read back only what had to be changed; a field that already matched was just read.
+            "for(;need>0;){" +
             "const d=await details(id);" +
             "const o=window.appStore?.GetAppOverviewByAppID?.(id);" +
             "wrong=[];" +
@@ -708,8 +720,10 @@ public sealed class SteamApps
             "if(o&&typeof o.display_name==='string'&&o.display_name!==name)wrong.push('name');" +
             "if(!wrong.length||Date.now()>=until)break;" +
             "await new Promise(r=>setTimeout(r,100));}" +
+            "const tEnd=Date.now();" +
             "return JSON.stringify({ok:true,value:String(id),confirmed:true," +
-            "mismatch:wrong.length?'Steam holds a different '+wrong.join(', ')+' than was written.':''});");
+            "mismatch:wrong.length?'Steam holds a different '+wrong.join(', ')+' than was written.':''," +
+            "rewrote:wrote,ms:[tAdd-t0,tAppear-tAdd,tSet-tAppear,tEnd-tSet].map(Math.round)});");
     }
 
     /// <summary>Maps an add-shortcut reply to a result.</summary>
@@ -761,6 +775,24 @@ public sealed class SteamApps
         var confirmed = root.TryGetProperty("confirmed", out var confirmedFlag)
                         && confirmedFlag.ValueKind == JsonValueKind.True;
         var mismatch = SteamClientScript.StringOf(root, "mismatch");
+        if (root.TryGetProperty("ms", out var phases) && phases.ValueKind == JsonValueKind.Array
+                                                       && phases.GetArrayLength() == 4)
+        {
+            // One line per added shortcut, so a slow import can be read phase by phase: Steam's add, the
+            // entry appearing in the library, the fields it needed rewritten and their read-back.
+            var ms = new int[4];
+            var index = 0;
+            foreach (var phase in phases.EnumerateArray())
+            {
+                ms[index++] = phase.TryGetInt32(out var elapsed) ? elapsed : 0;
+            }
+
+            var rewrote = root.TryGetProperty("rewrote", out var count) && count.TryGetInt32(out var written)
+                ? written
+                : 0;
+            SteamUiLog.Info($"Steam added shortcut {appId} in {ms[0] + ms[1] + ms[2] + ms[3]} ms: add {ms[0]}, "
+                            + $"appear {ms[1]}, fields {ms[2]} ({rewrote} rewritten), read-back {ms[3]}.");
+        }
         return new SteamShortcutAddResult(
             SteamClientWriteOutcome.Applied,
             appId,

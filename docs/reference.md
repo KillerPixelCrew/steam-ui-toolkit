@@ -2282,14 +2282,17 @@ case) and name are the ones asked for; anything else is left untouched and the a
 Once Steam may have the entry the call runs to its answer whatever the cancellation token says.
 Steam persists the entry to `shortcuts.vdf` immediately, as it does for every other write here.
 
-The fields are then set on the entry the library gained, deliberately a second time. `AddShortcut`'s
+The entry the library gained is then read once and checked field by field. `AddShortcut`'s
 positional contract is not one this library has verified across client builds, while
 `SetShortcutName`, `SetShortcutExe`, `SetShortcutStartDir` and `SetShortcutLaunchOptions` are the
 calls every shortcut manager relies on. The name is the one that bites: a client can ignore the name
-it is passed and call the entry after its executable. The fields are read back until they match or
-two seconds pass, and `Mismatch` names any that Steam still holds differently. Each setter is
-guarded by its own `typeof` check, as `AddShortcut` itself is: a missing export is reported as a
-refusal, never assumed present.
+it is passed and call the entry after its executable. Only a field Steam does not already hold is set
+again, because each setter is another round trip in which Steam rewrites `shortcuts.vdf`; when the
+entry's details cannot be read, every field is set. A field that had to be set is read back until it
+matches or two seconds pass, and `Mismatch` names any that Steam still holds differently. Each setter
+is guarded by its own `typeof` check, as `AddShortcut` itself is: a missing export is never assumed
+present. Every confirmed add logs one line with the time each step took: the add, the entry
+appearing in the library, the fields it rewrote and their read-back.
 
 `ListShortcutsAsync` requires the app store's complete overview update, then reads its full app list
 without collection visibility or family-sharing filters. An uninitialized store is a failed read,
